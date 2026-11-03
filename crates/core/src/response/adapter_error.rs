@@ -121,9 +121,10 @@ impl AdapterError {
 
     /// `AMBIGUOUS_TARGET` for a process resolved by name alone - `launch` and
     /// the shared app lookup behind `close-app`, `wait`, `screenshot`, and
-    /// friends. None of those commands take a pid, an instance token, or a
-    /// ref, so the suggestion names the candidates instead of pointing at a
-    /// flag none of them have.
+    /// window commands. None of those commands take a pid, an instance token,
+    /// or a ref, so the suggestion names the candidate pids and points callers
+    /// to `list-windows` / `--window-id` on window-scoped commands (matching
+    /// the window-lookup recovery pattern).
     pub fn ambiguous_process_target(message: impl Into<String>, pids: &[crate::ProcessId]) -> Self {
         Self::ambiguous_process_target_with_details(
             message,
@@ -146,7 +147,10 @@ impl AdapterError {
         Self::new(ErrorCode::AmbiguousTarget, message)
             .with_suggestion(format!(
                 "{} running instances match (pids {numeric:?}); this command selects a \
-                 process by name and has no pid or instance flag to disambiguate",
+                 process by name and has no pid or instance flag to disambiguate. \
+                 Run 'list-windows --app <name>' to inspect candidate windows, then use \
+                 '--window-id <id>' on window-scoped commands (or 'focus-window --window-id <id>') \
+                 instead of targeting by app name alone",
                 pids.len()
             ))
             .with_details(details)
