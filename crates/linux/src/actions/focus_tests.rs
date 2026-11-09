@@ -1,7 +1,8 @@
 use std::cell::Cell;
 
+use agent_desktop_core::DeliveryObservation;
+
 use super::*;
-use crate::actions::chain::chain_observed::Observed;
 
 struct Scene {
     before: Option<bool>,
@@ -17,45 +18,17 @@ fn unfocused(reply: Result<WriteReply, AdapterError>, after: Option<bool>) -> Sc
     }
 }
 
-fn judged(policy: InteractionPolicy, scene: Scene) -> (Result<DeliveryOutcome, AdapterError>, u32) {
+fn judged(scene: Scene) -> (Result<DeliveryOutcome, AdapterError>, u32) {
     let writes = Cell::new(0);
-    let outcome = focus_policy_gate(policy).and_then(|()| {
-        judge_focus(
-            scene.before,
-            || {
-                writes.set(writes.get() + 1);
-                scene.reply
-            },
-            || scene.after,
-        )
-    });
-    (outcome, writes.get())
-}
-
-#[test]
-fn headless_focus_is_denied_with_a_foreground_effect_and_no_write() {
-    let scene = unfocused(Ok(WriteReply::Done), Some(true));
-    let (outcome, writes) = judged(InteractionPolicy::headless(), scene);
-    let error = outcome.expect_err("denied");
-    assert_eq!(error.code, ErrorCode::PolicyDenied);
-    assert_eq!(error.disposition, DeliverySemantics::not_delivered());
-    assert_eq!(
-        error.details.expect("details")["foreground_effect"],
-        serde_json::json!(true)
+    let outcome = judge_focus(
+        scene.before,
+        || {
+            writes.set(writes.get() + 1);
+            scene.reply
+        },
+        || scene.after,
     );
-    assert_eq!(writes, 0);
-}
-
-#[test]
-fn cursor_only_policy_does_not_allow_focus() {
-    let policy = InteractionPolicy {
-        allow_focus_steal: false,
-        allow_cursor_move: true,
-    };
-    let scene = unfocused(Ok(WriteReply::Done), Some(true));
-    let (outcome, writes) = judged(policy, scene);
-    assert_eq!(outcome.expect_err("denied").code, ErrorCode::PolicyDenied);
-    assert_eq!(writes, 0);
+    (outcome, writes.get())
 }
 
 #[test]
@@ -65,7 +38,7 @@ fn an_element_that_already_holds_focus_is_satisfied_without_a_grab() {
         reply: Ok(WriteReply::Absent),
         after: Some(true),
     };
-    let (outcome, writes) = judged(InteractionPolicy::headed(), scene);
+    let (outcome, writes) = judged(scene);
     assert_eq!(outcome.expect("satisfied"), DeliveryOutcome::Satisfied);
     assert_eq!(writes, 0);
 }
@@ -77,10 +50,10 @@ fn an_unreadable_focus_state_before_the_grab_does_not_count_as_focus() {
         reply: Ok(WriteReply::Done),
         after: Some(true),
     };
-    let (outcome, writes) = judged(InteractionPolicy::headed(), scene);
+    let (outcome, writes) = judged(scene);
     assert_eq!(
         outcome.expect("delivered"),
-        DeliveryOutcome::Delivered(Observed::Matched)
+        DeliveryOutcome::Delivered(DeliveryObservation::Verified)
     );
     assert_eq!(writes, 1);
 }
@@ -88,7 +61,7 @@ fn an_unreadable_focus_state_before_the_grab_does_not_count_as_focus() {
 #[test]
 fn a_grab_the_application_rejects_names_the_rejection_and_points_at_focus_window() {
     let scene = unfocused(Ok(WriteReply::Absent), Some(false));
-    let (outcome, writes) = judged(InteractionPolicy::headed(), scene);
+    let (outcome, writes) = judged(scene);
     let error = outcome.expect_err("rejected");
     assert_eq!(writes, 1);
     assert_eq!(error.code, ErrorCode::ActionFailed);
@@ -106,40 +79,37 @@ fn a_grab_the_application_rejects_names_the_rejection_and_points_at_focus_window
 #[test]
 fn an_accepted_grab_that_reads_back_focused_is_matched() {
     let scene = unfocused(Ok(WriteReply::Done), Some(true));
-    let (outcome, _) = judged(InteractionPolicy::headed(), scene);
+    let (outcome, _) = judged(scene);
     assert_eq!(
         outcome.expect("delivered"),
-        DeliveryOutcome::Delivered(Observed::Matched)
+        DeliveryOutcome::Delivered(DeliveryObservation::Verified)
     );
 }
 
 #[test]
 fn an_accepted_grab_that_leaves_the_node_unfocused_is_unchanged() {
     let scene = unfocused(Ok(WriteReply::Done), Some(false));
-    let (outcome, _) = judged(InteractionPolicy::headed(), scene);
+    let (outcome, _) = judged(scene);
     assert_eq!(
         outcome.expect("delivered"),
-        DeliveryOutcome::Delivered(Observed::Unchanged)
+        DeliveryOutcome::Delivered(DeliveryObservation::Unverified)
     );
 }
 
 #[test]
 fn an_accepted_grab_whose_state_cannot_be_read_is_unread() {
     let scene = unfocused(Ok(WriteReply::Done), None);
-    let (outcome, _) = judged(InteractionPolicy::headed(), scene);
+    let (outcome, _) = judged(scene);
     assert_eq!(
         outcome.expect("delivered"),
-        DeliveryOutcome::Delivered(Observed::Unread)
+        DeliveryOutcome::Delivered(DeliveryObservation::Unread)
     );
 }
 
 #[test]
 fn an_error_of_the_grab_call_is_passed_on_untouched() {
     let sent = AdapterError::timeout("late").with_disposition(DeliverySemantics::uncertain());
-    let (outcome, _) = judged(
-        InteractionPolicy::headed(),
-        unfocused(Err(sent), Some(true)),
-    );
+    let (outcome, _) = judged(unfocused(Err(sent), Some(true)));
     let error = outcome.expect_err("timeout");
     assert_eq!(error.code, ErrorCode::Timeout);
     assert_eq!(error.disposition, DeliverySemantics::uncertain());

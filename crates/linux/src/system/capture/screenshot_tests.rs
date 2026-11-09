@@ -147,15 +147,6 @@ fn a_window_without_an_instance_token_is_invalid_and_not_delivered() {
 }
 
 #[test]
-fn a_disposition_an_inner_error_already_set_is_kept() {
-    let kept = AdapterError::internal("x").with_disposition(DeliverySemantics::uncertain());
-    assert_eq!(
-        not_delivered(kept).disposition,
-        DeliverySemantics::uncertain()
-    );
-}
-
-#[test]
 fn the_grab_error_codes_match_the_table() {
     let cases: [(fn() -> GrabError, ErrorCode); 4] = [
         (|| GrabError::Gone, ErrorCode::StaleRef),

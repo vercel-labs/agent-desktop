@@ -290,6 +290,7 @@ fn the_evidence_projection_fills_every_slot_the_walk_owns() {
         states: LocatorField::Known(vec!["focused".into()]),
         name: LocatorField::Known("Save (labelled)".into()),
         description: LocatorField::Absent,
+        name_borrowed: false,
     });
 
     assert_eq!(evidence.value, LocatorField::Known("draft".into()));

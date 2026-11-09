@@ -259,19 +259,6 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use crate::tree::AXElement;
-    use agent_desktop_core::{AdapterError, Deadline};
-
-    pub fn scroll_into_view_impl(
-        _element: &AXElement,
-        _deadline: Deadline,
-    ) -> Result<(), AdapterError> {
-        Err(AdapterError::not_supported("scroll_into_view"))
-    }
-}
-
 pub(crate) use imp::scroll_into_view_impl;
 
 #[cfg(target_os = "macos")]

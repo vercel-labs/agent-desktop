@@ -11,7 +11,12 @@ pub struct ClipboardSetArgs {
     pub file_urls: Vec<String>,
 }
 
-pub fn execute(args: ClipboardSetArgs, adapter: &dyn PlatformAdapter) -> Result<Value, AppError> {
+pub fn execute(
+    args: ClipboardSetArgs,
+    adapter: &dyn PlatformAdapter,
+    policy: crate::InteractionPolicy,
+) -> Result<Value, AppError> {
+    policy.require(crate::Effect::ClipboardWrite, "clipboard-set")?;
     let content = build_content(args)?;
     let format = content.format();
     let lease = crate::commands::helpers::acquire_interaction_lease(adapter)?;

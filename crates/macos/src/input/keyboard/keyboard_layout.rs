@@ -106,15 +106,6 @@ mod platform {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-mod platform {
-    pub(super) fn with_translator<T>(
-        _run: impl FnOnce(&dyn Fn(u16) -> Option<char>) -> T,
-    ) -> Option<T> {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{accepted_character, find_code};

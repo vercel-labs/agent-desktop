@@ -1,4 +1,5 @@
-//! ValuePattern / RangeValuePattern writes for `SetValue` and `Clear`.
+//! LegacyIAccessible, ValuePattern and RangeValuePattern writes for
+//! `SetValue` and `Clear`.
 //!
 //! Verification re-reads route through [`gated_pattern_value_equals`] /
 //! [`gated_pattern_range_equals`] so an `IsPassword` element never calls
@@ -8,38 +9,25 @@ use agent_desktop_core::{
     ActionStep, AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionPolicy,
 };
 
-use crate::actions::chain::{ChainDef, ChainRung, DeliveryOutcome, execute_chain};
+use crate::actions::chain::{ChainRung, DeliveryOutcome, execute_chain};
 use crate::tree::element::UIAElement;
 
 pub(crate) const VALUE_LABEL: &str = "ValuePattern.SetValue";
 pub(crate) const RANGE_LABEL: &str = "RangeValuePattern.SetValue";
+pub(crate) const LEGACY_VALUE_LABEL: &str = "LegacyIAccessible.SetValue";
 
-pub(crate) const VALUE_WRITE_CHAIN: ChainDef = ChainDef {
-    suggestion: "Refresh the snapshot and retry, or target a writable Value or RangeValue control.",
-    continue_after_unverified_delivery: false,
-};
-
-pub(crate) const CLEAR_CHAIN: ChainDef = ChainDef {
-    suggestion: "Refresh the snapshot and retry, or target a writable Value control.",
-    continue_after_unverified_delivery: false,
-};
-
-/// Injected SetValue plan: the value plus rung availability, bundled so
-/// `set_value_judged_for` stays within the 5-parameter cap.
-pub(crate) struct SetValuePlan<'a> {
-    pub(crate) value: &'a str,
-    pub(crate) value_writable: bool,
-    pub(crate) range_available: bool,
-}
+const VALUE_WRITE_SUGGESTION: &str =
+    "Refresh the snapshot and retry, or target a writable Value or RangeValue control.";
 
 #[cfg(target_os = "windows")]
 mod imp {
+    use super::without_terminal_paragraph;
     use super::{
-        ActionStep, AdapterError, CLEAR_CHAIN, ChainRung, Deadline, DeliveryOutcome,
-        DeliverySemantics, ErrorCode, InteractionPolicy, RANGE_LABEL, SetValuePlan, UIAElement,
-        VALUE_LABEL, VALUE_WRITE_CHAIN, execute_chain,
+        ActionStep, AdapterError, ChainRung, Deadline, DeliveryOutcome, DeliverySemantics,
+        ErrorCode, InteractionPolicy, LEGACY_VALUE_LABEL, RANGE_LABEL, UIAElement, VALUE_LABEL,
+        VALUE_WRITE_SUGGESTION, execute_chain,
     };
-    use crate::actions::chain::{after_delivery, gated};
+    use crate::actions::chain::{after_delivery, legacy_set_value};
     use crate::actions::mutation::{classify_success, classify_write};
     use crate::tree::properties::element_properties::ElementProperties;
     use crate::tree::properties::property_ids::TreeProperty;
@@ -47,6 +35,20 @@ mod imp {
     use crate::tree::properties::read_one;
     use uiautomation::patterns::{UIRangeValuePattern, UIValuePattern};
 
+    pub(crate) fn clear_steps(
+        element: &UIAElement,
+        policy: InteractionPolicy,
+        deadline: Deadline,
+    ) -> Result<Vec<ActionStep>, AdapterError> {
+        set_value_steps(element, "", policy, deadline)
+    }
+
+    /// Writes `value` through LegacyIAccessible `SetValue`, which lands with
+    /// no foreground change on Win32 and RichEdit edits, WinForms and WPF
+    /// text boxes, a WinForms TrackBar and a WPF Slider (C4, P2), then
+    /// through ValuePattern or RangeValuePattern, which activate the window
+    /// and are headed rungs. Every delivery is verified by re-reading the
+    /// value through the IsPassword gate.
     pub(crate) fn set_value_steps(
         element: &UIAElement,
         value: &str,
@@ -54,90 +56,61 @@ mod imp {
         deadline: Deadline,
     ) -> Result<Vec<ActionStep>, AdapterError> {
         let parsed = parse_finite_f64(value);
-        set_value_judged_for(
-            deadline,
-            policy,
-            SetValuePlan {
-                value,
-                value_writable: value_writable(element),
-                range_available: range_available(element),
-            },
-            || invoke_value_set(element, value),
-            || match parsed {
-                Some(target) => invoke_range_set(element, target),
-                None => Ok(DeliveryOutcome::NotDelivered),
-            },
-        )
-    }
-
-    pub(crate) fn clear_steps(
-        element: &UIAElement,
-        policy: InteractionPolicy,
-        deadline: Deadline,
-    ) -> Result<Vec<ActionStep>, AdapterError> {
-        let value_ok = value_writable(element);
-        clear_judged_for(deadline, policy, value_ok, || invoke_value_set(element, ""))
-            .map_err(|error| attach_value_chars(error, ""))
-    }
-
-    /// Injected SetValue chain — unit-test seam and live path.
-    pub(crate) fn set_value_judged_for(
-        deadline: Deadline,
-        policy: InteractionPolicy,
-        plan: SetValuePlan<'_>,
-        mut value_write: impl FnMut() -> Result<DeliveryOutcome, AdapterError>,
-        mut range_write: impl FnMut() -> Result<DeliveryOutcome, AdapterError>,
-    ) -> Result<Vec<ActionStep>, AdapterError> {
-        let parsed = parse_finite_f64(plan.value);
-        let mut value_run = gated(plan.value_writable, &mut value_write);
-        let mut range_run = gated(plan.range_available && parsed.is_some(), &mut range_write);
+        let text_ok = value_writable(element);
+        let range_ok = range_writable(element) && parsed.is_some();
+        let observe = |delivered: bool| -> Result<DeliveryOutcome, AdapterError> {
+            if !delivered {
+                return Ok(DeliveryOutcome::NotDelivered);
+            }
+            let verified = match parsed.filter(|_| !text_ok) {
+                Some(target) => gated_pattern_range_equals(element, target),
+                None => gated_pattern_value_equals(element, value),
+            }
+            .map_err(after_delivery)?;
+            Ok(DeliveryOutcome::from_observation(verified))
+        };
+        let mut legacy = || observe(legacy_set_value(element, value)?);
+        let mut text = || observe(invoke_value_set(element, value)?);
+        let mut range = || match parsed {
+            Some(target) => observe(invoke_range_set(element, target)?),
+            None => Ok(DeliveryOutcome::NotDelivered),
+        };
         execute_chain(
             deadline,
-            &VALUE_WRITE_CHAIN,
+            VALUE_WRITE_SUGGESTION,
             policy,
             &mut [
                 ChainRung {
-                    label: VALUE_LABEL,
+                    label: LEGACY_VALUE_LABEL,
+                    available: text_ok || range_ok,
                     requires_headed: false,
-                    run: &mut value_run,
+                    run: &mut legacy,
+                },
+                ChainRung {
+                    label: VALUE_LABEL,
+                    available: text_ok,
+                    requires_headed: true,
+                    run: &mut text,
                 },
                 ChainRung {
                     label: RANGE_LABEL,
-                    requires_headed: false,
-                    run: &mut range_run,
+                    available: range_ok,
+                    requires_headed: true,
+                    run: &mut range,
                 },
             ],
         )
-        .map_err(|error| attach_value_chars(error, plan.value))
+        .map_err(|error| attach_value_chars(error, value))
     }
 
-    /// Injected Clear chain — unit-test seam and live path.
-    pub(crate) fn clear_judged_for(
-        deadline: Deadline,
-        policy: InteractionPolicy,
-        value_writable: bool,
-        mut value_write: impl FnMut() -> Result<DeliveryOutcome, AdapterError>,
-    ) -> Result<Vec<ActionStep>, AdapterError> {
-        let mut value_run = gated(value_writable, &mut value_write);
-        execute_chain(
-            deadline,
-            &CLEAR_CHAIN,
-            policy,
-            &mut [ChainRung {
-                label: VALUE_LABEL,
-                requires_headed: false,
-                run: &mut value_run,
-            }],
-        )
-    }
-
-    pub(crate) fn value_writable(element: &UIAElement) -> bool {
+    fn value_writable(element: &UIAElement) -> bool {
         read_one(element, TreeProperty::ValueAvailable).flag() == Some(true)
             && read_one(element, TreeProperty::ValueIsReadOnly).flag() == Some(false)
     }
 
-    pub(crate) fn range_available(element: &UIAElement) -> bool {
+    fn range_writable(element: &UIAElement) -> bool {
         read_one(element, TreeProperty::RangeValueAvailable).flag() == Some(true)
+            && read_one(element, TreeProperty::RangeValueIsReadOnly).flag() == Some(false)
     }
 
     pub(crate) fn parse_finite_f64(value: &str) -> Option<f64> {
@@ -147,56 +120,24 @@ mod imp {
             .filter(|number| number.is_finite())
     }
 
-    fn invoke_value_set(
-        element: &UIAElement,
-        value: &str,
-    ) -> Result<DeliveryOutcome, AdapterError> {
-        let delivered = match element.0.get_pattern::<UIValuePattern>() {
+    fn invoke_value_set(element: &UIAElement, value: &str) -> Result<bool, AdapterError> {
+        match element.0.get_pattern::<UIValuePattern>() {
             Ok(pattern) => match pattern.set_value(value) {
-                Ok(()) => classify_success()?,
-                Err(error) => classify_write("SetValue", VALUE_LABEL, &error)?,
+                Ok(()) => classify_success(),
+                Err(error) => classify_write("SetValue", VALUE_LABEL, &error),
             },
-            Err(error) => classify_write("get_pattern", VALUE_LABEL, &error)?,
-        };
-        if !delivered {
-            return Ok(DeliveryOutcome::NotDelivered);
+            Err(error) => classify_write("get_pattern", VALUE_LABEL, &error),
         }
-        let verified = gated_pattern_value_equals(element, value).map_err(after_delivery)?;
-        Ok(DeliveryOutcome::from_observation(verified))
     }
 
-    fn invoke_range_set(
-        element: &UIAElement,
-        target: f64,
-    ) -> Result<DeliveryOutcome, AdapterError> {
-        let pattern = match element.0.get_pattern::<UIRangeValuePattern>() {
-            Ok(pattern) => pattern,
-            Err(error) => {
-                return Ok(DeliveryOutcome::from_delivery(
-                    classify_write("get_pattern", RANGE_LABEL, &error)?,
-                    false,
-                ));
-            }
-        };
-        match pattern.is_readonly() {
-            Ok(true) => return Ok(DeliveryOutcome::NotDelivered),
-            Ok(false) => {}
-            Err(error) => {
-                return Ok(DeliveryOutcome::from_delivery(
-                    classify_write("IsReadOnly", RANGE_LABEL, &error)?,
-                    false,
-                ));
-            }
+    fn invoke_range_set(element: &UIAElement, target: f64) -> Result<bool, AdapterError> {
+        match element.0.get_pattern::<UIRangeValuePattern>() {
+            Ok(pattern) => match pattern.set_value(target) {
+                Ok(()) => classify_success(),
+                Err(error) => classify_write("SetValue", RANGE_LABEL, &error),
+            },
+            Err(error) => classify_write("get_pattern", RANGE_LABEL, &error),
         }
-        let delivered = match pattern.set_value(target) {
-            Ok(()) => classify_success()?,
-            Err(error) => classify_write("SetValue", RANGE_LABEL, &error)?,
-        };
-        if !delivered {
-            return Ok(DeliveryOutcome::NotDelivered);
-        }
-        let verified = gated_pattern_range_equals(element, target).map_err(after_delivery)?;
-        Ok(DeliveryOutcome::from_observation(verified))
     }
 
     /// IsPassword-gated ValuePattern readback. The only `UIValuePattern::get_value`
@@ -205,6 +146,11 @@ mod imp {
         element: &UIAElement,
         expected: &str,
     ) -> Result<Option<bool>, AdapterError> {
+        let rich_edit = ElementProperties::from_reads(vec![(
+            TreeProperty::ClassName,
+            read_one(element, TreeProperty::ClassName),
+        )])
+        .is_rich_edit();
         gated_value_compare(
             read_one(element, TreeProperty::IsPassword),
             expected,
@@ -215,6 +161,13 @@ mod imp {
                     .map_err(|error| read_failed("ValuePattern.get_value", &error))?;
                 pattern
                     .get_value()
+                    .map(|text| {
+                        if rich_edit {
+                            without_terminal_paragraph(text, expected)
+                        } else {
+                            text
+                        }
+                    })
                     .map_err(|error| read_failed("ValuePattern.get_value", &error))
             },
         )
@@ -300,6 +253,16 @@ mod imp {
     }
 }
 
+/// A RichEdit control always ends its text with a paragraph mark, so writing
+/// `abc` reads back `abc\r` (P2); the mark is not part of the written value.
+/// Applied only to RichEdit classes, the same rule the tree value read uses.
+pub(crate) fn without_terminal_paragraph(text: String, expected: &str) -> String {
+    match text.strip_suffix('\r') {
+        Some(stripped) if !expected.ends_with('\r') => stripped.to_string(),
+        _ => text,
+    }
+}
+
 #[cfg(not(target_os = "windows"))]
 mod imp {
     use super::{ActionStep, AdapterError, Deadline, InteractionPolicy, UIAElement};
@@ -344,7 +307,7 @@ pub(crate) use imp::{clear_steps, set_value_steps};
 pub(crate) use imp::{gated_pattern_value_equals, gated_value_compare};
 
 #[cfg(all(test, target_os = "windows"))]
-pub(crate) use imp::{parse_finite_f64, set_value_judged_for};
+pub(crate) use imp::parse_finite_f64;
 
 #[cfg(all(test, target_os = "windows"))]
 #[path = "value_write_tests.rs"]

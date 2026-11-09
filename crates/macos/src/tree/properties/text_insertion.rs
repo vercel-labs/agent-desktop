@@ -203,23 +203,6 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use crate::tree::AXElement;
-    use agent_desktop_core::{AdapterError, Deadline, Rect};
-
-    pub(crate) fn insertion_caret(_element: &AXElement, _deadline: Deadline) -> Option<Rect> {
-        None
-    }
-
-    pub(crate) fn focused_insertion_caret(
-        _pid: Option<i32>,
-        _deadline: Deadline,
-    ) -> Result<Option<Rect>, AdapterError> {
-        Err(AdapterError::not_supported("get_focused_insertion_caret"))
-    }
-}
-
 pub(crate) use imp::{focused_insertion_caret, insertion_caret};
 
 #[cfg(test)]

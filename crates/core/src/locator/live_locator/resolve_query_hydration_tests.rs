@@ -314,3 +314,54 @@ fn a_hydrated_match_shows_the_screen_rectangle_the_re_read_found_or_else_the_fir
         );
     }
 }
+
+struct BorrowedNameAdapter;
+
+impl ObservationOps for BorrowedNameAdapter {
+    fn observe_tree(
+        &self,
+        _root: ObservationRoot<'_>,
+        _request: &ObservationRequest,
+    ) -> Result<ObservedTree, AdapterError> {
+        let mut evidence = super::test_support::evidence("textfield", Some("Email"));
+        evidence.identifiers = super::IdentifierEvidence::typed(
+            [crate::ElementIdentifier {
+                kind: crate::IdentifierKind::AxIdentifier,
+                value: "email-input".into(),
+            }],
+            Some(0),
+            true,
+        )
+        .with_borrowed_name(true);
+        Ok(super::test_support::tree(
+            vec![super::test_support::node(0, evidence, Vec::new(), &[])],
+            vec![0],
+            true,
+        ))
+    }
+}
+
+impl ActionOps for BorrowedNameAdapter {}
+impl InputOps for BorrowedNameAdapter {}
+impl SystemOps for BorrowedNameAdapter {}
+
+#[test]
+fn a_borrowed_name_left_out_of_the_ref_identity_stays_in_the_returned_match() {
+    let request = LocatorResolveRequest {
+        selection: LocatorSelection::Strict,
+        deadline: crate::Deadline::after(5_000).unwrap(),
+        max_raw_depth: 10,
+        surface: None,
+        materialization: LocatorMaterialization::SelectedMatches,
+    };
+
+    let resolution = resolve_query(
+        &BorrowedNameAdapter,
+        &LocatorQuery::default(),
+        ObservationRoot::Window(&window()),
+        &request,
+    )
+    .unwrap();
+
+    assert_eq!(resolution.matches[0].data.name, "Email");
+}

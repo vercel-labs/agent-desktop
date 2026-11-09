@@ -348,36 +348,3 @@ fn all_dismiss_strategies_failed() -> AdapterError {
         "All dismiss strategies failed (AXDismiss, AXRemoveFromParent, close button, hover+close)",
     )
 }
-
-#[cfg(not(target_os = "macos"))]
-fn dismiss_impl(
-    _index: usize,
-    _app_filter: Option<&str>,
-    _identity: Option<&NotificationIdentity>,
-    _policy: InteractionPolicy,
-    _pid: i32,
-    _deadline: Deadline,
-) -> Result<NotificationInfo, AdapterError> {
-    Err(AdapterError::not_supported("dismiss_notification"))
-}
-
-#[cfg(not(target_os = "macos"))]
-fn dismiss_all_impl(
-    _app_filter: Option<&str>,
-    _policy: InteractionPolicy,
-    _pid: i32,
-    _deadline: Deadline,
-) -> Result<(Vec<NotificationInfo>, Vec<String>), AdapterError> {
-    Err(AdapterError::not_supported("dismiss_all_notifications"))
-}
-
-#[cfg(not(target_os = "macos"))]
-fn action_impl(
-    _index: usize,
-    _identity: Option<&NotificationIdentity>,
-    _action_name: &str,
-    _pid: i32,
-    _deadline: Deadline,
-) -> Result<ActionResult, AdapterError> {
-    Err(AdapterError::not_supported("notification_action"))
-}

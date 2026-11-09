@@ -1,10 +1,9 @@
-use agent_desktop_core::{ActionResult, AdapterError, Deadline, InteractionLease, NativeHandle};
+use agent_desktop_core::{
+    Action, ActionResult, AdapterError, ChainRung, Deadline, DeliveryObservation, DeliveryOutcome,
+    InteractionLease, NativeHandle,
+};
 
-use crate::actions::chain::chain_def::ChainDef;
-use crate::actions::chain::chain_delivery_outcome::DeliveryOutcome;
-use crate::actions::chain::chain_observed::Observed;
-use crate::actions::chain::chain_rung::Rung;
-use crate::actions::chain::execute_chain;
+use crate::actions::chain::run_semantic_chain;
 use crate::system::SharedBus;
 use crate::tree::get_live_state;
 
@@ -51,10 +50,6 @@ pub(crate) fn scroll_with(
     port: &mut dyn ScrollPort,
     deadline: Deadline,
 ) -> Result<ActionResult, AdapterError> {
-    let def = ChainDef {
-        action: "scroll-to",
-        suggestion: SUGGESTION,
-    };
     let run = || {
         if port.visibility() == Visibility::OnScreen {
             return Ok(DeliveryOutcome::Satisfied);
@@ -63,16 +58,17 @@ pub(crate) fn scroll_with(
             return Ok(DeliveryOutcome::Satisfied);
         }
         Ok(DeliveryOutcome::Delivered(match port.visibility() {
-            Visibility::OnScreen => Observed::Matched,
-            Visibility::OffScreen => Observed::Unchanged,
-            Visibility::Unread => Observed::Unread,
+            Visibility::OnScreen => DeliveryObservation::Verified,
+            Visibility::OffScreen => DeliveryObservation::Unverified,
+            Visibility::Unread => DeliveryObservation::Unread,
         }))
     };
-    let mut rungs = [Rung {
+    let mut rungs = [ChainRung {
         label: SCROLL_LABEL,
+        effects: &[],
         run: Box::new(run),
     }];
-    execute_chain(&def, &mut rungs, deadline)
+    run_semantic_chain(&Action::ScrollTo, &mut rungs, deadline, SUGGESTION)
 }
 
 pub(crate) fn scroll_to(

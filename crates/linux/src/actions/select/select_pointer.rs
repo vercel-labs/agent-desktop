@@ -1,13 +1,10 @@
 use agent_desktop_core::{
-    ActionResult, ActionStep, AdapterError, DeliverySemantics, InteractionLease, InteractionPolicy,
-    KeyCombo, StepMechanism,
+    ActionResult, ActionStep, AdapterError, DeliveryObservation, DeliveryOutcome,
+    DeliverySemantics, InteractionLease, InteractionPolicy, KeyCombo, StepMechanism,
 };
 use serde_json::json;
 
 use super::select_index::UNPROVEN_INDEX_KIND;
-use crate::actions::chain::chain_delivery_outcome::DeliveryOutcome;
-use crate::actions::chain::chain_observed::Observed;
-use crate::actions::chain::chain_step::verified_of;
 use crate::actions::select::unchanged_is_ignored;
 use crate::input::physical::target_keyboard::press_key_global_steps;
 use crate::input::physical::target_pointer::{ClickSpec, click_steps};
@@ -113,10 +110,10 @@ pub(in crate::actions) fn after_unproven_index(
 /// shows the old choice is the same failure a semantic write gets.
 pub(in crate::actions) fn by_pointer_result(
     mut steps: Vec<ActionStep>,
-    observed: Observed,
+    observed: DeliveryObservation,
 ) -> Result<ActionResult, AdapterError> {
     unchanged_is_ignored(DeliveryOutcome::Delivered(observed))?;
-    let verified = verified_of(observed);
+    let verified = observed.verified();
     if let Some(last) = steps.last_mut() {
         last.verified = verified;
     }

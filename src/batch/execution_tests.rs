@@ -67,7 +67,7 @@ fn validates_every_entry_before_the_first_side_effect() {
             args(commands, 60_000),
             &adapter,
             &PermissionReport::default(),
-            &CommandContext::default(),
+            &CommandContext::default().with_headed(true),
         )
         .expect_err("a malformed or policy-invalid later entry rejects the whole batch");
         assert_eq!(error.code(), "INVALID_ARGS");
@@ -89,7 +89,7 @@ fn validates_every_entry_before_the_first_side_effect() {
         ),
         &adapter,
         &denied,
-        &CommandContext::default(),
+        &CommandContext::default().with_headed(true),
     )
     .expect_err("a later permission failure rejects the whole batch");
     assert_eq!(error.code(), "PERM_DENIED");
@@ -103,7 +103,7 @@ fn dispatches_each_entry_at_most_once() {
         args(json!([{"command": "clipboard-clear", "args": {}}]), 60_000),
         &adapter,
         &PermissionReport::default(),
-        &CommandContext::default(),
+        &CommandContext::default().with_headed(true),
     )
     .expect("valid batch executes");
 
@@ -122,7 +122,7 @@ fn expired_batch_never_starts_the_entry() {
         args(json!([{"command": "clipboard-clear", "args": {}}]), 0),
         &adapter,
         &PermissionReport::default(),
-        &CommandContext::default(),
+        &CommandContext::default().with_headed(true),
     )
     .expect("deadline is reported in the batch result");
 
@@ -155,7 +155,7 @@ fn baseline_failure_prevents_the_producer_action() {
         ),
         &adapter,
         &PermissionReport::default(),
-        &CommandContext::default(),
+        &CommandContext::default().with_headed(true),
     )
     .expect("runtime baseline failure remains a structured batch result");
 

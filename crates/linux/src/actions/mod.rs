@@ -5,6 +5,7 @@ pub(crate) mod context;
 pub(crate) mod disclosure;
 pub(crate) mod dispatch;
 pub(crate) mod focus;
+pub(crate) mod foreground;
 pub(crate) mod live;
 pub(crate) mod native_menu;
 pub(crate) mod physical_target;

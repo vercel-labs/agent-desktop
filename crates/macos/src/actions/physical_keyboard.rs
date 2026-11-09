@@ -55,12 +55,7 @@ fn prepare_target(
     deadline: Deadline,
     delivery: &mut crate::actions::DeliveryTracker,
 ) -> Result<crate::system::process::process_identity::ProcessIdentity, AdapterError> {
-    if !policy.allow_focus_steal {
-        return Err(AdapterError::policy_denied_for_policy(
-            "Physical keyboard fallback requires focus permission",
-            policy,
-        ));
-    }
+    crate::actions::background_effect::Effect::TakesKeyFocus.refuse_unless_permitted(policy)?;
     let pid = crate::system::app::app_ops::pid_from_element(element, deadline)
         .filter(|pid| *pid > 0)
         .ok_or_else(|| {

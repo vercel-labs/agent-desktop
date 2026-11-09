@@ -42,6 +42,20 @@ pub fn resolve_name(evidence: &NameEvidence, status: &NameSlotStatus) -> Locator
     }
 }
 
+/// Whether the name [`resolve_name`] gives belongs to another element: the
+/// label relation's text, which wins outright or which a provider repeats as
+/// the element's own title when it computes that title from the label. Such a
+/// name is presentation, not identity, so a ref that also records a native id
+/// is not held to it.
+pub fn name_is_borrowed(evidence: &NameEvidence, status: &NameSlotStatus) -> bool {
+    let Some(label) = non_blank(evidence.labelled_by_text.as_deref()) else {
+        return false;
+    };
+    resolve_name(evidence, status)
+        .known()
+        .is_some_and(|name| name.trim() == label.trim())
+}
+
 /// The description, which is only a description when something else is already
 /// the name.
 ///

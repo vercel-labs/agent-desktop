@@ -12,4 +12,8 @@ pub struct NodeIdentity {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_id: Option<crate::ElementIdentifier>,
+    /// The name came from another element (a label relation), so it is not
+    /// identity when a native id is recorded.
+    #[serde(skip)]
+    pub name_is_borrowed: bool,
 }

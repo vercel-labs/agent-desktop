@@ -142,7 +142,7 @@ On macOS, application-owned `menu` and `menubar` snapshots omit `data.window`. `
 A complete macOS menu lookup with no surface returns `ELEMENT_NOT_FOUND` with `details.kind: "surface_absent"`, `details.surface: "menu"` or `"menubar"`, and `details.complete: true`. That is completed absence evidence. An absent `menubar` can mean the application exposes no menu bar. A `menu` lookup requires an open menu: snapshot `menubar` when it exists, click its owning item without `--headed`, then snapshot `--surface menu`. Missing `complete`, `complete: false`, a timeout, or an incomplete AX read leaves the result unknown, not absent. If a prior action has `delivery_uncertain` and `retry: unsafe`, inspect the current UI before any action; do not repeat the action.
 
 - Focus and preparatory scrolling can change coordinates. Stability is verified against fresh live observations, not by requiring coordinates to remain equal to the original snapshot.
-- On macOS, clicking an item in the native menu bar uses `AXPress`. It works headless, and under `--headed` it does not move the pointer. A headless `right-click` can use `AXShowMenu` when the target provides it.
+- On macOS, clicking an item in the native menu bar uses `AXPress`. It works headless, and under `--headed` it does not move the pointer.
 
 - Focusing an inactive text field can change its selection. A pre-focus range cannot establish the expected insertion into a nonempty field; such a result is explicitly unverified rather than falsely contradicted.
 - A settle-loop pacing budget does not replace the caller's deadline for native reads. Tests assert deadline identity rather than arbitrary remaining-time thresholds.
@@ -210,7 +210,7 @@ After the core resolver chooses the element, the platform adapter lands it, and 
 | `AMBIGUOUS_TARGET` | Ref recovery matched multiple plausible targets |
 | `SNAPSHOT_NOT_FOUND` | Snapshot ID is missing or expired |
 | `SANDBOX_NOT_FOUND` | No sandbox has that name; run `agent-desktop sandbox list` to see the sandboxes that exist |
-| `POLICY_DENIED` | Physical/headed path blocked by policy |
+| `POLICY_DENIED` | The interaction policy does not permit an effect of the operation; nothing was sent. `details.effect` names it when one effect decided: `focus_steal`, `cursor_move` or `clipboard_write`. Rerun with `--headed` to permit them |
 | `ACTION_FAILED` | Action rejected, or its observed result contradicted the request |
 | `ACTION_NOT_SUPPORTED` | The target does not expose the requested action |
 | `APP_UNRESPONSIVE` | The matching application stopped responding |

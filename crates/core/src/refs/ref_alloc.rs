@@ -27,7 +27,11 @@ pub(crate) fn ref_entry_from_node(
         identity: crate::RefEntryIdentity {
             retained_object: node.identity.retained_object.clone(),
             role: node.role.clone(),
-            name: meaningful_string(node.identity.name.clone()),
+            name: crate::refs::ref_identity::recorded_name(
+                meaningful_string(node.identity.name.clone()),
+                node.identity.name_is_borrowed,
+                node.identity.native_id.as_ref(),
+            ),
             value: meaningful_string(node.identity.value.clone()),
             description: meaningful_string(node.identity.description.clone()),
             native_id: node

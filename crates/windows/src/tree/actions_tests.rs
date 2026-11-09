@@ -306,3 +306,14 @@ fn a_read_only_range_control_does_not_advertise_set_value() {
 fn a_range_control_whose_read_only_flag_is_unreadable_fails_closed() {
     assert!(!advertises_set_value(None));
 }
+
+#[test]
+fn a_combo_box_without_selection_items_still_advertises_select() {
+    let mut reads = inert_reads();
+    reads.push((
+        TreeProperty::ControlType,
+        PropertyOutcome::Known(PropertyValue::Number(50_003)),
+    ));
+    let actions = resolve_actions(&ElementProperties::from_reads(reads));
+    assert!(known_actions(&actions).contains(&capability::SELECT.to_string()));
+}

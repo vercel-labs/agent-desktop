@@ -16,8 +16,15 @@ pub struct LaunchArgs {
     pub options: LaunchOptions,
 }
 
-pub fn execute(args: LaunchArgs, adapter: &dyn PlatformAdapter) -> Result<Value, AppError> {
+pub fn execute(
+    args: LaunchArgs,
+    adapter: &dyn PlatformAdapter,
+    policy: crate::InteractionPolicy,
+) -> Result<Value, AppError> {
     let LaunchArgs { app, mut options } = args;
+    if options.activate {
+        policy.require(crate::Effect::FocusSteal, "launch --activate")?;
+    }
     crate::wait_timeout_duration(options.timeout_ms)?;
     let deadline = if options.timeout_ms == 0 {
         crate::Deadline::standard()?

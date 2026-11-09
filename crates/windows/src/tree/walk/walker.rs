@@ -212,6 +212,7 @@ pub fn walk_vocabulary(
         states,
         name,
         description,
+        name_borrowed: crate::tree::name_evidence::name_borrowed(properties, label),
     }
 }
 

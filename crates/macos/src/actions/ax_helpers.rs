@@ -328,59 +328,6 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use super::*;
-    use crate::tree::AXElement;
-
-    pub fn try_ax_action_or_err(
-        _el: &AXElement,
-        _name: &str,
-        _deadline: Deadline,
-    ) -> Result<bool, AdapterError> {
-        Ok(false)
-    }
-    pub fn set_ax_bool_or_err(
-        _el: &AXElement,
-        _attr: &str,
-        _value: bool,
-        _deadline: Deadline,
-    ) -> Result<bool, AdapterError> {
-        Ok(false)
-    }
-    pub fn set_ax_string_or_err(
-        _el: &AXElement,
-        _attr: &str,
-        _value: &str,
-        _deadline: Deadline,
-    ) -> Result<(), AdapterError> {
-        Err(AdapterError::not_supported("set_ax_string_or_err"))
-    }
-    pub fn is_attr_settable(
-        _el: &AXElement,
-        _attr: &str,
-        _deadline: Deadline,
-    ) -> Result<bool, AdapterError> {
-        Ok(false)
-    }
-    pub fn ax_focus_or_err(_el: &AXElement, _deadline: Deadline) -> Result<bool, AdapterError> {
-        Ok(false)
-    }
-    pub fn set_ax_value_coerced(
-        _el: &AXElement,
-        _value: &str,
-        _deadline: Deadline,
-    ) -> Result<(), AdapterError> {
-        Err(AdapterError::not_supported("set_ax_value_coerced"))
-    }
-    pub fn element_role(
-        _el: &AXElement,
-        _deadline: Deadline,
-    ) -> Result<Option<String>, AdapterError> {
-        Ok(None)
-    }
-}
-
 pub(crate) use imp::{
     ax_focus_or_err, element_role, is_attr_settable, set_ax_bool_or_err, set_ax_string_or_err,
     set_ax_value_coerced, try_ax_action_or_err,

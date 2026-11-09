@@ -1,27 +1,30 @@
-//! Activation-chain engine for UIA pattern dispatch.
+//! Rung engine for Windows element actions.
 //!
-//! Rung closures return a delivery outcome or `Err`. A genuine `Err` always
-//! aborts the chain and never falls through to a later rung. Its disposition,
-//! however, is not always the classifier's: a chain that opts into continuing
-//! after an unverified delivery can hard-error on a later rung after an
-//! earlier one already mutated the control, so an `Err` raised once
-//! `delivery_occurred` on the recorded steps is upgraded to
-//! `delivered_unverified` before it leaves this function — the code,
-//! message, suggestion and platform detail are left untouched. Only a clean
-//! not-delivered outcome advances to the next rung. Policy-disallowed rungs
-//! are skipped with no step recorded. Physical legs are built outside this
-//! engine in `physical_click` and `physical_keyboard`, which record
-//! `PhysicalSynthetic` steps. Every rung this engine runs uses the
-//! `semantic_api` mechanism.
+//! Each rung names one mechanism, whether the live element offers it, and
+//! whether it moves the desktop foreground. Every UI Automation control
+//! pattern call (Invoke, Toggle, Value, RangeValue, ExpandCollapse,
+//! SelectionItem, ScrollItem on proxied controls) activates the target's
+//! window on every provider measured (W-W0-6, W-W0-7), so those rungs run
+//! only under a headed policy. The LegacyIAccessible and Win32 message rungs
+//! change no foreground state and run in both modes, always first.
+//!
+//! The engine runs the offered rungs in order and stops at the first that
+//! delivers or finds the target already satisfied. A genuine `Err` aborts
+//! the chain. When nothing delivered and a rung was held back only for its
+//! foreground effect, the result is `POLICY_DENIED`, never a generic
+//! exhaustion, so the caller learns that `--headed` would act.
 
 use agent_desktop_core::{
-    ActionStep, ActionStepOutcome, AdapterError, Deadline, DeliverySemantics, ErrorCode,
-    InteractionPolicy, StepMechanism,
+    ActionStep, AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionPolicy,
+    StepMechanism,
 };
 use std::time::{Duration, Instant};
 
 #[cfg(target_os = "windows")]
 use crate::actions::mutation::{classify_success, classify_write};
+use crate::system::runtime::hresult::UIA_E_ELEMENTNOTENABLED;
+#[cfg(target_os = "windows")]
+use crate::tree::automation::{UiaFailure, failure_of};
 #[cfg(target_os = "windows")]
 use crate::tree::element::UIAElement;
 #[cfg(target_os = "windows")]
@@ -29,10 +32,14 @@ use crate::tree::properties::property_ids::TreeProperty;
 #[cfg(target_os = "windows")]
 use crate::tree::properties::read_one;
 #[cfg(target_os = "windows")]
-use uiautomation::patterns::UIInvokePattern;
+use uiautomation::patterns::{UIInvokePattern, UILegacyIAccessiblePattern};
 
 pub(crate) const INVOKE_LABEL: &str = "InvokePattern.Invoke";
+pub(crate) const LEGACY_LABEL: &str = "LegacyIAccessible.DoDefaultAction";
 pub(crate) const ALREADY_LABEL: &str = "AlreadyInState";
+
+const POLL_SLICE: Duration = Duration::from_millis(25);
+const SELFLAG_TAKESELECTION: i32 = 0x2;
 
 /// Caps a verification poll window by the remaining action budget.
 pub(crate) fn capped_verification_end(
@@ -49,11 +56,28 @@ pub(crate) fn capped_verification_end(
         .map_or(local, |end| end.min(local)))
 }
 
+/// Re-reads until `reached` holds or `cap`, bounded by the deadline, passes.
+pub(crate) fn poll_until(
+    deadline: Deadline,
+    cap: Duration,
+    mut reached: impl FnMut() -> bool,
+) -> Result<bool, AdapterError> {
+    let end = capped_verification_end(deadline, cap)?;
+    loop {
+        if reached() {
+            return Ok(true);
+        }
+        if Instant::now() >= end {
+            return Ok(false);
+        }
+        std::thread::sleep(deadline.remaining_slice(POLL_SLICE)?);
+    }
+}
+
 /// Per-rung delivery judgment recorded into an [`ActionStep`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DeliveryOutcome {
     NotDelivered,
-    /// Already-at-target arms (toggle / disclosure) construct this outcome.
     SatisfiedNoDelivery,
     DeliveredUnverified,
     DeliveredVerified,
@@ -82,86 +106,70 @@ impl DeliveryOutcome {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn was_delivered(self) -> bool {
-        matches!(
-            self,
-            Self::DeliveredUnverified | Self::DeliveredVerified | Self::DeliveredUnobserved
-        )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn was_verified(self) -> bool {
-        matches!(self, Self::SatisfiedNoDelivery | Self::DeliveredVerified)
-    }
-
-    pub(crate) fn terminates_chain(self) -> bool {
+    fn terminates_chain(self) -> bool {
         !matches!(self, Self::NotDelivered)
     }
 }
 
-/// Chain-level knobs shared by every action that runs through the engine.
-pub(crate) struct ChainDef {
-    pub(crate) suggestion: &'static str,
-    pub(crate) continue_after_unverified_delivery: bool,
-}
-
-/// Click chain: Invoke first, Legacy default action second (A19-6, A2-2).
-pub(crate) const CLICK_CHAIN: ChainDef = ChainDef {
-    suggestion: "Refresh the snapshot and retry, or target an element that advertises Invoke or a Legacy default action.",
-    continue_after_unverified_delivery: false,
-};
-
-/// One rung whose runner is injected — the unit-test seam.
+/// One mechanism the engine may run.
 pub(crate) struct ChainRung<'a> {
     pub(crate) label: &'static str,
+    /// The live element offers this mechanism.
+    pub(crate) available: bool,
+    /// The mechanism moves the desktop foreground, so headless must not run it.
     pub(crate) requires_headed: bool,
     pub(crate) run: &'a mut dyn FnMut() -> Result<DeliveryOutcome, AdapterError>,
 }
 
-/// Runs gated rungs in order, recording a step for every attempted rung.
+/// Runs the offered rungs in order, recording a step for every rung run.
 pub(crate) fn execute_chain(
     deadline: Deadline,
-    def: &ChainDef,
+    suggestion: &'static str,
     policy: InteractionPolicy,
     rungs: &mut [ChainRung<'_>],
 ) -> Result<Vec<ActionStep>, AdapterError> {
     let mut steps = Vec::new();
-    for rung in rungs.iter_mut() {
-        if let Err(expiry) = deadline.ensure_remaining() {
-            return Err(expiry.with_disposition(exhaustion_disposition(&steps)));
-        }
-        if !rung_allowed(rung, policy) {
+    let mut withheld = Vec::new();
+    for rung in rungs.iter_mut().filter(|rung| rung.available) {
+        deadline
+            .ensure_remaining()
+            .map_err(|expiry| expiry.with_disposition(DeliverySemantics::not_delivered()))?;
+        if rung.requires_headed && !policy.is_headed() {
+            withheld.push(rung.label);
             continue;
         }
-        let outcome = match (rung.run)() {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                return Err(if delivery_occurred(&steps) {
-                    error.with_disposition(exhaustion_disposition(&steps))
-                } else {
-                    error
-                });
-            }
-        };
-        if record_step_outcome(
-            &mut steps,
-            rung.label,
-            outcome,
-            def.continue_after_unverified_delivery,
-        ) {
+        let outcome = (rung.run)()?;
+        steps.push(build_step(rung.label, outcome));
+        if outcome.terminates_chain() {
             return Ok(steps);
         }
     }
+    if !withheld.is_empty() {
+        return Err(foreground_denied(&withheld, policy));
+    }
     Err(
         AdapterError::new(ErrorCode::ActionFailed, "All chain steps exhausted")
-            .with_disposition(exhaustion_disposition(&steps))
-            .with_suggestion(def.suggestion),
+            .with_disposition(DeliverySemantics::not_delivered())
+            .with_suggestion(suggestion),
     )
 }
 
-pub(crate) fn rung_allowed(rung: &ChainRung<'_>, policy: InteractionPolicy) -> bool {
-    !rung.requires_headed || policy.is_headed()
+/// The refusal for an action whose only offered mechanisms move the foreground.
+pub(crate) fn foreground_denied(
+    labels: &[&'static str],
+    policy: InteractionPolicy,
+) -> AdapterError {
+    AdapterError::policy_denied_for_policy(
+        format!(
+            "{} moves the desktop foreground window on Windows",
+            labels.join(" and ")
+        ),
+        policy,
+    )
+    .with_details(serde_json::json!({
+        "foreground_effect": true,
+        "mechanisms": labels,
+    }))
 }
 
 /// Re-dispositions an error raised after a rung already mutated the control.
@@ -169,20 +177,6 @@ pub(crate) fn rung_allowed(rung: &ChainRung<'_>, policy: InteractionPolicy) -> b
 /// inner error carried no longer describes the world the caller is in.
 pub(crate) fn after_delivery(error: AdapterError) -> AdapterError {
     error.with_disposition(DeliverySemantics::delivered_unverified())
-}
-
-pub(crate) fn delivery_occurred(steps: &[ActionStep]) -> bool {
-    steps
-        .iter()
-        .any(|step| matches!(step.outcome, ActionStepOutcome::Succeeded))
-}
-
-pub(crate) fn exhaustion_disposition(steps: &[ActionStep]) -> DeliverySemantics {
-    if delivery_occurred(steps) {
-        DeliverySemantics::delivered_unverified()
-    } else {
-        DeliverySemantics::not_delivered()
-    }
 }
 
 pub(crate) fn build_step(label: &'static str, outcome: DeliveryOutcome) -> ActionStep {
@@ -196,46 +190,13 @@ pub(crate) fn build_step(label: &'static str, outcome: DeliveryOutcome) -> Actio
     built.with_mechanism(StepMechanism::SemanticApi)
 }
 
-/// Records `outcome` and returns whether the chain should stop.
-pub(crate) fn record_step_outcome(
-    steps: &mut Vec<ActionStep>,
-    label: &'static str,
-    outcome: DeliveryOutcome,
-    continue_after_unverified_delivery: bool,
-) -> bool {
-    steps.push(build_step(label, outcome));
-    outcome.terminates_chain()
-        && !(continue_after_unverified_delivery && outcome == DeliveryOutcome::DeliveredUnverified)
-}
-
-/// Skips `run` when `available` is false, recording a clean not-delivered
-/// outcome instead of invoking a pattern the live read never confirmed.
-/// Replaces the `if !available { return Ok(NotDelivered); } run()` closure
-/// copy-pasted at every rung gate — callers with a compound guard combine it
-/// into one `bool` before calling in (De Morgan, not two calls).
-pub(crate) fn gated<'a>(
-    available: bool,
-    run: &'a mut dyn FnMut() -> Result<DeliveryOutcome, AdapterError>,
-) -> impl FnMut() -> Result<DeliveryOutcome, AdapterError> + 'a {
-    move || {
-        if !available {
-            return Ok(DeliveryOutcome::NotDelivered);
-        }
-        run()
-    }
-}
-
-/// Whether `InvokePattern` is advertised — the availability half of the
-/// Click / Expand-Collapse / Toggle chains' shared Invoke fallback rung.
+/// Whether `InvokePattern` is advertised.
 #[cfg(target_os = "windows")]
 pub(crate) fn invoke_available(element: &UIAElement) -> bool {
     read_one(element, TreeProperty::InvokeAvailable).flag() == Some(true)
 }
 
-/// Invokes `InvokePattern` and classifies the write — the delivery half of
-/// the shared Invoke fallback rung. Callers that need a [`DeliveryOutcome`]
-/// directly (rather than an unverified bool to observe further) wrap this
-/// with [`DeliveryOutcome::from_delivery`].
+/// Invokes `InvokePattern` and classifies the write.
 #[cfg(target_os = "windows")]
 pub(crate) fn invoke_pattern_delivered(element: &UIAElement) -> Result<bool, AdapterError> {
     match element.0.get_pattern::<UIInvokePattern>() {
@@ -247,20 +208,76 @@ pub(crate) fn invoke_pattern_delivered(element: &UIAElement) -> Result<bool, Ada
     }
 }
 
+/// Whether the element names a LegacyIAccessible default action.
+#[cfg(target_os = "windows")]
+pub(crate) fn legacy_default_action_available(element: &UIAElement) -> bool {
+    read_one(element, TreeProperty::LegacyDefaultAction)
+        .non_blank_text()
+        .is_some()
+}
+
+/// Runs the LegacyIAccessible default action and classifies the write.
+#[cfg(target_os = "windows")]
+pub(crate) fn legacy_default_action(element: &UIAElement) -> Result<bool, AdapterError> {
+    legacy_write(element, LEGACY_LABEL, |pattern| pattern.do_default_action())
+}
+
+/// Selects the element alone through LegacyIAccessible `Select` with
+/// `SELFLAG_TAKESELECTION`, and classifies the write.
+#[cfg(target_os = "windows")]
+pub(crate) fn legacy_select(element: &UIAElement) -> Result<bool, AdapterError> {
+    legacy_write(element, "LegacyIAccessible.Select", |pattern| {
+        pattern.select(SELFLAG_TAKESELECTION)
+    })
+}
+
+/// Writes the element's value through LegacyIAccessible `SetValue`.
+#[cfg(target_os = "windows")]
+pub(crate) fn legacy_set_value(element: &UIAElement, value: &str) -> Result<bool, AdapterError> {
+    legacy_write(element, "LegacyIAccessible.SetValue", |pattern| {
+        pattern.set_value(value)
+    })
+}
+
+/// Whether a Legacy call's refusal means the route is absent.
+///
+/// The LegacyIAccessible bridge answers `UIA_E_ELEMENTNOTENABLED` both for a
+/// disabled element and for an enabled element that has no such member: a
+/// DirectUI row's "Double Click" default action and the DirectUI search
+/// box's `SetValue` fail that way while the element reports IsEnabled true
+/// (P3). On an enabled element the refusal is an absent route, so the chain
+/// moves on; on a disabled element it stays a refusal.
+pub(crate) fn legacy_refusal_is_absent(hresult: i32, element_enabled: Option<bool>) -> bool {
+    hresult == UIA_E_ELEMENTNOTENABLED && element_enabled == Some(true)
+}
+
+#[cfg(target_os = "windows")]
+fn legacy_write(
+    element: &UIAElement,
+    api: &'static str,
+    call: impl FnOnce(&UILegacyIAccessiblePattern) -> uiautomation::Result<()>,
+) -> Result<bool, AdapterError> {
+    let operation = api.trim_start_matches("LegacyIAccessible.");
+    let pattern = match element.0.get_pattern::<UILegacyIAccessiblePattern>() {
+        Ok(pattern) => pattern,
+        Err(error) => return classify_write("get_pattern", api, &error),
+    };
+    match call(&pattern) {
+        Ok(()) => classify_success(),
+        Err(error) => match failure_of(&error) {
+            UiaFailure::Hresult(hresult)
+                if legacy_refusal_is_absent(
+                    hresult,
+                    read_one(element, TreeProperty::IsEnabled).flag(),
+                ) =>
+            {
+                Ok(false)
+            }
+            _ => classify_write(operation, api, &error),
+        },
+    }
+}
+
 #[cfg(test)]
 #[path = "chain_tests.rs"]
 mod tests;
-
-/// Split from `chain_tests.rs`: this module owns the budget-expiry cases,
-/// which assert what an expiry reports rather than what a rung does, and are
-/// the only chain tests that depend on wall-clock time.
-#[cfg(test)]
-#[path = "chain_budget_tests.rs"]
-mod budget_tests;
-
-/// Split from `chain_tests.rs` for the per-file line cap: this module owns the
-/// fallthrough policy the shipped value-write chain declares, as distinct from
-/// the general engine mechanism `chain_tests.rs` exercises.
-#[cfg(test)]
-#[path = "chain_policy_tests.rs"]
-mod policy_tests;

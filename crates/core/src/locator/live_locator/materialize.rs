@@ -107,7 +107,11 @@ pub(crate) fn ref_entry(
                 .retained_object()
                 .map(str::to_owned),
             role: role.clone(),
-            name: node.evidence.name.meaningful_string(),
+            name: crate::refs::ref_identity::recorded_name(
+                node.evidence.name.meaningful_string(),
+                node.evidence.identifiers.name_is_borrowed(),
+                identifier.as_ref(),
+            ),
             value: node.evidence.value.meaningful_string(),
             description: node.evidence.description.meaningful_string(),
             native_id: identifier,

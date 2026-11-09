@@ -130,7 +130,7 @@ pub(crate) fn dispatch_resolved_landing(
         preflight.pointer_delivery,
         actionability::PointerDelivery::Semantic
     ) {
-        request.policy = crate::InteractionPolicy::headless();
+        request.policy.allow_cursor_move = false;
     }
     request = request
         .with_verified_point(preflight.verified_point.clone())

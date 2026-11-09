@@ -92,3 +92,48 @@ fn uncertain_collection_selection_never_falls_back_to_press() {
         assert_eq!(presses.get(), 0);
     }
 }
+
+#[test]
+fn select_chooses_from_its_own_open_menu_and_refuses_another_controls_menu_undelivered() {
+    assert!(!needs_opening(true, || panic!("own menu is enough")).unwrap());
+    assert!(needs_opening(false, || Ok(false)).unwrap());
+    let refusal = needs_opening(false, || Ok(true)).unwrap_err();
+    assert_eq!(refusal.code, ErrorCode::ActionFailed);
+    assert_eq!(refusal.disposition, DeliverySemantics::not_delivered());
+}
+
+#[test]
+fn a_failed_select_claims_delivery_only_when_it_opened_the_menu() {
+    let not_found = || {
+        AdapterError::timeout("no item").with_details(serde_json::json!({
+            "kind": "select_menu_item_not_found",
+        }))
+    };
+    assert_eq!(
+        failed_selection(true, not_found()).disposition,
+        DeliverySemantics::delivered_unverified()
+    );
+    assert_eq!(
+        failed_selection(false, not_found()).disposition,
+        DeliverySemantics::not_delivered()
+    );
+    let pressed = AdapterError::new(ErrorCode::ActionFailed, "press uncertain")
+        .with_disposition(DeliverySemantics::uncertain());
+    assert_eq!(
+        failed_selection(false, pressed).disposition,
+        DeliverySemantics::uncertain()
+    );
+}
+
+#[test]
+fn a_menu_read_that_fails_after_the_press_leaves_the_selection_unverified() {
+    let deadline = Deadline::standard().unwrap();
+    assert!(
+        !menu_closed_after_press(
+            || Err(AdapterError::new(ErrorCode::AppUnresponsive, "node budget")),
+            deadline
+        )
+        .unwrap()
+    );
+    assert!(menu_closed_after_press(|| Ok(false), deadline).unwrap());
+}

@@ -84,9 +84,9 @@ agent-desktop screenshot /tmp/desktop.png
 ## Clipboard
 
 ```bash
-agent-desktop clipboard-set "hello from agent-desktop"
+agent-desktop clipboard-set "hello from agent-desktop" --headed
 agent-desktop clipboard-get
-agent-desktop clipboard-clear
+agent-desktop clipboard-clear --headed
 ```
 
 Formats and output follow the core `commands-system` reference. Text, images and

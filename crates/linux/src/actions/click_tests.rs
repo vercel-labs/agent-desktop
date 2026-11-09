@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-use agent_desktop_core::{Action, Deadline, DeliverySemantics, ErrorCode};
+use agent_desktop_core::{Action, Deadline, DeliveryObservation, DeliverySemantics, ErrorCode};
 
 use super::*;
 use crate::adapter::LinuxAdapter;
@@ -10,7 +10,10 @@ use crate::tree::vocabulary::role_numbers::PUSH_BUTTON;
 #[test]
 fn a_delivered_write_is_judged_by_the_observed_change() {
     let outcome = deliver(Ok(WriteReply::Done), || Some(false)).expect("delivered");
-    assert_eq!(outcome, DeliveryOutcome::Delivered(Observed::Unchanged));
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(DeliveryObservation::Unverified)
+    );
 }
 
 #[test]

@@ -138,13 +138,11 @@ fn build_report_with_requirement(
     hit_test: Option<(&NativeHandle, &dyn PlatformAdapter)>,
     deadline: crate::Deadline,
 ) -> Result<(ActionabilityReport, Option<crate::HeadedRequirement>), AdapterError> {
-    let requirement = if request.policy.is_headed() {
-        hit_test
-            .map(|(handle, adapter)| adapter.headed_requirement(handle, request, deadline))
-            .transpose()?
-    } else {
-        None
-    };
+    let requirement = hit_test
+        .map(|(handle, adapter)| adapter.headed_requirement(handle, request, deadline))
+        .transpose()?;
+    let foreground_denied = requirement
+        .is_some_and(|requirement| super::foreground::denies(requirement, request.policy));
     let mut semantic_request;
     let request = if requirement == Some(crate::HeadedRequirement::FocusedApplication) {
         semantic_request = request.clone();
@@ -156,9 +154,13 @@ fn build_report_with_requirement(
     let requirements = ActionabilityRequirements::for_action(&request.action);
     let pointer_delivery =
         requirements.pointer_delivery(&request.action, &evidence.available_actions, request.policy);
+    let presentation_point = evidence.bounds.and_then(center_point);
+    if foreground_denied {
+        let report = gates::foreground(presentation_point, evidence.bounds, pointer_delivery);
+        return Ok((report, requirement));
+    }
     let mut checks = Vec::new();
     let mut verified_point = None;
-    let presentation_point = evidence.bounds.and_then(center_point);
     let without_pointer = requirements.delivered_without_pointer(
         request,
         &evidence.available_actions,
@@ -257,6 +259,8 @@ fn finish(
     let code = report.terminal_code().unwrap_or(ErrorCode::ActionFailed);
     let suggestion = if code == ErrorCode::ActionFailed {
         "Wait for the target to become actionable, refresh the snapshot, or use an explicit physical/focus command if intended."
+    } else if report.checks.iter().any(gates::is_foreground) {
+        gates::FOREGROUND_SUGGESTION
     } else if evidence.state.role == "cell"
         && report.checks.iter().any(|check| {
             check.check == "editable" && check.status == super::status::ActionabilityStatus::Fail

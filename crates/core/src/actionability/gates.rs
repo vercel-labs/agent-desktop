@@ -202,6 +202,34 @@ pub(super) fn action_supported(
     )
 }
 
+pub(super) const FOREGROUND_SUGGESTION: &str = "This action opens a popup, menu or window that takes the foreground, which a headless request does not allow. Run it again with --headed only if taking the foreground is intended.";
+
+pub(super) fn is_foreground(check: &ActionabilityCheck) -> bool {
+    check.check == "foreground"
+}
+
+/// The report for a request whose policy denies the foreground the adapter
+/// says its action takes. It holds this one refusal and no other check, so one cause has
+/// one code whatever the element's bounds or state are doing.
+pub(super) fn foreground(
+    presentation_point: Option<crate::Point>,
+    bounds: Option<Rect>,
+    pointer_delivery: super::PointerDelivery,
+) -> super::report::ActionabilityReport {
+    let check = fail_terminal(
+        "foreground",
+        "the platform reports that this action takes the foreground, which headless policy denies",
+        ErrorCode::PolicyDenied,
+    );
+    super::report::ActionabilityReport::from_checks(
+        vec![check],
+        None,
+        presentation_point,
+        bounds,
+        pointer_delivery,
+    )
+}
+
 pub(super) fn policy(request: &ActionRequest) -> ActionabilityCheck {
     if request.action.requires_cursor_policy() && !request.policy.allow_cursor_move {
         return fail_terminal(

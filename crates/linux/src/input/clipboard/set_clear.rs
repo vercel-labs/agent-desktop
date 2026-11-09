@@ -9,7 +9,7 @@ use agent_desktop_core::{
 use crate::system::process::process_facts;
 use crate::system::signal::{self, Signal};
 
-use super::delivery::{fresh_deadline, not_delivered, unresponsive};
+use super::delivery::{fresh_deadline, unresponsive};
 use super::owner::owner_locate::locate_helper;
 use super::owner::owner_record::{self, OwnerRecord};
 use super::owner::owner_spawn::{
@@ -126,14 +126,14 @@ pub(crate) fn set_with(
     lease: &InteractionLease,
 ) -> Result<(), AdapterError> {
     let deadline = lease.deadline();
-    let payload = payload_of(content).map_err(not_delivered)?;
+    let payload = payload_of(content).map_err(AdapterError::unsent)?;
     let prior = env
         .server
         .owner(display, deadline)
         .map_err(|fault| fault_error(fault, None))?;
     let earlier = owner_record::records_in(env.record_dir, display, deadline)
         .map_err(|error| record_read_error(error, DeliverySemantics::not_delivered()))?;
-    deadline.ensure_remaining().map_err(not_delivered)?;
+    deadline.ensure_remaining().map_err(AdapterError::unsent)?;
     let mut child = start_owner(env, display, &payload)?;
     let mut probe = ChildProbe {
         child: &mut child,
@@ -244,7 +244,7 @@ pub(crate) fn clear_x11(display: &str, lease: &InteractionLease) -> Result<(), A
 }
 
 fn routed(server: DisplayServer) -> Result<Route, AdapterError> {
-    route::resolve(server).map_err(not_delivered)
+    route::resolve(server).map_err(AdapterError::unsent)
 }
 
 pub(crate) fn get_from(

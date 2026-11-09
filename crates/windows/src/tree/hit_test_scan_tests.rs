@@ -4,12 +4,11 @@
 const PATTERN_ALLOWLIST: &[&str] = &[
     "actions/scroll_into_view.rs",
     "actions/scroll_ladder.rs",
-    "actions/dispatch.rs",
+    "actions/chain.rs",
     "actions/value_write.rs",
     "actions/toggle_state.rs",
     "actions/disclosure.rs",
     "actions/select.rs",
-    "actions/select_search.rs",
     "actions/scroll.rs",
 ];
 
@@ -25,7 +24,7 @@ const HIT_TEST_FAMILY: [(&str, &str); 3] = [
     ),
 ];
 
-const GATE_SUPPORT: [(&str, &str); 10] = [
+const GATE_SUPPORT: [(&str, &str); 11] = [
     (
         "actions/scroll_into_view.rs",
         include_str!("../actions/scroll_into_view.rs"),
@@ -34,6 +33,7 @@ const GATE_SUPPORT: [(&str, &str); 10] = [
         "actions/scroll_ladder.rs",
         include_str!("../actions/scroll_ladder.rs"),
     ),
+    ("actions/chain.rs", include_str!("../actions/chain.rs")),
     (
         "actions/dispatch.rs",
         include_str!("../actions/dispatch.rs"),

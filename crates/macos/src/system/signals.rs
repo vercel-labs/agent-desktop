@@ -19,11 +19,6 @@ pub(crate) fn supported_surfaces_impl() -> Vec<SnapshotSurface> {
     ]
 }
 
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn supported_surfaces_impl() -> Vec<SnapshotSurface> {
-    vec![SnapshotSurface::Window]
-}
-
 #[cfg(target_os = "macos")]
 pub(crate) fn capture_signal_baseline_impl(
     filter: &SignalFilter,
@@ -52,14 +47,6 @@ pub(crate) fn capture_signal_baseline_impl(
         surfaces,
         completeness: SignalCompleteness::complete(),
     })
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn capture_signal_baseline_impl(
-    _filter: &SignalFilter,
-    _deadline: Deadline,
-) -> Result<SignalBaseline, AdapterError> {
-    Err(AdapterError::not_supported("capture_signal_baseline"))
 }
 
 #[cfg(target_os = "macos")]

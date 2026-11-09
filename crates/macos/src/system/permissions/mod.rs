@@ -107,28 +107,6 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    pub fn is_trusted() -> bool {
-        false
-    }
-    pub fn request_trust() -> bool {
-        false
-    }
-    pub fn screen_recording_granted() -> bool {
-        false
-    }
-    pub fn request_screen_recording() -> bool {
-        false
-    }
-    pub fn probe_automation_permission() -> i32 {
-        -600
-    }
-    pub fn request_automation_permission() -> bool {
-        false
-    }
-}
-
 pub(crate) fn report(deadline: Deadline) -> Result<PermissionReport, AdapterError> {
     deadline.ensure_remaining()?;
     let report = PermissionReport {

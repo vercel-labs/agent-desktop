@@ -42,7 +42,8 @@ pub(crate) fn resolve_vocabulary(
 ) -> ResolvedVocabulary {
     let traits = &node.traits;
     let placeholder = read_placeholder(&node.properties, &traits.role, &node.attributes);
-    let (name, description) = name_fields(&node.properties, &traits.role, &placeholder, label);
+    let (name, description, borrowed) =
+        name_fields(&node.properties, &traits.role, &placeholder, label);
     ResolvedVocabulary {
         role: resolve_role(traits, &node.attributes),
         states: resolve_states(&traits.role, &traits.states),
@@ -52,7 +53,8 @@ pub(crate) fn resolve_vocabulary(
             &node.properties.accessible_id,
             &node.attributes,
             in_web_document,
-        ),
+        )
+        .with_borrowed_name(borrowed),
         descriptor: descriptors(
             &traits.role,
             &traits.role_name,

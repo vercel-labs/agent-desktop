@@ -1,16 +1,13 @@
 use std::time::{Duration, Instant};
 
 use agent_desktop_core::{
-    AdapterError, DeliveryDisposition, ErrorCode, NativeHandle, RetryDisposition,
+    Action, AdapterError, ChainRung, DeliveryDisposition, DeliveryObservation, DeliveryOutcome,
+    ErrorCode, NativeHandle, RetryDisposition,
 };
 use zbus::zvariant::Value;
 
 use crate::actions::action_call::do_action;
-use crate::actions::chain::chain_def::ChainDef;
-use crate::actions::chain::chain_delivery_outcome::DeliveryOutcome;
-use crate::actions::chain::chain_observed::Observed;
-use crate::actions::chain::chain_rung::Rung;
-use crate::actions::chain::execute_chain;
+use crate::actions::chain::run_semantic_chain;
 use crate::actions::write::mutation::{WriteKind, WriteReply};
 use crate::actions::write::write_call::{Call, invoke};
 
@@ -69,35 +66,34 @@ fn write_live_the_chain_skips_an_absent_verb_and_reports_what_a_re_read_saw() {
         let before = probe.checked(&flag).expect("the state reads");
         let t = target(&probe, &handle, &flag, 5_000);
         let mut rungs = [
-            Rung {
+            ChainRung {
                 label: "Action.DoAction",
+                effects: &[],
                 run: Box::new(|| {
                     Ok(match do_action(&t, &names, &["no-such-verb"])? {
-                        WriteReply::Done => DeliveryOutcome::Delivered(Observed::Unread),
+                        WriteReply::Done => DeliveryOutcome::Delivered(DeliveryObservation::Unread),
                         WriteReply::Absent => DeliveryOutcome::NotDelivered,
                     })
                 }),
             },
-            Rung {
+            ChainRung {
                 label: "Action.DoAction",
+                effects: &[],
                 run: Box::new(|| match do_action(&t, &names, &TOGGLE_VERBS)? {
                     WriteReply::Absent => Ok(DeliveryOutcome::NotDelivered),
                     WriteReply::Done => {
                         let flipped = wait_until(SETTLE, || probe.checked(&flag) == Some(!before));
                         Ok(DeliveryOutcome::Delivered(if flipped {
-                            Observed::Matched
+                            DeliveryObservation::Verified
                         } else {
-                            Observed::Unchanged
+                            DeliveryObservation::Unverified
                         }))
                     }
                 }),
             },
         ];
-        let def = ChainDef {
-            action: "toggle",
-            suggestion: "refresh",
-        };
-        let result = execute_chain(&def, &mut rungs, t.deadline).expect("the chain delivers");
+        let result = run_semantic_chain(&Action::Toggle, &mut rungs, t.deadline, "refresh")
+            .expect("the chain delivers");
         println!("write_live {label}: chain {:?}", result.disposition());
         assert_eq!(result.steps.len(), 2, "[{label}]");
         assert_eq!(result.steps[0].verified(), None, "[{label}]");

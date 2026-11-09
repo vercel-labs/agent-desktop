@@ -1,14 +1,20 @@
-//! `ScrollItemPattern.ScrollIntoView` with delivery judged by observation.
+//! Scroll-to with delivery judged by observation.
 //!
-//! When the gate is unavailable or invoke leaves geometry unchanged, a
-//! scrollable ancestor runs the ladder (A19-7); without one the unsupported /
-//! not-delivered arms stay unchanged. Provider rects are unclipped (A18-2), so
+//! A target already in view delivers nothing. A native list box item scrolls
+//! through `LB_SETTOPINDEX` (`scroll_list_box`). Otherwise
+//! `ScrollItemPattern.ScrollIntoView` runs; it changes no foreground state on
+//! WPF (C9) and activates the window on proxied controls (W-W0-7), so off
+//! WPF it is a headed rung. When the gate is unavailable or invoke leaves
+//! geometry unchanged, a scrollable ancestor runs the ScrollPattern ladder
+//! (A19-7), also a headed rung; without one the unsupported / not-delivered
+//! arms stay unchanged. A headless scroll-to whose only routes are headed
+//! returns `POLICY_DENIED`. Provider rects are unclipped (A18-2), so
 //! verified visibility needs viewport intersection. Invoke failures keep tagged
 //! `UiaFailure`; completed observation disposition outranks the classifier
 //! (A18).
 
 use agent_desktop_core::{
-    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionLease, Rect,
+    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionLease, InteractionPolicy, Rect,
 };
 
 use crate::actions::chain::DeliveryOutcome;
@@ -17,15 +23,16 @@ use crate::actions::chain::DeliveryOutcome;
 mod imp {
     use super::{
         AdapterError, Deadline, DeliveryOutcome, DeliverySemantics, ErrorCode, InteractionLease,
-        Rect,
+        InteractionPolicy, Rect,
     };
-    use crate::actions::chain::after_delivery;
+    use crate::actions::chain::{ALREADY_LABEL, after_delivery, foreground_denied, poll_until};
     use crate::actions::mutation::classify_mutation;
     use crate::actions::scroll::known_bounds;
     use crate::actions::scroll_ladder::{
         LADDER_SCROLL_LABEL, VisibilitySample, ancestor_ladder, apply_ladder_seam,
         observe_visibility, visibility_verified,
     };
+    use crate::actions::scroll_list_box::{native_list_box_item, scroll_list_box_item};
     use crate::tree::automation::{ERR_NONE, UiaFailure, automation_client, failure_of};
     use crate::tree::element::{UIAElement, uia_element};
     use crate::tree::live_read::corroborate_verified_process;
@@ -40,6 +47,7 @@ mod imp {
     const VERIFY_WINDOW: Duration = Duration::from_millis(800);
     const POLL_SLICE: Duration = Duration::from_millis(20);
     pub(crate) const SCROLL_INTO_VIEW_API: &str = "ScrollItemPattern.ScrollIntoView";
+    const LIST_BOX_LABEL: &str = "Win32.LB_SETTOPINDEX";
     const SCROLL_INTO_VIEW_OP: &str = "ScrollIntoView";
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,38 +63,83 @@ mod imp {
         pub(crate) outcome: DeliveryOutcome,
     }
 
+    /// The scroll core asks for during an action's actionability wait. The
+    /// adapter contract carries no interaction policy, so it runs only the
+    /// routes with no foreground effect.
     pub fn scroll_into_view_impl(
         handle: &NativeHandle,
         lease: &InteractionLease,
     ) -> Result<(), AdapterError> {
-        scroll_into_view_outcome(handle, lease).map(|_| ())
+        scroll_into_view_outcome(handle, lease, InteractionPolicy::headless()).map(|_| ())
     }
 
     pub(crate) fn scroll_into_view_outcome(
         handle: &NativeHandle,
         lease: &InteractionLease,
+        policy: InteractionPolicy,
     ) -> Result<ScrollIntoViewDone, AdapterError> {
         let element = uia_element(handle)?;
         let deadline = lease.deadline();
         deadline.ensure_remaining()?;
         corroborate_verified_process(element)?;
-        scroll_into_view_element(element, deadline)
+        scroll_into_view_element(element, policy, deadline)
     }
 
     fn scroll_into_view_element(
         element: &UIAElement,
+        policy: InteractionPolicy,
         deadline: Deadline,
     ) -> Result<ScrollIntoViewDone, AdapterError> {
-        if !scroll_item_available(element) {
-            return ladder_from_terminal(unsupported_error(), element, deadline);
-        }
         let client = automation_client()?;
         let walker = client.get_raw_view_walker().ok();
+        let lookup = resolve_scroll_viewport(element, walker.as_ref(), deadline);
+        let viewport_resolved = lookup.is_some();
+        let viewport = lookup.flatten();
+        let observe = || {
+            let bounds = viewport
+                .as_ref()
+                .map(viewport_bounds)
+                .transpose()?
+                .flatten();
+            observe_visibility(element, bounds, deadline, "after scroll")
+        };
+        if viewport_resolved && visibility_verified(&observe()?) {
+            return Ok(ScrollIntoViewDone {
+                label: ALREADY_LABEL,
+                outcome: DeliveryOutcome::SatisfiedNoDelivery,
+            });
+        }
+        if let Some((list, name)) = native_list_box_item(element)
+            && scroll_list_box_item(list, &name, deadline)?
+        {
+            let verified = poll_until(deadline, VERIFY_WINDOW, || {
+                observe().is_ok_and(|sample| visibility_verified(&sample))
+            })
+            .map_err(after_delivery)?;
+            return Ok(ScrollIntoViewDone {
+                label: LIST_BOX_LABEL,
+                outcome: DeliveryOutcome::from_delivery(true, verified),
+            });
+        }
+        let ladder = |fallback: AdapterError| {
+            if policy.is_headed() {
+                ladder_from_terminal(fallback, element, deadline)
+            } else if viewport.is_some() {
+                Err(foreground_denied(&[LADDER_SCROLL_LABEL], policy))
+            } else {
+                Err(fallback)
+            }
+        };
+        if !scroll_item_available(element) {
+            return ladder(unsupported_error());
+        }
+        if !policy.is_headed() && !is_wpf(element) {
+            return Err(foreground_denied(&[SCROLL_INTO_VIEW_API], policy));
+        }
         let before = known_bounds(element);
-        let viewport = resolve_scroll_viewport(element, walker.as_ref(), deadline);
         let invoke_failure = match invoke_scroll_into_view(element) {
             InvokeOutcome::EmptyPattern => {
-                return ladder_from_terminal(unsupported_error(), element, deadline);
+                return ladder(unsupported_error());
             }
             InvokeOutcome::Failed(failure) => Some(failure),
             InvokeOutcome::Succeeded => None,
@@ -107,9 +160,7 @@ mod imp {
                 label: SCROLL_INTO_VIEW_API,
                 outcome: DeliveryOutcome::DeliveredVerified,
             }),
-            Err(error) if error.disposition == DeliverySemantics::not_delivered() => {
-                ladder_from_terminal(error, element, deadline)
-            }
+            Err(error) if error.disposition == DeliverySemantics::not_delivered() => ladder(error),
             Err(error) => Err(error),
         }
     }
@@ -127,17 +178,14 @@ mod imp {
         })
     }
 
-    /// Climb once per operation; a truncated climb leaves the viewport unresolved.
+    /// Climb once per operation. `None` means the climb failed or was cut
+    /// short, which is not the same as a target with no scroll viewport.
     fn resolve_scroll_viewport(
         element: &UIAElement,
         walker: Option<&UITreeWalker>,
         deadline: Deadline,
-    ) -> Option<UIAElement> {
-        walker.and_then(|walker| {
-            nearest_scroll_viewport(element, walker, deadline)
-                .ok()
-                .flatten()
-        })
+    ) -> Option<Option<UIAElement>> {
+        walker.and_then(|walker| nearest_scroll_viewport(element, walker, deadline).ok())
     }
 
     pub(crate) fn scroll_into_view_judged_for(
@@ -272,6 +320,13 @@ mod imp {
         bounds.filter(rect_has_area)
     }
 
+    fn is_wpf(element: &UIAElement) -> bool {
+        element
+            .0
+            .get_framework_id()
+            .is_ok_and(|framework| framework == "WPF")
+    }
+
     fn scroll_item_available(element: &UIAElement) -> bool {
         read_one(element, TreeProperty::ScrollItemAvailable).flag() == Some(true)
     }
@@ -314,6 +369,7 @@ mod imp {
     pub(crate) fn scroll_into_view_outcome(
         _handle: &NativeHandle,
         _lease: &InteractionLease,
+        _policy: super::InteractionPolicy,
     ) -> Result<ScrollIntoViewDone, AdapterError> {
         Err(AdapterError::not_supported("scroll_into_view"))
     }

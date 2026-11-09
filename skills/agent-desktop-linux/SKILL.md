@@ -42,7 +42,7 @@ Observation and semantic actions need no helper tool.
 | Focus | `focus` | Needs `--headed` for the focus permission. Calls AT-SPI `Component.GrabFocus` on a focusable node that is not yet `focused`, not the pointer, and verifies the state; a GTK4 app rejects the call, so `focus` ends `ACTION_FAILED` `grab_focus_rejected` there and `focus-window` is the way to focus its window |
 | Keyboard and mouse | `press`, `mouse-click`, `mouse-move`, `mouse-wheel` | `press` and text keys work on X11 and capability-detected Mutter Wayland sessions; pointer commands are X11 and `--headed`. See `references/display-servers-and-input.md` |
 | Held input | `key-down`, `key-up`, `mouse-down`, `mouse-up` | Fail closed on every platform: on Linux, `key-down` and `key-up` with `ACTION_NOT_SUPPORTED`; `mouse-down` and `mouse-up` with `POLICY_DENIED` headless and `ACTION_NOT_SUPPORTED` with `--headed` |
-| App and window | `launch`, `close-app`, `list-windows`, `list-apps`, `focus-window`, `move-window`, `resize-window`, `minimize`, `maximize`, `restore` | Launch and listing work on X11 and Wayland; `focus-window` requires X11. Other window control and graceful close need an X11 client. See `references/windows-and-lifecycle.md` |
+| App and window | `launch`, `close-app`, `list-windows`, `list-apps`, `focus-window`, `move-window`, `resize-window`, `minimize`, `maximize`, `restore` | Launch and listing work on X11 and Wayland; `focus-window` requires X11. Other window control and graceful close need an X11 client. Headless, a graceful `close-app` is `POLICY_DENIED` (a save prompt would take the foreground): use `--force` or `--headed`. See `references/windows-and-lifecycle.md` |
 | Displays | `list-displays` | Works |
 | Capture | `screenshot` | X11: a window without permission; a display only under a non-compositing manager. Wayland: portal consent, with display cropping. No selector returns the primary display. See `references/capture-and-clipboard.md` |
 | Clipboard | `clipboard-get`, `clipboard-set`, `clipboard-clear` | Works; text, images and file lists. Wayland needs `wl-clipboard` |
@@ -109,6 +109,11 @@ Observation and semantic actions need no helper tool.
   command.
 - **Blocked key combos refuse without `--force`.** See
   `references/display-servers-and-input.md`.
+- **Opening a popup needs `--headed`.** A headless `click`, `double-click`,
+  `triple-click` or `expand` on a menu button or an element with the
+  `haspopup` state returns `POLICY_DENIED` (`details.effect: "focus_steal"`)
+  before anything is sent: the opened popup takes the user's keystrokes. A
+  headless `select` on a combo box still works.
 - **After opening a menu-role popup, inspect `data.surfaces`.** A `menu` entry
   leads to `snapshot --surface menu --app <name> -i`. If absent, use
   `wait --menu` and `list-surfaces` before assuming the opener failed. A
@@ -132,10 +137,11 @@ agent-desktop wait --window "Text Editor" --app gnome-text-editor --timeout 1000
 ```
 
 To wait for a close that you cause, batch it so the baseline is taken before the
-close (Calculator has no unsaved-document prompt to interrupt it):
+close. Calculator has no unsaved work, so `force` ends it headless without a
+prompt:
 
 ```bash
-agent-desktop batch '[{"command":"close-app","args":{"app":"gnome-calculator"}},{"command":"wait","args":{"event":"window-closed","app":"gnome-calculator","timeout":10000}}]' --stop-on-error
+agent-desktop batch '[{"command":"close-app","args":{"app":"gnome-calculator","force":true}},{"command":"wait","args":{"event":"window-closed","app":"gnome-calculator","timeout":10000}}]' --stop-on-error
 ```
 
 To watch someone else close a window, start
@@ -193,8 +199,36 @@ cursor; on Wayland none is drawn.
   combo shows. Headless, a list refuses with `selection_index_unproven`, and a
   combo with no semantic opener with `POLICY_DENIED`, kind `pointer_required`,
   unless the combo already shows the choice. A GTK4 drop-down that opens through
-  its own toggle takes `select` without `--headed` and checks the value it
-  shows.
+  its own toggle takes `--headed select` and checks the value it shows.
+- Headless, an action that would take the foreground is `POLICY_DENIED` with
+  check `foreground`, before any other check and before anything is sent:
+  `click`, `right-click`, `toggle`, `check`, `uncheck`, `expand` or `select` on
+  an element that advertises `ShowMenu` (a Qt menu bar entry), and, on every
+  toolkit but GTK3, on a popup opener with no `Selection` interface (a GTK4
+  drop-down, a menu button, or the toggle inside one). Off GTK3, a `click`,
+  `toggle`, `check` or `uncheck` on a control whose label ends in `…` or `...`,
+  the convention for a control that opens a dialog, is refused the same way. On
+  Mutter these move the keyboard into the popup or activate the new window. Use
+  `--headed` when that is intended. GTK3 popover toggles and dialog openers stay
+  in the background and are not refused. A `select` whose drop-down already
+  shows the choice succeeds without delivery.
+- Intended headless changes in this release, each refused with `POLICY_DENIED`,
+  check `foreground`, and `not_delivered`; rerun with `--headed` when taking the
+  foreground is intended:
+  - `select` or `expand` on a GTK4 drop-down without `Selection` (Calculator's
+    angle unit; it took the keyboard into the popup, L-W0-12).
+  - `click` on a GTK4 or Qt dialog opener (Settings `Test…`, Kate
+    `Configure Kate...`; the dialog took activation).
+  - `click` or `right-click` on a Qt menu bar entry (`ShowMenu`; the menu opened
+    over the user's window).
+  - `focus` on every toolkit, as before (GTK3 `GrabFocus` raises the window).
+  - graceful `close-app`, `details.kind: may_prompt`: an app with unsaved work
+    opens its save prompt over the user's window, and nothing tells beforehand.
+    `--force` ends the app without a prompt (it discards unsaved work);
+    `--headed` sends the close request.
+- An item of a closed Qt menu bar menu is actionable headless while its menu
+  bar entry is showing: `click @ref` presses it without opening the menu. Its
+  snapshot state stays `hidden`.
 - A ref can expose no safe semantic mutation route. Headless requests then
   return an unsupported-action error without inventing `hidden` or `disabled`
   state and without switching to physical input. GTK4 entry and password

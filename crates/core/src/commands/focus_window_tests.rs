@@ -89,6 +89,7 @@ fn reports_focused_window_after_os_confirms_focus() {
             title: None,
         },
         &adapter,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
 
@@ -114,6 +115,7 @@ fn errors_when_focus_does_not_settle_on_requested_window() {
             title: None,
         },
         &adapter,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap_err();
 
@@ -137,6 +139,7 @@ fn falls_back_to_focused_window_list_when_direct_observation_is_unsupported() {
             title: None,
         },
         &adapter,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
 
@@ -192,8 +195,36 @@ fn app_filter_results_are_not_discarded_by_display_name() {
             title: None,
         },
         &adapter,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
 
     assert_eq!(value["focused"]["id"], "w1");
+}
+
+#[test]
+fn headless_focus_window_is_refused_before_any_window_is_read() {
+    let target = window("w1", false);
+    let adapter = FocusAdapter {
+        windows: vec![target.clone()],
+        focused_windows: Mutex::new(vec![window("w1", true)]),
+        focused_window_calls: Mutex::new(0),
+        focused_window_supported: true,
+    };
+    let err = execute(
+        FocusWindowArgs {
+            window_id: Some(target.id),
+            app: None,
+            title: None,
+        },
+        &adapter,
+        crate::InteractionPolicy::headless(),
+    )
+    .unwrap_err();
+    let crate::AppError::Adapter(err) = err else {
+        panic!("a policy refusal is an adapter error");
+    };
+    assert_eq!(err.code, crate::ErrorCode::PolicyDenied);
+    assert_eq!(err.details.unwrap()["effect"], "focus_steal");
+    assert_eq!(*adapter.focused_window_calls.lock().unwrap(), 0);
 }

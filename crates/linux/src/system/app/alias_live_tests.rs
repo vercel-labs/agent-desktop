@@ -47,6 +47,7 @@ fn ambiguous_exec_and_try_exec_names_cannot_close_another_app() {
                 CloseAppArgs {
                     app: query.to_owned(),
                     force: false,
+                    policy: agent_desktop_core::InteractionPolicy::headed(),
                 },
                 &adapter,
             )
@@ -65,6 +66,7 @@ fn ambiguous_exec_and_try_exec_names_cannot_close_another_app() {
                 CloseAppArgs {
                     app: program.rsplit('/').next().expect("basename").to_owned(),
                     force: false,
+                    policy: agent_desktop_core::InteractionPolicy::headed(),
                 },
                 &adapter,
             )
@@ -85,6 +87,7 @@ fn ambiguous_exec_and_try_exec_names_cannot_close_another_app() {
             CloseAppArgs {
                 app: "AD Alias Client".to_owned(),
                 force: false,
+                policy: agent_desktop_core::InteractionPolicy::headed(),
             },
             &adapter,
         )

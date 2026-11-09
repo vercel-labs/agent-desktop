@@ -29,14 +29,6 @@ pub(crate) fn read_bounds_with_deadline(
         .and_then(|(point, size)| rect_from_parts(point, size)))
 }
 
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn read_bounds_with_deadline(
-    _element: &AXElement,
-    _deadline: Deadline,
-) -> Result<Option<Rect>, agent_desktop_core::AdapterError> {
-    Ok(None)
-}
-
 pub(crate) fn owning_window_bounds(
     element: &AXElement,
     deadline: Deadline,

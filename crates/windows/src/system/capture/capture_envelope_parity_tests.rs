@@ -159,6 +159,7 @@ fn clipboard_get_set_clear_data_shapes_match_core_serialization() {
                     file_urls: vec![],
                 },
                 &adapter,
+                agent_desktop_core::InteractionPolicy::headed(),
             )
             .expect("clipboard-set");
             assert_eq!(
@@ -215,7 +216,9 @@ fn clipboard_get_set_clear_data_shapes_match_core_serialization() {
             assert!(!bytes.is_empty());
             let _ = std::fs::remove_file(&written);
 
-            let cleared = clipboard_clear::execute(&adapter).expect("clipboard-clear");
+            let cleared =
+                clipboard_clear::execute(&adapter, agent_desktop_core::InteractionPolicy::headed())
+                    .expect("clipboard-clear");
             assert_eq!(
                 keys_of(&cleared),
                 ["action", "disposition", "steps", "target"]

@@ -199,11 +199,6 @@ pub(crate) fn startup_state(pid: i32) -> StartupState {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn startup_state(_pid: i32) -> StartupState {
-    StartupState::NoRecord
-}
-
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
     fn agent_desktop_terminate_application(
@@ -216,27 +211,6 @@ unsafe extern "C" {
     fn agent_desktop_ensure_cocoa_multithreaded() -> u8;
     fn agent_desktop_copy_workspace_snapshot_json(frontmost_only: u8) -> BytesResult;
     fn agent_desktop_free_bridge_bytes(bytes: *mut u8);
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn terminate(
-    _pid: i32,
-    _expected_launch_time: f64,
-    _force: bool,
-) -> Result<TerminationOutcome, AdapterError> {
-    Err(AdapterError::not_supported("terminate application"))
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn ensure_cocoa_multithreaded() -> Result<(), String> {
-    Err("AppKit is unavailable".into())
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn workspace_snapshot_json() -> Result<Vec<u8>, AdapterError> {
-    Err(AdapterError::not_supported(
-        "workspace application snapshot",
-    ))
 }
 
 #[cfg(test)]

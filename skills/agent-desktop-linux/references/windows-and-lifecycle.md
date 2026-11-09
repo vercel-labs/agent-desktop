@@ -68,6 +68,8 @@ agent-desktop launch gnome-text-editor --arg=/tmp/note.txt
   5 s for a new window when windows were already open. `--timeout` (default
   30000) caps both; `--activate` uses the full remaining timeout for the window
   wait.
+- `--activate` needs `--headed`; headless, `launch --activate` returns
+  `POLICY_DENIED` and nothing is launched.
 - A refused `--activate` does not fail `launch`: it answers `ok: true` with a
   `data.suggestion` that starts `The window could not be brought forward:` and
   gives the reason, and `window.is_focused` is `false`. Read `data.suggestion`:
@@ -104,6 +106,15 @@ agent-desktop launch gnome-text-editor --arg=/tmp/note.txt
 
 `close-app` closes the app, including all its windows, and succeeds only when the
 process is gone. The core `commands-system` reference covers closing one window.
+
+Headless, a graceful `close-app` is `POLICY_DENIED`, `details.check: foreground`,
+`details.kind: may_prompt`, before any close request: an app with unsaved work
+answers the request with a save prompt that takes the foreground on Mutter, and
+no accessibility or X11 property tells beforehand that it will. `close-app
+--force` ends the app with `SIGTERM`, then `SIGKILL`, with no prompt and no
+change to the user's window; it discards unsaved work. `agent-desktop --headed
+close-app` sends the close request and answers `ACTION_FAILED`,
+`details.cause: dialog_pending`, when a prompt opens.
 
 A single-instance app such as GNOME Text Editor can hand a `launch` with arguments
 to the instance that already runs. When exactly one matching instance opens a
@@ -230,7 +241,7 @@ Reports carry `action`, `target`, `steps` and `disposition`, without a `moved`,
 ## Focus
 
 ```bash
-agent-desktop focus-window --app gnome-calculator
+agent-desktop focus-window --app gnome-calculator --headed
 ```
 
 `focus-window` succeeds only when `_NET_ACTIVE_WINDOW` names the window and its
@@ -340,7 +351,7 @@ diffs a baseline taken at the start against fresh reads. On Linux:
   your own, the closed wait holds until the menu was seen open, or for 2 s.
 - A hidden menu bar opens nothing, so `--menu` times out with "No menu opened
   before the deadline".
-- For an already-focused menu or Save As dialog, `agent-desktop press escape`
+- For an already-focused menu or Save As dialog, `agent-desktop press escape --headed`
   sends Escape to the current keyboard focus. Omit `--app` and `--window-id` for
   this global form: scoped delivery checks the application's active frame, while
   a popup can own the keyboard grab. Confirm the intended app is focused first,
@@ -364,7 +375,7 @@ diffs a baseline taken at the start against fresh reads. On Linux:
   sheet (a separate window or an alert drawn inside the window):
 
   ```bash
-  agent-desktop batch '[{"command":"close-app","args":{"app":"gnome-text-editor"}},{"command":"wait","args":{"event":"surface-appeared","app":"gnome-text-editor","timeout":5000}}]'
+  agent-desktop --headed batch '[{"command":"close-app","args":{"app":"gnome-text-editor"}},{"command":"wait","args":{"event":"surface-appeared","app":"gnome-text-editor","timeout":5000}}]'
   agent-desktop snapshot --app gnome-text-editor --surface sheet -i --compact
   ```
 
