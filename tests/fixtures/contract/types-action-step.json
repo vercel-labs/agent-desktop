@@ -1,0 +1,1 @@
+[{"label":"focus","outcome":"attempted"},{"label":"scroll","outcome":"skipped"},{"label":"press","outcome":"succeeded"},{"label":"press","mechanism":"physical_synthetic","outcome":"succeeded","verified":false},{"label":"press","mechanism":"semantic_api","outcome":"skipped","verified":true}]

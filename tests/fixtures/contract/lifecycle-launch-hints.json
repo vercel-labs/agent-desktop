@@ -1,0 +1,1 @@
+[{"app":"Fixture","pid":42},{"app":"Fixture","pid":42,"renderer":"chromium","suggestion":"Chromium app: for web-content work, run close-app and then launch --cdp, then drive the web contents with agent-browser or any CDP client. Accessibility commands still cover everything, including native menus and dialogs."}]

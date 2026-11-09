@@ -1,0 +1,1 @@
+[{"id":"w-12","kind":"window","process":{"instance":"start-time:1700000000","pid":4242},"title":"Untitled"},{"kind":"app","name":"Fixture","process":{"instance":"","pid":7}},{"kind":"pointer","point":{"x":10.5,"y":20.0}},{"from":{"x":1.0,"y":2.0},"kind":"drag","to":{"x":300.0,"y":400.25}},{"kind":"clipboard"}]

@@ -1,0 +1,1 @@
+{"delivered_unverified":{"delivery":"delivered_unverified","retry":"unsafe"},"delivered_verified":{"delivery":"delivered_verified","retry":"unsafe"},"delivery_uncertain":{"delivery":"delivery_uncertain","retry":"unsafe"},"not_delivered":{"delivery":"not_delivered","retry":"safe"},"unknown":{"delivery":"unknown","retry":"unknown"}}

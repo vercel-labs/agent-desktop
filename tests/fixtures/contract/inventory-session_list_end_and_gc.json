@@ -1,0 +1,1 @@
+[{"sessions":[{"artifacts":"events","created_at":1000,"ended_at":null,"name":null,"session_id":"open-run","trace":"off"},{"artifacts":"full","created_at":2000,"ended_at":5000,"name":"ended run","session_id":"ended-run","trace":"on"}]},{"ended_at":5000,"session_id":"ended-run"},{"removed":["ended-run"]}]
