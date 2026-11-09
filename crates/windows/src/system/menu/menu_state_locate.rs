@@ -116,8 +116,7 @@ fn locate_in_tool_windows(
     if candidates.is_empty() {
         return Ok(None);
     }
-    let client =
-        crate::tree::automation::automation_client().map_err(super::narrow_to_permitted_codes)?;
+    let client = crate::tree::automation::automation_client()?;
     let condition = super::menu_family_condition(&client)?;
     for (index, handle) in candidates.into_iter().enumerate() {
         if index > 0 {

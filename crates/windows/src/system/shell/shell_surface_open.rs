@@ -1,11 +1,12 @@
 use agent_desktop_core::{
     AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionPolicy, SnapshotSurface,
-    WindowInfo,
+    SurfaceOpening, WindowInfo,
 };
 
 use super::shell_surface::{
     SurfaceDismiss, SurfaceFamily, SurfaceKindRow, SurfaceRaise, kebab, refusal_error, row_for,
 };
+use super::shell_surface_opening::opening_of;
 #[cfg(all(test, target_os = "windows"))]
 pub(in crate::system) use super::shell_surface_raise::accelerator_probe;
 use super::shell_surface_raise::raise_row;
@@ -18,7 +19,7 @@ pub(crate) fn open_surface(
     kind: SnapshotSurface,
     policy: InteractionPolicy,
     deadline: Deadline,
-) -> Result<WindowInfo, AdapterError> {
+) -> Result<SurfaceOpening, AdapterError> {
     let Some(row) = row_for(kind) else {
         return Err(super::shell_surface::unknown_surface_error(kind));
     };
@@ -50,24 +51,25 @@ fn require_foreground_policy(policy: InteractionPolicy) -> Result<(), AdapterErr
 pub(in crate::system) fn open_row(
     row: &SurfaceKindRow,
     deadline: Deadline,
-) -> Result<WindowInfo, AdapterError> {
+) -> Result<SurfaceOpening, AdapterError> {
     deadline.ensure_remaining()?;
     if !row.exists_on_build {
         return Err(refusal_error(row));
     }
-    if let Some(existing) = super::shell_surface::resolve_row(row, deadline)?
-        && surface_presented(row, deadline)?
-    {
-        return Ok(existing);
-    }
-    let pre_raise_children = match &row.family {
-        SurfaceFamily::Immersive { .. } => {
-            super::shell_surface_immersive::witness_immersive_children()?
-        }
-        SurfaceFamily::Win32Class(_) => Vec::new(),
+    let presented = match super::shell_surface::resolve_row(row, deadline)? {
+        Some(window) if surface_presented(row, deadline)? => Some(window),
+        _ => None,
     };
-    raise_row(row, deadline)?;
-    poll_until_observed(row, deadline, &pre_raise_children)
+    opening_of(presented, || {
+        let pre_raise_children = match &row.family {
+            SurfaceFamily::Immersive { .. } => {
+                super::shell_surface_immersive::witness_immersive_children()?
+            }
+            SurfaceFamily::Win32Class(_) => Vec::new(),
+        };
+        raise_row(row, deadline)?;
+        poll_until_observed(row, deadline, &pre_raise_children)
+    })
 }
 
 /// The open is never reported from the fact that the accelerator was sent or

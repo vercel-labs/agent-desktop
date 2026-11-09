@@ -215,7 +215,8 @@ agent-desktop list-notifications --app "Skill Example"
 
 Single-item `dismiss-notification` and `notification-action` require
 `--headed` and at least one of `--expected-app` / `--expected-title`.
-`dismiss-notification` returns the entry it removed as `data.dismissed`.
+`dismiss-notification` returns the entry it removed as `data.dismissed` with
+`disposition: delivered_verified`.
 
 - No identity flag: `INVALID_ARGS`. Headless mutation: `POLICY_DENIED`,
   `dismiss-all-notifications` on an empty list included.
@@ -243,11 +244,18 @@ Single-item `dismiss-notification` and `notification-action` require
   Re-list before deciding what remains. Do not repeat the old index blindly.
 - `dismiss-all-notifications` closes each entry in scope through its own header
   buttons, one at a time, and counts an entry as dismissed only when its own
-  object has left the list. It never presses the footer button, which has no
+  object has left the list; an entry that vanishes before its turn counts as
+  dismissed. It never presses the footer button, which has no
   property but its place. `--app` limits the scope. A headed empty dismiss-all
   returns zero without opening the message list. `dismiss-all-notifications`
   returns `data.dismissed_count`, and `data.failures` with `data.failed_count`
-  for entries that could not be closed.
+  for entries that could not be closed. `data.disposition` comes from each
+  entry's own delivery: `not_delivered` (`retry: safe`) when nothing was found
+  or every failure was never dispatched, `delivered_verified` (`retry:
+  unsafe`) when every entry was dismissed, `delivered_unverified` (`retry:
+  unsafe`) when any entry's dispatch started, and `delivered_verified`
+  (`retry: unsafe`) for a partial clear whose failures were all never
+  dispatched — a re-run captures a fresh listing, so the retry stays unsafe.
 - For `notification-action`, pass a name from the row's `actions` list, for
   example `Open`. The match ignores case. A missing action is
   `ACTION_NOT_SUPPORTED` with `available_actions`. If the entry's buttons are
@@ -275,7 +283,9 @@ two can work:
 | `taskbar` | `INVALID_ARGS`: no stock shell shows a dock |
 | `start-menu`, `system-tray-overflow`, other values | `INVALID_ARGS`, naming `system-tray`, `action-center` and `quick-settings` |
 
-Retrying an unsupported value gives the same refusal.
+Retrying an unsupported value gives the same refusal. A successful open
+reports `data.disposition`: `not_delivered` when the surface was already
+presented, `delivered_verified` when it was raised and then observed.
 
 ## StatusNotifierItem and AppIndicator tray
 

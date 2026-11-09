@@ -1,12 +1,12 @@
 //! The one place a locator that cannot prove its result becomes an error.
 //!
-//! The cause comes from the stats of the observation, so the message and the
-//! suggestion name the lever that helps: a larger `--timeout-ms` only when the
+//! Observation stats and the operation deadline determine the cause. The
+//! suggestion names the lever that helps: a larger `--timeout-ms` only when the
 //! deadline ran out, a narrower query when more time cannot change the answer.
 
-use super::{LocatorResolution, LocatorStats, resolve::has_deterministic_limit};
+use super::{LocatorResolution, LocatorStats, ObservedNode, ObservedTree};
 use crate::{AdapterError, ErrorCode};
-use serde_json::json;
+use serde_json::{Value, json};
 
 const DEADLINE_SUGGESTION: &str =
     "Retry with a larger --timeout-ms, or narrow the query with --role or --name.";
@@ -86,23 +86,119 @@ fn limits_hit(stats: &LocatorStats) -> Vec<&'static str> {
     .collect()
 }
 
+pub(super) fn has_deterministic_limit(stats: &LocatorStats) -> bool {
+    let limits = &stats.traversal.limits;
+    limits.node_hits > 0
+        || limits.edge_hits > 0
+        || limits.child_hits > 0
+        || limits.text_hits > 0
+        || limits.depth_hits > 0
+}
+
+pub(super) enum IncompleteLocator<'a> {
+    Resolution(&'a LocatorResolution),
+    Search(&'a LocatorResolution),
+    Deadline(crate::Deadline, &'a LocatorStats, Option<Value>),
+    SelectedQuery(&'a LocatorResolution),
+    SelectedEvidence(
+        &'a ObservedTree,
+        Option<&'a ObservedNode>,
+        &'a crate::LocatorQuery,
+        crate::BoundsSpace,
+    ),
+}
+
+impl IncompleteLocator<'_> {
+    pub(super) fn error(self) -> AdapterError {
+        let (stats, kind, mut details) = match &self {
+            Self::Resolution(resolution) | Self::Search(resolution) => {
+                let budget =
+                    matches!(self, Self::Search(_)) && has_deterministic_limit(&resolution.stats);
+                let mut details = json!({
+                    "observed_matches": resolution.meta.total_matches,
+                    "roles_present": resolution.meta.roles_present,
+                });
+                if budget {
+                    details["limits"] = json!(resolution.stats.traversal.limits);
+                }
+                (
+                    &resolution.stats,
+                    if budget {
+                        "locator_budget_limit"
+                    } else {
+                        "locator_incomplete"
+                    },
+                    details,
+                )
+            }
+            Self::Deadline(deadline, stats, last_incomplete) => (
+                *stats,
+                "locator_transient_incomplete",
+                json!({
+                    "timeout_ms": deadline.timeout_ms(),
+                    "observation_attempts": stats.reads.counts.observation_attempts,
+                    "last_incomplete": last_incomplete,
+                }),
+            ),
+            Self::SelectedQuery(resolution) => (
+                &resolution.stats,
+                if has_deterministic_limit(&resolution.stats) {
+                    "locator_selected_query_budget_limit"
+                } else {
+                    "locator_selected_query_incomplete"
+                },
+                json!({
+                    "selection_complete": resolution.meta.selection_complete,
+                    "observed_matches": resolution.meta.total_matches,
+                }),
+            ),
+            Self::SelectedEvidence(tree, node, query, space) => (
+                &tree.stats,
+                "locator_selected_evidence_incomplete",
+                json!({
+                    "structurally_complete": tree.structurally_complete,
+                    "root_count": tree.roots.len(),
+                    "required": {
+                        "name": query.identity.name.is_some(),
+                        "description": query.identity.description.is_some(),
+                        "value": query.identity.value.is_some(),
+                        "identifiers": query.identity.native_id.is_some(),
+                        "states": true,
+                        "bounds": true,
+                        "actions": true,
+                    },
+                    "unknown": node.map(|node| json!({
+                        "role": node.evidence.role.is_unknown(),
+                        "name": node.evidence.name.is_unknown(),
+                        "description": node.evidence.description.is_unknown(),
+                        "value": node.evidence.value.is_unknown(),
+                        "identifiers": !node.evidence.identifiers.is_complete(),
+                        "states": node.evidence.states.is_unknown(),
+                        "bounds": !super::hydrate::geometry_complete(&node.evidence.ref_evidence, *space),
+                        "actions": node.evidence.ref_evidence.available_actions.is_unknown(),
+                    })),
+                }),
+            ),
+        };
+        let cause = if matches!(self, Self::Deadline(..)) {
+            IncompleteCause::Deadline
+        } else {
+            IncompleteCause::of(stats)
+        };
+        details["kind"] = json!(kind);
+        details["cause"] = json!(cause.as_str());
+        details["retryable"] = json!(cause == IncompleteCause::Deadline);
+        details["query_stats"] = json!(stats);
+        AdapterError::new(ErrorCode::Timeout, cause.message(stats))
+            .with_suggestion(cause.suggestion())
+            .with_details(details)
+            .with_disposition(crate::DeliverySemantics::not_delivered())
+    }
+}
+
 /// Builds the `TIMEOUT` for a resolution that could not prove its result.
-/// `details.kind` is `locator_incomplete`; `details.cause` is `deadline`,
-/// `unreadable_elements` or `traversal_limit`, and `details.retryable` is true
-/// only for the deadline.
 pub fn incomplete_locator_error(resolution: &LocatorResolution) -> AdapterError {
-    let cause = IncompleteCause::of(&resolution.stats);
-    AdapterError::new(ErrorCode::Timeout, cause.message(&resolution.stats))
-        .with_suggestion(cause.suggestion())
-        .with_details(json!({
-            "kind": "locator_incomplete",
-            "cause": cause.as_str(),
-            "retryable": cause == IncompleteCause::Deadline,
-            "observed_matches": resolution.meta.total_matches,
-            "roles_present": resolution.meta.roles_present,
-            "query_stats": resolution.stats,
-        }))
-        .with_disposition(crate::DeliverySemantics::not_delivered())
+    IncompleteLocator::Resolution(resolution).error()
 }
 
 #[cfg(test)]

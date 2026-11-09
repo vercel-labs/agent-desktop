@@ -2,6 +2,7 @@ use agent_desktop_core::{
     AdapterError, Deadline, ErrorCode, InteractionPolicy, SnapshotSurface, WindowInfo,
 };
 
+use crate::actions::chain::foreground_route_allowed;
 use crate::system::shell::shell_surface::resolve_surface;
 use crate::system::shell::shell_surface_open::{close_surface, open_surface};
 
@@ -38,7 +39,7 @@ impl ActionCenterSession {
                 cleanup_on_drop: true,
             });
         }
-        if !policy.is_headed() {
+        if !foreground_route_allowed(policy) {
             return Err(closed_center_policy_error(policy));
         }
         Self::raise(policy, deadline)
@@ -57,7 +58,7 @@ impl ActionCenterSession {
     fn raise(policy: InteractionPolicy, deadline: Deadline) -> Result<Self, AdapterError> {
         match open_surface(SnapshotSurface::ActionCenter, policy, deadline) {
             Ok(surface) => Ok(Self {
-                hwnd: hwnd_of(&surface)?,
+                hwnd: hwnd_of(surface.window())?,
                 close_pending: true,
                 cleanup_on_drop: true,
             }),

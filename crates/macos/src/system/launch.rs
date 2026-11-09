@@ -1,15 +1,20 @@
 use agent_desktop_core::{
-    AdapterError, AppInfo, Deadline, DeliverySemantics, ErrorCode, WindowInfo,
-    system::launch_options::LaunchOptions, system::launch_result::LaunchResult,
+    AdapterError, AppInfo, Deadline, DeliverySemantics, ErrorCode, LaunchFacts, LaunchGuidance,
+    WindowInfo, system::launch_options::LaunchOptions, system::launch_result::LaunchResult,
 };
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use super::launch_window::{LaunchWindow, exact_window, windowless};
+use super::launch_window::exact_window;
 
 const MAX_ARGUMENT_COUNT: usize = 256;
 const MAX_ENVIRONMENT_COUNT: usize = 256;
 const MAX_LAUNCH_TEXT_BYTES: usize = 1024 * 1024;
-const STARTUP_GRACE: Duration = Duration::from_millis(1500);
+
+const ATTACHED_WITHOUT_DISPATCH: LaunchFacts = LaunchFacts {
+    attached: true,
+    activation_dispatched: false,
+    postcondition_observed: false,
+};
 
 enum LaunchTarget {
     Existing { pid: i32, process_instance: String },
@@ -42,90 +47,18 @@ pub(crate) fn launch_app_impl(
 
     let launched = crate::system::launch_workspace::open(id, options, deadline)?;
     validate_launched_target(&target, &launched).map_err(after_launch)?;
-    let window =
-        settled_window(launched.0, &launched.1, options, deadline).map_err(after_launch)?;
-    result_from_launched(&launched, window, id).map_err(after_launch)
-}
-
-/// Waits only for the windows the launch itself produces. Starting up is what
-/// creates them, so once the application reports that it finished starting up,
-/// every window it was going to open on its own already exists and further
-/// polling can only run out the deadline. An application that opens its first
-/// window in response to being brought forward — TextEdit, Preview, any
-/// document-based application — reports no window here, and `activate` is how a
-/// caller asks for one instead of waiting for one it never requested.
-#[cfg(target_os = "macos")]
-fn settled_window(
-    pid: i32,
-    process_instance: &str,
-    options: &LaunchOptions,
-    deadline: Deadline,
-) -> Result<Option<WindowInfo>, AdapterError> {
-    let mut poll_interval = Duration::from_millis(25);
-    let mut grace_ends_at = None;
-    let mut last_read_failure: Option<AdapterError>;
-    let mut unplaced = None;
-    let end = |unplaced: Option<LaunchWindow>, failure: Option<AdapterError>| match (
-        unplaced.and_then(LaunchWindow::report),
-        failure,
-    ) {
-        (Some(window), _) => Ok(Some(window)),
-        (None, Some(error)) => Err(error),
-        (None, None) => windowless(pid, process_instance),
-    };
-    loop {
-        match exact_window(pid, process_instance, deadline) {
-            Ok(LaunchWindow::Placed(window)) => return Ok(Some(window)),
-            Ok(LaunchWindow::Unnamed) => return windowless(pid, process_instance),
-            Ok(window @ LaunchWindow::Unplaced(_)) => {
-                unplaced = Some(window);
-                last_read_failure = None;
-            }
-            Ok(LaunchWindow::Absent) => last_read_failure = None,
-            Err(error) if window_read_is_not_ready_yet(&error) => last_read_failure = Some(error),
-            Err(error) => return Err(error),
-        }
-        if options.timeout_ms == 0
-            || (!options.activate && grace_over(grace_ends_at, Instant::now()))
-        {
-            return end(unplaced, last_read_failure);
-        }
-        if grace_ends_at.is_none() && startup_finished(pid, process_instance)? {
-            grace_ends_at = Instant::now().checked_add(STARTUP_GRACE);
-        }
-        let remaining = deadline.remaining();
-        if remaining.is_zero() {
-            return end(unplaced, last_read_failure);
-        }
-        std::thread::sleep(poll_interval.min(remaining));
-        poll_interval = (poll_interval * 3 / 2).min(Duration::from_millis(250));
+    let window = super::launch_settled::settled_window(launched.0, &launched.1, options, deadline)
+        .map_err(after_launch)?;
+    let mut facts = target_facts(&target);
+    if let LaunchTarget::Existing {
+        pid,
+        process_instance,
+    } = &target
+    {
+        facts.postcondition_observed =
+            super::launch_frontmost::frontmost_is(*pid, process_instance, deadline);
     }
-}
-
-#[cfg(target_os = "macos")]
-fn window_read_is_not_ready_yet(error: &AdapterError) -> bool {
-    matches!(error.code, ErrorCode::AppUnresponsive | ErrorCode::Timeout)
-}
-
-/// Ends the wait when the application has created whatever windows its launch
-/// produces. The window server keeps no record of a process that exited, and
-/// none of one that has not registered yet, so libproc decides which happened:
-/// a process that is gone ends the launch with an error rather than an answer
-/// about windows it will never open.
-#[cfg(target_os = "macos")]
-fn startup_finished(pid: i32, process_instance: &str) -> Result<bool, AdapterError> {
-    use crate::system::appkit_bridge::StartupState;
-    match crate::system::appkit_bridge::startup_state(pid) {
-        StartupState::Starting => Ok(false),
-        StartupState::Finished => Ok(true),
-        StartupState::NoRecord => {
-            if super::process::process_identity::matches_instance(pid, process_instance)? {
-                Ok(true)
-            } else {
-                Err(launch_target_gone(pid))
-            }
-        }
-    }
+    result_from_launched(&launched, window, id, facts).map_err(after_launch)
 }
 
 #[cfg(target_os = "macos")]
@@ -136,14 +69,6 @@ pub(super) fn launch_target_gone(pid: i32) -> AdapterError {
     )
     .with_details(serde_json::json!({ "pid": pid, "complete": false }))
     .with_suggestion("Check the application's own launch requirements, then retry.")
-}
-
-/// The grace covers the gap between an application reporting that it started
-/// and its first window reaching the window server. Waiting starts running out
-/// only once there is a completed startup to measure from.
-#[cfg(target_os = "macos")]
-fn grace_over(grace_ends_at: Option<Instant>, now: Instant) -> bool {
-    grace_ends_at.is_some_and(|end| now >= end)
 }
 
 /// The attaching path reports the display name, so the launching path has to
@@ -166,9 +91,11 @@ fn result_from_app(app: &AppInfo, window: Option<WindowInfo>) -> LaunchResult {
         pid: app.pid,
         process_instance: app.process_instance.clone(),
         window,
-        cdp: None,
-        renderer,
-        suggestion: None,
+        guidance: LaunchGuidance {
+            renderer,
+            ..LaunchGuidance::default()
+        },
+        disposition: ATTACHED_WITHOUT_DISPATCH.disposition(),
     }
 }
 
@@ -177,6 +104,7 @@ fn result_from_launched(
     launched: &(i32, String),
     window: Option<WindowInfo>,
     id: &str,
+    facts: LaunchFacts,
 ) -> Result<LaunchResult, AdapterError> {
     let renderer = crate::system::renderer_kind::detect_chromium(launched.0);
     Ok(LaunchResult {
@@ -185,9 +113,11 @@ fn result_from_launched(
             .map_err(|_| AdapterError::internal("Launched process identifier is out of range"))?,
         process_instance: Some(launched.1.clone()),
         window,
-        cdp: None,
-        renderer,
-        suggestion: None,
+        guidance: LaunchGuidance {
+            renderer,
+            ..LaunchGuidance::default()
+        },
+        disposition: facts.disposition(),
     })
 }
 
@@ -222,6 +152,22 @@ fn launch_target(
         .map(required_instance)
         .collect::<Result<Vec<_>, _>>()?;
     Ok(LaunchTarget::New { baseline_instances })
+}
+
+#[cfg(target_os = "macos")]
+fn target_facts(target: &LaunchTarget) -> LaunchFacts {
+    match target {
+        LaunchTarget::Existing { .. } => LaunchFacts {
+            attached: true,
+            activation_dispatched: true,
+            postcondition_observed: false,
+        },
+        LaunchTarget::New { .. } => LaunchFacts {
+            attached: false,
+            activation_dispatched: false,
+            postcondition_observed: true,
+        },
+    }
 }
 
 #[cfg(target_os = "macos")]

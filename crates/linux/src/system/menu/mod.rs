@@ -8,6 +8,7 @@ pub(crate) mod menu_found;
 pub(super) mod menu_popup;
 pub(crate) mod menu_surface;
 pub(super) mod menu_wait;
+pub(crate) mod nested_dialogs;
 pub(crate) mod nested_surface;
 pub(crate) mod overview;
 pub(in crate::system) mod surface_scan;

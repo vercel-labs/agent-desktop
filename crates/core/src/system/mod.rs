@@ -6,6 +6,8 @@ pub mod cdp_endpoint;
 pub mod display_info;
 pub(crate) mod image_buffer;
 pub(crate) mod image_format;
+pub(crate) mod launch_facts;
+pub(crate) mod launch_guidance;
 pub mod launch_options;
 pub mod launch_result;
 pub(crate) mod operation_report;

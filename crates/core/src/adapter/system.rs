@@ -156,20 +156,23 @@ pub trait SystemOps: Send + Sync {
 
     /// Raises an OS-chrome surface - the Start menu, the Action Center, the
     /// taskbar - and returns the identity of the window the surface actually
-    /// presents, in the same shape the window observation stack consumes. It
-    /// takes the lease because it mutates OS chrome and takes the foreground;
-    /// the policy travels separately because the lease carries no
-    /// focus-steal refusal. Implementations that raise anything must refuse with
-    /// `POLICY_DENIED` first when `policy.allow_focus_steal` is false, must
-    /// return an already-present surface without raising it again, and
-    /// must answer a kind their platform does not expose with a refusal that
-    /// names what a caller should ask for instead - never with this default.
+    /// presents, in the same shape the window observation stack consumes, with
+    /// whether the adapter raised it. It takes the lease because it mutates OS
+    /// chrome and takes the foreground; the policy travels separately because
+    /// the lease carries no focus-steal refusal. Implementations that raise
+    /// anything must refuse with `POLICY_DENIED` first when
+    /// `policy.allow_focus_steal` is false, must return an already-present
+    /// surface as `SurfaceOpening::Present` without raising it again, must
+    /// return `SurfaceOpening::Raised` only after observing the raised surface
+    /// presented, and must answer a kind their platform does not expose with a
+    /// refusal that names what a caller should ask for instead - never with
+    /// this default.
     fn open_system_surface(
         &self,
         _surface: crate::adapter::SnapshotSurface,
         _policy: InteractionPolicy,
         _lease: &InteractionLease,
-    ) -> Result<WindowInfo, AdapterError> {
+    ) -> Result<crate::SurfaceOpening, AdapterError> {
         Err(AdapterError::not_supported("open_system_surface"))
     }
 
@@ -379,7 +382,7 @@ pub trait SystemOps: Send + Sync {
         &self,
         _request: DismissAllNotificationsRequest<'_>,
         _lease: &InteractionLease,
-    ) -> Result<(Vec<NotificationInfo>, Vec<String>), AdapterError> {
+    ) -> Result<(Vec<NotificationInfo>, Vec<AdapterError>), AdapterError> {
         Err(AdapterError::not_supported("dismiss_all_notifications"))
     }
 

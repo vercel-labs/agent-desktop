@@ -10,7 +10,7 @@ use super::read::ListEntry;
 use super::session::{ActionCenterSession, close_session};
 use super::verify::{
     action_changed_state, dismiss_survived_error, entry_gone, read_settling_without, same_identity,
-    survivor_failures,
+    survivor_failure,
 };
 
 #[cfg(test)]
@@ -51,7 +51,7 @@ pub fn dismiss_all(
     app_filter: Option<&str>,
     policy: InteractionPolicy,
     deadline: Deadline,
-) -> Result<(Vec<NotificationInfo>, Vec<String>), AdapterError> {
+) -> Result<(Vec<NotificationInfo>, Vec<AdapterError>), AdapterError> {
     require_foreground_policy(policy)?;
     let session = ActionCenterSession::open(policy, deadline)?;
     let result = dismiss_all_impl(app_filter, session.hwnd(), deadline);
@@ -155,14 +155,14 @@ fn dismiss_all_impl(
     app_filter: Option<&str>,
     hwnd: isize,
     deadline: Deadline,
-) -> Result<(Vec<NotificationInfo>, Vec<String>), AdapterError> {
+) -> Result<(Vec<NotificationInfo>, Vec<AdapterError>), AdapterError> {
     let filter = build_filter(app_filter);
     let entries = list_entries(&filter, hwnd, deadline)?;
     if entries.is_empty() {
         return Ok((Vec::new(), Vec::new()));
     }
     let captured: Vec<NotificationInfo> = entries.into_iter().map(|entry| entry.info).collect();
-    let mut invoke_errors: Vec<(usize, String)> = Vec::new();
+    let mut invoke_errors: Vec<(usize, AdapterError)> = Vec::new();
     if app_filter.is_some() {
         dismiss_each_by_freshly_read_identity(
             &captured,
@@ -207,7 +207,7 @@ fn dismiss_each_by_freshly_read_identity(
     filter: &NotificationFilter,
     hwnd: isize,
     deadline: Deadline,
-    invoke_errors: &mut Vec<(usize, String)>,
+    invoke_errors: &mut Vec<(usize, AdapterError)>,
 ) -> Result<(), AdapterError> {
     for target in captured {
         let live = list_entries(filter, hwnd, deadline)?;
@@ -215,7 +215,7 @@ fn dismiss_each_by_freshly_read_identity(
             continue;
         };
         if let Err(error) = invoke_dismiss(&current.element, current.info.index) {
-            invoke_errors.push((target.index, error.to_string()));
+            invoke_errors.push((target.index, error));
         }
     }
     Ok(())
@@ -231,25 +231,19 @@ fn dismiss_each_by_freshly_read_identity(
 fn dismiss_all_failures(
     captured: &[NotificationInfo],
     current: &[NotificationInfo],
-    invoke_errors: &[(usize, String)],
-) -> Vec<String> {
-    if invoke_errors.is_empty() {
-        return survivor_failures(captured, current);
-    }
+    invoke_errors: &[(usize, AdapterError)],
+) -> Vec<AdapterError> {
     captured
         .iter()
         .filter(|member| !entry_gone(member, current))
         .map(|member| {
-            match invoke_errors
+            let mut failure = invoke_errors
                 .iter()
                 .find(|(index, _)| *index == member.index)
-            {
-                Some((_, message)) => format!("#{}: {}", member.index, message),
-                None => format!(
-                    "#{}: notification from the captured set is still present",
-                    member.index
-                ),
-            }
+                .map(|(_, error)| error.clone())
+                .unwrap_or_else(survivor_failure);
+            failure.message = format!("#{}: {}", member.index, failure.message);
+            failure
         })
         .collect()
 }

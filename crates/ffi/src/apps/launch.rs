@@ -114,7 +114,8 @@ mod tests {
     use agent_desktop_core::system::launch_options::LaunchOptions;
     use agent_desktop_core::{ActionOps, InputOps, ObservationOps, SystemOps};
     use agent_desktop_core::{
-        AdapterError, Deadline, InteractionLease, ProcessId, WindowInfo, WindowState,
+        AdapterError, Deadline, InteractionLease, LaunchFacts, LaunchGuidance, ProcessId,
+        WindowInfo, WindowState,
     };
 
     use super::*;
@@ -163,9 +164,13 @@ mod tests {
                     bounds: None,
                     state: WindowState::default(),
                 }),
-                cdp: None,
-                renderer: None,
-                suggestion: None,
+                guidance: LaunchGuidance::default(),
+                disposition: LaunchFacts {
+                    attached: false,
+                    activation_dispatched: false,
+                    postcondition_observed: true,
+                }
+                .disposition(),
             })
         }
     }

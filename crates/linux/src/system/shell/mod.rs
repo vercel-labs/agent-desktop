@@ -3,7 +3,7 @@ pub(crate) mod call_failure;
 pub(crate) mod located;
 use agent_desktop_core::{
     AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionLease, InteractionPolicy,
-    ObservationRequest, ObservationRoot, ObservedTree, SnapshotSurface, WindowInfo,
+    ObservationRequest, ObservationRoot, ObservedTree, SnapshotSurface, SurfaceOpening, WindowInfo,
 };
 
 use crate::system::{SharedBus, window::window_id};
@@ -97,7 +97,7 @@ pub(crate) fn open_surface(
     surface: SnapshotSurface,
     policy: InteractionPolicy,
     lease: &InteractionLease,
-) -> Result<WindowInfo, AdapterError> {
+) -> Result<SurfaceOpening, AdapterError> {
     let Some(kind) = kinds::kind_of(surface) else {
         return Err(unknown_kind_error(surface));
     };
@@ -109,7 +109,7 @@ pub(crate) fn open_surface(
         .with_suggestion("Open system-tray, action-center or quick-settings instead")
         .with_disposition(DeliverySemantics::not_delivered()));
     }
-    open::open(bus, kind, policy, lease).map(|(window, _)| window)
+    open::open(bus, kind, policy, lease).map(|(window, how)| how.opening(window))
 }
 
 pub(crate) fn observe_shell(

@@ -4,14 +4,14 @@
 //! through `LB_SETTOPINDEX` (`scroll_list_box`). Otherwise
 //! `ScrollItemPattern.ScrollIntoView` runs; it changes no foreground state on
 //! WPF (C9) and activates the window on proxied controls (W-W0-7), so off
-//! WPF it is a headed rung. When the gate is unavailable or invoke leaves
+//! WPF it is a foreground rung. When the gate is unavailable or invoke leaves
 //! geometry unchanged, a scrollable ancestor runs the ScrollPattern ladder
-//! (A19-7), also a headed rung; without one the unsupported / not-delivered
-//! arms stay unchanged. A headless scroll-to whose only routes are headed
-//! returns `POLICY_DENIED`. Provider rects are unclipped (A18-2), so
-//! verified visibility needs viewport intersection. Invoke failures keep tagged
-//! `UiaFailure`; completed observation disposition outranks the classifier
-//! (A18).
+//! (A19-7), also a foreground rung; without one the unsupported / not-delivered
+//! arms stay unchanged. A scroll-to whose policy does not allow focus steal and
+//! whose only routes take the foreground returns `POLICY_DENIED`. Provider
+//! rects are unclipped (A18-2), so verified visibility needs viewport
+//! intersection. Invoke failures keep tagged `UiaFailure`; completed
+//! observation disposition outranks the classifier (A18).
 
 use agent_desktop_core::{
     AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionLease, InteractionPolicy, Rect,
@@ -25,7 +25,9 @@ mod imp {
         AdapterError, Deadline, DeliveryOutcome, DeliverySemantics, ErrorCode, InteractionLease,
         InteractionPolicy, Rect,
     };
-    use crate::actions::chain::{ALREADY_LABEL, after_delivery, poll_until};
+    use crate::actions::chain::{
+        ALREADY_LABEL, after_delivery, foreground_route_allowed, poll_until,
+    };
     use crate::actions::mutation::classify_mutation;
     use crate::actions::scroll::known_bounds;
     use crate::actions::scroll_ladder::{
@@ -104,15 +106,14 @@ mod imp {
         {
             let verified = poll_until(deadline, VERIFY_WINDOW, || {
                 observe().is_ok_and(|sample| visibility_verified(&sample))
-            })
-            .map_err(after_delivery)?;
+            });
             return Ok(ScrollIntoViewDone {
                 label: LIST_BOX_LABEL,
                 outcome: DeliveryOutcome::from_delivery(true, verified),
             });
         }
         let ladder = |fallback: AdapterError| {
-            if policy.is_headed() {
+            if foreground_route_allowed(policy) {
                 ladder_from_terminal(fallback, element, deadline)
             } else if viewport.is_some() {
                 Err(agent_desktop_core::mechanisms_denied(
@@ -126,7 +127,7 @@ mod imp {
         if !scroll_item_available(element) {
             return ladder(unsupported_error());
         }
-        if !policy.is_headed() && !is_wpf(element) {
+        if !foreground_route_allowed(policy) && !is_wpf(element) {
             return Err(agent_desktop_core::mechanisms_denied(
                 &[SCROLL_INTO_VIEW_API],
                 policy,

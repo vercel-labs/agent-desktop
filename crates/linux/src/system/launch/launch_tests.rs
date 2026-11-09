@@ -31,11 +31,16 @@ fn window() -> WindowInfo {
     }
 }
 
+fn focus_answer(window: Option<WindowInfo>, dispatched: bool) -> FocusAnswer {
+    FocusAnswer { window, dispatched }
+}
+
 fn plan_of(argv: &[&str]) -> Plan {
     Plan {
         argv: argv.iter().map(|word| (*word).to_owned()).collect(),
         cwd: None,
         identity: None,
+        aliases: Vec::new(),
     }
 }
 
@@ -52,7 +57,7 @@ fn an_expired_baseline_deadline_prevents_spawning() {
         deadline: Deadline::after(0).unwrap(),
     };
     let error = launch
-        .start(&plan_of(&["/bin/true"]), &None, &[])
+        .start(&plan_of(&["/bin/true"]), &[])
         .expect_err("an expired launch must not start the process");
     assert_eq!(error.code, ErrorCode::Timeout);
     assert_eq!(error.disposition, DeliverySemantics::not_delivered());
@@ -221,13 +226,23 @@ fn a_refused_focus_still_reports_the_launch_and_says_why() {
         ..options()
     };
     let original = window();
-    let result = conclude(&owner(), Some(original.clone()), &asked, true, |_| {
-        Err(AdapterError::new(ErrorCode::ActionFailed, "no focus"))
-    });
+    let result = conclude(
+        &owner(),
+        Some(original.clone()),
+        &asked,
+        Arrival::Spawned,
+        |_| Err(AdapterError::new(ErrorCode::ActionFailed, "no focus")),
+    );
     let reported = result.window.expect("window");
     assert_eq!(reported.id, original.id);
     assert!(!reported.state.is_focused);
-    assert!(result.suggestion.expect("note").contains("no focus"));
+    assert!(
+        result
+            .guidance
+            .suggestion
+            .expect("note")
+            .contains("no focus")
+    );
 }
 
 #[test]
@@ -238,8 +253,8 @@ fn a_successful_activation_reports_the_window_read_after_the_request() {
     };
     let mut focused = window();
     focused.state.is_focused = true;
-    let result = conclude(&owner(), Some(window()), &asked, true, |_| {
-        Ok(Some(focused.clone()))
+    let result = conclude(&owner(), Some(window()), &asked, Arrival::Spawned, |_| {
+        Ok(focus_answer(Some(focused.clone()), true))
     });
     let reported = result.window.expect("window");
     assert_eq!(reported.id, focused.id);
@@ -253,10 +268,16 @@ fn an_activation_with_no_window_read_after_it_keeps_the_window_it_had() {
         ..options()
     };
     let original = window();
-    let result = conclude(&owner(), Some(original.clone()), &asked, true, |_| Ok(None));
+    let result = conclude(
+        &owner(),
+        Some(original.clone()),
+        &asked,
+        Arrival::Spawned,
+        |_| Ok(focus_answer(None, true)),
+    );
     let reported = result.window.expect("window");
     assert_eq!(reported.id, original.id);
-    assert!(result.suggestion.is_none());
+    assert!(result.guidance.suggestion.is_none());
 }
 
 #[test]
@@ -265,12 +286,24 @@ fn a_reused_instance_says_the_environment_and_directory_were_dropped() {
         env: BTreeMap::from([("A".to_owned(), "1".to_owned())]),
         ..options()
     };
-    let reused = conclude(&owner(), None, &with_env, false, |_| Ok(None));
-    assert!(reused.suggestion.expect("note").contains("not applied"));
-    let created = conclude(&owner(), None, &with_env, true, |_| Ok(None));
-    assert!(created.suggestion.is_none());
-    let plain = conclude(&owner(), None, &options(), false, |_| Ok(None));
-    assert!(plain.suggestion.is_none());
+    let reused = conclude(&owner(), None, &with_env, Arrival::Attached, |_| {
+        Ok(focus_answer(None, true))
+    });
+    assert!(
+        reused
+            .guidance
+            .suggestion
+            .expect("note")
+            .contains("not applied")
+    );
+    let created = conclude(&owner(), None, &with_env, Arrival::Spawned, |_| {
+        Ok(focus_answer(None, true))
+    });
+    assert!(created.guidance.suggestion.is_none());
+    let plain = conclude(&owner(), None, &options(), Arrival::Attached, |_| {
+        Ok(focus_answer(None, true))
+    });
+    assert!(plain.guidance.suggestion.is_none());
 }
 
 fn listed(id: &str) -> WindowInfo {
@@ -344,12 +377,12 @@ fn successful_focus_keeps_its_window_without_a_failure_note_when_refresh_is_unav
                 activate: true,
                 ..options()
             },
-            true,
-            |target| Ok(same_window(observation, target)),
+            Arrival::Spawned,
+            |target| Ok(focus_answer(same_window(observation, target), true)),
         );
         let retained = result.window.unwrap();
         assert_eq!(retained.id, original.id);
         assert_eq!(retained.process_instance, original.process_instance);
-        assert!(result.suggestion.is_none());
+        assert!(result.guidance.suggestion.is_none());
     }
 }

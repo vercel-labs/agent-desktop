@@ -164,9 +164,8 @@ pub(crate) fn surfaces_of(observed: Vec<ObservedWindow>) -> Vec<SurfaceInfo> {
 /// A budget exhaustion and a process that has died are not that: neither is
 /// evidence that no menu is open, and answering "no menu" for a probe that
 /// never finished would relocate the very defect this fold exists to prevent.
-/// Those two keep their own codes. Every UIA fault on this path is already
-/// narrowed to `APP_UNRESPONSIVE` by the read-path narrowing the menu
-/// detector applies, so the two propagating codes cannot swallow one.
+/// Those two keep their own codes. Every other code, a UIA fault included,
+/// degrades the same way.
 pub(crate) fn inventory_with_menu<T>(
     observed: Vec<ObservedWindow>,
     pid: ProcessId,

@@ -52,12 +52,12 @@ pub fn execute(
     let mut launched = adapter.launch_app(&app, &options, &lease)?;
     if let Some(port) = options.cdp_port {
         let granted = deadline.remaining();
-        launched.cdp = Some(verify_cdp_endpoint(
+        launched.guidance.cdp = Some(verify_cdp_endpoint(
             port, deadline, granted, &launched, adapter,
         )?);
     }
-    if launched.suggestion.is_none() {
-        launched.suggestion = launch_suggestion(requested_cdp_port.is_some(), &launched);
+    if launched.guidance.suggestion.is_none() {
+        launched.guidance.suggestion = launch_suggestion(requested_cdp_port.is_some(), &launched);
     }
     Ok(serde_json::to_value(launched)?)
 }
@@ -76,7 +76,7 @@ fn probe_reserve(total: Duration) -> Duration {
 /// flag that opens the web-content door, and a verified endpoint is handed
 /// off to a CDP client instead of left for the caller to rediscover.
 fn launch_suggestion(cdp_requested: bool, launched: &LaunchResult) -> Option<String> {
-    if let Some(cdp) = &launched.cdp {
+    if let Some(cdp) = &launched.guidance.cdp {
         return Some(format!(
             "Next: run `agent-browser connect {}` (preferred; `agent-browser skills get \
              electron` has the guide) or connect any CDP client such as Playwright or \
@@ -87,7 +87,7 @@ fn launch_suggestion(cdp_requested: bool, launched: &LaunchResult) -> Option<Str
             cdp.port
         ));
     }
-    if !cdp_requested && launched.renderer == Some(RendererKind::Chromium) {
+    if !cdp_requested && launched.guidance.renderer == Some(RendererKind::Chromium) {
         return Some(
             "Chromium app: for web-content work, run close-app and then launch --cdp, then \
              drive the web contents with agent-browser or any CDP client. Accessibility \

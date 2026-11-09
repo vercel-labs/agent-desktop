@@ -45,13 +45,14 @@ agent-desktop launch gtk3-demo
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "launch",
   "data": {
     "app": "gtk3-demo",
     "pid": 21766,
     "process_instance": "6d91df60:120710",
+    "disposition": { "delivery": "delivered_verified", "retry": "unsafe" },
     "window": {
       "accessible": true,
       "app_name": "gtk3-demo",
@@ -68,7 +69,7 @@ agent-desktop launch gtk3-demo
 }
 ```
 
-The result also carries `cdp` when `--cdp` was verified, `renderer: "chromium"` for a detected Chromium or Electron app, and sometimes a `suggestion`. A missing `window` is not a failure. With `--cdp`, `data.cdp` holds `http_endpoint`, `port`, `product`, and `websocket_url` for a CDP client such as agent-browser; [Chromium and Electron apps](/desktop/guides/chromium-and-electron) walks through the handoff.
+The result also carries `cdp` when `--cdp` was verified, `renderer: "chromium"` for a detected Chromium or Electron app, and sometimes a `suggestion`. A missing `window` is not a failure. `disposition` says what the launch proved: `not_delivered` when it attached to a running app and sent nothing — `--activate` was not passed, or its target was already active so no request was needed (`retry: "safe"`); `delivered_verified` when the adapter read back the process it started, or confirmed the attached app came forward after `--activate`; and `delivered_unverified` when it cannot prove either, including a spawned process that never reached the accessibility bus. With `--cdp`, `data.cdp` holds `http_endpoint`, `port`, `product`, and `websocket_url` for a CDP client such as agent-browser; [Chromium and Electron apps](/desktop/guides/chromium-and-electron) walks through the handoff.
 
 Errors specific to `launch`:
 
@@ -108,7 +109,7 @@ agent-desktop close-app <APP> [--force]
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "close-app",
   "data": {
@@ -159,7 +160,7 @@ agent-desktop list-apps [--app NAME] [--timeout-ms MS]
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "list-apps",
   "data": {
@@ -200,7 +201,7 @@ agent-desktop list-windows [--app NAME] [--timeout-ms MS]
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "list-windows",
   "data": [
@@ -241,14 +242,15 @@ agent-desktop focus-window [--window-id ID] [--app NAME] [--title TEXT]
   </tbody>
 </table>
 
-Pass at least one flag; with none the command fails with `INVALID_ARGS`. `data.focused` is the window that holds focus afterward, with the same fields as a `list-windows` entry. When a modal dialog holds the focus, `focused` is the dialog, so read `focused.title` before you act.
+Pass at least one flag; with none the command fails with `INVALID_ARGS`. `data.focused` is the window that holds focus afterward, with the same fields as a `list-windows` entry. When a modal dialog holds the focus, `focused` is the dialog, so read `focused.title` before you act. `data.disposition` is `delivered_verified`, because the command returns only after the OS reports that window focused on two consecutive reads.
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "focus-window",
   "data": {
+    "disposition": { "delivery": "delivered_verified", "retry": "unsafe" },
     "focused": {
       "app_name": "gedit",
       "id": "w-1.10-org-a11y-atspi-accessible-162",
@@ -288,7 +290,7 @@ agent-desktop resize-window --app gedit --width 800 --height 600
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "resize-window",
   "data": {
@@ -361,7 +363,7 @@ agent-desktop minimize [--app NAME] [--window-id ID]
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "minimize",
   "data": {
@@ -401,7 +403,7 @@ agent-desktop restore [--app NAME] [--window-id ID]
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "restore",
   "data": {

@@ -49,3 +49,20 @@ fn an_entry_that_stays_after_every_header_button_is_a_failure() {
     assert!(close(&world, &entry, &before).is_err());
     assert_eq!(world.clicks(), vec!["/Mail:a/close", "/Mail:a/expand"]);
 }
+
+#[test]
+fn a_failure_after_a_sent_press_keeps_the_presss_delivery() {
+    let log = log();
+    let mut world = FakeWorld::new(
+        &log,
+        vec![reading(&[spec("Mail", "a")]), reading(&[spec("Mail", "a")])],
+    );
+    world.faults.click_refused_from = Some(1);
+    let (entry, before) = first_entry_and_list(&world);
+    let unclosed = close(&world, &entry, &before).expect_err("the second press was refused");
+    assert_eq!(world.clicks(), vec!["/Mail:a/close", "/Mail:a/expand"]);
+    assert_eq!(
+        unclosed.error.disposition,
+        agent_desktop_core::DeliverySemantics::delivered_unverified()
+    );
+}

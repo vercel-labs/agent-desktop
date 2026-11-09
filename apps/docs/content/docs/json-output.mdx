@@ -1,16 +1,16 @@
 ---
 title: JSON output
 navTitle: JSON output
-description: The response envelope every agent-desktop command prints, its omission rules, the OperationReport shape, find results, exit codes, and the contract versions from 2.1 to 2.6.
+description: The response envelope every agent-desktop command prints, its omission rules, the OperationReport shape, find results, exit codes, and the contract versions from 2.1 to 2.7.
 ---
 
-Every command prints exactly one JSON envelope on a single line of standard output. Only `--help`, `--version`, and a bare `agent-desktop` print text instead. The contract version is `2.6`. Log output goes to standard error, so a parser can read standard output as one JSON value.
+Every command prints exactly one JSON envelope on a single line of standard output. Only `--help`, `--version`, and a bare `agent-desktop` print text instead. The contract version is `2.7`. Log output goes to standard error, so a parser can read standard output as one JSON value.
 
 ## Envelope
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "click",
   "data": {
@@ -25,7 +25,7 @@ Every command prints exactly one JSON envelope on a single line of standard outp
     <tr><th>Field</th><th>Type</th><th>Meaning</th></tr>
   </thead>
   <tbody>
-    <tr><td><code>version</code></td><td>string</td><td>Contract version. Currently <code>"2.6"</code>.</td></tr>
+    <tr><td><code>version</code></td><td>string</td><td>Contract version. Currently <code>"2.7"</code>.</td></tr>
     <tr><td><code>ok</code></td><td>boolean</td><td><code>true</code> when the command returned a result, <code>false</code> when it returned an error.</td></tr>
     <tr><td><code>command</code></td><td>string</td><td>The command name, such as <code>click</code> or <code>session</code>.</td></tr>
     <tr><td><code>data</code></td><td>object</td><td>The result. Present only when <code>ok</code> is <code>true</code>.</td></tr>
@@ -37,7 +37,7 @@ An error envelope has `error` and no `data`:
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": false,
   "command": "click",
   "error": {
@@ -69,7 +69,7 @@ On macOS, `menu` and `menubar` snapshots belong to the application, so `data.app
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "snapshot",
   "data": {
@@ -184,7 +184,7 @@ A failed `--wait-for` after a delivered operation keeps the operation's own deli
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "find",
   "data": {
@@ -241,6 +241,7 @@ Check `version` before you parse. Apply the migrations below when your parser su
     <tr><td>2.4</td><td>Stateful ref actions (<code>set-value</code>, <code>type</code>, <code>clear</code>, <code>check</code>, <code>uncheck</code>, <code>toggle</code>, <code>expand</code>, <code>collapse</code>) read the state back after one delivery attempt and reject an observed contradiction. A readback failure keeps the adapter's code and adds <code>details.kind: "post_action_verification"</code>. Missing evidence stays a successful <code>delivered_unverified</code> with <code>details.verification_scope: "unavailable"</code>.</td></tr>
     <tr><td>2.5</td><td>Breaking for the thirteen <a href="#operationreport">OperationReport</a> commands. The success flags <code>clicked</code>, <code>moved</code>, <code>scrolled</code>, <code>hovered</code>, <code>dragged</code>, <code>resized</code>, <code>minimized</code>, <code>maximized</code>, <code>restored</code>, <code>closed</code>, <code>cleared</code>, <code>requested</code> (<code>close-app</code>), and the inner <code>ok</code> of <code>clipboard-set</code> are removed. <code>data</code> is the adapter's report with <code>disposition</code>, <code>steps</code>, and <code>target</code>.</td></tr>
     <tr><td>2.6</td><td>On Windows and Linux, and on macOS for an element without a native address, a ref resolves only when a complete window read proved its role and stable fields unique at capture and exactly one live element matches now. An identity that was not unique at capture fails with <code>details.kind: "identity_not_unique"</code>; a twin that appears later fails with <code>details.kind: "saved_ref_ambiguous"</code>. A snapshot that could not prove identity can include <code>data.identity_unproven</code>. On macOS, application-owned <code>menu</code> and <code>menubar</code> snapshots omit <code>data.window</code>; <code>data.app</code> identifies the owner, and <code>--window-id</code> selects that app.</td></tr>
+    <tr><td>2.7</td><td><code>launch</code>, <code>open-system-surface</code>, <code>focus-window</code>, <code>dismiss-notification</code> and <code>dismiss-all-notifications</code> carry <code>data.disposition</code> on success: <code>not_delivered</code> with <code>retry: "safe"</code> when the operation was already satisfied and nothing was sent, <code>delivered_verified</code> when the adapter read back its postcondition, and <code>delivered_unverified</code> otherwise. An incomplete-locator <code>TIMEOUT</code> carries <code>details.cause</code> (<code>deadline</code>, <code>unreadable_elements</code> or <code>traversal_limit</code>). A <code>launch</code> payload written before 2.7 has no <code>disposition</code>; treat its absence as <code>unknown</code>.</td></tr>
   </tbody>
 </table>
 

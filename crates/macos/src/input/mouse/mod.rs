@@ -87,6 +87,7 @@ mod imp {
         .with_suggestion(
             "Use atomic 'mouse-click' or 'drag'; spanning holds require a daemon-owned session that can release buttons after disconnect",
         )
+        .unsent()
     }
 
     pub(crate) fn validate_point(point: &Point) -> Result<(), AdapterError> {

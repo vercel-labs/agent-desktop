@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use agent_desktop_core::{AdapterError, InteractionLease, InteractionPolicy, MouseButton};
+use agent_desktop_core::{
+    AdapterError, DeliverySemantics, InteractionLease, InteractionPolicy, MouseButton,
+};
 
 use super::extract::Entry;
 use super::target::missing_control;
@@ -24,6 +26,14 @@ fn failed(error: AdapterError) -> Unclosed {
     }
 }
 
+fn after_press(error: AdapterError, pressed: bool) -> AdapterError {
+    if pressed {
+        error.with_disposition(DeliverySemantics::delivered_unverified())
+    } else {
+        error
+    }
+}
+
 /// Closes one entry and proves it by its effect: the entry's own object must
 /// leave the list, and no other, and another entry leaving ends the attempt as
 /// a failure. The header's buttons are pressed last one first; a button that
@@ -41,17 +51,19 @@ pub(crate) fn close_entry(
     if candidates.is_empty() {
         return Err(failed(missing_control("close button", entry.info.index)));
     }
+    let mut pressed = false;
     for (position, control) in candidates.iter().enumerate() {
         world
             .click(&control.element, MouseButton::Left, policy, lease)
-            .map_err(failed)?;
+            .map_err(|error| failed(after_press(error, pressed)))?;
+        pressed = true;
         let last = position + 1 == candidates.len();
         let window = if last { REMOVAL_SETTLE } else { PRESS_SETTLE };
         let after = settle_read(world, lease.deadline(), window, |now| {
             !holds(now, &entry.node)
         })
         .map_err(|error| Unclosed {
-            error,
+            error: after_press(error, pressed),
             unread: true,
         })?;
         if !bystanders(before, &after, entry).is_empty() {

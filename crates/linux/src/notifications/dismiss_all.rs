@@ -1,5 +1,6 @@
 use agent_desktop_core::{
-    AdapterError, DismissAllNotificationsRequest, InteractionLease, NotificationInfo,
+    AdapterError, DeliverySemantics, DismissAllNotificationsRequest, ErrorCode, InteractionLease,
+    NotificationInfo,
 };
 
 use super::close::close_entry;
@@ -11,7 +12,7 @@ use super::world::{LiveWorld, ShellWorld};
 use crate::system::SharedBus;
 use crate::system::shell::light::same_object;
 
-type Outcome = (Vec<NotificationInfo>, Vec<String>);
+type Outcome = (Vec<NotificationInfo>, Vec<AdapterError>);
 
 pub(crate) fn dismiss_all(
     bus: &SharedBus,
@@ -55,7 +56,7 @@ fn close_each(
     request: DismissAllNotificationsRequest<'_>,
     lease: &InteractionLease,
 ) -> Result<Outcome, AdapterError> {
-    let mut failures: Vec<(usize, String)> = Vec::new();
+    let mut failures: Vec<(usize, AdapterError)> = Vec::new();
     for target in captured {
         let before = read_listing(world, lease.deadline())?;
         let Some(entry) = before
@@ -67,7 +68,7 @@ fn close_each(
         match close_entry(world, entry, &before, request.policy, lease) {
             Ok(_) => {}
             Err(unclosed) if unclosed.unread => return Err(unclosed.error),
-            Err(unclosed) => failures.push((target.info.index, unclosed.error.message)),
+            Err(unclosed) => failures.push((target.info.index, unclosed.error)),
         }
     }
     let after = read_listing(world, lease.deadline()).map_err(unconfirmed_read)?;
@@ -77,15 +78,22 @@ fn close_each(
     for entry in left {
         let recorded = failures.iter().any(|(index, _)| *index == entry.info.index);
         if !recorded {
-            let message = "notification from the captured set is still present".to_owned();
-            failures.push((entry.info.index, message));
+            let error = AdapterError::new(
+                ErrorCode::ActionFailed,
+                "notification from the captured set is still present",
+            )
+            .with_disposition(DeliverySemantics::delivered_unverified());
+            failures.push((entry.info.index, error));
         }
     }
     Ok((
         gone.into_iter().map(|entry| entry.info.clone()).collect(),
         failures
             .into_iter()
-            .map(|(index, message)| format!("#{index}: {message}"))
+            .map(|(index, mut error)| {
+                error.message = format!("#{index}: {}", error.message);
+                error
+            })
             .collect(),
     ))
 }

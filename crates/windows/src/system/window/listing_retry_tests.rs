@@ -4,9 +4,7 @@ use agent_desktop_core::ErrorCode;
 
 use super::*;
 
-use crate::system::runtime::hresult::{E_FAIL, E_UNEXPECTED};
 use crate::system::test_support::test_time::deadline;
-use crate::tree::automation::{UiaFailure, uia_failure_error};
 
 fn race_error() -> AdapterError {
     AdapterError::new(ErrorCode::WindowNotFound, "forced race")
@@ -90,28 +88,4 @@ fn an_already_expired_deadline_returns_timeout_without_ever_attempting() {
         0,
         "an expired deadline must never call attempt"
     );
-}
-
-#[test]
-fn a_teardown_read_failure_survives_narrowing_as_a_retryable_error() {
-    let error = narrow_to_permitted_codes(uia_failure_error(
-        UiaFailure::Hresult(E_UNEXPECTED),
-        "search a candidate window for a reachable menu element",
-    ));
-
-    assert_eq!(error.code, ErrorCode::AppUnresponsive);
-    assert!(error.is_transient_incomplete_read());
-    assert!(error.permits_retry_by_default());
-}
-
-#[test]
-fn a_terminal_read_failure_stays_non_retryable_after_narrowing() {
-    let error = narrow_to_permitted_codes(uia_failure_error(
-        UiaFailure::Hresult(E_FAIL),
-        "search a candidate window for a reachable menu element",
-    ));
-
-    assert_eq!(error.code, ErrorCode::AppUnresponsive);
-    assert!(!error.is_transient_incomplete_read());
-    assert!(!error.permits_retry_by_default());
 }

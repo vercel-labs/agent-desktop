@@ -1,3 +1,4 @@
+use super::incomplete_error::IncompleteLocator;
 use super::{LocatorResolution, ObservationRequest, ObservationRoot, ObservedNode, ObservedTree};
 use crate::{
     AdapterError, AppError, ErrorCode, IdentityMatch, adapter::PlatformAdapter,
@@ -77,7 +78,11 @@ pub(super) fn selected_matches(
             hydrated.stats.reads.counts.observation_attempts.max(1);
         resolution.stats.merge_observation(&hydrated.stats);
         if hydrated.roots.len() != 1 {
-            return Err(evidence_incomplete(&hydrated, None, query, bounds_space).into());
+            return Err(
+                IncompleteLocator::SelectedEvidence(&hydrated, None, query, bounds_space)
+                    .error()
+                    .into(),
+            );
         }
         let root_index = hydrated.roots[0] as usize;
         let (entry, name, value, root_order, screen_bounds) = {
@@ -86,7 +91,14 @@ pub(super) fn selected_matches(
                 .get(root_index)
                 .ok_or_else(|| AdapterError::internal("hydrated locator root is missing"))?;
             if !evidence_complete(query, node, bounds_space) {
-                return Err(evidence_incomplete(&hydrated, Some(node), query, bounds_space).into());
+                return Err(IncompleteLocator::SelectedEvidence(
+                    &hydrated,
+                    Some(node),
+                    query,
+                    bounds_space,
+                )
+                .error()
+                .into());
             }
             if node.evidence.role.known().map(String::as_str)
                 != Some(preliminary.identity.role.as_str())
@@ -123,7 +135,7 @@ pub(super) fn selected_matches(
             if validation.meta.complete {
                 return Err(changed_during_hydration().into());
             }
-            return Err(query_incomplete(&validation).into());
+            return Err(IncompleteLocator::SelectedQuery(&validation).error().into());
         }
         matched.screen_bounds = screen_bounds.or(matched.screen_bounds);
         record_match(matched, entry, name, value, &mut refmap)?;
@@ -259,60 +271,6 @@ fn changed_during_hydration() -> AdapterError {
     )
     .with_suggestion("Retry the locator against the current accessibility tree")
     .with_disposition(crate::DeliverySemantics::not_delivered())
-}
-
-fn query_incomplete(validation: &LocatorResolution) -> AdapterError {
-    let deterministic = super::resolve::has_deterministic_limit(&validation.stats);
-    AdapterError::timeout("Selected locator query could not be revalidated")
-        .with_suggestion("Retry against a stable subtree or use a narrower locator")
-        .with_details(json!({
-            "kind": if deterministic {
-                "locator_selected_query_budget_limit"
-            } else {
-                "locator_selected_query_incomplete"
-            },
-            "retryable": !deterministic,
-            "selection_complete": validation.meta.selection_complete,
-            "observed_matches": validation.meta.total_matches,
-            "query_stats": &validation.stats,
-        }))
-        .with_disposition(crate::DeliverySemantics::not_delivered())
-}
-
-fn evidence_incomplete(
-    tree: &ObservedTree,
-    node: Option<&ObservedNode>,
-    query: &LocatorQuery,
-    space: crate::BoundsSpace,
-) -> AdapterError {
-    AdapterError::timeout("Selected locator evidence was incomplete")
-        .with_details(json!({
-            "kind": "locator_selected_evidence_incomplete",
-            "retryable": true,
-            "structurally_complete": tree.structurally_complete,
-            "root_count": tree.roots.len(),
-            "required": {
-                "name": query.identity.name.is_some(),
-                "description": query.identity.description.is_some(),
-                "value": query.identity.value.is_some(),
-                "identifiers": query.identity.native_id.is_some(),
-                "states": true,
-                "bounds": true,
-                "actions": true,
-            },
-            "unknown": node.map(|node| json!({
-                "role": node.evidence.role.is_unknown(),
-                "name": node.evidence.name.is_unknown(),
-                "description": node.evidence.description.is_unknown(),
-                "value": node.evidence.value.is_unknown(),
-                "identifiers": !node.evidence.identifiers.is_complete(),
-                "states": node.evidence.states.is_unknown(),
-                "bounds": !geometry_complete(&node.evidence.ref_evidence, space),
-                "actions": node.evidence.ref_evidence.available_actions.is_unknown(),
-            })),
-            "query_stats": &tree.stats,
-        }))
-        .with_disposition(crate::DeliverySemantics::not_delivered())
 }
 
 #[cfg(test)]

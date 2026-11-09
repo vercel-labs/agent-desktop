@@ -93,8 +93,11 @@ fn reports_focused_window_after_os_confirms_focus() {
     )
     .unwrap();
 
+    assert_eq!(
+        value["disposition"],
+        serde_json::json!({ "delivery": "delivered_verified", "retry": "unsafe" })
+    );
     assert_eq!(value["focused"]["id"], "w1");
-    assert_eq!(value["focused"]["is_focused"], true);
     assert_eq!(*adapter.focused_window_calls.lock().unwrap(), 2);
 }
 
