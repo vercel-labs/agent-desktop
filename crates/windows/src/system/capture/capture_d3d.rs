@@ -208,14 +208,4 @@ pub(crate) mod resource_balance {
     pub(crate) fn release() {
         LIVE.with(|cell| cell.set(cell.get() - 1));
     }
-
-    #[cfg(test)]
-    pub(crate) fn live() -> i32 {
-        LIVE.with(Cell::get)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn reset() {
-        LIVE.with(|cell| cell.set(0));
-    }
 }

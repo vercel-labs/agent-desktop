@@ -27,15 +27,15 @@ use agent_desktop_core::{AdapterError, AppError, CommandContext, SnapshotSurface
 
 use crate::adapter::WindowsAdapter;
 use crate::system::capture::capture_test_support::HomeIsolation;
-use crate::system::fixture::test_support::{
-    SHELL_SURFACE_LOCK, or_skip_shell, wait_for_foreground_to_settle,
-    with_interaction_lease_test_lock,
-};
-use crate::system::fixture::test_time::deadline;
 use crate::system::private_file::WindowsPrivateFile;
 use crate::system::shell::raise_oracle::{responded_since, witness_desktop};
 use crate::system::shell::shell_surface_open::close_surface;
-use crate::tree::fixture::bootstrap;
+use crate::system::test_support::apartment::bootstrap;
+use crate::system::test_support::helpers::{
+    SHELL_SURFACE_LOCK, or_skip_shell, wait_for_foreground_to_settle,
+    with_interaction_lease_test_lock,
+};
+use crate::system::test_support::test_time::deadline;
 
 fn foreground() -> isize {
     use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;

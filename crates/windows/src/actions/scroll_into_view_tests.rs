@@ -2,24 +2,15 @@ use super::{
     VisibilitySample, finish_observation, scroll_effect_observed, scroll_into_view_judged_for,
     unsupported_error, visibility_verified,
 };
-use crate::adapter::WindowsAdapter;
-use crate::system::fixture::test_time::deadline;
 use crate::system::runtime::hresult::{
     E_ACCESSDENIED, RPC_E_DISCONNECTED, UIA_E_ELEMENTNOTAVAILABLE, com_hresult_detail,
 };
-use crate::tree::automation::{UiaFailure, automation_client};
-use crate::tree::element::UIAElement;
-use crate::tree::fixture::fixture_window;
-use crate::tree::fixture::{LocalFixture, ensure_test_apartment};
+use crate::system::test_support::test_time::deadline;
+use crate::tree::automation::UiaFailure;
 use crate::tree::properties::rect_has_area;
-use agent_desktop_core::{
-    ActionOps, AdapterError, DeliveryDisposition, DeliverySemantics, ErrorCode, InteractionLease,
-    Rect,
-};
+use agent_desktop_core::{AdapterError, DeliveryDisposition, DeliverySemantics, ErrorCode, Rect};
 use std::cell::Cell;
-use std::ffi::c_void;
 use std::time::Duration;
-use uiautomation::types::Handle;
 
 fn rect(x: f64, y: f64, width: f64, height: f64) -> Rect {
     Rect {
@@ -245,31 +236,6 @@ fn transport_failed_invoke_with_failed_observation_is_delivered_unverified() {
     assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
     assert_ne!(error.disposition, DeliverySemantics::not_delivered());
     assert_ne!(error.disposition, DeliverySemantics::uncertain());
-}
-
-/// A Win32 `BUTTON` on an open fixture window is already in view, so a
-/// scroll-to through the adapter delivers nothing and calls no pattern,
-/// whatever the button offers.
-#[test]
-fn a_visible_element_is_already_in_view_through_the_adapter() {
-    ensure_test_apartment();
-    let fixture = LocalFixture::create().expect("a fixture window");
-    let button = fixture_window::find_button(fixture.handle());
-    assert!(!button.is_null(), "the fixture exposes its BUTTON control");
-    let element = fixture_element(button).expect("a UI Automation element for the button");
-    let handle = element.into_native_handle();
-    let lease = InteractionLease::guarded(deadline(2_000), ()).expect("an interaction lease");
-    WindowsAdapter::new()
-        .scroll_into_view(&handle, &lease)
-        .expect("a visible element needs no scroll");
-}
-
-fn fixture_element(control: *mut c_void) -> Option<UIAElement> {
-    let client = automation_client().ok()?;
-    let element = client
-        .element_from_handle(Handle::from(control as isize))
-        .ok()?;
-    Some(UIAElement::from(element))
 }
 
 #[test]

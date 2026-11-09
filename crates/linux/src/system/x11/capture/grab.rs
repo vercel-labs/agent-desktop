@@ -172,7 +172,3 @@ impl Grabber for DisplayGrabber {
 #[cfg(test)]
 #[path = "grab_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "grab_live_tests.rs"]
-mod live_tests;

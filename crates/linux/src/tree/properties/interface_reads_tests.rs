@@ -4,7 +4,7 @@ use crate::tree::properties::node_read::COMPONENT_INTERFACE;
 
 #[test]
 fn action_name_transport_loss_cannot_use_the_listed_fallback() {
-    let connection = crate::tree::live::test_support::closed_connection();
+    let connection = crate::tree::test_support::helpers::closed_connection();
     let element = crate::tree::AtspiElement::new(":1.1", "/button", 1);
     let error = zbus::block_on(super::action_name(
         &connection,

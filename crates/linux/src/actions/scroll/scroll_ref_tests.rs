@@ -22,7 +22,7 @@ fn recovery_requires_the_retained_bus_and_object_identity() {
         name: Some("GTK".to_owned()),
         version: Some("4.14.5".to_owned()),
     };
-    let mut entry = crate::tree::live::test_support::ref_entry("incrementor");
+    let mut entry = crate::tree::test_support::helpers::ref_entry("incrementor");
     entry.identity.retained_object =
         Some(format!("token:atspi1:g|40|:1.2|0000000000000000||{path}"));
     assert!(eligible(&entry, &element, &toolkit));
@@ -80,7 +80,7 @@ fn witness(y: i32, value: f64) -> Witness {
 
 #[test]
 fn viewport_motion_only_translates_the_ref_when_independent_scroll_evidence_agrees() {
-    let mut entry = crate::tree::live::test_support::ref_entry("incrementor");
+    let mut entry = crate::tree::test_support::helpers::ref_entry("incrementor");
     entry.geometry.bounds = Some(Rect::from(bounds(781)));
     entry.geometry.bounds_space = Some(BoundsSpace::Window);
     let before = witness(781, 0.0);

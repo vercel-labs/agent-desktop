@@ -48,7 +48,7 @@ fn busy_document_samples_cannot_certify_a_completed_tree() {
         let mut walk = walk_of(2, true)?;
         if calls.get() <= 3 {
             walk.root.payload.node.traits.states =
-                crate::tree::Field::Present(crate::tree::live::test_support::words(&[
+                crate::tree::Field::Present(crate::tree::test_support::helpers::words(&[
                     crate::tree::vocabulary::state_bits::BUSY,
                 ]));
         }

@@ -3,11 +3,11 @@ use super::{
     gdi_balance,
 };
 use crate::system::display::{display_at, list_displays_live};
-use crate::tree::fixture::bootstrap;
+use crate::system::test_support::apartment::bootstrap;
 use agent_desktop_core::{Deadline, ErrorCode, Rect};
 use std::time::Duration;
 
-use crate::system::fixture::test_time::deadline;
+use crate::system::test_support::test_time::deadline;
 
 #[test]
 fn index_zero_matches_primary_enumeration_dimensions() {

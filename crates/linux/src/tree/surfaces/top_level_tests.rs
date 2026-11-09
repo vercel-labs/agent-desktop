@@ -1,5 +1,5 @@
 use super::*;
-use crate::tree::live::test_support::read_of;
+use crate::tree::test_support::helpers::read_of;
 
 #[test]
 fn component_root_children_are_top_levels_whatever_their_widget_role() {
@@ -33,7 +33,7 @@ fn all_atspi_dialog_roles_and_only_those_roles_are_dialogs() {
 
 #[test]
 fn popup_menu_surfaces_need_positive_complete_menu_child_evidence() {
-    use crate::tree::live::test_support::words;
+    use crate::tree::test_support::helpers::words;
     let mut node = read_of(69, "", &[]).node;
     node.traits.interfaces = Field::Present(vec![COMPONENT_INTERFACE.into()]);
     node.traits.states = Field::Present(words(&[1, SHOWING, 30]));

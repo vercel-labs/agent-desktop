@@ -317,7 +317,3 @@ mod tests;
 #[cfg(test)]
 #[path = "set_clear_route_tests.rs"]
 mod route_tests;
-
-#[cfg(test)]
-#[path = "set_clear_live_tests.rs"]
-mod live_tests;

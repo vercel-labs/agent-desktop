@@ -239,10 +239,6 @@ impl SharedBus {
 pub(crate) mod tests;
 
 #[cfg(test)]
-#[path = "bus_live_tests.rs"]
-mod live_tests;
-
-#[cfg(test)]
 mod recovery_tests;
 
 #[cfg(test)]

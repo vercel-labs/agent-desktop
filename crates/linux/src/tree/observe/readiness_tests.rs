@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use super::*;
-use crate::tree::live::test_support::read_of;
+use crate::tree::test_support::helpers::read_of;
 use crate::tree::vocabulary::role_numbers::{DOCUMENT_FRAME, DOCUMENT_WEB, PANEL};
 
 const MS: fn(u64) -> Duration = Duration::from_millis;
@@ -88,7 +88,7 @@ fn settle_and_tree_predicate_boundaries() {
 #[test]
 fn both_web_document_roles_require_a_read_non_busy_state() {
     use crate::tree::Field;
-    use crate::tree::live::test_support::words;
+    use crate::tree::test_support::helpers::words;
     use crate::tree::vocabulary::state_bits::BUSY;
     for role in [DOCUMENT_WEB, DOCUMENT_FRAME] {
         let mut document = node(role, vec![]);

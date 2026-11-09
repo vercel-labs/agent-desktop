@@ -145,7 +145,3 @@ fn window_lost() -> AdapterError {
 #[cfg(test)]
 #[path = "frame_active_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "frame_active_live_tests.rs"]
-mod live_tests;

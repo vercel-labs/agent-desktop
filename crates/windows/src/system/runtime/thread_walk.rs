@@ -88,11 +88,11 @@ pub(crate) mod thread_snapshot_calls {
     }
 
     pub(crate) fn record() {
-        crate::system::fixture::call_counter::record(&COUNT);
+        crate::system::test_support::call_counter::record(&COUNT);
     }
 
     pub(crate) fn take() -> usize {
-        crate::system::fixture::call_counter::take(&COUNT)
+        crate::system::test_support::call_counter::take(&COUNT)
     }
 }
 
@@ -109,11 +109,11 @@ pub(crate) mod thread_snapshot_closes {
     }
 
     pub(crate) fn record() {
-        crate::system::fixture::call_counter::record(&COUNT);
+        crate::system::test_support::call_counter::record(&COUNT);
     }
 
     pub(crate) fn take() -> usize {
-        crate::system::fixture::call_counter::take(&COUNT)
+        crate::system::test_support::call_counter::take(&COUNT)
     }
 }
 
@@ -135,7 +135,7 @@ pub(in crate::system) mod force_open_failure {
     }
 
     pub(crate) fn with<R>(run: impl FnOnce() -> R) -> R {
-        crate::system::fixture::test_support::with_flag(&ACTIVE, true, run)
+        crate::system::test_support::helpers::with_flag(&ACTIVE, true, run)
     }
 }
 

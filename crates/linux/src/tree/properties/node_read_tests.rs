@@ -3,9 +3,9 @@ mod classification {
 
     use super::super::{field, read_children};
     use crate::tree::Field;
-    use crate::tree::live::test_support::{client_timeout, method_error};
     use crate::tree::properties::absence::{UNKNOWN_INTERFACE, UNKNOWN_METHOD, UNKNOWN_OBJECT};
     use crate::tree::properties::liveness::Liveness;
+    use crate::tree::test_support::helpers::{client_timeout, method_error};
 
     #[test]
     fn a_suspect_name_on_a_node_that_answers_stays_on_its_field() {

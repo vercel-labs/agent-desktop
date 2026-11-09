@@ -214,6 +214,6 @@ pub(super) mod forced_foreign_owner {
     }
 
     pub(in super::super) fn with_forced_foreign_owner<R>(run: impl FnOnce() -> R) -> R {
-        crate::system::fixture::test_support::with_flag(&FORCE_FOREIGN_OWNER, true, run)
+        crate::system::test_support::helpers::with_flag(&FORCE_FOREIGN_OWNER, true, run)
     }
 }

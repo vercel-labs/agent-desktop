@@ -100,7 +100,7 @@ fn a_failed_frame_read_keeps_the_inventory_incomplete() {
 
 #[test]
 fn a_frame_whose_classifying_field_failed_is_kept_and_marks_the_read_incomplete() {
-    use crate::tree::live::test_support::read_of;
+    use crate::tree::test_support::helpers::read_of;
     use crate::tree::{Field, RawNode};
     let whole = read_of(23, "w", &[]).node;
     let mut interfaces_failed = whole.clone();

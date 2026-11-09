@@ -5,7 +5,7 @@ use super::physical_x11_oracle::{cover_above, cover_viewable, wait_for_free_keyb
 use crate::input::physical::target_pointer::{scroll_steps, wheel_deltas};
 use crate::input::physical::target_world::LiveWorld;
 use crate::input::x11::live_tests::shell_stage_has_focus;
-use crate::tree::live::live_launch::{Launched, nonce};
+use crate::tree::test_support::live_launch::{Launched, nonce};
 use agent_desktop_core::{DeliverySemantics, InteractionPolicy, SystemOps};
 use std::time::Duration;
 

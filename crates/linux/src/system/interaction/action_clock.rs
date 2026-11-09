@@ -33,7 +33,3 @@ pub(crate) fn recent_for(pid: u32) -> bool {
 #[cfg(test)]
 #[path = "action_clock_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "action_clock_live_tests.rs"]
-mod live_tests;

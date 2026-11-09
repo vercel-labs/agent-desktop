@@ -2,7 +2,7 @@ use agent_desktop_core::ErrorCode;
 
 use super::*;
 use crate::system::{NAME_HAS_NO_OWNER, SERVICE_UNKNOWN};
-use crate::tree::live::test_support::{client_timeout, method_error};
+use crate::tree::test_support::helpers::{client_timeout, method_error};
 
 const FAILED: &str = "org.freedesktop.DBus.Error.Failed";
 const INVALID_ARGS: &str = "org.freedesktop.DBus.Error.InvalidArgs";

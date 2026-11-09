@@ -35,9 +35,6 @@ pub(crate) enum CaptureSubject {
 pub(crate) fn modern_is_supported() -> bool {
     #[cfg(test)]
     {
-        if test_hooks::force_unsupported() {
-            return false;
-        }
         if test_hooks::force_fail_after_available() {
             return true;
         }
@@ -54,9 +51,6 @@ pub(crate) fn capture_modern(
     #[cfg(test)]
     {
         if test_hooks::force_fail_after_available() {
-            if test_hooks::consume_modern_slice() {
-                burn_deadline(deadline);
-            }
             return Err(AdapterError::new(
                 ErrorCode::ActionFailed,
                 "modern capture forced failure after reporting available",
@@ -139,10 +133,6 @@ fn attach_modern_failure(
 }
 
 fn modern_deadline_slice(deadline: Deadline) -> Deadline {
-    #[cfg(test)]
-    if test_hooks::disable_deadline_slice() {
-        return deadline;
-    }
     let remaining = deadline.remaining();
     if remaining <= LEGACY_DEADLINE_FLOOR {
         return deadline.capped(Duration::ZERO);
@@ -151,59 +141,19 @@ fn modern_deadline_slice(deadline: Deadline) -> Deadline {
 }
 
 #[cfg(test)]
-fn burn_deadline(deadline: Deadline) {
-    while !deadline.is_expired() {
-        let Ok(slice) = deadline.remaining_slice(Duration::from_millis(5)) else {
-            break;
-        };
-        if slice.is_zero() {
-            break;
-        }
-        std::thread::sleep(slice);
-    }
-}
-
-#[cfg(test)]
 pub(crate) mod test_hooks {
     use std::cell::Cell;
 
     thread_local! {
-        static FORCE_UNSUPPORTED: Cell<bool> = const { Cell::new(false) };
         static FORCE_FAIL_AFTER_AVAILABLE: Cell<bool> = const { Cell::new(false) };
-        static CONSUME_MODERN_SLICE: Cell<bool> = const { Cell::new(false) };
-        static DISABLE_DEADLINE_SLICE: Cell<bool> = const { Cell::new(false) };
-    }
-
-    pub(crate) fn force_unsupported() -> bool {
-        FORCE_UNSUPPORTED.with(Cell::get)
     }
 
     pub(crate) fn force_fail_after_available() -> bool {
         FORCE_FAIL_AFTER_AVAILABLE.with(Cell::get)
     }
 
-    pub(crate) fn consume_modern_slice() -> bool {
-        CONSUME_MODERN_SLICE.with(Cell::get)
-    }
-
-    pub(crate) fn disable_deadline_slice() -> bool {
-        DISABLE_DEADLINE_SLICE.with(Cell::get)
-    }
-
-    pub(crate) fn with_force_unsupported<R>(run: impl FnOnce() -> R) -> R {
-        crate::system::fixture::test_support::with_flag(&FORCE_UNSUPPORTED, true, run)
-    }
-
     pub(crate) fn with_force_fail_after_available<R>(run: impl FnOnce() -> R) -> R {
-        crate::system::fixture::test_support::with_flag(&FORCE_FAIL_AFTER_AVAILABLE, true, run)
-    }
-
-    pub(crate) fn with_consume_modern_slice<R>(run: impl FnOnce() -> R) -> R {
-        crate::system::fixture::test_support::with_flag(&CONSUME_MODERN_SLICE, true, run)
-    }
-
-    pub(crate) fn with_disable_deadline_slice<R>(run: impl FnOnce() -> R) -> R {
-        crate::system::fixture::test_support::with_flag(&DISABLE_DEADLINE_SLICE, true, run)
+        crate::system::test_support::helpers::with_flag(&FORCE_FAIL_AFTER_AVAILABLE, true, run)
     }
 }
 

@@ -8,7 +8,7 @@ use super::fixture::{deadline, wait_until};
 use crate::actions::context::Target;
 use crate::system::{SharedBus, owner_process_id};
 use crate::tree::AtspiElement;
-use crate::tree::live::live_process::{is_running, process_report};
+use crate::tree::test_support::live_process::{is_running, process_report};
 
 pub(super) const ROLE_CHECK_BOX: u32 = 7;
 pub(super) const ROLE_TOGGLE_BUTTON: u32 = 62;

@@ -5,7 +5,7 @@ use crate::input::mouse::mouse_send::mouse_send_fake_sink as mouse_sink;
 use crate::input::mouse::mouse_send::{
     MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_MOVE, MOUSEEVENTF_VIRTUALDESK,
 };
-use crate::system::fixture::test_time::deadline;
+use crate::system::test_support::test_time::deadline;
 use agent_desktop_core::{
     Deadline, DeliveryDisposition, ErrorCode, MAX_MOUSE_CLICK_COUNT, Modifier, MouseButton,
     MouseEvent, MouseEventKind, Point,

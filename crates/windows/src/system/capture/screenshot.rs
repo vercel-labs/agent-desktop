@@ -62,11 +62,9 @@ pub(crate) fn capture_display(
     verify_display_identity(index, expected, &current)?;
     let captured = capture_with_precedence(CaptureSubject::Display { index: raw_index }, deadline)?;
     deadline.ensure_remaining()?;
-    if !skip_post_identity() {
-        let after = display_at(raw_index, deadline)?;
-        deadline.ensure_remaining()?;
-        verify_display_identity(index, &current, &after)?;
-    }
+    let after = display_at(raw_index, deadline)?;
+    deadline.ensure_remaining()?;
+    verify_display_identity(index, &current, &after)?;
     Ok(captured)
 }
 
@@ -102,64 +100,8 @@ pub(crate) fn capture_window(
         deadline,
     )?;
     deadline.ensure_remaining()?;
-    if !skip_post_identity() {
-        if force_post_identity_failure() {
-            return Err(AdapterError::new(
-                ErrorCode::StaleRef,
-                "window identity could not be re-proved after capture",
-            )
-            .with_suggestion("Run 'list-windows' to refresh window identifiers, then retry.")
-            .with_disposition(DeliverySemantics::not_delivered()));
-        }
-        resolve_window_strict(&verified, deadline)?;
-    }
+    resolve_window_strict(&verified, deadline)?;
     Ok(captured)
-}
-
-#[cfg(test)]
-fn skip_post_identity() -> bool {
-    test_hooks::skip_post_identity()
-}
-
-#[cfg(not(test))]
-fn skip_post_identity() -> bool {
-    false
-}
-
-#[cfg(test)]
-fn force_post_identity_failure() -> bool {
-    test_hooks::force_post_identity_failure()
-}
-
-#[cfg(not(test))]
-fn force_post_identity_failure() -> bool {
-    false
-}
-
-#[cfg(test)]
-pub(crate) mod test_hooks {
-    use std::cell::Cell;
-
-    thread_local! {
-        static SKIP_POST_IDENTITY: Cell<bool> = const { Cell::new(false) };
-        static FORCE_POST_IDENTITY_FAILURE: Cell<bool> = const { Cell::new(false) };
-    }
-
-    pub(crate) fn skip_post_identity() -> bool {
-        SKIP_POST_IDENTITY.with(Cell::get)
-    }
-
-    pub(crate) fn force_post_identity_failure() -> bool {
-        FORCE_POST_IDENTITY_FAILURE.with(Cell::get)
-    }
-
-    pub(crate) fn with_skip_post_identity<R>(run: impl FnOnce() -> R) -> R {
-        crate::system::fixture::test_support::with_flag(&SKIP_POST_IDENTITY, true, run)
-    }
-
-    pub(crate) fn with_force_post_identity_failure<R>(run: impl FnOnce() -> R) -> R {
-        crate::system::fixture::test_support::with_flag(&FORCE_POST_IDENTITY_FAILURE, true, run)
-    }
 }
 
 #[cfg(test)]

@@ -7,7 +7,3 @@ pub(crate) mod remote_desktop;
 
 #[cfg(test)]
 mod fake_session;
-#[cfg(test)]
-mod live_shell;
-#[cfg(test)]
-mod live_tests;

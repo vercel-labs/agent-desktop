@@ -1,7 +1,7 @@
 use super::fixture::{modifier_events, origin, reset_sinks};
 use super::*;
 use crate::input::mouse::mouse_send::mouse_send_fake_sink as mouse_sink;
-use crate::system::fixture::test_time::deadline;
+use crate::system::test_support::test_time::deadline;
 use agent_desktop_core::{ErrorCode, Modifier, MouseButton, MouseEvent, MouseEventKind, Point};
 
 fn wheel_event(point: Point, delta_x: f64, delta_y: f64) -> MouseEvent {

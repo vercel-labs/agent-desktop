@@ -4,7 +4,7 @@ use super::*;
 use crate::system::process::process_facts::ProcessFacts;
 use crate::system::process::process_lookup::Lookup;
 use crate::system::{NAME_HAS_NO_OWNER, window::window_id};
-use crate::tree::live::test_support::{client_timeout, method_error, ref_entry};
+use crate::tree::test_support::helpers::{client_timeout, method_error, ref_entry};
 
 fn entry() -> RefEntry {
     let mut entry = ref_entry("button");

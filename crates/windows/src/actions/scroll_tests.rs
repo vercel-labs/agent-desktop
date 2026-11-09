@@ -1,5 +1,5 @@
 use super::{SCROLL_LABEL, ScrollPlan, axis_name, scroll_effect_verified, scroll_judged_for};
-use crate::system::fixture::test_time::deadline;
+use crate::system::test_support::test_time::deadline;
 use crate::tree::actions::resolve_actions;
 use crate::tree::properties::ElementProperties;
 use crate::tree::properties::property_ids::TreeProperty;

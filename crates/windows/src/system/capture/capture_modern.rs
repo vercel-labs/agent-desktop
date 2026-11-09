@@ -89,14 +89,6 @@ fn capture_item(
         .StartCapture()
         .map_err(|error| wgc_error(error.code().0, "start the capture session"))?;
 
-    #[cfg(test)]
-    if fail_after_start::is_active() {
-        return Err(AdapterError::new(
-            ErrorCode::ActionFailed,
-            "modern capture forced failure after session start",
-        ));
-    }
-
     let frame = wait_for_frame(&pool, deadline)?;
     let content = frame
         .0
@@ -126,10 +118,6 @@ fn capture_item(
 }
 
 fn wait_for_frame(pool: &PoolGuard, deadline: Deadline) -> Result<FrameGuard, AdapterError> {
-    #[cfg(test)]
-    if let Some(budget) = hold_frames::budget() {
-        return hold_frames_until(deadline, budget);
-    }
     loop {
         deadline.ensure_remaining()?;
         match pool.0.TryGetNextFrame() {
@@ -142,15 +130,6 @@ fn wait_for_frame(pool: &PoolGuard, deadline: Deadline) -> Result<FrameGuard, Ad
                 std::thread::sleep(slice);
             }
         }
-    }
-}
-
-#[cfg(test)]
-fn hold_frames_until(deadline: Deadline, budget: Duration) -> Result<FrameGuard, AdapterError> {
-    let held = Deadline::from_duration(budget)?;
-    loop {
-        deadline.ensure_remaining()?;
-        std::thread::sleep(held.remaining_slice(FRAME_POLL_SLICE)?);
     }
 }
 
@@ -269,49 +248,6 @@ struct TextureGuard;
 impl Drop for TextureGuard {
     fn drop(&mut self) {
         resource_balance::release();
-    }
-}
-
-#[cfg(test)]
-pub(in crate::system) mod fail_after_start {
-    use std::cell::Cell;
-
-    thread_local! {
-        static ACTIVE: Cell<bool> = const { Cell::new(false) };
-    }
-
-    pub(super) fn is_active() -> bool {
-        ACTIVE.with(Cell::get)
-    }
-
-    pub(super) fn with<R>(run: impl FnOnce() -> R) -> R {
-        crate::system::fixture::test_support::with_flag(&ACTIVE, true, run)
-    }
-}
-
-#[cfg(test)]
-pub(in crate::system) mod hold_frames {
-    use std::cell::Cell;
-    use std::time::Duration;
-
-    thread_local! {
-        static BUDGET_MS: Cell<usize> = const { Cell::new(0) };
-    }
-
-    /// The frame-wait budget armed for this thread, if frames are being held.
-    ///
-    /// The budget is a fresh deadline started inside the frame wait, after the
-    /// capture session exists, so expiry is decided there and never by how long
-    /// the setup before it took.
-    pub(super) fn budget() -> Option<Duration> {
-        match BUDGET_MS.with(Cell::get) {
-            0 => None,
-            millis => Some(Duration::from_millis(millis as u64)),
-        }
-    }
-
-    pub(super) fn with<R>(budget_ms: usize, run: impl FnOnce() -> R) -> R {
-        crate::system::fixture::test_support::with_usize_flag(&BUDGET_MS, budget_ms, run)
     }
 }
 

@@ -1,14 +1,8 @@
 //! The essential-completeness gate is a pure predicate over the evidence, so
-//! it is pinned here without a UI Automation client and on every target,
-//! rather than beside the fixture-driven tests: any essential slot reading
-//! `Unknown` - the completeness rule - rejects the bundle, and the rejection
-//! error is the retryable `AppUnresponsive` the loop retries instead of a
-//! partial answer claiming completeness.
-//!
-//! What these tests deliberately cannot see is whether the shared read still
-//! consults the predicate at all. That wiring is pinned against a real
-//! element in `live_read_seam_tests.rs`, because it is only observable
-//! through a read that reaches the gate.
+//! it is pinned here without a UI Automation client and on every target: any
+//! essential slot reading `Unknown` - the completeness rule - rejects the
+//! bundle, and the rejection error is the retryable `AppUnresponsive` the loop
+//! retries instead of a partial answer claiming completeness.
 
 use super::{essential_live_evidence_complete, incomplete_live_evidence, stale_reader_error};
 use agent_desktop_core::{

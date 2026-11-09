@@ -12,7 +12,7 @@ use super::live_widget_scripts::{
 use crate::LinuxAdapter;
 use crate::system::window::window_id;
 use crate::tree::capabilities::text_selection::{read_caret_and_selection, read_selection};
-use crate::tree::live::live_launch::{Launched, nonce};
+use crate::tree::test_support::live_launch::{Launched, nonce};
 use crate::tree::vocabulary::role_numbers::{
     CHECK_BOX, CHECK_MENU_ITEM, COMBO_BOX, LIST, PUSH_BUTTON,
 };

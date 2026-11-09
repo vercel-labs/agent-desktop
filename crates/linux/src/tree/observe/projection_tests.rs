@@ -8,7 +8,7 @@ use agent_desktop_core::{
 
 use super::{Projector, project, project_node};
 use crate::tree::capabilities::value_read::ValueRead;
-use crate::tree::live::test_support::read_of;
+use crate::tree::test_support::helpers::read_of;
 use crate::tree::vocabulary::role_numbers::{PANEL, PUSH_BUTTON, SLIDER};
 use crate::tree::walk::walker::walk_levels;
 use crate::tree::walk::wrapper::classify;

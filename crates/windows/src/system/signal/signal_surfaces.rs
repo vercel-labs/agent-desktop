@@ -164,11 +164,3 @@ fn has_owner(handle: WindowHandle) -> bool {
     let command: GET_WINDOW_CMD = GW_OWNER;
     !unsafe { GetWindow(handle, command) }.is_null()
 }
-
-#[cfg(test)]
-#[path = "signal_surfaces_tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "wait_surface_live_tests.rs"]
-mod live_surface_tests;
