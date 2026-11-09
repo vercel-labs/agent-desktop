@@ -134,28 +134,26 @@ fn wait_for_exit(
     force: bool,
     deadline: Deadline,
 ) -> Result<CloseOutcome, AdapterError> {
-    loop {
-        if !identity
-            .still_matches()
-            .map_err(after_termination_request)?
-        {
-            return Ok(CloseOutcome::Exited);
-        }
-        if deadline.is_expired() {
-            return Err(deadline
-                .timeout_error()
-                .with_details(serde_json::json!({
-                    "app": id,
-                    "pid": identity.pid(),
-                    "force": force,
-                }))
-                .with_disposition(agent_desktop_core::DeliverySemantics::delivered_unverified()));
-        }
-        let pause = deadline
-            .remaining_slice(std::time::Duration::from_millis(25))
-            .map_err(after_termination_request)?;
-        std::thread::sleep(pause.min(std::time::Duration::from_millis(25)));
+    let step = std::time::Duration::from_millis(25);
+    let running = deadline
+        .poll_until(
+            deadline.remaining(),
+            step,
+            || identity.still_matches(),
+            |read| !matches!(read, Ok(true)),
+        )
+        .map_err(after_termination_request)?;
+    if !running {
+        return Ok(CloseOutcome::Exited);
     }
+    Err(deadline
+        .timeout_error()
+        .with_details(serde_json::json!({
+            "app": id,
+            "pid": identity.pid(),
+            "force": force,
+        }))
+        .with_disposition(agent_desktop_core::DeliverySemantics::delivered_unverified()))
 }
 
 #[cfg(target_os = "macos")]

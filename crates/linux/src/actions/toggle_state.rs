@@ -5,7 +5,7 @@ use agent_desktop_core::{
 };
 use serde_json::json;
 
-use super::click::{POLL_STEP, invoke_verb, names_of, poll_until, refusal, run_single_rung};
+use super::click::{POLL_STEP, invoke_verb, names_of, refusal, run_single_rung};
 use super::context::Target;
 use super::write::mutation::WriteReply;
 use crate::tree::capabilities::action_names::toggle_verbs;
@@ -147,8 +147,7 @@ pub(super) fn toggle_reporting(
             current,
             || invoke_verb(target, &action, names, verbs),
             || {
-                poll_until(
-                    target.deadline,
+                target.deadline.poll_until(
                     TOGGLE_SETTLE,
                     POLL_STEP,
                     || {

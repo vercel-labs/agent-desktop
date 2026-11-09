@@ -3,7 +3,7 @@ use agent_desktop_core::{ActionResult, AdapterError, Deadline, DeliveryObservati
 use super::select_pointer::{Pointer, already_satisfied, by_pointer_result};
 use super::select_search::Hit;
 use super::select_verify::read_verification;
-use crate::actions::click::{POLL_STEP, poll_until};
+use crate::actions::click::POLL_STEP;
 use crate::actions::context::Target;
 use crate::actions::select::SELECT_SETTLE;
 use crate::tree::AtspiElement;
@@ -20,7 +20,7 @@ fn click_until_selected(
         return Ok(already_satisfied());
     }
     let steps = pointer.click(row)?;
-    let selected = poll_until(deadline, SELECT_SETTLE, POLL_STEP, read, |selected| {
+    let selected = deadline.poll_until(SELECT_SETTLE, POLL_STEP, read, |selected| {
         *selected == Some(true)
     });
     by_pointer_result(steps, DeliveryObservation::of_read(selected))

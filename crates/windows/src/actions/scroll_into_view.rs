@@ -110,7 +110,7 @@ mod imp {
             });
         }
         if let Some((list, name)) = native_list_box_item(element)
-            && scroll_list_box_item(list, &name, deadline)?
+            && scroll_list_box_item(&list, &name, deadline)?
         {
             let verified = poll_until(deadline, VERIFY_WINDOW, || {
                 observe().is_ok_and(|sample| visibility_verified(&sample))

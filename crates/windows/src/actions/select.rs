@@ -1,7 +1,8 @@
 //! Select.
 //!
-//! A native combo box selects by name through its own window messages
-//! (`select_combo`). Any other target selects a named item, itself or one of
+//! A native combo box that stores item names selects by name through its own
+//! window messages (`select_combo`); an owner-drawn one, or a name its search
+//! misses, falls through to the route below. Any other target selects a named item, itself or one of
 //! its realized descendants: LegacyIAccessible `Select(SELFLAG_TAKESELECTION)`
 //! has no foreground effect on SysTreeView32, WinForms, WPF and DirectUI items
 //! (C8), SelectionItemPattern is the headed rung, and the item's IsSelected
@@ -32,9 +33,10 @@ mod imp {
     use crate::actions::click::SELECT_ITEM_LABEL;
     use crate::actions::disclosure::{EXPAND_LABEL, ExpandKind};
     use crate::actions::mutation::{classify_success, classify_write};
+    use crate::actions::scroll::vertical_scroll;
     use crate::actions::select_combo::{COMBO_SELECT_LABEL, native_combo, select_native_combo};
     use crate::actions::select_search::{
-        find_named_selection_item, name_matches, selection_item_available,
+        find_named_selection_item, name_matches, scroll_to_realize, selection_item_available,
     };
     use crate::tree::properties::property_ids::TreeProperty;
     use crate::tree::properties::read_one;
@@ -50,8 +52,9 @@ mod imp {
     ) -> Result<Vec<ActionStep>, AdapterError> {
         deadline.ensure_remaining()?;
         if let Some(combo) = native_combo(element) {
-            let outcome = select_native_combo(combo, value, deadline)?;
-            return Ok(vec![outcome.step(COMBO_SELECT_LABEL)]);
+            if let Some(outcome) = select_native_combo(combo, value, deadline)? {
+                return Ok(vec![outcome.step(COMBO_SELECT_LABEL)]);
+            }
         }
         if selection_item_available(element) && name_matches(element, value) {
             return select_item(element, policy, deadline);
@@ -66,7 +69,7 @@ mod imp {
         if collapsed {
             expand_container(element)?;
         }
-        let selected = find_item(element, value, deadline)
+        let selected = find_item(element, value, policy, deadline)
             .and_then(|item| select_item(&item, policy, deadline));
         if collapsed && selected.is_err() {
             collapse_container(element);
@@ -74,12 +77,47 @@ mod imp {
         selected
     }
 
+    /// Finds the item, then, when the policy allows the scroll that realizes
+    /// a virtualized list's rows, scrolls and searches again after every
+    /// step. A second match across the scrolls is `AMBIGUOUS_TARGET`. After a
+    /// scroll the item is the one a new search finds and proves to be the
+    /// element matched before; an element kept from before a scroll is never
+    /// selected, so a row that left the list or changed is not found.
     fn find_item(
         element: &UIAElement,
         value: &str,
+        policy: InteractionPolicy,
         deadline: Deadline,
     ) -> Result<UIAElement, AdapterError> {
-        find_named_selection_item(element, value, deadline)?.ok_or_else(|| {
+        let mut found = find_named_selection_item(element, value, deadline, None)?;
+        if found.is_none() && !policy.allow_focus_steal && vertical_scroll(element).is_some() {
+            return Err(agent_desktop_core::mechanisms_denied(
+                &[crate::actions::scroll::SCROLL_LABEL],
+                policy,
+            ));
+        }
+        if policy.allow_focus_steal {
+            let mut seen = found.clone();
+            let mut scrolled = false;
+            scroll_to_realize(element, deadline, || {
+                scrolled = true;
+                if let Some(item) =
+                    find_named_selection_item(element, value, deadline, seen.as_ref())?
+                {
+                    seen.get_or_insert(item);
+                }
+                Ok(())
+            })?;
+            if scrolled {
+                found = match seen {
+                    Some(matched) => {
+                        find_named_selection_item(element, value, deadline, Some(&matched))?
+                    }
+                    None => None,
+                };
+            }
+        }
+        found.ok_or_else(|| {
             AdapterError::new(
                 ErrorCode::ElementNotFound,
                 format!(
