@@ -38,7 +38,7 @@ impl NodeReader for Desktop {
         };
         read.node.element = element.clone();
         Ok(NodeEvidence {
-            evidence: evidence_for(&read, element),
+            evidence: evidence_for(&read, element, ""),
             read,
             liveness: Liveness::Alive,
         })

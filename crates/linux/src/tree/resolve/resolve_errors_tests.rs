@@ -117,7 +117,6 @@ fn every_refusal_is_a_stale_ref_that_a_snapshot_repairs() {
         (object_gone(), false),
         (window_replaced(), false),
         (window_unverifiable(), false),
-        (unverifiable_entry(), false),
     ] {
         assert_eq!(error.code, ErrorCode::StaleRef);
         assert_eq!(retryable(&error), Some(expected), "{}", kind(&error));

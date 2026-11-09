@@ -27,7 +27,7 @@ fn named(role: &str, name: &str) -> AccessibilityNode {
 
 fn drilled(role: &str, name: &str) -> AccessibilityNode {
     let mut n = named(role, name);
-    n.identity.retained_object = Some(format!("axtok1:{role}-{name}"));
+    n.identity.retained_object = Some(format!("token:axtok1:{role}-{name}"));
     n
 }
 
@@ -60,7 +60,7 @@ impl StubAdapter {
         Self {
             subtree,
             subtree_error: None,
-            token: "axtok1:group-Sidebar".into(),
+            token: "token:axtok1:group-Sidebar".into(),
             windows,
             expected_app: None,
         }

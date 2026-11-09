@@ -104,7 +104,7 @@ fn unread_value_prerequisites_cannot_verify_a_click_effect() {
     let _server = server.unwrap();
     let view = |read: crate::tree::ObservedRead| {
         NodeView::new(NodeEvidence {
-            evidence: evidence_for(&read, &read.node.element),
+            evidence: evidence_for(&read, &read.node.element, ""),
             read,
             liveness: Liveness::Alive,
         })

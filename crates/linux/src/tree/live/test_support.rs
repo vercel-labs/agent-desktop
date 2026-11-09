@@ -141,23 +141,6 @@ pub(crate) fn ref_entry(role: &str) -> RefEntry {
     }
 }
 
-pub(crate) fn with_identifier(mut entry: RefEntry, value: &str) -> RefEntry {
-    entry.identity.native_id = Some(ElementIdentifier {
-        kind: IdentifierKind::AxIdentifier,
-        value: value.to_owned(),
-    });
-    entry
-}
-
-pub(crate) fn rect(x: f64, y: f64, width: f64, height: f64) -> Rect {
-    Rect {
-        x,
-        y,
-        width,
-        height,
-    }
-}
-
 /// Evidence for a node with the given role, name, identifier and rectangle;
 /// a missing name or rectangle is known absent and the identifiers are
 /// complete.

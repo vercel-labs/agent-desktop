@@ -125,7 +125,7 @@ fn snapshot_and_live_visibility_agree_on_the_same_walk_facts() {
         };
         let snapshot = super::tests::tree_of(walk, &WalkLimits::default());
         let snapshot = &snapshot.children[0].presentation.states;
-        let mut evidence = project_node(&button, false, &WalkLimits::default());
+        let mut evidence = project_node(&button, false, &WalkLimits::default(), "");
         evidence.states = resolve_vocabulary(&button.node, &button.label, false).states;
         let placed = Placement {
             node: Some(bounds),
@@ -229,6 +229,7 @@ fn snapshot_and_live_agree_when_a_shown_node_is_beyond_every_display() {
             &WalkLimits::default(),
             &mut crate::tree::observe::decorate::Plain,
             displays,
+            "",
         );
         let window = agent_desktop_core::WindowInfo {
             id: "w-1.1-p".into(),
@@ -262,7 +263,7 @@ fn snapshot_and_live_agree_when_a_shown_node_is_beyond_every_display() {
             },
             ..Placement::default()
         };
-        let evidence = project_node(&button, false, &WalkLimits::default());
+        let evidence = project_node(&button, false, &WalkLimits::default(), "");
         let live = live_state(&button, &evidence, &placement).unwrap();
         assert_eq!(
             visibility(&snapshot.children[0].presentation.states),

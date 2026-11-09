@@ -98,7 +98,7 @@ fn a_token_missing_from_a_cut_short_read_is_not_proven_absent() {
     let cut_short = RuleAdapter::new(tree_with(vec![node("button", "Cancel"), unread]));
     let whole = RuleAdapter::new(tree_with(vec![node("button", "Cancel")]));
     let mut entry = entry();
-    entry.identity.retained_object = Some("axtok1:page-7:node-3".into());
+    entry.identity.retained_object = Some("token:axtok1:page-7:node-3".into());
     let deadline = Deadline::standard().expect("a standard deadline");
 
     let Err(unknown) = observe_saved_ref(&cut_short, &entry, deadline, None, false) else {

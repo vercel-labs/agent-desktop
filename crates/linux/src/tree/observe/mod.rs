@@ -243,6 +243,7 @@ fn full_read(request: &ObservationRequest) -> ReadPurpose {
 /// a process is a web engine or has stopped, and how to wait.
 struct SettleHost<'a> {
     walker: &'a mut Walker<'a>,
+    guid: &'a str,
     is_web_process: &'a dyn Fn(&AtspiElement) -> Result<bool, AdapterError>,
     stopped: &'a dyn Fn(u32) -> bool,
     pause: &'a mut dyn FnMut(Duration),
@@ -284,7 +285,8 @@ fn observe_decorated(
     }
     let complete = walk.complete && settled;
     let displays = read_displays();
-    let (subtree, mut stats) = project_with(walk, &limits, decorate, displays.as_deref());
+    let (subtree, mut stats) =
+        project_with(walk, &limits, decorate, displays.as_deref(), host.guid);
     stats.reads.health.deadline_exhausted += u64::from(!complete && request.deadline.is_expired());
     stats.elapsed_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
     ObservedTree::from_roots(
@@ -335,6 +337,7 @@ pub(crate) fn observe_tree_with(
     request: &ObservationRequest,
     decorate: &mut dyn Decorate,
 ) -> Result<ObservedTree, AdapterError> {
+    let guid = token_scope::guid_for(bus, &root, request.deadline);
     let mut walker = |element: &AtspiElement, limits: &WalkLimits, deadline: Deadline, purpose| {
         walk_tree_for(bus, element, limits, deadline, purpose)
     };
@@ -346,6 +349,7 @@ pub(crate) fn observe_tree_with(
         request,
         SettleHost {
             walker: &mut walker,
+            guid: guid.as_str(),
             place: &mut |walk| place_nodes(bus, walk, request.deadline),
             is_web_process: &|element| {
                 let connection = bus.get(request.deadline)?;
@@ -381,6 +385,7 @@ pub(super) mod readiness_step;
 #[cfg(test)]
 #[path = "observe_tests.rs"]
 mod tests;
+mod token_scope;
 
 #[cfg(test)]
 #[path = "observe_nested_tests.rs"]

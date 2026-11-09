@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use agent_desktop_core::{AdapterError, Deadline, NativeHandle, ObservationOps, RefEntry};
+use agent_desktop_core::{AdapterError, Deadline, NativeHandle, RefEntry};
 
 use super::live_launch::Launched;
 use super::live_tree::pid_frame;
@@ -76,7 +76,12 @@ impl Rig {
     }
 
     pub(in crate::tree) fn resolve(&self, entry: &RefEntry) -> Result<NativeHandle, AdapterError> {
-        self.adapter.resolve_element_strict(entry, deadline(5_000))
+        agent_desktop_core::refs::resolve_saved_ref::resolve_saved_ref(
+            &self.adapter,
+            entry,
+            deadline(5_000),
+            None,
+        )
     }
 
     pub(in crate::tree) fn timed_resolve(

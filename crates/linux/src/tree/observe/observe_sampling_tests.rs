@@ -15,6 +15,7 @@ fn settling_places_only_the_returned_full_payload() {
         ObservationRoot::Window(&window),
         &request(5000),
         SettleHost {
+            guid: "",
             walker: &mut walker,
             is_web_process: &|_| Ok(true),
             stopped: &|_| false,
@@ -57,6 +58,7 @@ fn busy_document_samples_cannot_certify_a_completed_tree() {
         ObservationRoot::Window(&window),
         &request(5000),
         SettleHost {
+            guid: "",
             walker: &mut walker,
             is_web_process: &|_| Ok(true),
             stopped: &|_| false,
@@ -91,6 +93,7 @@ fn an_interrupted_narrow_sample_returns_the_full_payload_as_incomplete() {
         ObservationRoot::Window(&window),
         &request(5000),
         SettleHost {
+            guid: "",
             walker: &mut walker,
             is_web_process: &|_| Ok(true),
             stopped: &|_| false,
@@ -118,6 +121,7 @@ fn an_identity_only_read_skips_extents_actions_and_placement() {
         ObservationRoot::Window(&window),
         &identity_only,
         SettleHost {
+            guid: "",
             walker: &mut walker,
             is_web_process: &|_| Ok(true),
             stopped: &|_| false,

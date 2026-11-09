@@ -36,7 +36,7 @@ fn node_of(read: ObservedRead) -> WalkedNode<ObservedRead> {
 
 fn evidence_of(read: ObservedRead) -> agent_desktop_core::LocatorEvidence {
     let limits = WalkLimits::default();
-    project_node(&read, false, &limits)
+    project_node(&read, false, &limits, "")
 }
 
 fn walk(
@@ -216,6 +216,7 @@ fn a_name_over_the_field_budget_is_cut_and_counted() {
     };
     let mut projector = Projector {
         limits: &limits,
+        guid: "",
         stats: LocatorStats::default(),
     };
     let read = read_of(PUSH_BUTTON, "a very long name", &["click"]);

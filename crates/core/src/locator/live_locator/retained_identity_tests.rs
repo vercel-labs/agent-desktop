@@ -59,10 +59,10 @@ fn a_positional_retained_object_never_decides_identity() {
 #[test]
 fn an_element_token_decides_identity_on_its_own() {
     let mut entry = saved();
-    entry.identity.retained_object = Some("axtok1:7f3a".into());
+    entry.identity.retained_object = Some("token:axtok1:7f3a".into());
 
     assert_eq!(
-        matches(&entry, Some("axtok1:7f3a"), "Edited"),
+        matches(&entry, Some("token:axtok1:7f3a"), "Edited"),
         IdentityMatch::Match
     );
     assert_eq!(

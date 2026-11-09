@@ -67,9 +67,23 @@ pub(crate) fn resolve_token(token: &str) -> Result<TokenLookup, AdapterError> {
     Ok(TokenLookup::Live(AXElement(element)))
 }
 
+/// A ref saved before core tagged element tokens carries the bare token. Its
+/// token would go unchecked, so it is refused rather than resolved by its
+/// recorded fields alone.
+pub(crate) fn refuse_untagged_token(
+    entry: &agent_desktop_core::RefEntry,
+) -> Result<(), AdapterError> {
+    match entry.identity.retained_object.as_deref() {
+        Some(value) if value.starts_with(TOKEN_PREFIX) => Err(
+            agent_desktop_core::refs::resolve_errors::element_token_stale(entry, "legacy", None),
+        ),
+        _ => Ok(()),
+    }
+}
+
 pub(crate) fn evidence(element: &AXElement, identifiers: IdentifierEvidence) -> IdentifierEvidence {
     match capture(element) {
-        Ok(Some(token)) => identifiers.with_retained_object(token),
+        Ok(Some(token)) => identifiers.with_element_token(&token),
         _ => identifiers,
     }
 }
