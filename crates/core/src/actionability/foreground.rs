@@ -1,27 +1,58 @@
-//! The one foreground gate. An adapter reports what an operation needs from
-//! the foreground; the interaction policy decides whether it may take it. The
-//! actionability preflight, the raw native-handle dispatch and `close-app` all
-//! decide through here.
+//! The one foreground gate. An adapter declares the effects an operation has
+//! on the user's foreground; the interaction policy decides whether it may have
+//! them. The actionability preflight, the raw native-handle dispatch and
+//! `close-app` all decide through here.
 
 use serde_json::json;
 
 use crate::{
-    AdapterError, Deadline, HeadedRequirement, InteractionPolicy,
+    AdapterError, Deadline, DeclaredEffect, Effect, InteractionPolicy,
     actions::action_request::ActionRequest,
     adapter::{NativeHandle, PlatformAdapter},
 };
 
-/// Whether `policy` forbids the focus or the cursor that `requirement` needs.
-pub(crate) fn denies(requirement: HeadedRequirement, policy: InteractionPolicy) -> bool {
-    requirement.requires_focus() && !policy.allow_focus_steal
-        || requirement.requires_cursor() && !policy.allow_cursor_move
+const FOREGROUND_SUGGESTION: &str = "This action opens a popup, menu or window that takes the foreground, which a headless request does not allow. Run it again with --headed only if taking the foreground is intended.";
+
+/// The refusal for `mechanism`, which takes the foreground `policy` forbids.
+/// `kind` says why the platform expects it to; nothing was sent.
+pub fn foreground_denied(
+    message: &str,
+    kind: &str,
+    mechanism: &str,
+    policy: InteractionPolicy,
+) -> AdapterError {
+    AdapterError::policy_denied_for_policy(message, policy).with_details(json!({
+        "check": "foreground",
+        "kind": kind,
+        "effect": Effect::FocusSteal,
+        "foreground_effect": true,
+        "mechanisms": [mechanism],
+    }))
 }
 
-/// The refusal for an operation whose foreground use `policy` forbids. `kind`
-/// names the effect in `details.kind`; nothing was sent.
-pub fn foreground_denied(message: &str, kind: &str, policy: InteractionPolicy) -> AdapterError {
-    AdapterError::policy_denied_for_policy(message, policy)
-        .with_details(json!({ "check": "foreground", "kind": kind }))
+/// Refuses `request` when its policy does not permit the effect the platform
+/// declared for it, and reports the declared reason as `details.kind`.
+pub(crate) fn require_declared(
+    declared: Option<DeclaredEffect>,
+    request: &ActionRequest,
+) -> Result<(), AdapterError> {
+    let Some(declared) = declared else {
+        return Ok(());
+    };
+    let operation = request.action.name();
+    request
+        .policy
+        .require(declared.effect, operation)
+        .map_err(|refusal| {
+            refusal
+                .with_suggestion(FOREGROUND_SUGGESTION)
+                .with_details(json!({
+                    "check": "foreground",
+                    "kind": declared.kind,
+                    "foreground_effect": true,
+                    "mechanisms": [operation],
+                }))
+        })
 }
 
 /// The gate for a dispatch that runs without the actionability preflight, such
@@ -32,13 +63,8 @@ pub fn ensure_foreground_allowed(
     request: &ActionRequest,
     deadline: Deadline,
 ) -> Result<(), AdapterError> {
-    let requirement = adapter.headed_requirement(handle, request, deadline)?;
-    if denies(requirement, request.policy) {
-        return Err(foreground_denied(
-            "The platform reports that this action takes the foreground, which the interaction policy does not allow",
-            "action",
-            request.policy,
-        ));
-    }
-    Ok(())
+    require_declared(
+        adapter.foreground_effect(handle, request, deadline)?,
+        request,
+    )
 }

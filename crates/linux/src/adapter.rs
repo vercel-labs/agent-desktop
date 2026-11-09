@@ -265,19 +265,20 @@ impl LinuxAdapter {
 }
 
 impl ActionOps for LinuxAdapter {
-    fn headed_requirement(
+    fn foreground_effect(
         &self,
         handle: &NativeHandle,
         request: &ActionRequest,
         deadline: Deadline,
-    ) -> Result<agent_desktop_core::HeadedRequirement, AdapterError> {
-        crate::actions::foreground::headed_requirement(self.bus(), handle, request, deadline)
+    ) -> Result<Option<agent_desktop_core::DeclaredEffect>, AdapterError> {
+        crate::actions::foreground::foreground_effect(self.bus(), handle, request, deadline)
     }
 
     fn scroll_ref_into_view(
         &self,
         entry: &agent_desktop_core::RefEntry,
         handle: &NativeHandle,
+        _policy: agent_desktop_core::InteractionPolicy,
         lease: &InteractionLease,
     ) -> Result<Option<NativeHandle>, AdapterError> {
         crate::actions::scroll::scroll_ref::scroll(self.bus(), entry, handle, lease)
@@ -295,6 +296,7 @@ impl ActionOps for LinuxAdapter {
     fn scroll_into_view(
         &self,
         handle: &NativeHandle,
+        _policy: agent_desktop_core::InteractionPolicy,
         lease: &InteractionLease,
     ) -> Result<(), AdapterError> {
         crate::actions::before_pointer(crate::actions::scroll_into_view(self.bus(), handle, lease))

@@ -70,14 +70,10 @@ pub(crate) fn dispatch_resolved_landing(
     mut request: ActionRequest,
     lease: &crate::InteractionLease,
 ) -> Result<(ActionResult, NativeHandle), AppError> {
-    let process_instance = target
-        .entry
-        .process
-        .process_instance
-        .as_deref()
-        .filter(|instance| !instance.is_empty())
-        .ok_or_else(|| AdapterError::stale_ref_because("target process instance is unavailable"))?;
-    let expected_process = crate::ProcessIdentity::new(target.entry.process.pid, process_instance);
+    let expected_process =
+        target.entry.process.identity().ok_or_else(|| {
+            AdapterError::stale_ref_because("target process instance is unavailable")
+        })?;
     let mut handle = resolve_saved_ref(target.adapter, target.entry, target.deadline, Some(lease))
         .map_err(mark_pre_dispatch_resolution_failure)
         .inspect_err(|error| {
@@ -98,10 +94,12 @@ pub(crate) fn dispatch_resolved_landing(
             ) {
                 return Err(error.into());
             }
-            let recovered = match target
-                .adapter
-                .scroll_ref_into_view(target.entry, &handle, lease)
-            {
+            let recovered = match target.adapter.scroll_ref_into_view(
+                target.entry,
+                &handle,
+                request.policy,
+                lease,
+            ) {
                 Ok(recovered) => recovered,
                 Err(scroll_error) => {
                     trace_scroll_error(&target, &scroll_error);

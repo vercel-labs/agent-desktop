@@ -77,13 +77,25 @@ impl crate::adapter::ObservationOps for ForegroundAdapter {}
 impl crate::adapter::InputOps for ForegroundAdapter {}
 impl crate::adapter::SystemOps for ForegroundAdapter {}
 impl crate::adapter::ActionOps for ForegroundAdapter {
-    fn headed_requirement(
+    fn foreground_effect(
         &self,
         _handle: &NativeHandle,
         _request: &ActionRequest,
         _deadline: crate::Deadline,
-    ) -> Result<crate::HeadedRequirement, AdapterError> {
-        Ok(crate::HeadedRequirement::FocusedApplication)
+    ) -> Result<Option<crate::DeclaredEffect>, AdapterError> {
+        Ok(Some(crate::DeclaredEffect {
+            effect: crate::Effect::FocusSteal,
+            kind: "opens_popup",
+        }))
+    }
+
+    fn headed_focus(
+        &self,
+        _handle: &NativeHandle,
+        _request: &ActionRequest,
+        _deadline: crate::Deadline,
+    ) -> Result<Option<crate::HeadedFocus>, AdapterError> {
+        Ok(Some(crate::HeadedFocus::Application))
     }
 }
 
@@ -122,9 +134,13 @@ fn a_foreground_the_policy_forbids_is_the_only_refusal_and_comes_first() {
     let error = checked(ActionRequest::headless(Action::Click), true).unwrap_err();
     assert_eq!(error.code, ErrorCode::PolicyDenied);
     assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());
-    let checks = error.details.unwrap()["checks"].clone();
-    assert_eq!(checks.as_array().map(Vec::len), Some(1), "{checks}");
-    assert_eq!(checks[0]["check"], "foreground");
+    let details = error.details.unwrap();
+    assert_eq!(details["check"], "foreground");
+    assert_eq!(details["effect"], "focus_steal");
+    assert_eq!(details["kind"], "opens_popup");
+    assert_eq!(details["foreground_effect"], true);
+    assert_eq!(details["mechanisms"], serde_json::json!(["click"]));
+    assert!(details.get("checks").is_none(), "{details}");
     assert!(error.suggestion.unwrap().contains("--headed"));
     for request in [
         ActionRequest::headed(Action::Click),

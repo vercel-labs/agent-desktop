@@ -6,27 +6,43 @@ use agent_desktop_core::{
 use crate::adapter::{MacOSAdapter, ax_element};
 
 impl ActionOps for MacOSAdapter {
-    fn headed_requirement_for_ref(
+    fn headed_focus_for_ref(
         &self,
         entry: &agent_desktop_core::RefEntry,
         request: &ActionRequest,
         deadline: Deadline,
-    ) -> Result<agent_desktop_core::HeadedRequirement, AdapterError> {
-        crate::actions::native_menu::headed_requirement(request, || {
+    ) -> Result<Option<agent_desktop_core::HeadedFocus>, AdapterError> {
+        crate::actions::native_menu::headed_focus(request, || {
             let handle = self.resolve_element_strict(entry, deadline)?;
             crate::tree::native_menu::presses_like_a_menu(ax_element(&handle)?, deadline)
         })
     }
 
-    fn headed_requirement(
+    fn headed_focus(
         &self,
         handle: &NativeHandle,
         request: &ActionRequest,
         deadline: Deadline,
-    ) -> Result<agent_desktop_core::HeadedRequirement, AdapterError> {
-        crate::actions::native_menu::headed_requirement(request, || {
+    ) -> Result<Option<agent_desktop_core::HeadedFocus>, AdapterError> {
+        crate::actions::native_menu::headed_focus(request, || {
             crate::tree::native_menu::presses_like_a_menu(ax_element(handle)?, deadline)
         })
+    }
+
+    fn foreground_effect(
+        &self,
+        handle: &NativeHandle,
+        request: &ActionRequest,
+        deadline: Deadline,
+    ) -> Result<Option<agent_desktop_core::DeclaredEffect>, AdapterError> {
+        if handle.is_null() {
+            return Ok(None);
+        }
+        Ok(crate::actions::background_effect::foreground_effect(
+            ax_element(handle)?,
+            request,
+            deadline,
+        ))
     }
 
     fn execute_action(
@@ -44,6 +60,7 @@ impl ActionOps for MacOSAdapter {
     fn scroll_into_view(
         &self,
         handle: &NativeHandle,
+        _policy: agent_desktop_core::InteractionPolicy,
         lease: &InteractionLease,
     ) -> Result<(), AdapterError> {
         crate::actions::scroll_into_view::scroll_into_view_impl(

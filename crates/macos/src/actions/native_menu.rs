@@ -1,10 +1,10 @@
 use agent_desktop_core::AdapterError;
 
-pub(crate) fn headed_requirement(
+pub(crate) fn headed_focus(
     request: &agent_desktop_core::ActionRequest,
     classify: impl FnOnce() -> Result<bool, AdapterError>,
-) -> Result<agent_desktop_core::HeadedRequirement, AdapterError> {
-    use agent_desktop_core::{Action, HeadedRequirement};
+) -> Result<Option<agent_desktop_core::HeadedFocus>, AdapterError> {
+    use agent_desktop_core::{Action, HeadedFocus};
     if request.policy.is_headed()
         && matches!(
             request.action,
@@ -12,13 +12,13 @@ pub(crate) fn headed_requirement(
         )
         && classify()?
     {
-        return Ok(if matches!(request.action, Action::Click) {
-            HeadedRequirement::FocusedApplication
+        return Ok(Some(if matches!(request.action, Action::Click) {
+            HeadedFocus::Application
         } else {
-            HeadedRequirement::FocusedApplicationAndCursor
-        });
+            HeadedFocus::ApplicationAndCursor
+        }));
     }
-    Ok(request.headed_requirement())
+    Ok(request.headed_focus())
 }
 
 #[cfg(test)]

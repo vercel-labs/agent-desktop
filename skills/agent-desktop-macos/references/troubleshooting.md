@@ -12,8 +12,6 @@ Each entry is a symptom, its cause, and the fix. Read `error.code`, `error.sugge
 
 The guide offers the app bundle of the nearest process above agent-desktop. Under a tmux server or an SSH session, no such app exists, so the guide offers the `agent-desktop` binary. In that case, add the terminal app that started tmux by hand. macOS 27 and later name the Accessibility list Device Control and Data Access.
 
-For Automation, open Privacy & Security > Automation and allow the launching app to control System Events.
-
 ## Empty or sparse tree
 
 **Symptom.** `snapshot` returns few nodes, or no refs.
@@ -40,7 +38,7 @@ For Automation, open Privacy & Security > Automation and allow the launching app
 
 **Symptom.** A ref action returns `ACTION_FAILED`.
 
-**Cause.** The element is disabled, the app is busy, or the element does not support the action. The semantic chain tries only the actions the element advertises, then stops.
+**Cause.** The element is disabled, the app is busy, or the element does not support the action. The semantic chain tries only the actions the element advertises, then stops. When the semantic routes deliver nothing and a physical route was held back because the command ran headless, the result is `POLICY_DENIED` instead, with the held-back route (`CGClick` or `FocusThenClearByKeyboard`) in `details.mechanisms`.
 
 **Fix.**
 1. Run `is @ref --property enabled`. Wait or fix the state if it is false.
@@ -52,7 +50,7 @@ For Automation, open Privacy & Security > Automation and allow the launching app
 
 **Symptom.** A command returns `POLICY_DENIED`.
 
-**Cause.** The semantic path could not finish, and the physical path is blocked because the command ran headless. Hover, drag, double-click, triple-click and cursor-moving mouse commands always need `--headed`. Coordinate `right-click` is also blocked headless. On macOS a headless action is also refused when it would show a menu or open a dialog: `right-click`, `select` through a menu, `click` or `expand` on a pop-up button, menu button or combo box, and `click`, `toggle`, `check` or `uncheck` on a label that ends in `…` or `...`. Add `--headed` when the menu or dialog is intended.
+**Cause.** The semantic path could not finish, and the physical path is blocked because the command ran headless. Hover, drag, double-click, triple-click and cursor-moving mouse commands always need `--headed`. Coordinate `right-click` is also blocked headless. On macOS a headless action is also refused when it would show a menu or open a dialog: `right-click`, `select` through a menu, `click` or `expand` on a pop-up button, menu button or combo box, and `click`, `toggle`, `check` or `uncheck` on a label that ends in `…` or `...`. The refusal has `details.effect: "focus_steal"` and names the reason in `details.kind`: `shows_menu` for a menu, `opens_dialog` for a dialog. Add `--headed` when the menu or dialog is intended.
 
 **Fix.** Add the global `--headed` flag only if physical input is what you want. Example: `agent-desktop --headed mouse-click --xy 640,400 --button right`. Take coordinates from `get @ref --property bounds`.
 

@@ -11,3 +11,7 @@ pub(crate) fn with_event_count(report: OperationReport, delivery: &Delivery) -> 
         target: report.target,
     }
 }
+
+#[cfg(test)]
+#[path = "pointer_report_tests.rs"]
+mod tests;

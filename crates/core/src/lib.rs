@@ -28,13 +28,13 @@ pub use actions::action_result::ActionResult;
 pub use actions::action_step::ActionStep;
 pub use actions::action_step_outcome::ActionStepOutcome;
 pub use actions::chain_rung::ChainRung;
+pub use actions::declared_effect::DeclaredEffect;
 pub use actions::delivery_chain::{execute_chain, mechanisms_denied};
 pub use actions::delivery_observation::DeliveryObservation;
 pub use actions::delivery_outcome::DeliveryOutcome;
 pub use actions::delivery_semantics::DeliverySemantics;
 pub use actions::effect::Effect;
-pub use actions::headed_focus::saved_ref_focus_window;
-pub use actions::headed_requirement::HeadedRequirement;
+pub use actions::headed_focus::{HeadedFocus, saved_ref_focus_window};
 pub use actions::interaction_policy::InteractionPolicy;
 pub use actions::post_action::execute_verified_action;
 pub use actions::step_mechanism::StepMechanism;
@@ -72,6 +72,7 @@ pub use input::mouse_click_count::{MAX_MOUSE_CLICK_COUNT, validate_mouse_click_c
 pub use input::mouse_event::MouseEvent;
 pub use input::mouse_event_kind::MouseEventKind;
 pub use input::pointer_observation::PointerObservation;
+pub use input::text_chunk_progress::text_chunk_progress;
 pub use locator::containment_predicate::ContainmentPredicate;
 pub use locator::identity_predicate::IdentityPredicate;
 pub use locator::live_locator::{
@@ -81,7 +82,7 @@ pub use locator::live_locator::{
     LocatorResolveRequest, LocatorSelection, LocatorSemanticReadStats, LocatorStats,
     LocatorTraversalStats, ObservationBudget, ObservationMode, ObservationRequest, ObservationRoot,
     ObservationSource, ObservedSubtree, ObservedTree, classify_query_result, evaluate_locator_tree,
-    require_unique, resolve_query,
+    incomplete_locator_error, require_unique, resolve_query,
 };
 pub use locator::state_predicate::StatePredicate;
 pub use locator::{

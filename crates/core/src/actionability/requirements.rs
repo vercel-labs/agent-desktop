@@ -43,7 +43,7 @@ impl ActionabilityRequirements {
         if !self.receives_events {
             return PointerDelivery::NotApplicable;
         }
-        if policy.is_headed() && action.headed_requirement().requires_cursor() {
+        if policy.is_headed() && action.headed_focus().uses_cursor() {
             PointerDelivery::Physical
         } else if crate::actions::capability::supports_direct_semantic_pointer_delivery(
             action,

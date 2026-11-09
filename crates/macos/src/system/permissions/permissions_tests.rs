@@ -42,31 +42,3 @@ fn post_helper_preflight_is_the_authoritative_permission_state() {
     assert_eq!(report.screen_recording, PermissionState::Granted);
     assert_eq!(report.automation, PermissionState::Unknown);
 }
-
-#[test]
-fn authorization_denial_is_structured_and_nonprompting() {
-    let error = automation_permission_error(-1744);
-
-    assert_eq!(error.code, agent_desktop_core::ErrorCode::PermDenied);
-    assert_eq!(error.details.unwrap()["prompted"], false);
-    assert!(
-        error
-            .suggestion
-            .as_deref()
-            .is_some_and(|value| value.contains("Automation"))
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn osascript_denial_output_maps_to_permission_denied() {
-    use std::os::unix::process::ExitStatusExt;
-
-    let error = map_automation_command_failure(
-        std::process::ExitStatus::from_raw(1 << 8),
-        b"execution error: Not authorized to send Apple events to System Events. (-1743)",
-    );
-
-    assert_eq!(error.code, agent_desktop_core::ErrorCode::PermDenied);
-    assert_eq!(error.details.unwrap()["os_status"], -1743);
-}

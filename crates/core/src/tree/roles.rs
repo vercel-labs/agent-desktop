@@ -83,6 +83,23 @@ pub fn is_expandable_role(role: &str) -> bool {
     )
 }
 
+/// Returns true for roles whose children are individually choosable items:
+/// lists, list boxes, tables, grids, outlines, menus, radio groups and tab
+/// lists. Choosing one means activating the item, not the collection itself.
+pub fn is_item_collection_role(role: &str) -> bool {
+    matches!(
+        crate::Role::from_token(role),
+        crate::Role::List
+            | crate::Role::ListBox
+            | crate::Role::Table
+            | crate::Role::Grid
+            | crate::Role::Outline
+            | crate::Role::Menu
+            | crate::Role::RadioGroup
+            | crate::Role::TabList
+    )
+}
+
 /// Returns true for roles whose `value` changes during normal interaction and
 /// must not be treated as stable ref identity.
 pub fn is_mutable_value_role(role: &str) -> bool {

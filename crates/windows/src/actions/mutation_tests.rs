@@ -296,3 +296,62 @@ mod classify_write_tests {
         );
     }
 }
+
+#[test]
+fn a_press_whose_target_vanishes_during_the_call_counts_as_delivered() {
+    use crate::actions::mutation::classify_write_failure;
+    for operation in ["Invoke", "DoDefaultAction"] {
+        let delivered = classify_write_failure(
+            operation,
+            "Pattern.Write",
+            UiaFailure::Hresult(UIA_E_ELEMENTNOTAVAILABLE),
+        )
+        .expect("a press that removed its own target is not an error");
+        assert!(delivered, "{operation}");
+    }
+}
+
+#[test]
+fn any_other_write_whose_target_vanishes_is_an_error_that_is_never_a_safe_retry() {
+    use crate::actions::mutation::classify_write_failure;
+    for operation in [
+        "Toggle", "Select", "SetValue", "Expand", "Collapse", "Scroll",
+    ] {
+        let error = classify_write_failure(
+            operation,
+            "Pattern.Write",
+            UiaFailure::Hresult(UIA_E_ELEMENTNOTAVAILABLE),
+        )
+        .expect_err("nothing shows the write ran");
+        assert_eq!(error.code, ErrorCode::StaleRef, "{operation}");
+        assert_eq!(
+            error.disposition.delivery(),
+            DeliveryDisposition::DeliveryUncertain,
+            "{operation}"
+        );
+        assert_eq!(
+            error.disposition.retry(),
+            RetryDisposition::Unsafe,
+            "{operation}"
+        );
+    }
+}
+
+#[test]
+fn the_same_answer_before_dispatch_or_a_disabled_target_stays_an_error() {
+    use crate::actions::mutation::classify_write_failure;
+    let error = classify_write_failure(
+        "get_pattern",
+        "Pattern.Write",
+        UiaFailure::Hresult(UIA_E_ELEMENTNOTAVAILABLE),
+    )
+    .expect_err("nothing was sent");
+    assert_eq!(error.code, ErrorCode::StaleRef);
+    let disabled = classify_write_failure(
+        "Invoke",
+        "Pattern.Write",
+        UiaFailure::Hresult(UIA_E_ELEMENTNOTENABLED),
+    )
+    .expect_err("a disabled target is refused");
+    assert_eq!(disabled.code, ErrorCode::ActionFailed);
+}

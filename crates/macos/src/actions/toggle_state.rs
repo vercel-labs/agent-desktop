@@ -6,8 +6,8 @@ use agent_desktop_core::{
 use crate::{
     actions::{
         ax_helpers,
-        chain::chain_defs,
-        chain::{ChainContext, execute_chain},
+        chain::chain_run::run_chain,
+        chain::{ChainContext, chain_defs},
     },
     tree::{AXElement, state_reader::parse_checked_value},
 };
@@ -91,8 +91,14 @@ fn semantic_click(
         dynamic_value: None,
         verified_point: None,
         deadline,
+        policy,
     };
-    execute_chain(el, &chain_defs::SEMANTIC_CLICK_CHAIN, &ctx, policy)
+    run_chain(
+        el,
+        &ctx,
+        chain_defs::semantic_click_rungs(el, &ctx),
+        "Target an element that advertises Click.",
+    )
 }
 
 trait CheckTarget {

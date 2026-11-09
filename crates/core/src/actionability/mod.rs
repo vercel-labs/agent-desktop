@@ -16,6 +16,7 @@ mod stability;
 mod stability_evidence;
 pub(crate) mod stability_sampler;
 mod status;
+mod suggestion;
 
 #[cfg(test)]
 pub(crate) use check::ActionabilityCheck;

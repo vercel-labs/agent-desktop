@@ -380,3 +380,6 @@ mod retry_tests;
 
 #[path = "wait_selector_ref_owner_tests.rs"]
 mod ref_owner_tests;
+
+#[path = "wait_selector_incomplete_tests.rs"]
+mod incomplete_tests;

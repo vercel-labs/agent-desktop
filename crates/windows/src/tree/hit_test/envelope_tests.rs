@@ -99,14 +99,13 @@ impl ActionOps for EnvelopeAdapter {
     fn scroll_into_view(
         &self,
         _handle: &NativeHandle,
+        _policy: agent_desktop_core::InteractionPolicy,
         _lease: &InteractionLease,
     ) -> Result<(), AdapterError> {
         self.scroll_calls.fetch_add(1, Ordering::SeqCst);
-        if self.scroll_ok {
-            Ok(())
-        } else {
-            Err(crate::actions::scroll_into_view::unsupported_error())
-        }
+        self.scroll_ok
+            .then_some(())
+            .ok_or_else(crate::actions::scroll_into_view::unsupported_error)
     }
 
     fn execute_action(

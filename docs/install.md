@@ -70,7 +70,7 @@ The CLI looks for the helper in its own directory, so move the two together.
 
 ## Permissions
 
-**macOS** needs Accessibility permission. Screenshots also need Screen Recording. Some commands need Automation permission for System Events, and report it when it is missing. `agent-desktop permissions` reports the state without prompting. `permissions --request` shows the system prompts. `permissions --guide` opens System Settings with an on-screen guide for Accessibility and Screen Recording.
+**macOS** needs Accessibility permission. Screenshots also need Screen Recording. `agent-desktop permissions` reports the state without prompting, including Automation permission for System Events, which no command requires. `permissions --request` shows the system prompts. `permissions --guide` opens System Settings with an on-screen guide for Accessibility and Screen Recording.
 
 **Windows** needs no grant for apps at your terminal's integrity level. An app running as administrator can be read, but only an elevated agent can send it input. The binary is unsigned. SmartScreen may warn on a browser download, and antivirus may quarantine it. On a clean Windows 11 install, Smart App Control blocks it, and no download method or launch mode avoids that. Turn Smart App Control off to run it. npm installs do not trigger SmartScreen. To restore a quarantined file, first check its SHA-256 checksum against the release.
 

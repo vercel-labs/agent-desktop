@@ -1,5 +1,5 @@
 use crate::{
-    AppError, ErrorCode,
+    AdapterError, AppError, ErrorCode,
     adapter::{PlatformAdapter, TreeOptions},
     commands::selector_observation::SelectorObservation,
     commands::{query, snapshot as snapshot_cmd, wait_timeout},
@@ -55,8 +55,8 @@ pub(crate) fn execute_with_ref(
         deadline,
         |poll_deadline| {
             let completion = match observe_selector(adapter, &input, entry, &query, poll_deadline) {
-                Ok(Some(true)) if input.gone => None,
-                Ok(Some(true)) => {
+                Ok(Ok(true)) if input.gone => None,
+                Ok(Ok(true)) => {
                     match build_materialization(adapter, &input, entry, &query, poll_deadline) {
                         Ok((true, result)) => {
                             Some(Ok(SelectorCompletion::Matched(Box::new(result))))
@@ -80,10 +80,10 @@ pub(crate) fn execute_with_ref(
                         Err(err) => Some(Err(err)),
                     }
                 }
-                Ok(Some(false)) if input.gone => Some(Ok(SelectorCompletion::Absent)),
-                Ok(Some(false)) => None,
-                Ok(None) => {
-                    last_error = Some(json!({ "kind": "locator_incomplete" }));
+                Ok(Ok(false)) if input.gone => Some(Ok(SelectorCompletion::Absent)),
+                Ok(Ok(false)) => None,
+                Ok(Err(incomplete)) => {
+                    last_error = Some(incomplete_poll_json(&incomplete));
                     None
                 }
                 Err(err) if is_target_gone_error(&err) && input.gone && entry.is_none() => {
@@ -215,7 +215,7 @@ fn observe_selector(
     entry: Option<&crate::RefEntry>,
     query: &crate::LocatorQuery,
     deadline: crate::Deadline,
-) -> Result<Option<bool>, AppError> {
+) -> Result<Result<bool, AdapterError>, AppError> {
     let observation = if let Some(entry) = entry {
         SelectorObservation::observe_ref(adapter, entry, query, deadline)?
     } else {
@@ -228,10 +228,17 @@ fn observe_selector(
         )?
     };
     match observation {
-        SelectorObservation::Selector { matches, complete } => Ok(complete.then_some(matches)),
+        SelectorObservation::Selector {
+            matches,
+            incomplete: None,
+        } => Ok(Ok(matches)),
+        SelectorObservation::Selector {
+            incomplete: Some(error),
+            ..
+        } => Ok(Err(error)),
         SelectorObservation::OwnerUnavailable(
             ProcessState::Exited { .. } | ProcessState::Crashed { .. },
-        ) => Ok(Some(false)),
+        ) => Ok(Ok(false)),
         SelectorObservation::OwnerUnavailable(state) => Err(owner_unavailable(state)),
     }
 }
@@ -316,6 +323,16 @@ fn target_absent_response(query_raw: &str, elapsed_ms: u128) -> Value {
 
 fn poll_error_json(err: &AppError) -> Value {
     json!({ "code": err.code(), "message": err.to_string() })
+}
+
+fn incomplete_poll_json(error: &AdapterError) -> Value {
+    let detail = |key: &str| error.details.as_ref().and_then(|details| details.get(key));
+    json!({
+        "code": error.code.as_str(),
+        "message": error.message,
+        "kind": detail("kind"),
+        "cause": detail("cause"),
+    })
 }
 
 fn is_target_gone_error(err: &AppError) -> bool {

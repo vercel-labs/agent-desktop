@@ -132,7 +132,12 @@ impl ObservationOps for Sidebar {
 }
 
 impl ActionOps for Sidebar {
-    fn scroll_into_view(&self, _: &NativeHandle, _: &InteractionLease) -> Result<(), AdapterError> {
+    fn scroll_into_view(
+        &self,
+        _: &NativeHandle,
+        _: agent_desktop_core::InteractionPolicy,
+        _: &InteractionLease,
+    ) -> Result<(), AdapterError> {
         self.events.lock().unwrap().push("scroll".into());
         self.scene.lock().unwrap().1.node.as_mut().unwrap().y = 60;
         Ok(())

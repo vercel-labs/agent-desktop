@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use agent_desktop_core::{
     Action, AdapterError, ChainRung, DeliveryDisposition, DeliveryObservation, DeliveryOutcome,
-    ErrorCode, NativeHandle, RetryDisposition,
+    ErrorCode, NativeHandle, RetryDisposition, StepMechanism,
 };
 use zbus::zvariant::Value;
 
@@ -69,6 +69,7 @@ fn write_live_the_chain_skips_an_absent_verb_and_reports_what_a_re_read_saw() {
             ChainRung {
                 label: "Action.DoAction",
                 effects: &[],
+                mechanism: StepMechanism::SemanticApi,
                 run: Box::new(|| {
                     Ok(match do_action(&t, &names, &["no-such-verb"])? {
                         WriteReply::Done => DeliveryOutcome::Delivered(DeliveryObservation::Unread),
@@ -79,6 +80,7 @@ fn write_live_the_chain_skips_an_absent_verb_and_reports_what_a_re_read_saw() {
             ChainRung {
                 label: "Action.DoAction",
                 effects: &[],
+                mechanism: StepMechanism::SemanticApi,
                 run: Box::new(|| match do_action(&t, &names, &TOGGLE_VERBS)? {
                     WriteReply::Absent => Ok(DeliveryOutcome::NotDelivered),
                     WriteReply::Done => {

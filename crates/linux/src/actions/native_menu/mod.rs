@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use agent_desktop_core::{
     Action, ActionResult, AdapterError, ChainRung, DeliveryObservation, DeliveryOutcome,
-    DeliverySemantics, ErrorCode,
+    DeliverySemantics, ErrorCode, StepMechanism,
 };
 use futures_util::future::join_all;
 use serde_json::json;
@@ -165,6 +165,7 @@ pub(super) fn try_click(
     let mut rungs = [ChainRung {
         label: "org.gtk.Actions.Activate",
         effects: &[],
+        mechanism: StepMechanism::SemanticApi,
         run: Box::new(|| {
             within(target.deadline, async {
                 proxy

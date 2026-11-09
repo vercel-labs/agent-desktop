@@ -13,6 +13,7 @@ struct ScrollRecoveryAdapter {
     dispatch_calls: AtomicU32,
     stays_offscreen: bool,
     scroll_should_fail: bool,
+    scroll_policy: std::sync::Mutex<Option<crate::InteractionPolicy>>,
 }
 
 impl ScrollRecoveryAdapter {
@@ -24,6 +25,7 @@ impl ScrollRecoveryAdapter {
             dispatch_calls: AtomicU32::new(0),
             stays_offscreen,
             scroll_should_fail,
+            scroll_policy: std::sync::Mutex::new(None),
         }
     }
 }
@@ -67,9 +69,11 @@ impl ActionOps for ScrollRecoveryAdapter {
     fn scroll_into_view(
         &self,
         _handle: &NativeHandle,
+        policy: crate::InteractionPolicy,
         _lease: &crate::InteractionLease,
     ) -> Result<(), AdapterError> {
         self.scroll_calls.fetch_add(1, Ordering::SeqCst);
+        *self.scroll_policy.lock().unwrap() = Some(policy);
         if self.scroll_should_fail {
             return Err(AdapterError::new(
                 ErrorCode::ActionFailed,
@@ -201,4 +205,20 @@ fn scroll_recovery_that_leaves_the_target_unactionable_still_fails() {
     assert_eq!(adapter.scroll_calls.load(Ordering::SeqCst), 1);
     assert_eq!(adapter.dispatch_calls.load(Ordering::SeqCst), 0);
     assert_eq!(adapter.resolve_calls.load(Ordering::SeqCst), 2);
+}
+
+/// The recovery scroll is part of the caller's action, so it runs under the
+/// caller's policy: a policy that permits the foreground lets the platform
+/// use a route that needs it.
+#[test]
+fn scroll_recovery_runs_under_the_request_policy() {
+    for request in [
+        ActionRequest::headless(Action::Expand),
+        ActionRequest::focus_fallback(Action::Expand),
+    ] {
+        let adapter = ScrollRecoveryAdapter::new(false, false);
+        let policy = request.policy;
+        execute_entry(&adapter, &entry(), request).expect("the recovered target dispatches");
+        assert_eq!(*adapter.scroll_policy.lock().unwrap(), Some(policy));
+    }
 }

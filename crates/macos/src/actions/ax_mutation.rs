@@ -3,7 +3,9 @@ use accessibility_sys::{
     kAXErrorCannotComplete, kAXErrorFailure, kAXErrorIllegalArgument, kAXErrorInvalidUIElement,
     kAXErrorNoValue, kAXErrorNotImplemented, kAXErrorSuccess,
 };
-use agent_desktop_core::{AdapterError, DeliverySemantics, ErrorCode};
+use agent_desktop_core::{
+    AdapterError, DeliveryObservation, DeliveryOutcome, DeliverySemantics, ErrorCode,
+};
 
 pub(crate) const PERFORM_API: &str = "AXUIElementPerformAction";
 
@@ -20,7 +22,7 @@ fn classify(operation: &str, api: &str, error: i32) -> Result<bool, AdapterError
     let signal = signal_or_error(operation, api, error)?;
     if signal == PerformSignal::Uninformative && api == PERFORM_API {
         return settle_uninformative_perform(operation, error, false)
-            .map(|outcome| outcome.was_delivered());
+            .map(|outcome| matches!(outcome, DeliveryOutcome::Delivered(_)));
     }
     Ok(signal == PerformSignal::ReportedDelivered)
 }
@@ -121,9 +123,9 @@ pub(crate) fn settle_uninformative_perform(
     operation: &str,
     error: i32,
     observed_effect: bool,
-) -> Result<crate::actions::chain::chain_delivery::DeliveryOutcome, AdapterError> {
+) -> Result<DeliveryOutcome, AdapterError> {
     if observed_effect {
-        return Ok(crate::actions::chain::chain_delivery::DeliveryOutcome::DeliveredVerified);
+        return Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified));
     }
     Err(AdapterError::new(
         ErrorCode::ActionFailed,
@@ -142,7 +144,9 @@ mod tests {
         kAXErrorAPIDisabled, kAXErrorActionUnsupported, kAXErrorAttributeUnsupported,
         kAXErrorCannotComplete, kAXErrorFailure, kAXErrorInvalidUIElement, kAXErrorSuccess,
     };
-    use agent_desktop_core::{DeliveryDisposition, ErrorCode, RetryDisposition};
+    use agent_desktop_core::{
+        DeliveryDisposition, DeliveryObservation, DeliveryOutcome, ErrorCode, RetryDisposition,
+    };
 
     use super::classify;
 
@@ -165,7 +169,7 @@ mod tests {
         assert_eq!(
             super::settle_uninformative_perform("AXOpen", kAXErrorAttributeUnsupported, true)
                 .unwrap(),
-            crate::actions::chain::chain_delivery::DeliveryOutcome::DeliveredVerified,
+            DeliveryOutcome::Delivered(DeliveryObservation::Verified),
         );
     }
 

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use agent_desktop_core::{
     Action, ActionResult, AdapterError, ChainRung, Deadline, DeliveryOutcome, DeliverySemantics,
-    ErrorCode, NativeHandle,
+    ErrorCode, NativeHandle, StepMechanism,
 };
 use serde_json::json;
 
@@ -90,6 +90,7 @@ pub(super) fn run_single_rung(
     let mut rungs = [ChainRung {
         label: CLICK_LABEL,
         effects: &[],
+        mechanism: StepMechanism::SemanticApi,
         run: Box::new(run),
     }];
     run_semantic_chain(action, &mut rungs, deadline, SUGGESTION)

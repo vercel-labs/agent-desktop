@@ -1,102 +1,66 @@
-//! What a native action does to the user's foreground session, and the
-//! interaction policy each effect needs. An action whose effect the policy
-//! does not permit is refused before the application is touched, so headless
-//! delivery never shows the user a menu or a dialog. Writing `AXFocused` moves
-//! focus only inside the target application (M-W0-14), so it has no effect
-//! here and headless `focus` is delivered.
+//! What a native action does to the user's foreground session. The classifier
+//! names the reason an action takes the foreground, and `require` refuses an
+//! effect the interaction policy does not permit before the application is
+//! touched, so headless delivery never shows the user a menu or a dialog.
+//! Writing `AXFocused` moves focus only inside the target application
+//! (M-W0-14), so it has no effect here and headless `focus` is delivered.
+//!
+//! The reasons are `shows_menu` and `opens_dialog`. A menu overlay is drawn
+//! over the user's window, takes their focused element, and AppKit orders the
+//! owning window front; no AX path selects a popup item or opens a context
+//! menu without it. A dialog is predicted by an owner-judgment rule: a label
+//! that ends in an ellipsis ("…" U+2026 or "..."), after trailing whitespace
+//! is trimmed, is the convention shared by GTK, Qt and macOS applications for
+//! a control that opens a dialog. It is a predictor, not a proof: no
+//! accessibility property says that a control opens a window. A label that
+//! cannot be read counts as one.
 
-use agent_desktop_core::{Action, AdapterError, Deadline, InteractionPolicy};
+use agent_desktop_core::{Action, AdapterError, Deadline, Effect, InteractionPolicy};
 
 use crate::tree::AXElement;
 
 const MENU_OWNER_ROLES: &[&str] = &["AXPopUpButton", "AXMenuButton", "AXComboBox"];
 const ELLIPSES: &[&str] = &["\u{2026}", "..."];
+const SHOWS_MENU: &str = "shows_menu";
+const OPENS_DIALOG: &str = "opens_dialog";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Effect {
-    /// A menu overlay is drawn over the user's window, takes their focused
-    /// element, and AppKit orders the owning window front. No AX path selects
-    /// a popup item or opens a context menu without it.
-    ShowsMenu,
-    /// Owner-judgment rule: a label that ends in an ellipsis ("…" U+2026 or
-    /// "..."), after trailing whitespace is trimmed, is the convention shared
-    /// by GTK, Qt and macOS applications for a control that opens a dialog. It
-    /// is a predictor, not a proof: no accessibility property says that a
-    /// control opens a window. A label that cannot be read counts as one.
-    OpensDialog,
-    /// Synthetic keys are typed into the frontmost application's key focus.
-    TakesKeyFocus,
-    /// Synthetic pointer or keyboard events reach the frontmost application.
-    PhysicalInput,
-}
-
-impl Effect {
-    pub(crate) fn permitted(self, policy: InteractionPolicy) -> bool {
-        match self {
-            Self::PhysicalInput => policy.is_headed(),
-            Self::ShowsMenu | Self::OpensDialog | Self::TakesKeyFocus => policy.allow_focus_steal,
-        }
-    }
-
-    pub(crate) fn refuse_unless_permitted(
-        self,
-        policy: InteractionPolicy,
-    ) -> Result<(), AdapterError> {
-        if self.permitted(policy) {
-            return Ok(());
-        }
-        Err(
-            AdapterError::policy_denied_for_policy(self.refusal(), policy).with_details(
-                serde_json::json!({ "foreground_effect": true, "effect": self.name() }),
-            ),
-        )
-    }
-
-    fn name(self) -> &'static str {
-        match self {
-            Self::ShowsMenu => "shows_menu",
-            Self::OpensDialog => "opens_dialog",
-            Self::TakesKeyFocus => "takes_key_focus",
-            Self::PhysicalInput => "physical_input",
-        }
-    }
-
-    fn refusal(self) -> &'static str {
-        match self {
-            Self::ShowsMenu => {
-                "Headless delivery refused: this action shows a menu over the user's window and takes their focused element"
-            }
-            Self::OpensDialog => {
-                "Headless delivery refused: the element's label ends in an ellipsis, so it opens a dialog or sheet that can activate the application"
-            }
-            Self::TakesKeyFocus => {
-                "Headless delivery refused: physical keyboard input needs focus permission"
-            }
-            Self::PhysicalInput => {
-                "Headless delivery refused: physical pointer or keyboard input needs the headed policy"
-            }
-        }
-    }
-}
-
-/// Refuses an element action whose effect the policy does not permit. Only a
-/// press-type action reads the target, and only when the policy denies focus.
-pub(crate) fn refuse_disturbing_action(
-    element: &AXElement,
-    action: &Action,
+/// Refuses `operation` with `POLICY_DENIED` when `policy` does not permit
+/// `effect`, and reports `kind` as the reason the action takes the foreground.
+pub(crate) fn require(
     policy: InteractionPolicy,
-    deadline: Deadline,
+    effect: Effect,
+    operation: &str,
+    kind: &'static str,
 ) -> Result<(), AdapterError> {
-    if policy.allow_focus_steal {
-        return Ok(());
-    }
-    action_effect(action, || read_target(element, deadline))
-        .map_or(Ok(()), |effect| effect.refuse_unless_permitted(policy))
+    policy.require(effect, operation).map_err(|error| {
+        error.with_details(serde_json::json!({ "foreground_effect": true, "kind": kind }))
+    })
 }
 
-fn action_effect(action: &Action, read: impl FnOnce() -> Option<PressTarget>) -> Option<Effect> {
+/// The foreground effect of an element action: a menu or a dialog takes the
+/// user's focus. Only a press-type action reads the target, and only when the
+/// policy denies focus, because no other policy refuses it.
+pub(crate) fn foreground_effect(
+    element: &AXElement,
+    request: &agent_desktop_core::ActionRequest,
+    deadline: Deadline,
+) -> Option<agent_desktop_core::DeclaredEffect> {
+    if request.policy.allow_focus_steal {
+        return None;
+    }
+    let kind = action_effect(&request.action, || read_target(element, deadline))?;
+    Some(agent_desktop_core::DeclaredEffect {
+        effect: Effect::FocusSteal,
+        kind,
+    })
+}
+
+fn action_effect(
+    action: &Action,
+    read: impl FnOnce() -> Option<PressTarget>,
+) -> Option<&'static str> {
     match action {
-        Action::RightClick => Some(Effect::ShowsMenu),
+        Action::RightClick => Some(SHOWS_MENU),
         Action::Click | Action::Expand | Action::Toggle | Action::Check | Action::Uncheck => {
             press_effect(action, &read())
         }
@@ -118,22 +82,22 @@ struct PressTarget {
     labels: Vec<String>,
 }
 
-fn press_effect(action: &Action, target: &Option<PressTarget>) -> Option<Effect> {
+fn press_effect(action: &Action, target: &Option<PressTarget>) -> Option<&'static str> {
     let Some(target) = target else {
-        return Some(Effect::OpensDialog);
+        return Some(OPENS_DIALOG);
     };
     let menu_owner = target
         .role
         .as_deref()
         .is_some_and(|role| MENU_OWNER_ROLES.contains(&role));
     if menu_owner && matches!(action, Action::Click | Action::Expand) {
-        return Some(Effect::ShowsMenu);
+        return Some(SHOWS_MENU);
     }
     let opens_dialog = target.labels.iter().any(|label| {
         let label = label.trim_end();
         ELLIPSES.iter().any(|ellipsis| label.ends_with(ellipsis))
     });
-    (!matches!(action, Action::Expand) && opens_dialog).then_some(Effect::OpensDialog)
+    (!matches!(action, Action::Expand) && opens_dialog).then_some(OPENS_DIALOG)
 }
 
 fn read_target(element: &AXElement, deadline: Deadline) -> Option<PressTarget> {

@@ -102,7 +102,7 @@ agent-desktop find --app gnome-calculator --role button --name 7 --exact --first
 }
 ```
 
-When a `--role` filter matches nothing, `roles_present` lists the roles in the searched tree, which tells a wrong role name from an empty screen. Errors specific to `find`: `INVALID_ARGS` for conflicting shaping flags, `--root` with `--surface`, or an unknown `--state` token; `TIMEOUT` with `details.kind: "locator_incomplete"` when the traversal ran out of budget, which does not mean the app hangs. Raise `--timeout-ms` or narrow the search.
+When a `--role` filter matches nothing, `roles_present` lists the roles in the searched tree, which tells a wrong role name from an empty screen. Errors specific to `find`: `INVALID_ARGS` for conflicting shaping flags, `--root` with `--surface`, or an unknown `--state` token; `TIMEOUT` with `details.kind: "locator_incomplete"` when the search could not prove its result, which does not mean the app hangs. `details.cause` says why. `deadline` (`retryable: true`) means the time ran out, so raise `--timeout-ms`. `unreadable_elements` and `traversal_limit` (`retryable: false`) mean some reads failed or a fixed limit was hit, so more time does not help: narrow with `--role` or `--name`, or run `snapshot` for the readable part of the tree with `complete: false`.
 
 ## get
 

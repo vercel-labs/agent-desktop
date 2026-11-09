@@ -1,14 +1,19 @@
 use crate::{
-    AppError, Deadline, LocatorQuery, PlatformAdapter, RefEntry, SnapshotOwner, SnapshotSurface,
+    AdapterError, AppError, Deadline, LocatorQuery, PlatformAdapter, RefEntry, SnapshotOwner,
+    SnapshotSurface,
     locator::live_locator::{
-        LocatorMaterialization, LocatorResolveRequest, LocatorSelection, resolve_query,
+        LocatorMaterialization, LocatorResolveRequest, LocatorSelection, incomplete_locator_error,
+        resolve_query,
     },
     snapshot::{ref_owner_observation::RefOwnerObservation, surface_target, window_capture},
     system::process_state::ProcessState,
 };
 
 pub(crate) enum SelectorObservation {
-    Selector { matches: bool, complete: bool },
+    Selector {
+        matches: bool,
+        incomplete: Option<AdapterError>,
+    },
     OwnerUnavailable(ProcessState),
 }
 
@@ -29,7 +34,7 @@ impl SelectorObservation {
             ),
             RefOwnerObservation::Absent(None) => Ok(Self::Selector {
                 matches: false,
-                complete: true,
+                incomplete: None,
             }),
             RefOwnerObservation::Absent(Some(state)) | RefOwnerObservation::Unavailable(state) => {
                 Ok(Self::OwnerUnavailable(state))
@@ -47,7 +52,7 @@ impl SelectorObservation {
         if owners.is_empty() {
             return Ok(Self::Selector {
                 matches: false,
-                complete: true,
+                incomplete: None,
             });
         }
         let request = LocatorResolveRequest {
@@ -62,12 +67,13 @@ impl SelectorObservation {
         }) {
             Ok((_, resolution)) => Ok(Self::Selector {
                 matches: resolution.meta.total_matches > 0,
-                complete: resolution.meta.selection_complete,
+                incomplete: (!resolution.meta.selection_complete)
+                    .then(|| incomplete_locator_error(&resolution)),
             }),
             Err(error) if surface_target::is_confirmed_surface_absence(&error, surface) => {
                 Ok(Self::Selector {
                     matches: false,
-                    complete: true,
+                    incomplete: None,
                 })
             }
             Err(error) => Err(error),

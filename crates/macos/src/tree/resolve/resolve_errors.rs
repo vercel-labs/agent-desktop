@@ -12,7 +12,11 @@ pub(in crate::tree) fn incomplete_traversal(phase: &str, depth: u8) -> AdapterEr
             "Strict element resolution observed an incomplete accessibility tree during {phase}"
         ),
     )
-    .with_suggestion("Retry after the target application finishes updating its accessibility tree")
+    .with_suggestion(
+        "Retry after the target application finishes updating its accessibility tree. \
+         A large window can need more time than the budget allows, so retry the \
+         same command with a larger --timeout-ms.",
+    )
     .with_details(serde_json::json!({
         "kind": "resolution_traversal_incomplete",
         "phase": phase,

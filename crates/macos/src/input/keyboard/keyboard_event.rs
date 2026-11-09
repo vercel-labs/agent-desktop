@@ -38,10 +38,10 @@ pub(crate) fn post_text(
     for chunk in chunks {
         ensure_budget(deadline, total, delivery)?;
         verify_target(deadline).map_err(|error| {
-            delivery.annotate(error.with_details(serde_json::json!({
-                "delivered_chunks": delivery.delivered_units(),
-                "total_chunks": total,
-            })))
+            delivery.annotate(error.with_details(agent_desktop_core::text_chunk_progress(
+                delivery.delivered_units(),
+                total,
+            )))
         })?;
         let source = event_source().map_err(|error| delivery.annotate(error))?;
         let down = create_key_event(&source, 0, true, CGEventFlags::empty())

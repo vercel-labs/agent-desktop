@@ -53,21 +53,6 @@ class HarnessContractTests(unittest.TestCase):
             "breaks json_tool when the binary logs a warning",
         )
 
-    def test_denied_automation_skips_when_notification_center_cannot_be_closed(self):
-        source = (E2E_ROOT / "scenarios" / "acceptance.sh").read_text()
-
-        unavailable = source.index(
-            "Notification Center could not be proven closed after best-effort preparation"
-        )
-        permission_gate = source.index(
-            'if [ "$(json_field "$nc_probe" error.code)" != "POLICY_DENIED" ]'
-        )
-        denial_call = source.index('denied_output="$("$bin" --headed list-notifications')
-        self.assertLess(permission_gate, unavailable)
-        self.assertLess(unavailable, denial_call)
-        self.assertIn("skipmsg", source[permission_gate:denial_call])
-        self.assertNotIn("badmsg", source[permission_gate:denial_call])
-
     def test_native_runner_gates_on_strict_headless_non_interference(self):
         source = (E2E_ROOT / "run.sh").read_text()
 

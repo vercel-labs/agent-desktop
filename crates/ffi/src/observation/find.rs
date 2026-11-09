@@ -6,7 +6,7 @@ use crate::types::{AdExactWindowInfo, AdFindQuery, AdFindSelectionKind, AdNative
 use agent_desktop_core::{
     AdapterError, ContainmentPredicate, ErrorCode, IdentityPredicate, LocatorMaterialization,
     LocatorQuery, LocatorResolveRequest, LocatorSelection, ObservationRoot, StatePredicate,
-    resolve_query,
+    incomplete_locator_error, resolve_query,
 };
 use std::collections::HashSet;
 
@@ -85,14 +85,7 @@ unsafe fn find_in_window(
         }
     } else {
         if !resolution.meta.selection_complete {
-            set_last_error(
-                &AdapterError::timeout("Locator traversal could not prove the selected result")
-                    .with_details(serde_json::json!({
-                        "kind": "locator_incomplete",
-                        "observed_matches": resolution.meta.total_matches,
-                        "query_stats": resolution.stats,
-                    })),
-            );
+            set_last_error(&incomplete_locator_error(&resolution));
             return AdResult::ErrTimeout;
         }
         let Some(selected) = resolution.matches.into_iter().next() else {
