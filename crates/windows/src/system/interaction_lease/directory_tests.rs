@@ -204,7 +204,7 @@ fn a_reparse_leaf_inserted_after_parent_creation_is_refused_before_acl_repair() 
 
 fn author_container_inherit_users_ace(root: &Path) {
     let users = SidBuffer::well_known(WinBuiltinUsersSid).unwrap();
-    let sid_len = unsafe { windows_sys::Win32::Security::GetLengthSid(users.as_psid()) } as usize;
+    let sid_len = users.len();
     let acl_len = 8 + 8 + sid_len;
     let mut storage = vec![0_u64; acl_len.div_ceil(8)];
     let acl_ptr = storage

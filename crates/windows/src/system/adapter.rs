@@ -1,9 +1,9 @@
 use agent_desktop_core::{
-    ActionResult, AdapterError, AdapterSession, AppInfo, Deadline, DismissAllNotificationsRequest,
+    ActionResult, AdapterError, AppInfo, Deadline, DismissAllNotificationsRequest,
     DismissNotificationRequest, DisplayInfo, ImageBuffer, InteractionLease, InteractionPolicy,
     KeyCombo, NotificationActionRequest, NotificationFilter, NotificationInfo, ObservationOps,
-    OperationReport, PermissionReport, ProcessIdentity, ScreenshotTarget, SessionAffinity,
-    SignalBaseline, SignalFilter, SnapshotSurface, SystemOps, WindowFilter, WindowInfo, WindowOp,
+    OperationReport, PermissionReport, ProcessIdentity, ScreenshotTarget, SignalBaseline,
+    SignalFilter, SnapshotSurface, SystemOps, WindowFilter, WindowInfo, WindowOp,
     system::launch_options::LaunchOptions, system::process_state::ProcessState,
 };
 
@@ -272,14 +272,6 @@ impl SystemOps for WindowsAdapter {
     /// platform. `--force` is honored entirely in core.
     fn is_blocked_combo(&self, combo: &KeyCombo) -> bool {
         crate::input::blocked_combo::is_blocked(combo)
-    }
-
-    fn open_session(
-        &self,
-        _affinity: &SessionAffinity,
-        deadline: Deadline,
-    ) -> Result<Box<dyn AdapterSession>, AdapterError> {
-        Ok(Box::new(crate::system::runtime::session::open(deadline)?))
     }
 
     /// The other half of `wait`'s menu surface: a bounded poll over the

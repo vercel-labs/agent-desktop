@@ -1,7 +1,6 @@
 pub(crate) mod com_runtime;
 pub(crate) mod dpi;
 pub(crate) mod hresult;
-pub(crate) mod session;
 #[cfg(target_os = "windows")]
 pub(crate) mod thread_walk;
 #[cfg(target_os = "windows")]

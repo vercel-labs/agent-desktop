@@ -145,3 +145,19 @@ fn limit_words(value: &str, max_words: usize) -> Option<String> {
     limited.push('…');
     Some(limited)
 }
+
+/// The label as a renderer may draw it: cut to the byte ceiling on a
+/// character boundary, then to the word ceiling with an ellipsis. A renderer
+/// applies this again on the reading side because a control can reach it
+/// without passing the configuration.
+pub fn clamp_cursor_label(label: &str) -> Option<String> {
+    limit_words(within_byte_ceiling(label.trim()), MAX_CURSOR_LABEL_WORDS)
+}
+
+fn within_byte_ceiling(value: &str) -> &str {
+    let mut end = value.len().min(MAX_CURSOR_LABEL_BYTES);
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    &value[..end]
+}

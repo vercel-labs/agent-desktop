@@ -28,7 +28,7 @@ fn protect(handle: &File, inheritance: u32) -> std::io::Result<()> {
     let acl_len = ACL_HEADER_LEN
         + principals
             .iter()
-            .map(|sid| ACE_FIXED_LEN + sid_len(sid))
+            .map(|sid| ACE_FIXED_LEN + sid.len())
             .sum::<usize>();
     let mut storage = vec![0_u64; acl_len.div_ceil(size_of::<u64>())];
     let acl = storage.as_mut_ptr().cast::<ACL>();
@@ -153,10 +153,6 @@ fn grants_only(acl: *const ACL, accepted: &[SidBuffer]) -> std::io::Result<()> {
         }
     }
     Ok(())
-}
-
-fn sid_len(sid: &SidBuffer) -> usize {
-    unsafe { windows_sys::Win32::Security::GetLengthSid(sid.as_psid()) as usize }
 }
 
 fn denied() -> std::io::Error {

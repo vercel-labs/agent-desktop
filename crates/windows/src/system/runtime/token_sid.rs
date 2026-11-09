@@ -88,6 +88,10 @@ impl SidBuffer {
         self.storage.as_ptr().cast::<core::ffi::c_void>().cast_mut()
     }
 
+    pub(crate) fn len(&self) -> usize {
+        unsafe { windows_sys::Win32::Security::GetLengthSid(self.as_psid()) as usize }
+    }
+
     pub(crate) fn matches(&self, other: &SidBuffer) -> bool {
         unsafe { EqualSid(self.as_psid(), other.as_psid()) != 0 }
     }
