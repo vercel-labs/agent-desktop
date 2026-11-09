@@ -386,6 +386,7 @@ pub(crate) mod refs_test_support;
 pub(crate) mod refs_validate;
 pub(crate) mod resolve_attempt_outcome;
 pub mod resolve_errors;
+pub mod resolve_retry;
 pub mod resolve_saved_ref;
 #[cfg(test)]
 #[path = "refs_serde_tests.rs"]

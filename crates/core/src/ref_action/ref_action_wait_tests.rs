@@ -178,7 +178,6 @@ fn none_timeout_uses_single_resolve_attempt() {
             context: &CommandContext::default(),
         },
         ActionRequest::headless(Action::Click),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .unwrap_err();
     assert_eq!(adapter.resolve_calls.load(Ordering::SeqCst), 1);
@@ -198,7 +197,6 @@ fn transient_ambiguity_is_recorded_in_result_details() {
             context: &CommandContext::default(),
         },
         request_with_timeout(5_000),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .unwrap();
     assert_eq!(
@@ -277,7 +275,6 @@ fn policy_denied_disabled_target_fails_fast_without_exhausting_wait_budget() {
             context: &CommandContext::default(),
         },
         ActionRequest::headless(Action::RightClick).with_timeout_ms(Some(5_000)),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .unwrap_err();
 
@@ -349,7 +346,6 @@ fn complete_no_candidate_returns_stale_ref_without_exhausting_budget() {
             context: &CommandContext::default(),
         },
         request_with_timeout(300),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .unwrap_err();
 

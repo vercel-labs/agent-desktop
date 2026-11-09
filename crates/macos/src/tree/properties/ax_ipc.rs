@@ -1,5 +1,5 @@
 use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[cfg(target_os = "macos")]
 use accessibility_sys::{
@@ -17,29 +17,7 @@ use core_foundation_sys::{
     string::CFStringRef,
 };
 
-const MAX_IPC_SLICE: Duration = Duration::from_millis(250);
-
-pub(crate) trait AxDeadline: Copy {
-    fn absolute(self) -> Result<Instant, AdapterError>;
-}
-
-impl AxDeadline for Instant {
-    fn absolute(self) -> Result<Instant, AdapterError> {
-        Ok(self)
-    }
-}
-
-impl AxDeadline for Deadline {
-    fn absolute(self) -> Result<Instant, AdapterError> {
-        let remaining = self.remaining();
-        if remaining.is_zero() {
-            return Err(self.timeout_error());
-        }
-        Instant::now()
-            .checked_add(remaining)
-            .ok_or_else(|| AdapterError::timeout("Accessibility deadline overflowed"))
-    }
-}
+pub(crate) const MAX_IPC_SLICE: Duration = Duration::from_millis(250);
 
 fn read_slice(remaining: Duration) -> Duration {
     remaining.min(MAX_IPC_SLICE)
@@ -59,7 +37,7 @@ fn mutation_slice(remaining: Duration) -> Duration {
 #[cfg(target_os = "macos")]
 pub(crate) fn prepare(
     element: &crate::tree::AXElement,
-    deadline: impl AxDeadline,
+    deadline: Deadline,
 ) -> Result<Duration, AdapterError> {
     install_messaging_timeout(element, deadline, read_slice)
 }
@@ -67,7 +45,7 @@ pub(crate) fn prepare(
 #[cfg(target_os = "macos")]
 fn prepare_mutation(
     element: &crate::tree::AXElement,
-    deadline: impl AxDeadline,
+    deadline: Deadline,
 ) -> Result<Duration, AdapterError> {
     install_messaging_timeout(element, deadline, mutation_slice)
 }
@@ -75,7 +53,7 @@ fn prepare_mutation(
 #[cfg(target_os = "macos")]
 fn install_messaging_timeout(
     element: &crate::tree::AXElement,
-    deadline: impl AxDeadline,
+    deadline: Deadline,
     slice: fn(Duration) -> Duration,
 ) -> Result<Duration, AdapterError> {
     if element.0.is_null() {
@@ -84,11 +62,8 @@ fn install_messaging_timeout(
             "Cannot address a null accessibility element",
         ));
     }
-    let remaining = slice(
-        deadline
-            .absolute()?
-            .saturating_duration_since(Instant::now()),
-    );
+    deadline.ensure_remaining()?;
+    let remaining = slice(deadline.remaining());
     if remaining.is_zero() {
         return Err(AdapterError::timeout(
             "Accessibility deadline exhausted before IPC",
@@ -106,7 +81,7 @@ fn install_messaging_timeout(
 pub(crate) fn copy_attribute_value(
     element: &crate::tree::AXElement,
     attribute: CFStringRef,
-    deadline: impl AxDeadline,
+    deadline: Deadline,
 ) -> (i32, CFTypeRef) {
     let mut value: CFTypeRef = std::ptr::null();
     let error = match prepare(element, deadline) {
@@ -121,7 +96,7 @@ pub(crate) fn copy_parameterized_attribute_value(
     element: &crate::tree::AXElement,
     attribute: CFStringRef,
     parameter: CFTypeRef,
-    deadline: impl AxDeadline,
+    deadline: Deadline,
 ) -> (i32, CFTypeRef) {
     let mut value: CFTypeRef = std::ptr::null();
     let error = match prepare(element, deadline) {
@@ -139,7 +114,7 @@ pub(crate) fn copy_attribute_values(
     attribute: CFStringRef,
     index: CFIndex,
     max_values: CFIndex,
-    deadline: impl AxDeadline,
+    deadline: Deadline,
 ) -> (i32, CFArrayRef) {
     let mut values = std::ptr::null();
     let error = match prepare(element, deadline) {
@@ -155,7 +130,7 @@ pub(crate) fn copy_attribute_values(
 pub(crate) fn copy_multiple_attribute_values(
     element: &crate::tree::AXElement,
     attributes: CFArrayRef,
-    deadline: impl AxDeadline,
+    deadline: Deadline,
 ) -> (i32, CFTypeRef) {
     let mut values: CFTypeRef = std::ptr::null();
     let error = match prepare(element, deadline) {
@@ -176,7 +151,7 @@ pub(crate) fn copy_multiple_attribute_values(
 pub(crate) fn attribute_value_count(
     element: &crate::tree::AXElement,
     attribute: CFStringRef,
-    deadline: impl AxDeadline,
+    deadline: Deadline,
 ) -> Result<usize, i32> {
     let mut count: CFIndex = 0;
     let error = match prepare(element, deadline) {
@@ -192,7 +167,7 @@ pub(crate) fn attribute_value_count(
 #[cfg(target_os = "macos")]
 pub(crate) fn copy_action_names(
     element: &crate::tree::AXElement,
-    deadline: impl AxDeadline,
+    deadline: Deadline,
 ) -> (i32, CFArrayRef) {
     let mut actions = std::ptr::null();
     let error = match prepare(element, deadline) {
@@ -206,7 +181,7 @@ pub(crate) fn copy_action_names(
 pub(crate) fn is_attribute_settable(
     element: &crate::tree::AXElement,
     attribute: CFStringRef,
-    deadline: impl AxDeadline,
+    deadline: Deadline,
 ) -> (i32, bool) {
     let mut settable = 0_u8;
     let error = match prepare(element, deadline) {
@@ -220,7 +195,7 @@ pub(crate) fn is_attribute_settable(
 pub(crate) fn perform_action(
     element: &crate::tree::AXElement,
     action: CFStringRef,
-    deadline: impl AxDeadline,
+    deadline: Deadline,
 ) -> Result<i32, AdapterError> {
     prepare_mutation(element, deadline).map_err(pre_mutation_error)?;
     Ok(unsafe { AXUIElementPerformAction(element.0, action) })
@@ -231,7 +206,7 @@ pub(crate) fn set_attribute_value(
     element: &crate::tree::AXElement,
     attribute: CFStringRef,
     value: CFTypeRef,
-    deadline: impl AxDeadline,
+    deadline: Deadline,
 ) -> Result<i32, AdapterError> {
     prepare_mutation(element, deadline).map_err(pre_mutation_error)?;
     Ok(unsafe { AXUIElementSetAttributeValue(element.0, attribute, value) })
@@ -241,7 +216,7 @@ pub(crate) fn set_attribute_value(
 pub(crate) fn element_at_position(
     system: &crate::tree::AXElement,
     point: (f32, f32),
-    deadline: impl AxDeadline,
+    deadline: Deadline,
 ) -> (i32, accessibility_sys::AXUIElementRef) {
     let mut element = std::ptr::null_mut();
     let error = match prepare(system, deadline) {
@@ -254,7 +229,7 @@ pub(crate) fn element_at_position(
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn pid(element: &crate::tree::AXElement, deadline: impl AxDeadline) -> Result<i32, i32> {
+pub(crate) fn pid(element: &crate::tree::AXElement, deadline: Deadline) -> Result<i32, i32> {
     let mut pid = 0_i32;
     let error = match prepare(element, deadline) {
         Ok(_) => unsafe { AXUIElementGetPid(element.0, &mut pid) },

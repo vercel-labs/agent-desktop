@@ -1,5 +1,5 @@
 use super::*;
-use agent_desktop_core::ProcessId;
+use agent_desktop_core::{Deadline, ProcessId};
 
 #[test]
 fn app_name_from_command_extracts_app_bundle_name() {
@@ -62,7 +62,7 @@ fn apps_from(commands: &[(i32, &str)]) -> Vec<AppInfo> {
 
 #[test]
 fn expired_deadline_is_rejected_before_reading_processes() {
-    let error = list_apps_until(Instant::now()).unwrap_err();
+    let error = list_apps_until(Deadline::after(0).unwrap()).unwrap_err();
 
     assert_eq!(error.code.as_str(), "TIMEOUT");
 }

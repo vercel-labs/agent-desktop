@@ -25,7 +25,7 @@ pub(crate) fn resolve(
     )?;
     let handle = adapter.resolve_element_strict(entry, deadline)?;
     let target = crate::adapter::ax_element(&handle)?;
-    let instant = crate::tree::locator_deadline::from_operation(deadline)?;
+    let instant = deadline;
     let window = owning_window(target, identity.pid(), deadline)?;
     let number =
         crate::system::window::window_resolve::ax_window_id_with_deadline(&window, instant)?
@@ -53,7 +53,7 @@ pub(crate) fn owning_window(
     expected_pid: i32,
     deadline: Deadline,
 ) -> Result<crate::tree::AXElement, AdapterError> {
-    let instant = crate::tree::locator_deadline::from_operation(deadline)?;
+    let instant = deadline;
     let window = find_window(
         target.clone(),
         |element| crate::tree::surface_read::string(element, "AXRole", instant),

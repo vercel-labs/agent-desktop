@@ -70,7 +70,7 @@ mod imp {
 
     fn owned_menu_open(element: &AXElement, deadline: Deadline) -> Option<bool> {
         use crate::tree::surface_read;
-        let end = crate::tree::locator_deadline::from_operation(deadline).ok()?;
+        let end = deadline;
         let role = surface_read::string(element, "AXRole", end).ok()??;
         if !matches!(
             role.as_str(),

@@ -1,7 +1,6 @@
 use crate::system::{window::cg_window::WindowRecord, window::window_ax_state::WindowAxState};
-use agent_desktop_core::{AdapterError, ErrorCode, WindowInfo};
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode, WindowInfo};
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::time::Instant;
 
 impl OwnerSnapshotView for crate::system::app::workspace_apps::WindowOwnerSnapshot {
     fn eligible_pids(&self) -> FxHashSet<i32> {
@@ -39,14 +38,14 @@ pub(in crate::system) enum OwnerGeneration {
 
 pub(crate) fn list_windows_until(
     focused_only: bool,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Vec<WindowInfo>, AdapterError> {
     stabilize_global_with(deadline, || capture_global_once(focused_only, deadline))
 }
 
 fn capture_global_once(
     focused_only: bool,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Vec<WindowInfo>, AdapterError> {
     let mut windows = capture_global_with(
         focused_only,
@@ -60,9 +59,7 @@ fn capture_global_once(
         |pid| crate::system::window::window_ax_state::read_frontmost_until(pid, deadline),
     )?;
     crate::system::window::window_ax_state::label_accessibility(&mut windows, |pid| {
-        let probe_deadline = Instant::now()
-            .checked_add(std::time::Duration::from_millis(50))
-            .map_or(deadline, |probe| probe.min(deadline));
+        let probe_deadline = deadline.capped(std::time::Duration::from_millis(50));
         crate::system::window::window_ax_state::accessible_window_ids_until(pid, probe_deadline)
     });
     Ok(windows)
@@ -194,13 +191,13 @@ pub(in crate::system) fn validate_scoped_snapshot_pair<S: OwnerSnapshotView>(
 }
 
 pub(in crate::system) fn stabilize_global_with(
-    deadline: Instant,
+    deadline: Deadline,
     mut capture: impl FnMut() -> Result<Vec<WindowInfo>, AdapterError>,
 ) -> Result<Vec<WindowInfo>, AdapterError> {
     let mut attempts = 0_u64;
     let mut last_error = None;
     loop {
-        if Instant::now() >= deadline {
+        if deadline.is_expired() {
             return Err(global_timeout(attempts, last_error.as_ref()));
         }
         attempts += 1;
@@ -214,7 +211,7 @@ pub(in crate::system) fn stabilize_global_with(
             }
             Err(error) => return Err(error),
         }
-        let remaining = deadline.saturating_duration_since(Instant::now());
+        let remaining = deadline.remaining();
         if !remaining.is_zero() {
             std::thread::sleep(remaining.min(std::time::Duration::from_millis(5)));
         }

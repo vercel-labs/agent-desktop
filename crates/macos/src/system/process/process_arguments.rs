@@ -1,8 +1,7 @@
 //! Reads process launch commands from the kernel with libproc and `KERN_PROCARGS2`.
 
-use agent_desktop_core::{AdapterError, ErrorCode};
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
 use std::mem::size_of;
-use std::time::Instant;
 
 pub(crate) const PROC_ALL_PIDS: u32 = 1;
 pub(crate) const PROC_UID_ONLY: u32 = 4;
@@ -11,7 +10,7 @@ pub(crate) const PROC_UID_ONLY: u32 = 4;
 /// every process whose arguments are readable. Processes that exit during the walk, zombies and
 /// processes of other users have no readable arguments and are skipped.
 pub(crate) fn visit_commands_until(
-    deadline: Instant,
+    deadline: Deadline,
     mut visit: impl FnMut(libc::pid_t, &[u8]) -> Result<(), AdapterError>,
 ) -> Result<(), AdapterError> {
     let pids = require_pids(list_pids(PROC_ALL_PIDS, 0))?;
@@ -19,7 +18,7 @@ pub(crate) fn visit_commands_until(
         listing_error("Could not read the kernel argument size limit".to_string())
     })?;
     for pid in pids {
-        if Instant::now() >= deadline {
+        if deadline.is_expired() {
             return Err(AdapterError::timeout("process app inventory timed out"));
         }
         if let Some(command) = read_arguments(pid, &mut buffer).and_then(first_argument) {

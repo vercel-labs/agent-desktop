@@ -1,4 +1,5 @@
 use super::*;
+use agent_desktop_core::Deadline;
 use std::os::unix::net::UnixListener;
 
 #[test]
@@ -57,8 +58,7 @@ fn unacknowledged_failure(phase: agent_desktop_core::CursorPhase) -> AdapterErro
         .unwrap()
         .with_phase(phase);
         let control = CursorOverlayControl::present("run-budget".into(), instruction);
-        let started = Instant::now();
-        let error = send_until(&path, &control, started + Duration::from_millis(30))
+        let error = send_until(&path, &control, Deadline::after(30).unwrap())
             .expect_err("an unacknowledged control must fail");
         release.send(()).unwrap();
         assert!(

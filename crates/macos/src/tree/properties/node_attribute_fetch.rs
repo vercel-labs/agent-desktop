@@ -29,7 +29,7 @@ mod imp {
     pub(crate) fn fetch_node_attrs_with_status_for(
         element: &AXElement,
         requirements: EvidenceRequirements,
-        deadline: std::time::Instant,
+        deadline: agent_desktop_core::Deadline,
         usage: &mut crate::tree::observation_usage::ObservationUsage,
     ) -> NodeAttributeRead {
         let mask = crate::tree::properties::node_attribute_names::safe_attribute_mask(requirements);
@@ -316,7 +316,7 @@ mod imp {
 
     fn title_ui_element_text(
         element: &AXElement,
-        deadline: std::time::Instant,
+        deadline: agent_desktop_core::Deadline,
         usage: &mut crate::tree::observation_usage::ObservationUsage,
     ) -> Result<Option<crate::tree::properties::bounded_string::BoundedString>, i32> {
         let title = crate::tree::properties::attributes::copy_string_attr_bounded_result(
@@ -369,7 +369,7 @@ mod imp {
     pub(crate) fn fetch_node_attrs_with_status_for(
         _element: &AXElement,
         _requirements: agent_desktop_core::EvidenceRequirements,
-        _deadline: std::time::Instant,
+        _deadline: agent_desktop_core::Deadline,
         _usage: &mut crate::tree::observation_usage::ObservationUsage,
     ) -> NodeAttributeRead {
         NodeAttributeRead {

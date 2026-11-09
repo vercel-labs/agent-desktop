@@ -1,5 +1,5 @@
 use agent_desktop_core::{
-    AdapterError, CURSOR_ARRIVAL_TIMEOUT_MS, CursorOverlayControl, ErrorCode,
+    AdapterError, CURSOR_ARRIVAL_TIMEOUT_MS, CursorOverlayControl, Deadline, ErrorCode,
 };
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
@@ -7,7 +7,7 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::child::{MARKER, SOCKET_ENV};
 
@@ -28,7 +28,7 @@ pub(crate) fn update(control: &CursorOverlayControl) -> Result<(), AdapterError>
     } else {
         4_000
     };
-    let deadline = Instant::now() + agent_desktop_core::Deadline::after(budget)?.remaining();
+    let deadline = Deadline::after(budget)?;
     let socket = super::endpoint::path(control.session_id(), control.agent_id())?;
     if send_until(&socket, control, deadline)? {
         return Ok(());
@@ -52,11 +52,11 @@ pub(crate) fn update(control: &CursorOverlayControl) -> Result<(), AdapterError>
 
 fn broadcast(control: &CursorOverlayControl) -> Result<(), AdapterError> {
     let lock_path = super::endpoint::lock_path()?;
-    let deadline = Instant::now() + Duration::from_secs(4);
+    let deadline = Deadline::detached_after(4_000)?;
     let _lock = startup_lock(&lock_path, deadline)?;
     let (paths, mut first_error) = super::endpoint::discover(control.session_id())?;
     for socket in paths {
-        if Instant::now() >= deadline {
+        if deadline.is_expired() {
             return Err(AdapterError::internal(
                 "Timed out stopping macOS cursor overlays",
             ));
@@ -70,25 +70,17 @@ fn broadcast(control: &CursorOverlayControl) -> Result<(), AdapterError> {
 
 fn startup_lock(
     path: &Path,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<agent_desktop_core::FileLock, AdapterError> {
-    agent_desktop_core::FileLock::acquire(
-        path,
-        agent_desktop_core::Deadline::detached_after(
-            deadline
-                .saturating_duration_since(Instant::now())
-                .as_millis() as u64,
-        )?,
-        "cursor overlay startup lock",
-    )
+    agent_desktop_core::FileLock::acquire(path, deadline, "cursor overlay startup lock")
 }
 
 fn spawn(
     socket: &Path,
     control: &CursorOverlayControl,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<(), AdapterError> {
-    if Instant::now() >= deadline {
+    if deadline.is_expired() {
         return Err(AdapterError::internal(
             "Cursor overlay startup deadline elapsed",
         ));
@@ -143,7 +135,7 @@ fn spawn(
         );
     }
     drop(stdin);
-    while Instant::now() < deadline {
+    while !deadline.is_expired() {
         if UnixStream::connect(socket).is_ok() {
             thread::spawn(move || {
                 let _ = child.wait();
@@ -164,11 +156,11 @@ fn spawn(
 
 fn terminate_child(child: &mut std::process::Child) -> bool {
     let _ = child.kill();
-    let deadline = Instant::now() + Duration::from_secs(2);
-    super::super::process::poll_reap(child, deadline)
+    Deadline::detached_after(2_000)
+        .is_ok_and(|deadline| super::super::process::poll_reap(child, deadline))
 }
 
-fn retire_legacy(control: &CursorOverlayControl, deadline: Instant) {
+fn retire_legacy(control: &CursorOverlayControl, deadline: Deadline) {
     let Ok(socket) = super::endpoint::legacy_path(control.session_id()) else {
         return;
     };
@@ -179,7 +171,7 @@ fn retire_legacy(control: &CursorOverlayControl, deadline: Instant) {
 fn send_until(
     socket: &Path,
     control: &CursorOverlayControl,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<bool, AdapterError> {
     let mut stream = match UnixStream::connect(socket) {
         Ok(stream) => stream,
@@ -198,7 +190,7 @@ fn send_until(
             );
         }
     };
-    let remaining = deadline.saturating_duration_since(Instant::now());
+    let remaining = deadline.remaining();
     if remaining.is_zero() {
         return Err(AdapterError::internal(
             "Cursor overlay control deadline elapsed",
@@ -234,7 +226,7 @@ fn send_until(
             AdapterError::internal("Could not finish the cursor overlay control")
                 .with_platform_detail(error.to_string())
         })?;
-    let remaining = deadline.saturating_duration_since(Instant::now());
+    let remaining = deadline.remaining();
     let budget = if remaining.is_zero() {
         return Err(AdapterError::internal(
             "Timed out stopping macOS cursor overlays",

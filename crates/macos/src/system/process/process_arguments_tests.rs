@@ -1,4 +1,5 @@
 use super::*;
+use agent_desktop_core::Deadline;
 use std::os::unix::ffi::OsStrExt;
 
 /// The executable path as the kernel lays it out: NUL-terminated, then NUL-padded to 8 bytes.
@@ -123,15 +124,12 @@ fn current_process_command_matches_its_first_argument() {
     let expected = std::env::args_os().next().unwrap();
     let mut seen = None;
 
-    visit_commands_until(
-        Instant::now() + std::time::Duration::from_secs(5),
-        |pid, command| {
-            if pid == own_pid {
-                seen = Some(command.to_vec());
-            }
-            Ok(())
-        },
-    )
+    visit_commands_until(Deadline::after(5000).unwrap(), |pid, command| {
+        if pid == own_pid {
+            seen = Some(command.to_vec());
+        }
+        Ok(())
+    })
     .unwrap();
 
     assert_eq!(seen.as_deref(), Some(expected.as_bytes()));
@@ -140,7 +138,7 @@ fn current_process_command_matches_its_first_argument() {
 #[test]
 fn expired_deadline_stops_the_process_walk() {
     let mut visited = 0;
-    let error = visit_commands_until(Instant::now(), |_, _| {
+    let error = visit_commands_until(Deadline::after(0).unwrap(), |_, _| {
         visited += 1;
         Ok(())
     })

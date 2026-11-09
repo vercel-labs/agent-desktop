@@ -1,4 +1,5 @@
 use crate::tree::AXElement;
+use agent_desktop_core::Deadline;
 
 pub(crate) const MAX_LABEL_ELEMENTS: usize = 5;
 
@@ -11,7 +12,7 @@ pub(crate) fn complete_name_evidence_with_deadline(
     attrs: &crate::tree::NodeAttrs,
     role: &str,
     children: &[AXElement],
-    deadline: std::time::Instant,
+    deadline: Deadline,
     mut sinks: NameEvidenceSinks<'_>,
 ) -> Result<(agent_desktop_core::NameEvidence, bool), agent_desktop_core::AdapterError> {
     let mut evidence = attrs.name_evidence.clone();
@@ -49,7 +50,7 @@ fn has_name_without_child_content(evidence: &agent_desktop_core::NameEvidence) -
 #[cfg(target_os = "macos")]
 fn label_from_children(
     children: &[AXElement],
-    deadline: std::time::Instant,
+    deadline: Deadline,
     sinks: &mut NameEvidenceSinks<'_>,
 ) -> Result<(Option<String>, bool), agent_desktop_core::AdapterError> {
     let mut labels = Vec::new();
@@ -117,7 +118,7 @@ fn label_read_completeness(reads_complete: bool, capped: bool, label_found: bool
 #[cfg(not(target_os = "macos"))]
 fn label_from_children(
     _children: &[AXElement],
-    _deadline: std::time::Instant,
+    _deadline: Deadline,
     _sinks: &mut NameEvidenceSinks<'_>,
 ) -> Result<(Option<String>, bool), agent_desktop_core::AdapterError> {
     Ok((None, true))
@@ -127,7 +128,7 @@ fn label_from_children(
 fn timed_string(
     element: &AXElement,
     attribute: &str,
-    deadline: std::time::Instant,
+    deadline: Deadline,
     sinks: &mut NameEvidenceSinks<'_>,
 ) -> Result<(Option<String>, bool), agent_desktop_core::AdapterError> {
     sinks.stats.semantic_reads.child_label_reads += 1;
@@ -147,7 +148,7 @@ fn timed_string(
 fn push_static_text(
     labels: &mut Vec<String>,
     element: &AXElement,
-    deadline: std::time::Instant,
+    deadline: Deadline,
     sinks: &mut NameEvidenceSinks<'_>,
 ) -> Result<bool, agent_desktop_core::AdapterError> {
     sinks.stats.semantic_reads.child_label_reads += 1;

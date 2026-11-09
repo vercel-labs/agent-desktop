@@ -10,7 +10,7 @@ pub(crate) fn activate(process: ProcessIdentity, deadline: Deadline) -> Result<(
     let application = crate::tree::element_for_pid(identity.pid());
     let attribute = renderer_probe::activation_attribute(
         &application,
-        instant(deadline).map_err(not_delivered)?,
+        deadline.capped(std::time::Duration::from_millis(250)),
     )
     .map_err(not_delivered)?
     .ok_or_else(|| {
@@ -21,7 +21,7 @@ pub(crate) fn activate(process: ProcessIdentity, deadline: Deadline) -> Result<(
     let current = crate::tree::surface_read::boolean(
         &application,
         attribute,
-        instant(deadline).map_err(not_delivered)?,
+        deadline.capped(std::time::Duration::from_millis(250)),
     )
     .map_err(not_delivered)?;
     if current == Some(true) {
@@ -55,7 +55,7 @@ fn enable_attribute(
     let readback = crate::tree::surface_read::boolean(
         application,
         attribute_name,
-        instant(deadline).map_err(uncertain)?,
+        deadline.capped(std::time::Duration::from_millis(250)),
     )
     .map_err(uncertain)?;
     let delivered = activation_delivered(application, attribute_name, error, readback)?;
@@ -102,12 +102,6 @@ fn activation_delivered(
 
 fn uncertain(error: AdapterError) -> AdapterError {
     error.with_disposition(DeliverySemantics::uncertain())
-}
-
-fn instant(deadline: Deadline) -> Result<std::time::Instant, AdapterError> {
-    std::time::Instant::now()
-        .checked_add(deadline.remaining_slice(std::time::Duration::from_millis(250))?)
-        .ok_or_else(|| AdapterError::new(ErrorCode::InvalidArgs, "Deadline is out of range"))
 }
 
 fn not_delivered(error: AdapterError) -> AdapterError {

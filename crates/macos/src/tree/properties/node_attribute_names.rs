@@ -81,7 +81,7 @@ mod imp {
     pub(crate) fn copy_node_attribute_values(
         element: &crate::tree::AXElement,
         mask: u32,
-        deadline: std::time::Instant,
+        deadline: agent_desktop_core::Deadline,
     ) -> (i32, CFTypeRef) {
         ATTRIBUTE_NAMES.with(|names| {
             names.with_array(mask, |array| {

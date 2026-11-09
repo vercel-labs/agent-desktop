@@ -1,4 +1,5 @@
 use super::*;
+use std::time::Duration;
 
 #[test]
 fn preflight_preserves_explicit_non_retryable_failures() {

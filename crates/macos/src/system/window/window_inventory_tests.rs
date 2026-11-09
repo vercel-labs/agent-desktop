@@ -1,6 +1,6 @@
 use super::*;
 use crate::system::window::cg_window::WindowRecord;
-use agent_desktop_core::Rect;
+use agent_desktop_core::{Deadline, Rect};
 use rustc_hash::FxHashMap;
 
 #[derive(Clone)]
@@ -233,7 +233,7 @@ fn deadline_window_inventory_rejects_expiry_before_native_reads() {
         focused_only: false,
     };
 
-    let error = list_windows_until(&filter, Instant::now()).unwrap_err();
+    let error = list_windows_until(&filter, Deadline::after(0).unwrap()).unwrap_err();
 
     assert_eq!(error.code.as_str(), "TIMEOUT");
 }

@@ -1,6 +1,7 @@
 use crate::{
-    ActionRequest, ActionResult, AdapterError, AppError, Deadline,
+    ActionRequest, ActionResult, AdapterError, Deadline,
     ref_action::ref_action_context::RefActionContext,
+    ref_action::ref_action_landing::RefActionLanding,
     ref_action::ref_action_poll::execute_poll_loop,
     ref_action::ref_action_poll_state::RefActionPollState,
     ref_action::ref_action_single::execute_single_shot,
@@ -16,39 +17,22 @@ type RefActionWaitCtx<'a> = RefActionWaitContext<'a>;
 pub(crate) fn execute_with_auto_wait(
     context: RefActionWaitContext<'_>,
     request: ActionRequest,
-    dispatch: impl Fn(
-        RefActionContext<'_>,
-        ActionRequest,
-        &crate::InteractionLease,
-    ) -> Result<ActionResult, AppError>,
 ) -> Result<ActionResult, AdapterError> {
-    let (result, lease, pre, deadline, _lease_started) =
-        execute_with_auto_wait_and_lease(context, request, dispatch)?;
-    drop(lease);
-    crate::ref_action::finish_artifacts(RefActionContext::new(context, deadline), &pre);
-    Ok(result)
+    let landing = execute_with_auto_wait_and_lease(context, request)?;
+    drop(landing.lease);
+    crate::ref_action::finish_artifacts(
+        RefActionContext::new(context, landing.deadline),
+        &landing.pre,
+    );
+    Ok(landing.result)
 }
 
 pub(crate) fn execute_with_auto_wait_and_lease(
     context: RefActionWaitContext<'_>,
     request: ActionRequest,
-    dispatch: impl Fn(
-        RefActionContext<'_>,
-        ActionRequest,
-        &crate::InteractionLease,
-    ) -> Result<ActionResult, AppError>,
-) -> Result<
-    (
-        ActionResult,
-        crate::InteractionLease,
-        crate::trace::trace_artifacts::ArtifactOutcome,
-        Deadline,
-        std::time::Instant,
-    ),
-    AdapterError,
-> {
+) -> Result<RefActionLanding, AdapterError> {
     let deadline = operation_deadline(&request)?;
-    let result = execute_with_deadline(context, request, deadline, dispatch);
+    let result = execute_with_deadline(context, request, deadline);
     result.map_err(|error| {
         if deadline.is_expired() {
             error
@@ -62,21 +46,7 @@ fn execute_with_deadline(
     context: RefActionWaitContext<'_>,
     mut request: ActionRequest,
     deadline: Deadline,
-    dispatch: impl Fn(
-        RefActionContext<'_>,
-        ActionRequest,
-        &crate::InteractionLease,
-    ) -> Result<ActionResult, AppError>,
-) -> Result<
-    (
-        ActionResult,
-        crate::InteractionLease,
-        crate::trace::trace_artifacts::ArtifactOutcome,
-        Deadline,
-        std::time::Instant,
-    ),
-    AdapterError,
-> {
+) -> Result<RefActionLanding, AdapterError> {
     let polls = request.timeout_ms.is_some_and(|timeout_ms| timeout_ms > 0);
     let mut saw_ambiguity = false;
     let mut refusal: Option<AdapterError> = None;
@@ -108,15 +78,22 @@ fn execute_with_deadline(
             request.timeout_ms = Some(deadline.remaining_ms());
         }
         let lease_started = std::time::Instant::now();
-        match execute_single_shot(context, request.clone(), deadline, &lease, &dispatch) {
-            Ok(mut result) => {
+        match execute_single_shot(context, request.clone(), deadline, &lease) {
+            Ok((mut result, handle)) => {
                 state.attach_transient_ambiguity(&mut result);
                 state.attach_wait_metrics(
                     &mut result,
                     &lease,
                     u64::try_from(lease_started.elapsed().as_millis()).unwrap_or(u64::MAX),
                 );
-                return Ok((result, lease, pre, deadline, lease_started));
+                return Ok(RefActionLanding {
+                    result,
+                    handle,
+                    lease,
+                    pre,
+                    deadline,
+                    lease_started,
+                });
             }
             Err(error) => {
                 drop(lease);
@@ -126,9 +103,7 @@ fn execute_with_deadline(
                 }
                 saw_ambiguity |= error.code == crate::ErrorCode::AmbiguousTarget;
                 refusal = Some(error);
-                crate::wait::deadline::sleep(
-                    crate::refs::ref_resolve_deadline::POLL_INTERVAL.min(deadline.remaining()),
-                );
+                deadline.pause(crate::wait::deadline::POLL_INTERVAL);
             }
         }
     }

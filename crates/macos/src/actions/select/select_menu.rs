@@ -165,7 +165,7 @@ fn find_named_descendant(
                 "complete": false,
             })));
         }
-        let instant = crate::tree::locator_deadline::from_operation(deadline)?;
+        let instant = deadline;
         match search {
             SelectSearch::Collection => {
                 if let Some(target) =
@@ -291,7 +291,7 @@ fn wait_for_menu_to_close(pid: i32, deadline: Deadline) -> Result<bool, AdapterE
 }
 
 fn menu_root(pid: i32, deadline: Deadline) -> Result<Option<AXElement>, AdapterError> {
-    let instant = crate::tree::locator_deadline::from_operation(deadline)?;
+    let instant = deadline;
     crate::tree::surfaces::menu_element_for_pid(pid, instant)
 }
 

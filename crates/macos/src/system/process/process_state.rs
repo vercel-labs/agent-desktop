@@ -1,5 +1,5 @@
-use agent_desktop_core::AdapterError;
 use agent_desktop_core::system::process_state::ProcessState;
+use agent_desktop_core::{AdapterError, Deadline};
 
 /// Result of one AX responsiveness read, decoupled from the raw AXError so
 /// `classify` (below) is testable without a live accessibility tree.
@@ -32,7 +32,7 @@ pub(crate) fn classify(
 #[cfg(target_os = "macos")]
 pub(crate) fn process_state_impl(
     process: agent_desktop_core::ProcessIdentity,
-    deadline: agent_desktop_core::Deadline,
+    deadline: Deadline,
 ) -> Result<ProcessState, AdapterError> {
     use crate::tree::element_for_pid;
 
@@ -53,10 +53,7 @@ pub(crate) fn process_state_impl(
 }
 
 #[cfg(target_os = "macos")]
-fn prepare_probe(
-    app: &crate::tree::AXElement,
-    deadline: agent_desktop_core::Deadline,
-) -> Result<(), AdapterError> {
+fn prepare_probe(app: &crate::tree::AXElement, deadline: Deadline) -> Result<(), AdapterError> {
     crate::tree::properties::attributes::set_messaging_timeout(app, deadline)
 }
 
@@ -79,7 +76,7 @@ fn pid_is_alive(pid: i32) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-fn ax_probe(app: &crate::tree::AXElement, deadline: agent_desktop_core::Deadline) -> AxProbeResult {
+fn ax_probe(app: &crate::tree::AXElement, deadline: Deadline) -> AxProbeResult {
     use accessibility_sys::{kAXErrorCannotComplete, kAXErrorSuccess, kAXRoleAttribute};
     use core_foundation::{
         base::{CFType, TCFType},
@@ -107,7 +104,7 @@ fn ax_probe(app: &crate::tree::AXElement, deadline: agent_desktop_core::Deadline
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn process_state_impl(
     _process: agent_desktop_core::ProcessIdentity,
-    _deadline: agent_desktop_core::Deadline,
+    _deadline: Deadline,
 ) -> Result<ProcessState, AdapterError> {
     Err(AdapterError::not_supported("process_state"))
 }

@@ -10,10 +10,7 @@ const VERIFY_LIMIT: Duration = Duration::from_millis(500);
 pub(crate) fn focused_app(
     deadline: Deadline,
 ) -> Result<Option<agent_desktop_core::AppInfo>, AdapterError> {
-    let Some(owner) = crate::system::app::workspace_apps::focused_owner_until(
-        crate::tree::locator_deadline::from_operation(deadline)?,
-    )?
-    else {
+    let Some(owner) = crate::system::app::workspace_apps::focused_owner_until(deadline)? else {
         return Ok(None);
     };
     let identity = capture_identity(owner.pid)?;
@@ -134,7 +131,7 @@ fn focus_until(
                 });
             }
         }
-        if Instant::now() >= local_deadline || deadline.is_expired() {
+        if std::time::Instant::now() >= local_deadline || deadline.is_expired() {
             let error = AdapterError::timeout("Application did not become frontmost")
                 .with_details(serde_json::json!({ "kind": "focus_verification", "physical_delivery_started": false }));
             return Err(if delivered {
@@ -257,7 +254,7 @@ fn wait_until(
             return Ok(());
         }
         deadline.ensure_remaining()?;
-        if Instant::now() >= local_deadline {
+        if std::time::Instant::now() >= local_deadline {
             return Err(
                 AdapterError::timeout(timeout_message).with_details(serde_json::json!({
                     "kind": "focus_verification",

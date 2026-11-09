@@ -1,7 +1,7 @@
 use super::*;
 use crate::tree::walk::walker::WalkBudget;
 use crate::tree::walk::walker_source::UiaTreeSource;
-use agent_desktop_core::LocatorEvidence;
+use agent_desktop_core::{ErrorCode, LocatorEvidence};
 use std::ops::ControlFlow;
 
 /// The cross-process takeover shape, end to end. The stored evidence here
@@ -114,9 +114,3 @@ fn find_password(
 fn code_of(error: AdapterError) -> ErrorCode {
     error.code
 }
-
-#[path = "resolve_retry_tests.rs"]
-mod retry;
-
-#[path = "resolve_retry_classification_tests.rs"]
-mod retry_classification;

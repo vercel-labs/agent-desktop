@@ -6,7 +6,7 @@ pub(crate) fn is_native_menu(
     element: &AXElement,
     deadline: Deadline,
 ) -> Result<bool, AdapterError> {
-    let end = crate::tree::locator_deadline::from_operation(deadline)?;
+    let end = deadline;
     classify(
         element.clone(),
         deadline,

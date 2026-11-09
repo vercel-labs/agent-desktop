@@ -1,4 +1,5 @@
 use super::*;
+use agent_desktop_core::Deadline;
 
 fn app(name: &str, pid: u32) -> AppInfo {
     AppInfo {
@@ -122,7 +123,7 @@ const UNCONSUMED_BUDGET: std::time::Duration = std::time::Duration::from_secs(5)
 #[test]
 fn a_retryable_failure_is_retried_until_the_inventory_repeats() {
     let mut attempts = 0_u64;
-    let apps = stabilize_apps_until(Instant::now() + UNCONSUMED_BUDGET, || {
+    let apps = stabilize_apps_until(Deadline::from_duration(UNCONSUMED_BUDGET).unwrap(), || {
         attempts += 1;
         if attempts == 1 {
             return Err(inventory_failure_fixture());
@@ -138,7 +139,7 @@ fn a_retryable_failure_is_retried_until_the_inventory_repeats() {
 fn persistent_source_failure_preserves_diagnosis_without_churn() {
     let source = inventory_failure_fixture();
     let mut attempts = 0_u64;
-    let error = stabilize_apps_until(Instant::now() + UNCONSUMED_BUDGET, || {
+    let error = stabilize_apps_until(Deadline::from_duration(UNCONSUMED_BUDGET).unwrap(), || {
         attempts += 1;
         if attempts == 3 {
             return Err(AdapterError::timeout("macOS app inventory timed out"));
@@ -166,16 +167,13 @@ fn inventory_failure_fixture() -> AdapterError {
 #[test]
 fn changing_app_inventory_counts_only_observed_changes() {
     let mut attempts = 0_u64;
-    let error = stabilize_apps_until(
-        Instant::now() + std::time::Duration::from_millis(20),
-        || {
-            attempts += 1;
-            Ok(vec![app(
-                if attempts.is_multiple_of(2) { "A" } else { "B" },
-                10,
-            )])
-        },
-    )
+    let error = stabilize_apps_until(Deadline::after(20).unwrap(), || {
+        attempts += 1;
+        Ok(vec![app(
+            if attempts.is_multiple_of(2) { "A" } else { "B" },
+            10,
+        )])
+    })
     .unwrap_err();
     let details = error.details.unwrap();
     assert_eq!(details["churn_events"], attempts.saturating_sub(1));

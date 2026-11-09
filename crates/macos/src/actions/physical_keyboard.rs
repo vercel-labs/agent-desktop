@@ -133,7 +133,7 @@ fn wait_for_focused_element(
             return Ok(());
         }
         deadline.ensure_remaining()?;
-        if Instant::now() >= local_deadline {
+        if std::time::Instant::now() >= local_deadline {
             return Err(AdapterError::timeout(
                 "Target element did not become focused before keyboard delivery",
             )
