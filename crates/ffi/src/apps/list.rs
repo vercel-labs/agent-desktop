@@ -21,8 +21,11 @@ pub unsafe extern "C" fn ad_list_apps(
         crate::pointer_guard::guard_non_null!(adapter, c"adapter is null");
         let adapter = crate::adapter::acquire_adapter!(adapter);
         let deadline = crate::operation::operation_deadline!();
-        match adapter.inner.list_apps(deadline) {
-            Ok(apps) => {
+        match adapter
+            .inner
+            .query_app_inventory(agent_desktop_core::AppInventoryQuery::All, deadline)
+        {
+            Ok(agent_desktop_core::AppInventory { apps, .. }) => {
                 if let Err(error) = crate::resource::validate_list_len(apps.len(), "App list") {
                     set_last_error(&error);
                     return crate::error::last_error_code();

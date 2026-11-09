@@ -3,7 +3,6 @@ use agent_desktop_core::{
     app_name_matches,
 };
 
-#[cfg(target_os = "windows")]
 use super::frame_identity;
 use super::listing_retry::retry_transient_window_race;
 use super::window_enum::{EnumeratedWindow, enumerate_top_level};
@@ -17,26 +16,6 @@ use crate::system::process_identity;
 /// 51 tool).
 pub(crate) fn passes_filter(window: &EnumeratedWindow) -> bool {
     window.visible && !window.is_zero_sized() && !window.cloaked && !window.tool
-}
-
-/// The process facts one window needs: its owner's pid, the process-generation
-/// token and the image name that becomes `app` - all read from the same
-/// handle.
-#[cfg(target_os = "windows")]
-fn process_facts(
-    handle: super::window_enum::WindowHandle,
-) -> Option<(ProcessId, Option<String>, String)> {
-    let pid = super::window_identity::live_window_owner(handle)?;
-    let token = process_identity::token_for_pid(pid).ok().flatten();
-    let name = process_identity::process_image_name(pid).unwrap_or_default();
-    Some((pid, token, name))
-}
-
-#[cfg(not(target_os = "windows"))]
-fn process_facts(
-    _handle: super::window_enum::WindowHandle,
-) -> Option<(ProcessId, Option<String>, String)> {
-    None
 }
 
 /// Reads the window class of a handle, or `None` when the handle addresses
@@ -59,30 +38,17 @@ pub(crate) fn window_class_name(_handle: super::window_enum::WindowHandle) -> Op
     None
 }
 
-/// The identity facts one listed window reports: its own process's, or -
-/// when the window is an application frame host frame carrying a live
-/// hosted application (A26-8) - the hosted application's, read lazily per
-/// hosted frame the way `live_window_title` reads a title. The frame keeps
-/// the id, title, bounds and state; only `app` and `pid` descend to
-/// the hosted process, and the descent runs inside this one inventory pass
-/// rather than as a second enumeration.
-#[cfg(target_os = "windows")]
+/// The identity facts one listed window reports: the pid, process-generation
+/// token and image name of the application the window belongs to. A frame
+/// host frame carrying a live hosted application reports the hosted
+/// application (A26-8); the frame keeps the id, title, bounds and state.
 fn identity_facts(
     handle: super::window_enum::WindowHandle,
 ) -> Option<(ProcessId, Option<String>, String)> {
-    if let Some(pid) = frame_identity::hosted_application_pid(handle) {
-        let token = process_identity::token_for_pid(pid).ok().flatten();
-        let name = process_identity::process_image_name(pid).unwrap_or_default();
-        return Some((pid, token, name));
-    }
-    process_facts(handle)
-}
-
-#[cfg(not(target_os = "windows"))]
-fn identity_facts(
-    handle: super::window_enum::WindowHandle,
-) -> Option<(ProcessId, Option<String>, String)> {
-    process_facts(handle)
+    let pid = frame_identity::application_pid(handle)?;
+    let token = process_identity::token_for_pid(pid).ok().flatten();
+    let name = process_identity::process_image_name(pid).unwrap_or_default();
+    Some((pid, token, name))
 }
 
 /// Builds one `WindowInfo` from an enumerated window: the frame's handle,

@@ -4,6 +4,8 @@ use agent_desktop_core::{
 };
 use std::time::{Duration, Instant};
 
+use super::launch_window::{LaunchWindow, exact_window, windowless};
+
 const MAX_ARGUMENT_COUNT: usize = 256;
 const MAX_ENVIRONMENT_COUNT: usize = 256;
 const MAX_LAUNCH_TEXT_BYTES: usize = 1024 * 1024;
@@ -34,7 +36,7 @@ pub(crate) fn launch_app_impl(
         let instance = required_instance(&app).map_err(before_launch)?;
         let pid = super::process::process_identity::to_pid_t(app.pid).map_err(before_launch)?;
         let window = exact_window(pid, &instance, deadline).map_err(before_launch)?;
-        return Ok(result_from_app(&app, window));
+        return Ok(result_from_app(&app, window.report()));
     }
     let target = launch_target(options, initial).map_err(before_launch)?;
 
@@ -62,24 +64,38 @@ fn settled_window(
     let mut poll_interval = Duration::from_millis(25);
     let mut grace_ends_at = None;
     let mut last_read_failure: Option<AdapterError>;
+    let mut unplaced = None;
+    let end = |unplaced: Option<LaunchWindow>, failure: Option<AdapterError>| match (
+        unplaced.and_then(LaunchWindow::report),
+        failure,
+    ) {
+        (Some(window), _) => Ok(Some(window)),
+        (None, Some(error)) => Err(error),
+        (None, None) => windowless(pid, process_instance),
+    };
     loop {
         match exact_window(pid, process_instance, deadline) {
-            Ok(Some(window)) => return Ok(Some(window)),
-            Ok(None) => last_read_failure = None,
+            Ok(LaunchWindow::Placed(window)) => return Ok(Some(window)),
+            Ok(LaunchWindow::Unnamed) => return windowless(pid, process_instance),
+            Ok(window @ LaunchWindow::Unplaced(_)) => {
+                unplaced = Some(window);
+                last_read_failure = None;
+            }
+            Ok(LaunchWindow::Absent) => last_read_failure = None,
             Err(error) if window_read_is_not_ready_yet(&error) => last_read_failure = Some(error),
             Err(error) => return Err(error),
         }
         if options.timeout_ms == 0
             || (!options.activate && grace_over(grace_ends_at, Instant::now()))
         {
-            return last_read_failure.map_or(Ok(None), Err);
+            return end(unplaced, last_read_failure);
         }
         if grace_ends_at.is_none() && startup_finished(pid, process_instance)? {
             grace_ends_at = Instant::now().checked_add(STARTUP_GRACE);
         }
         let remaining = deadline.remaining();
         if remaining.is_zero() {
-            return last_read_failure.map_or(Ok(None), Err);
+            return end(unplaced, last_read_failure);
         }
         std::thread::sleep(poll_interval.min(remaining));
         poll_interval = (poll_interval * 3 / 2).min(Duration::from_millis(250));
@@ -113,7 +129,7 @@ fn startup_finished(pid: i32, process_instance: &str) -> Result<bool, AdapterErr
 }
 
 #[cfg(target_os = "macos")]
-fn launch_target_gone(pid: i32) -> AdapterError {
+pub(super) fn launch_target_gone(pid: i32) -> AdapterError {
     AdapterError::new(
         ErrorCode::AppUnresponsive,
         "Launched application exited before it presented a window",
@@ -279,28 +295,6 @@ fn ambiguous_apps(apps: &[AppInfo]) -> AdapterError {
         "More than one application instance matches the launch target",
         &apps.iter().map(|app| app.pid).collect::<Vec<_>>(),
     )
-}
-
-#[cfg(target_os = "macos")]
-fn exact_window(
-    pid: i32,
-    process_instance: &str,
-    deadline: Deadline,
-) -> Result<Option<WindowInfo>, AdapterError> {
-    let window =
-        match crate::system::window::window_inventory::exact_window_for_pid_until(pid, deadline) {
-            Ok(window) => window,
-            Err(error) if error.code == ErrorCode::WindowNotFound => return Ok(None),
-            Err(error) => return Err(error),
-        };
-    if window.process_instance.as_deref() != Some(process_instance) {
-        return Err(AdapterError::new(
-            ErrorCode::AppUnresponsive,
-            "Application process instance changed while waiting for its window",
-        )
-        .with_details(serde_json::json!({ "pid": pid, "complete": false })));
-    }
-    Ok(Some(window))
 }
 
 #[cfg(target_os = "macos")]

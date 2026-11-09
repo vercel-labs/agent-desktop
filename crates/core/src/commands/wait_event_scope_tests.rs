@@ -72,6 +72,7 @@ fn window_closed_wait_reports_closure_when_the_target_is_unresolvable() {
 fn a_same_identifier_sibling_appearing_mid_wait_neither_aborts_nor_supplies_the_event() {
     let target = app("TextEdit", "test-instance");
     let sibling = AppInfo {
+        aliases: Vec::new(),
         pid: crate::ProcessId::new(99),
         ..app("TextEdit", "sibling-instance")
     };

@@ -105,14 +105,19 @@ fn targeted_window(id: &str, visible: bool) -> WindowInfo {
 }
 
 impl ObservationOps for RestoreWithoutWindowAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        Ok(vec![AppInfo {
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(vec![AppInfo {
+            aliases: Vec::new(),
             name: "TextEdit".into(),
             pid: crate::ProcessId::new(42),
             bundle_id: None,
             process_instance: Some("test-instance".into()),
             presentation: None,
-        }])
+        }]))
     }
 
     fn list_windows(

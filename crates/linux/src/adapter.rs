@@ -1,5 +1,5 @@
 use agent_desktop_core::{
-    AccessibilityNode, ActionOps, ActionRequest, ActionResult, AdapterError, AppInfo, AppInventory,
+    AccessibilityNode, ActionOps, ActionRequest, ActionResult, AdapterError, AppInventory,
     ClipboardContent, ClipboardFormat, Deadline, DragParams, ElementState, HitTestResult, InputOps,
     InteractionLease, KeyCombo, LiveElement, MouseEvent, NativeHandle, ObservationOps,
     ObservationRequest, ObservationRoot, ObservedTree, OperationReport, Point, ProcessIdentity,
@@ -204,29 +204,12 @@ impl ObservationOps for LinuxAdapter {
         crate::system::list_windows(self.bus(), filter, deadline)
     }
 
-    fn list_apps(&self, deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        Ok(self.list_apps_inventory(deadline)?.apps)
-    }
-
-    fn list_apps_inventory(&self, deadline: Deadline) -> Result<AppInventory, AdapterError> {
-        crate::system::app_inventory(self.bus(), deadline)
-    }
-
     fn query_app_inventory(
         &self,
         query: agent_desktop_core::AppInventoryQuery<'_>,
         deadline: Deadline,
     ) -> Result<AppInventory, AdapterError> {
         crate::system::context::inventory::query(self.bus(), query, deadline)
-    }
-
-    fn list_apps_scoped(
-        &self,
-        name: &str,
-        bundle_id: Option<&str>,
-        deadline: Deadline,
-    ) -> Result<Vec<AppInfo>, AdapterError> {
-        crate::system::apps_scoped(self.bus(), name, bundle_id, deadline)
     }
 
     fn list_surfaces(

@@ -37,12 +37,14 @@ impl SequenceAdapter {
 }
 
 impl ObservationOps for SequenceAdapter {
-    fn list_apps(&self, deadline: crate::Deadline) -> Result<Vec<AppInfo>, AdapterError> {
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
         *self.app_calls.lock().unwrap() += 1;
-        if deadline.is_expired() {
-            return Err(deadline.timeout_error());
-        }
-        Ok(self.apps.clone())
+        deadline.ensure_remaining()?;
+        Ok(query.answer(self.apps.clone()))
     }
 }
 impl ActionOps for SequenceAdapter {}
@@ -71,8 +73,12 @@ struct FailingInventoryAdapter {
 }
 
 impl ObservationOps for FailingInventoryAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        Ok(vec![app("TextEdit", "test-instance")])
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(vec![app("TextEdit", "test-instance")]))
     }
 }
 impl ActionOps for FailingInventoryAdapter {}
@@ -104,6 +110,7 @@ pub(super) fn empty_baseline() -> SignalBaseline {
 
 pub(super) fn app(name: &str, instance: &str) -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: name.into(),
         pid: crate::ProcessId::new(42),
         bundle_id: Some("com.example.editor".into()),
@@ -331,6 +338,7 @@ fn failed_inventory_poll_never_reports_app_termination() {
     let mut request = input("app-terminated", Some("TextEdit"));
     request.timeout_ms = 20;
     let baseline = baseline_with_apps(vec![AppInfo {
+        aliases: Vec::new(),
         name: "TextEdit".into(),
         pid: crate::ProcessId::new(42),
         bundle_id: Some("com.apple.TextEdit".into()),
@@ -359,6 +367,20 @@ fn seeded_process_resolves_bundle_identifier() {
 
     assert_eq!(process.pid, crate::ProcessId::new(42));
     assert_eq!(process.instance, "test-instance");
+}
+
+#[test]
+fn seeded_process_prefers_the_named_application_over_an_alias() {
+    let mut aliased = app("Electron", "alias-instance");
+    aliased.pid = crate::ProcessId::new(7);
+    aliased.aliases = vec!["TextEdit".into()];
+    let baseline = baseline_with_apps(vec![aliased, app("TextEdit", "test-instance")]);
+
+    let process = process_from_baseline(&baseline, "TextEdit")
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(process.pid, crate::ProcessId::new(42));
 }
 
 #[path = "wait_event_deadline_tests.rs"]

@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
 type Stamps = Vec<DesktopStamp>;
 type ContentHashes = Vec<(PathBuf, Option<u64>)>;
-type CacheEntry = (Stamps, SystemTime, ContentHashes, Arc<AliasIndex>);
+type CacheEntry = (Stamps, String, ContentHashes, Arc<AliasIndex>);
 
 /// An index that is rebuilt only when a directory it was read from changes.
 pub(crate) struct AliasCache {
@@ -28,9 +28,11 @@ impl AliasCache {
 
     fn index_at(&self, dirs: &[PathBuf], built_at: SystemTime) -> Arc<AliasIndex> {
         let now = stamps(dirs);
+        let desktops = super::app_alias::current_desktops();
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some((seen, _, hashes, index)) = state.as_ref()
+        if let Some((seen, seen_desktops, hashes, index)) = state.as_ref()
             && *seen == now
+            && *seen_desktops == desktops
             && hashes_match(hashes)
         {
             return Arc::clone(index);
@@ -38,7 +40,7 @@ impl AliasCache {
         let cutoff = built_at.checked_sub(Duration::from_millis(100));
         let hashes = content_hashes(&now, cutoff);
         let index = Arc::new(AliasIndex::build(&read_all(dirs), dirs));
-        *state = Some((now, built_at, hashes, Arc::clone(&index)));
+        *state = Some((now, desktops, hashes, Arc::clone(&index)));
         index
     }
 }

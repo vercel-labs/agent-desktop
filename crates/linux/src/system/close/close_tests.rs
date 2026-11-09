@@ -6,6 +6,7 @@ use crate::system::process::liveness::Liveness;
 
 fn app() -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: "Calculator".to_owned(),
         pid: ProcessId::new(42),
         bundle_id: None,

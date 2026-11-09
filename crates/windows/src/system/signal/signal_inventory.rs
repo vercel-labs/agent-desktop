@@ -8,8 +8,8 @@ use crate::system::app_ops;
 use crate::system::process_identity;
 use crate::system::window::listing_retry::{LISTING_RACE_ATTEMPTS, retry_transient_window_race};
 use crate::system::window::window_enum::{EnumeratedWindow, enumerate_top_level};
-use crate::system::window::window_identity;
 use crate::system::window::window_ops;
+use crate::system::window::{frame_identity, window_identity};
 
 /// One coherent instant's windows and apps, assembled from a single
 /// `EnumWindows` pass plus one `ToolHelp` process snapshot.
@@ -135,7 +135,7 @@ fn walk_phase(
         if index > 0 {
             deadline.ensure_remaining()?;
         }
-        let Some(pid) = window_identity::live_window_owner(window.handle) else {
+        let Some(pid) = frame_identity::application_pid(window.handle) else {
             continue;
         };
         let token = cached_token(&mut cache, pid)?;
@@ -175,7 +175,7 @@ fn assembly_phase(
         if index > 0 {
             deadline.ensure_remaining()?;
         }
-        let Some(current_pid) = window_identity::live_window_owner(entry.window.handle) else {
+        let Some(current_pid) = frame_identity::application_pid(entry.window.handle) else {
             continue;
         };
         if current_pid != entry.pid {
@@ -206,6 +206,7 @@ fn assembly_phase(
         });
         if apps_seen.insert(current_pid) {
             apps.push(AppInfo {
+                aliases: Vec::new(),
                 name: app_name,
                 pid: current_pid,
                 bundle_id: None,

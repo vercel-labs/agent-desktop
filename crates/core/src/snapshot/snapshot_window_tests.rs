@@ -123,11 +123,12 @@ impl ObservationOps for AppInventoryAdapter {
         Ok(Vec::new())
     }
 
-    fn list_apps(
+    fn query_app_inventory(
         &self,
+        query: crate::AppInventoryQuery<'_>,
         _deadline: crate::Deadline,
-    ) -> Result<Vec<crate::AppInfo>, crate::AdapterError> {
-        Ok(self.running_apps.clone())
+    ) -> Result<crate::AppInventory, crate::AdapterError> {
+        Ok(query.answer(self.running_apps.clone()))
     }
 }
 
@@ -137,6 +138,7 @@ impl SystemOps for AppInventoryAdapter {}
 
 fn running_app(name: &str) -> crate::AppInfo {
     crate::AppInfo {
+        aliases: Vec::new(),
         name: name.into(),
         pid: crate::ProcessId::new(7),
         bundle_id: None,
@@ -179,6 +181,7 @@ fn a_windowless_app_is_a_process_owner_only_when_it_is_background() {
     use crate::AppPresentation::{Background, Foreground};
     use crate::SnapshotSurface::{MenuBarExtras, Menubar, Window};
     let app = |presentation| crate::AppInfo {
+        aliases: Vec::new(),
         presentation: Some(presentation),
         ..running_app("Helper")
     };

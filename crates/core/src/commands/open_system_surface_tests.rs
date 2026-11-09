@@ -30,6 +30,7 @@ impl SystemOps for SurfaceAdapter {
         self.opens.lock().unwrap().push((surface, policy));
         if surface == SnapshotSurface::Dock {
             return Ok(WindowInfo::for_process(&crate::AppInfo {
+                aliases: Vec::new(),
                 name: "Dock".into(),
                 pid: crate::ProcessId::new(7),
                 bundle_id: None,

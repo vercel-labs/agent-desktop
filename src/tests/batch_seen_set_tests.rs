@@ -13,14 +13,19 @@ struct SeenSetBatchAdapter {
 }
 
 impl agent_desktop_core::ObservationOps for SeenSetBatchAdapter {
-    fn list_apps(&self, _deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        Ok(vec![AppInfo {
+    fn query_app_inventory(
+        &self,
+        query: agent_desktop_core::AppInventoryQuery<'_>,
+        _deadline: Deadline,
+    ) -> Result<agent_desktop_core::AppInventory, AdapterError> {
+        Ok(query.answer(vec![AppInfo {
+            aliases: Vec::new(),
             name: "Fixture".into(),
             pid: ProcessId::new(42),
             bundle_id: Some("com.example.fixture".into()),
             process_instance: Some("fixture-42".into()),
             presentation: None,
-        }])
+        }]))
     }
 }
 
@@ -71,6 +76,7 @@ impl agent_desktop_core::SystemOps for SeenSetBatchAdapter {
         Ok(SignalBaseline {
             windows,
             apps: vec![AppInfo {
+                aliases: Vec::new(),
                 name: "Fixture".into(),
                 pid: ProcessId::new(42),
                 bundle_id: Some("com.example.fixture".into()),

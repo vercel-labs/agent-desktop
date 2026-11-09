@@ -13,17 +13,7 @@ use crate::system::registry::{Registry, read_registry_query};
 use crate::system::signal::signal_inventory::read_selected;
 
 pub(crate) fn matches(query: AppInventoryQuery<'_>, app: &RegistryApp) -> bool {
-    match query {
-        AppInventoryQuery::All => true,
-        AppInventoryQuery::NameOrAlias(name) => {
-            query.matches_display_name(&app.name) || app.matches(name)
-        }
-        AppInventoryQuery::Exact { name, bundle_id } => match bundle_id {
-            Some(id) => crate::system::app::app_name::desktop_id(&app.facts)
-                .is_some_and(|actual| actual.eq_ignore_ascii_case(id)),
-            None => app.matches(name),
-        },
-    }
+    query.admits(&app.app_info())
 }
 
 /// Reads one selected registry population, then enriches only its presentation.
@@ -111,8 +101,14 @@ fn finish(
     );
     let apps = match query {
         AppInventoryQuery::Exact { name, bundle_id } => {
+            let apps = query.select(apps);
+            let selected: HashSet<u32> = apps.iter().map(|app| app.pid.get()).collect();
             let apps = settle_matches(apps, || {
-                stopped_target(&registry, |_| true, proc_stat::is_stopped)
+                stopped_target(
+                    &registry,
+                    |app| selected.contains(&app.root.pid()),
+                    proc_stat::is_stopped,
+                )
             })?;
             if registry.skipped.is_empty() {
                 scoped_outcome(apps, bundle_id.unwrap_or(name), find_running)?

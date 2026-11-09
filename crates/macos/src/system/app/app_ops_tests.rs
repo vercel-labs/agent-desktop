@@ -56,6 +56,7 @@ fn adapter_close_without_a_process_instance_keeps_the_invalid_args_contract() {
     use agent_desktop_core::{InteractionLease, SystemOps};
 
     let app = AppInfo {
+        aliases: Vec::new(),
         name: "TextEdit".into(),
         pid: agent_desktop_core::ProcessId::new(42),
         bundle_id: None,

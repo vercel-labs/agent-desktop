@@ -96,6 +96,7 @@ fn window_operation_is_verified_only_when_the_adapter_read_back_the_state() {
 #[test]
 fn already_gone_app_is_not_delivered_with_its_evidence() {
     let app = AppInfo {
+        aliases: Vec::new(),
         name: "Notes".into(),
         pid: ProcessId::new(9),
         bundle_id: None,

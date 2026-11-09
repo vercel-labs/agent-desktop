@@ -19,7 +19,7 @@ mod imp {
         Action, ActionRequest, ActionResult, AdapterError, Deadline, ErrorCode, InteractionLease,
         NativeHandle,
     };
-    use crate::actions::chain::build_step;
+
     use crate::actions::click::click_steps;
     use crate::actions::disclosure::disclosure_steps;
     use crate::actions::focus::focus_element;
@@ -179,7 +179,7 @@ mod imp {
         let done = scroll_into_view_outcome(handle, lease, policy)?;
         Ok(ActionResult::from_execution(
             &Action::ScrollTo,
-            vec![build_step(done.label, done.outcome)],
+            vec![done.outcome.step(done.label)],
         ))
     }
 }

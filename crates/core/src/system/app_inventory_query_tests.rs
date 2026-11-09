@@ -32,6 +32,7 @@ impl SystemOps for FilteredInventory {}
 
 fn app() -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: "Example".into(),
         pid: crate::ProcessId::new(42),
         bundle_id: Some("org.example.editor".into()),
@@ -126,4 +127,59 @@ fn adapters_can_share_the_display_name_query_contract() {
         }
         .matches_display_name("editor-helper")
     );
+}
+
+fn record(pid: u32, name: &str, aliases: &[&str]) -> AppInfo {
+    AppInfo {
+        name: name.into(),
+        pid: crate::ProcessId::new(pid),
+        bundle_id: None,
+        process_instance: None,
+        presentation: None,
+        aliases: aliases.iter().map(|alias| (*alias).to_owned()).collect(),
+    }
+}
+
+fn pids(apps: &[AppInfo]) -> Vec<u32> {
+    apps.iter().map(|app| app.pid.get()).collect()
+}
+
+#[test]
+fn an_application_named_by_the_query_outranks_one_that_only_aliases_it() {
+    let apps = vec![record(10, "code", &[]), record(20, "electron", &["code"])];
+    let exact = AppInventoryQuery::Exact {
+        name: "CODE",
+        bundle_id: None,
+    };
+
+    assert_eq!(pids(&exact.select(apps.clone())), vec![10]);
+    assert_eq!(
+        pids(&AppInventoryQuery::NameOrAlias("code").select(apps)),
+        vec![10, 20]
+    );
+}
+
+#[test]
+fn an_alias_answers_every_query_that_takes_an_identifier() {
+    let apps = vec![
+        record(10, "python3.12", &["Calculator"]),
+        record(20, "bash", &[]),
+    ];
+
+    assert_eq!(
+        pids(
+            &AppInventoryQuery::Exact {
+                name: "calculator",
+                bundle_id: None
+            }
+            .select(apps.clone())
+        ),
+        vec![10]
+    );
+    assert_eq!(
+        pids(&AppInventoryQuery::NameOrAlias("Calculator").select(apps.clone())),
+        vec![10]
+    );
+    assert!(apps[0].matches_identifier("calculator"));
+    assert!(!apps[0].is_named("calculator"));
 }

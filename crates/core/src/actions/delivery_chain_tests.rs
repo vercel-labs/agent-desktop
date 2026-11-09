@@ -123,7 +123,7 @@ fn an_error_after_a_delivery_keeps_that_delivery_in_its_disposition() {
 }
 
 #[test]
-fn a_rung_the_policy_denies_is_skipped_and_reported_only_when_nothing_ran() {
+fn a_rung_the_policy_denies_is_held_back_and_named_when_nothing_was_delivered() {
     let physical: &'static [Effect] = &[Effect::FocusSteal, Effect::CursorMove];
     let (steps, calls) = run(
         &[
@@ -137,12 +137,20 @@ fn a_rung_the_policy_denies_is_skipped_and_reported_only_when_nothing_ran() {
     assert_eq!(steps.unwrap().len(), 1);
 
     let (denied, calls) = run(
-        &[delivered(DeliveryObservation::Verified)],
-        &[physical],
+        &[
+            Ok(DeliveryOutcome::NotDelivered),
+            delivered(DeliveryObservation::Verified),
+        ],
+        &[&[], physical],
         InteractionPolicy::headless(),
     );
-    assert_eq!(calls, [0]);
-    assert_eq!(denied.unwrap_err().code, ErrorCode::PolicyDenied);
+    assert_eq!(calls, [1, 0]);
+    let denied = denied.unwrap_err();
+    assert_eq!(denied.code, ErrorCode::PolicyDenied);
+    assert_eq!(denied.disposition, DeliverySemantics::not_delivered());
+    let details = denied.details.unwrap();
+    assert_eq!(details["foreground_effect"], true);
+    assert_eq!(details["mechanisms"], serde_json::json!(["second"]));
 
     let (headed, _) = run(
         &[delivered(DeliveryObservation::Verified)],

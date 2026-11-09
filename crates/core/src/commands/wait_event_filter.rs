@@ -83,10 +83,12 @@ pub(crate) fn process_from_baseline(
     baseline: &SignalBaseline,
     app: &str,
 ) -> Result<Option<crate::ProcessIdentity>, AppError> {
-    let mut matches = baseline
-        .apps
-        .iter()
-        .filter(|candidate| candidate.matches_identifier(app));
+    let mut matches = crate::AppInventoryQuery::Exact {
+        name: app,
+        bundle_id: None,
+    }
+    .select(baseline.apps.clone())
+    .into_iter();
     let Some(first) = matches.next() else {
         return Ok(None);
     };
@@ -96,7 +98,7 @@ pub(crate) fn process_from_baseline(
         ))
         .into());
     }
-    crate::commands::helpers::process_identity(first).map(Some)
+    crate::commands::helpers::process_identity(&first).map(Some)
 }
 
 pub(crate) fn validate_signal_scope(

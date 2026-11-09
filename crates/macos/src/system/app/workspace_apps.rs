@@ -1,4 +1,6 @@
-use agent_desktop_core::{AdapterError, AppInfo, AppInventory, Deadline, ErrorCode};
+use agent_desktop_core::{
+    AdapterError, AppInfo, AppInventory, AppInventoryQuery, Deadline, ErrorCode,
+};
 use serde::Deserialize;
 const MAX_SNAPSHOT_BYTES: usize = 1024 * 1024;
 const MAX_FIELD_BYTES: usize = 16 * 1024;
@@ -66,19 +68,17 @@ impl WindowOwnerSnapshot {
         self.owners.iter().map(|owner| owner.pid).collect()
     }
 
-    /// Pids of the apps `identifier` names. A bundle ID or executable name counts
-    /// only when no app has that display name, so an alias never merges two apps.
+    /// Pids of the apps `identifier` names, by the core application match.
     pub(crate) fn matching_pids(&self, identifier: &str) -> rustc_hash::FxHashSet<i32> {
-        let named =
-            |owner: &WindowOwner| agent_desktop_core::app_name_matches(&owner.name, identifier);
-        let by_alias = !self.owners.iter().any(named);
-        self.owners
+        let owners = self
+            .owners
             .iter()
-            .filter(|owner| {
-                named(owner)
-                    || (by_alias && has_alias(&owner.bundle_id, &owner.executable, identifier))
-            })
-            .map(|owner| owner.pid)
+            .filter_map(WindowOwner::app_info)
+            .collect();
+        exact(identifier, None)
+            .select(owners)
+            .iter()
+            .map(|app| app.pid.get() as i32)
             .collect()
     }
 
@@ -121,39 +121,34 @@ pub(crate) fn require_complete(skipped: &[serde_json::Value]) -> Result<(), Adap
     ))
 }
 
-/// Apps named `name`, optionally pinned to `bundle_id`. Without one, a bundle
-/// ID or executable name matches only when no app has that display name.
+/// Apps named `name`, optionally pinned to `bundle_id`, by the core
+/// application match. Process identity is read only for apps it admits.
 pub(crate) fn list_apps_scoped_until(
     name: &str,
     bundle_id: Option<&str>,
     deadline: Deadline,
 ) -> Result<AppInventory, AdapterError> {
-    let mut inventory = list_apps_with(
-        deadline,
-        |app| {
-            (agent_desktop_core::app_name_matches(&app.name, name)
-                || (bundle_id.is_none() && has_alias(&app.bundle_id, &app.executable, name)))
-                && bundle_id.is_none_or(|bundle| {
-                    app.bundle_id
-                        .as_deref()
-                        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(bundle))
-                })
-        },
-        false,
-    )?;
-    let named = |app: &AppInfo| agent_desktop_core::app_name_matches(&app.name, name);
-    if inventory.apps.iter().any(named) {
-        inventory.apps.retain(named);
-    }
+    let query = exact(name, bundle_id);
+    let mut inventory = list_apps_with(deadline, |app| query.admits(app), false)?;
+    inventory.apps = query.select(inventory.apps);
     Ok(inventory)
 }
 
-/// Whether `identifier` is the app's bundle ID or executable name.
-fn has_alias(bundle_id: &Option<String>, executable: &Option<String>, identifier: &str) -> bool {
-    [bundle_id, executable]
-        .into_iter()
-        .flatten()
-        .any(|alias| alias.eq_ignore_ascii_case(identifier))
+fn exact<'a>(name: &'a str, bundle_id: Option<&'a str>) -> AppInventoryQuery<'a> {
+    AppInventoryQuery::Exact { name, bundle_id }
+}
+
+impl WindowOwner {
+    fn app_info(&self) -> Option<AppInfo> {
+        Some(AppInfo {
+            name: self.name.clone(),
+            pid: agent_desktop_core::ProcessId::try_from(self.pid).ok()?,
+            bundle_id: self.bundle_id.clone(),
+            process_instance: None,
+            presentation: None,
+            aliases: self.executable.iter().cloned().collect(),
+        })
+    }
 }
 
 pub(crate) fn focused_owner_until(deadline: Deadline) -> Result<Option<WindowOwner>, AdapterError> {
@@ -178,7 +173,7 @@ pub(crate) fn window_owner_snapshot_until(
 
 fn list_apps_with(
     deadline: Deadline,
-    include: impl Fn(&BridgedApplication) -> bool,
+    include: impl Fn(&AppInfo) -> bool,
     skip_cross_uid: bool,
 ) -> Result<AppInventory, AdapterError> {
     ensure_before_deadline(deadline)?;
@@ -209,7 +204,7 @@ fn apps_from_json(bytes: &[u8], deadline: Deadline) -> Result<Vec<AppInfo>, Adap
 fn apps_from_json_with(
     bytes: &[u8],
     deadline: Deadline,
-    include: impl Fn(&BridgedApplication) -> bool,
+    include: impl Fn(&AppInfo) -> bool,
     skip_cross_uid: bool,
     resolve: impl FnMut(i32) -> Result<Option<String>, AdapterError>,
 ) -> Result<Vec<AppInfo>, AdapterError> {
@@ -219,7 +214,7 @@ fn apps_from_json_with(
 fn apps_inventory_from_json_with(
     bytes: &[u8],
     deadline: Deadline,
-    include: impl Fn(&BridgedApplication) -> bool,
+    include: impl Fn(&AppInfo) -> bool,
     skip_cross_uid: bool,
     mut resolve: impl FnMut(i32) -> Result<Option<String>, AdapterError>,
 ) -> Result<AppInventory, AdapterError> {
@@ -229,8 +224,18 @@ fn apps_inventory_from_json_with(
         .applications
         .into_iter()
         .filter(|app| app.activation_policy != ActivationPolicy::Prohibited)
-        .filter(include)
     {
+        let mut info = AppInfo {
+            pid: crate::system::process::process_identity::from_pid_t(app.pid)?,
+            name: app.name,
+            bundle_id: app.bundle_id,
+            process_instance: None,
+            presentation: Some(presentation_of(app.activation_policy)),
+            aliases: app.executable.into_iter().collect(),
+        };
+        if !include(&info) {
+            continue;
+        }
         ensure_before_deadline(deadline)
             .map_err(|error| records::with_skipped(error, &bridged.skipped))?;
         let process_instance = match resolve(app.pid) {
@@ -246,13 +251,8 @@ fn apps_inventory_from_json_with(
             }
             Err(error) => return Err(records::with_skipped(error, &bridged.skipped)),
         };
-        apps.push(AppInfo {
-            name: app.name,
-            pid: crate::system::process::process_identity::from_pid_t(app.pid)?,
-            bundle_id: app.bundle_id,
-            process_instance: Some(process_instance),
-            presentation: Some(presentation_of(app.activation_policy)),
-        });
+        info.process_instance = Some(process_instance);
+        apps.push(info);
     }
     ensure_before_deadline(deadline)
         .map_err(|error| records::with_skipped(error, &bridged.skipped))?;

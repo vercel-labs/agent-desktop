@@ -34,6 +34,7 @@ fn shared_timeout_after_close_delivery_pins_the_windows_envelope() {
             .expect("token")
             .expect("live");
         let app = AppInfo {
+            aliases: Vec::new(),
             name: "fixture-host".into(),
             pid,
             bundle_id: None,

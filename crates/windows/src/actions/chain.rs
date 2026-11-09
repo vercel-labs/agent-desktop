@@ -1,22 +1,18 @@
-//! Rung engine for Windows element actions.
+//! Windows rungs for the core delivery chain (`agent_desktop_core::execute_chain`).
 //!
 //! Each rung names one mechanism, whether the live element offers it, and
-//! whether it moves the desktop foreground. Every UI Automation control
+//! whether it takes the desktop foreground. Every UI Automation control
 //! pattern call (Invoke, Toggle, Value, RangeValue, ExpandCollapse,
 //! SelectionItem, ScrollItem on proxied controls) activates the target's
-//! window on every provider measured (W-W0-6, W-W0-7), so those rungs run
-//! only under a headed policy. The LegacyIAccessible and Win32 message rungs
-//! change no foreground state and run in both modes, always first.
-//!
-//! The engine runs the offered rungs in order and stops at the first that
-//! delivers or finds the target already satisfied. A genuine `Err` aborts
-//! the chain. When nothing delivered and a rung was held back only for its
-//! foreground effect, the result is `POLICY_DENIED`, never a generic
-//! exhaustion, so the caller learns that `--headed` would act.
+//! window on every provider measured (W-W0-6, W-W0-7), so those rungs declare
+//! that effect and core runs them only when the policy allows it. The
+//! LegacyIAccessible and Win32 message rungs change no foreground state and
+//! run first in both modes. Core stops at the first rung that delivers or
+//! finds the target already satisfied, and refuses with `POLICY_DENIED` when
+//! nothing was delivered and a rung was held back for its effect.
 
 use agent_desktop_core::{
-    ActionStep, AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionPolicy,
-    StepMechanism,
+    AdapterError, ChainRung, Deadline, DeliveryOutcome, DeliverySemantics, Effect,
 };
 use std::time::{Duration, Instant};
 
@@ -74,102 +70,33 @@ pub(crate) fn poll_until(
     }
 }
 
-/// Per-rung delivery judgment recorded into an [`ActionStep`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum DeliveryOutcome {
-    NotDelivered,
-    SatisfiedNoDelivery,
-    DeliveredUnverified,
-    DeliveredVerified,
-    /// Delivered, but verification was withheld (secure / unreadable IsPassword).
-    DeliveredUnobserved,
+/// What a UI Automation control pattern call does to the desktop: it
+/// activates the target's window on every provider measured (W-W0-6,
+/// W-W0-7). The LegacyIAccessible and Win32 message rungs declare nothing.
+const TAKES_FOREGROUND: &[Effect] = &[Effect::FocusSteal];
+
+/// One rung of a Windows chain, or none when the live element does not offer
+/// the mechanism, so a mechanism the element lacks records no step.
+pub(crate) fn rung<'a>(
+    label: &'static str,
+    available: bool,
+    takes_foreground: bool,
+    run: &'a mut dyn FnMut() -> Result<DeliveryOutcome, AdapterError>,
+) -> Option<ChainRung<'a>> {
+    available.then(|| ChainRung {
+        label,
+        effects: if takes_foreground {
+            TAKES_FOREGROUND
+        } else {
+            &[]
+        },
+        run: Box::new(run),
+    })
 }
 
-impl DeliveryOutcome {
-    pub(crate) fn from_delivery(delivered: bool, verified: bool) -> Self {
-        match (delivered, verified) {
-            (false, _) => Self::NotDelivered,
-            (true, false) => Self::DeliveredUnverified,
-            (true, true) => Self::DeliveredVerified,
-        }
-    }
-
-    /// Maps a delivered write's observation onto a chain outcome.
-    ///
-    /// `None` is the secure-field shape: the write landed and no value was
-    /// re-read, so the step must not claim `verified: true` or `false`.
-    pub(crate) fn from_observation(verified: Option<bool>) -> Self {
-        match verified {
-            Some(true) => Self::DeliveredVerified,
-            Some(false) => Self::DeliveredUnverified,
-            None => Self::DeliveredUnobserved,
-        }
-    }
-
-    fn terminates_chain(self) -> bool {
-        !matches!(self, Self::NotDelivered)
-    }
-}
-
-/// One mechanism the engine may run.
-pub(crate) struct ChainRung<'a> {
-    pub(crate) label: &'static str,
-    /// The live element offers this mechanism.
-    pub(crate) available: bool,
-    /// The mechanism moves the desktop foreground, so headless must not run it.
-    pub(crate) requires_headed: bool,
-    pub(crate) run: &'a mut dyn FnMut() -> Result<DeliveryOutcome, AdapterError>,
-}
-
-/// Runs the offered rungs in order, recording a step for every rung run.
-pub(crate) fn execute_chain(
-    deadline: Deadline,
-    suggestion: &'static str,
-    policy: InteractionPolicy,
-    rungs: &mut [ChainRung<'_>],
-) -> Result<Vec<ActionStep>, AdapterError> {
-    let mut steps = Vec::new();
-    let mut withheld = Vec::new();
-    for rung in rungs.iter_mut().filter(|rung| rung.available) {
-        deadline
-            .ensure_remaining()
-            .map_err(|expiry| expiry.with_disposition(DeliverySemantics::not_delivered()))?;
-        if rung.requires_headed && !policy.is_headed() {
-            withheld.push(rung.label);
-            continue;
-        }
-        let outcome = (rung.run)()?;
-        steps.push(build_step(rung.label, outcome));
-        if outcome.terminates_chain() {
-            return Ok(steps);
-        }
-    }
-    if !withheld.is_empty() {
-        return Err(foreground_denied(&withheld, policy));
-    }
-    Err(
-        AdapterError::new(ErrorCode::ActionFailed, "All chain steps exhausted")
-            .with_disposition(DeliverySemantics::not_delivered())
-            .with_suggestion(suggestion),
-    )
-}
-
-/// The refusal for an action whose only offered mechanisms move the foreground.
-pub(crate) fn foreground_denied(
-    labels: &[&'static str],
-    policy: InteractionPolicy,
-) -> AdapterError {
-    AdapterError::policy_denied_for_policy(
-        format!(
-            "{} moves the desktop foreground window on Windows",
-            labels.join(" and ")
-        ),
-        policy,
-    )
-    .with_details(serde_json::json!({
-        "foreground_effect": true,
-        "mechanisms": labels,
-    }))
+/// The rungs the element offers, in order, for `agent_desktop_core::execute_chain`.
+pub(crate) fn offered<const N: usize>(rungs: [Option<ChainRung<'_>>; N]) -> Vec<ChainRung<'_>> {
+    rungs.into_iter().flatten().collect()
 }
 
 /// Re-dispositions an error raised after a rung already mutated the control.
@@ -177,17 +104,6 @@ pub(crate) fn foreground_denied(
 /// inner error carried no longer describes the world the caller is in.
 pub(crate) fn after_delivery(error: AdapterError) -> AdapterError {
     error.with_disposition(DeliverySemantics::delivered_unverified())
-}
-
-pub(crate) fn build_step(label: &'static str, outcome: DeliveryOutcome) -> ActionStep {
-    let built = match outcome {
-        DeliveryOutcome::NotDelivered => ActionStep::skipped(label),
-        DeliveryOutcome::SatisfiedNoDelivery => ActionStep::skipped(label).with_verified(true),
-        DeliveryOutcome::DeliveredUnobserved => ActionStep::succeeded(label),
-        DeliveryOutcome::DeliveredUnverified => ActionStep::succeeded(label).with_verified(false),
-        DeliveryOutcome::DeliveredVerified => ActionStep::succeeded(label).with_verified(true),
-    };
-    built.with_mechanism(StepMechanism::SemanticApi)
 }
 
 /// Whether `InvokePattern` is advertised.

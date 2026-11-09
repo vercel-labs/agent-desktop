@@ -14,6 +14,7 @@ fn apps_from_window_records(
             continue;
         }
         apps.push(agent_desktop_core::AppInfo {
+            aliases: Vec::new(),
             name: record.app_name.clone(),
             pid: agent_desktop_core::ProcessId::try_from(record.pid)
                 .expect("fixture pid must be positive"),

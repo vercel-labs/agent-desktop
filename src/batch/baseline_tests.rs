@@ -12,17 +12,19 @@ struct AtomicEventAdapter {
 }
 
 impl agent_desktop_core::ObservationOps for AtomicEventAdapter {
-    fn list_apps(
+    fn query_app_inventory(
         &self,
+        query: agent_desktop_core::AppInventoryQuery<'_>,
         _deadline: agent_desktop_core::Deadline,
-    ) -> Result<Vec<agent_desktop_core::AppInfo>, agent_desktop_core::AdapterError> {
-        Ok(vec![agent_desktop_core::AppInfo {
+    ) -> Result<agent_desktop_core::AppInventory, agent_desktop_core::AdapterError> {
+        Ok(query.answer(vec![agent_desktop_core::AppInfo {
+            aliases: Vec::new(),
             name: "Fixture".into(),
             pid: agent_desktop_core::ProcessId::new(42),
             bundle_id: Some("com.example.fixture".into()),
             process_instance: Some("fixture-42".into()),
             presentation: None,
-        }])
+        }]))
     }
 }
 

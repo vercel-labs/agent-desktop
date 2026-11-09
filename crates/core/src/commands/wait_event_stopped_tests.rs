@@ -1,6 +1,5 @@
 use super::tests::{SequenceAdapter, app, empty_baseline, input};
 use super::*;
-use crate::AppInfo;
 use crate::SignalFilter;
 use crate::adapter::{ActionOps, InputOps, ObservationOps, SystemOps};
 
@@ -97,8 +96,12 @@ fn a_non_retryable_unresponsive_poll_error_ends_the_wait_at_once() {
         calls: std::sync::Mutex<usize>,
     }
     impl ObservationOps for StoppedTargetAdapter {
-        fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-            Ok(vec![app("Calc", "boot:1")])
+        fn query_app_inventory(
+            &self,
+            query: crate::AppInventoryQuery<'_>,
+            _deadline: crate::Deadline,
+        ) -> Result<crate::AppInventory, AdapterError> {
+            Ok(query.answer(vec![app("Calc", "boot:1")]))
         }
     }
     impl ActionOps for StoppedTargetAdapter {}

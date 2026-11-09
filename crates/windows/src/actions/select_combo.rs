@@ -9,7 +9,7 @@
 
 use agent_desktop_core::{AdapterError, Deadline};
 
-use crate::actions::chain::DeliveryOutcome;
+use agent_desktop_core::DeliveryOutcome;
 
 pub(crate) const COMBO_SELECT_LABEL: &str = "Win32.CB_SETCURSEL";
 
