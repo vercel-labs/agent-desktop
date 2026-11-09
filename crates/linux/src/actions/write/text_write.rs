@@ -42,11 +42,14 @@ pub(crate) fn editable_text_ignored(policy: InteractionPolicy, action: &str) -> 
         "This toolkit accepts EditableText writes and applies none of them",
     )
     .with_suggestion(if policy.is_headed() && action == "type" {
-        "The headed physical route and semantic text writes are unavailable; choose another input-capable target"
+        "The headed physical route and semantic text writes are unavailable; choose another input-capable target".to_owned()
     } else if policy.is_headed() {
-        "Use 'type' in the current headed mode to send real key events; select the existing text first if you intend to replace it"
+        "Use 'type' in the current headed mode to send real key events; select the existing text first if you intend to replace it".to_owned()
     } else {
-        "Use '--headed type' to send real key events; select the existing text first if you intend to replace it"
+        format!(
+            "{} For 'type', select the existing text first if you intend to replace it.",
+            agent_desktop_core::headed_mode_suggestion("sends synthetic keys and may take the foreground")
+        )
     })
     .with_details(serde_json::json!({ "cause": "toolkit_ignores_editable_text" }))
     .with_disposition(DeliverySemantics::not_delivered())

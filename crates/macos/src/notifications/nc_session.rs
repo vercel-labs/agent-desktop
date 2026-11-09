@@ -166,9 +166,12 @@ fn closed_center_policy_error(policy: InteractionPolicy) -> AdapterError {
         "Notification Center is closed and observation cannot open it in headless mode",
         policy,
     )
-    .with_suggestion(
-        "Open Notification Center yourself or pass --headed to allow opening and restoring desktop focus.",
-    )
+    .with_suggestion(format!(
+        "You can open Notification Center yourself. {}",
+        agent_desktop_core::headed_mode_suggestion(
+            "opens Notification Center and changes desktop focus"
+        )
+    ))
 }
 
 impl Drop for NcSession {

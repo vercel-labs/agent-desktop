@@ -1,73 +1,57 @@
 use super::*;
 
-const WINDOWS_SKILL_DOC: &str = include_str!("../../skills/agent-desktop-windows/SKILL.md");
+const WINDOWS_SKILL_PACKAGE: &str = include_str!("../../skills/agent-desktop-windows/SKILL.md");
+const DESKTOP_SKILL: &str = include_str!("../../skills/agent-desktop/SKILL.md");
 
-/// The whole Windows skill package. Behaviour notes may live in any of its
-/// references; only the capability table is required to stay in SKILL.md.
-const WINDOWS_SKILL_PACKAGE: &str = concat!(
-    include_str!("../../skills/agent-desktop-windows/SKILL.md"),
-    include_str!("../../skills/agent-desktop-windows/references/shell-and-overlay.md"),
-    include_str!("../../skills/agent-desktop-windows/references/permissions-and-elevation.md"),
-    include_str!("../../skills/agent-desktop-windows/references/chromium-and-electron.md"),
-    include_str!("../../skills/agent-desktop-windows/references/troubleshooting.md"),
-);
-
-/// Commands the Windows table documents as unavailable that no adapter method
-/// backs: core refuses them on every platform before dispatch reaches an
-/// adapter, so the behavioural pin cannot cover them and must not pretend to.
-/// They are listed rather than ignored so the closure assertion below stays
-/// exhaustive.
 const REFUSED_BY_CORE_ON_EVERY_PLATFORM: &[&str] =
     &["key-down", "key-up", "mouse-down", "mouse-up"];
 
-/// Set assertion enforces that new unavailable commands are explicitly listed:
-/// per-name checks alone miss rows that satisfy old assertions while never being verified.
 #[test]
 fn windows_skill_capability_claims_resolve_against_dispatch() {
     let dispatchable: BTreeSet<String> = cli_command_names().into_iter().collect();
-    let working = windows_skill_commands(true);
-    let unavailable = windows_skill_commands(false);
+    let working = WINDOWS_SKILL_PACKAGE
+        .split('`')
+        .enumerate()
+        .filter(|(index, _)| index % 2 == 1)
+        .filter_map(|(_, token)| token.strip_prefix("agent-desktop "))
+        .filter_map(|invocation| invocation.split_whitespace().next())
+        .collect::<BTreeSet<_>>();
+    let unavailable = DESKTOP_SKILL
+        .split("Held input fails closed:")
+        .nth(1)
+        .expect("cross-platform held-input warning")
+        .split("cannot")
+        .next()
+        .expect("held-input names")
+        .split('`')
+        .enumerate()
+        .filter(|(index, _)| index % 2 == 1)
+        .map(|(_, token)| token)
+        .collect::<BTreeSet<_>>();
 
     assert!(
         !working.is_empty(),
-        "the Windows capability table must claim working commands"
+        "the Windows skill must name its command entry points"
     );
+    for name in ["type", "right-click", "focus"] {
+        assert!(
+            working.contains(name),
+            "the headed-only command claim '{name}' must be checked against dispatch"
+        );
+    }
     for name in working.iter().chain(unavailable.iter()) {
         assert!(
-            dispatchable.contains(name),
+            dispatchable.contains(*name),
             "the Windows skill claims '{name}' but dispatch has no such command"
         );
     }
 
-    let documented: BTreeSet<&str> = unavailable.iter().map(String::as_str).collect();
     let accounted: BTreeSet<&str> = REFUSED_BY_CORE_ON_EVERY_PLATFORM.iter().copied().collect();
     assert_eq!(
-        documented, accounted,
-        "every command the Windows table documents as unavailable must be declared in \
+        unavailable, accounted,
+        "every command the shared skill documents as unavailable must be declared in \
          REFUSED_BY_CORE_ON_EVERY_PLATFORM; an unaccounted row is never verified"
     );
-}
-
-fn windows_skill_commands(claimed_working: bool) -> Vec<String> {
-    let mut names = Vec::new();
-    for row in WINDOWS_SKILL_DOC.lines() {
-        if !row.trim_start().starts_with('|') || row.contains("---") {
-            continue;
-        }
-        let cells: Vec<&str> = row.split('|').collect();
-        if cells.len() < 4 || (cells[3].contains("Works")) != claimed_working {
-            continue;
-        }
-        names.extend(
-            cells[2]
-                .split('`')
-                .enumerate()
-                .filter(|(index, _)| index % 2 == 1)
-                .map(|(_, token)| token.trim().to_owned())
-                .filter(|token| !token.is_empty()),
-        );
-    }
-    names
 }
 
 #[test]
@@ -95,7 +79,7 @@ fn windows_adapter_still_refuses_what_the_skill_marks_unavailable() {
     assert_eq!(
         quick_settings.code,
         ErrorCode::InvalidArgs,
-        "quick-settings changed behaviour; update the Windows skill's capability table"
+        "quick-settings changed behaviour; update the Windows skill"
     );
     let detail = quick_settings.platform_detail.expect(
         "the quick-settings refusal must carry the platform detail naming \
@@ -114,7 +98,7 @@ fn windows_adapter_still_refuses_what_the_skill_marks_unavailable() {
     .expect(
         "cursor-overlay renders on Windows now, and a disable against a session with no \
          renderer running succeeds without starting one - spawning there would begin a \
-         renderer in order to tell it to stop. The skill's capability table moves with \
+         renderer in order to tell it to stop. The skill moves with \
          this, in the same change.",
     );
 }
@@ -122,7 +106,8 @@ fn windows_adapter_still_refuses_what_the_skill_marks_unavailable() {
 /// The bullet a caller reads before sizing a `wait --notification` timeout.
 /// Matched on the command rather than on a heading so the guard survives the
 /// paragraph moving.
-const POLL_COST_ANCHOR: &str = "`wait --notification` opens and closes the center per poll";
+const POLL_COST_ANCHOR: &str =
+    "`agent-desktop wait --notification` opens and closes the center per poll";
 
 /// A ratified poll cost is only useful if the number that justifies it ships
 /// beside it. Without this the paragraph could be reduced to "polling is slow"

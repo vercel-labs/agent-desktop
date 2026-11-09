@@ -155,6 +155,22 @@ fn an_existing_private_leaf_with_a_users_grant_is_refused_without_repair() {
         .expect_err("an unsafe existing leaf must fail closed");
 
     assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+    let payload =
+        agent_desktop_core::ErrorPayload::from_app_error(&agent_desktop_core::AppError::Io(error));
+    assert_eq!(payload.code, "PERM_DENIED");
+    assert_eq!(payload.details.unwrap()["path"], nested.to_str().unwrap());
+    assert!(
+        payload
+            .message
+            .contains("DACL grants an untrusted principal")
+    );
+    let suggestion = payload.suggestion.unwrap();
+    assert!(
+        suggestion.contains("this user, SYSTEM and Administrators"),
+        "{suggestion}"
+    );
+    assert!(suggestion.contains("AGENT_DESKTOP_HOME"), "{suggestion}");
+    assert!(suggestion.contains("user profile"), "{suggestion}");
     let after = open_directory_no_follow(
         &nested,
         DIRECTORY_PIN_ACCESS | windows_sys::Win32::Storage::FileSystem::READ_CONTROL,

@@ -7,8 +7,6 @@ pub struct CloseAppArgs {
     pub policy: crate::InteractionPolicy,
 }
 
-const MAY_PROMPT_SUGGESTION: &str = "Use --force to end the app without a prompt (it discards unsaved work), or --headed to send the close request (a save prompt may appear over your window).";
-
 pub fn execute(args: CloseAppArgs, adapter: &dyn PlatformAdapter) -> Result<Value, AppError> {
     if adapter.is_protected_process(&args.app) {
         return Err(protected_process_error(&args.app));
@@ -31,7 +29,10 @@ pub fn execute(args: CloseAppArgs, adapter: &dyn PlatformAdapter) -> Result<Valu
             "close-app",
             args.policy,
         )
-        .with_suggestion(MAY_PROMPT_SUGGESTION)
+        .with_suggestion(format!(
+            "{} A headless alternative is --force to end the app without a prompt; it discards unsaved work.",
+            crate::headed_mode_suggestion("may show a save prompt over the user's window")
+        ))
         .into());
     }
     let lease = adapter.acquire_interaction_lease(deadline)?;

@@ -61,7 +61,7 @@ fn the_platform_alias_serves_this_build_s_platform_skill() {
 }
 
 #[test]
-fn windows_skill_serves_main_and_references() {
+fn windows_skill_serves_main_without_deleted_references() {
     let body = get(GetArgs {
         name: "windows".into(),
         full: false,
@@ -73,27 +73,43 @@ fn windows_skill_serves_main_and_references() {
         body["content"]
             .as_str()
             .expect("string")
-            .contains("Capability Table")
+            .contains("## Platform behavior")
     );
-
-    let reference = get(GetArgs {
-        name: "agent-desktop-windows".into(),
-        full: false,
-        reference: Some("permissions-and-elevation.md".into()),
-    })
-    .expect("get windows reference");
-    assert_eq!(
-        reference["reference"],
-        "references/permissions-and-elevation.md"
-    );
-
-    let err = get(GetArgs {
-        name: "windows".into(),
-        full: false,
-        reference: Some("nope.md".into()),
-    })
-    .expect_err("unknown reference should error");
-    assert!(format!("{err}").contains("Unknown reference"));
+    let listed = list().expect("list");
+    for name in [
+        "agent-desktop",
+        "agent-desktop-macos",
+        "agent-desktop-windows",
+        "agent-desktop-linux",
+    ] {
+        let entry = listed["skills"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["name"] == name)
+            .expect("listed");
+        assert_eq!(entry["references"], json!([]));
+        let main = get(GetArgs {
+            name: name.into(),
+            full: false,
+            reference: None,
+        })
+        .unwrap();
+        let full = get(GetArgs {
+            name: name.into(),
+            full: true,
+            reference: None,
+        })
+        .unwrap();
+        assert_eq!(main["content"], full["content"]);
+        let err = get(GetArgs {
+            name: name.into(),
+            full: false,
+            reference: Some("troubleshooting".into()),
+        })
+        .expect_err("deleted reference should error");
+        assert!(format!("{err}").contains("Unknown reference"));
+    }
 }
 
 #[test]
@@ -109,16 +125,39 @@ fn get_resolves_alias() {
 }
 
 #[test]
-fn get_full_inlines_references() {
+fn desktop_skill_leads_with_headless_policy_and_one_verified_workflow() {
     let v = get(GetArgs {
         name: "desktop".into(),
-        full: true,
+        full: false,
         reference: None,
     })
-    .expect("get full");
-    let content = v["content"].as_str().expect("string");
-    assert!(content.contains("--- references/workflows.md ---"));
-    assert!(!content.contains("--- references/macos.md ---"));
+    .expect("get desktop");
+    let content = v["content"].as_str().expect("markdown");
+    let policy = content
+        .find("## Critical: headless only by default")
+        .expect("critical rule");
+    let workflow = content.find("## Observe, act, verify").expect("workflow");
+    assert_eq!(content.find("## "), Some(policy));
+    assert!(policy < workflow);
+    for rule in [
+        "Every operation runs headless",
+        "user explicitly asked",
+        "never switch to headed mode to recover",
+        "stop and tell the user",
+        "accepts losing unsaved work",
+        "snapshot -i",
+        "--root",
+        "qualified ref",
+        "independent read",
+        "error.code",
+        "error.disposition",
+        "recovery.strategy",
+        "disposition.retry",
+        "`safe`",
+        "never a fixed sleep",
+    ] {
+        assert!(content.contains(rule), "missing safety rule: {rule}");
+    }
     assert!(content.contains("@s8f3k2p9:e1"));
     assert!(content.contains("session start` does not activate later processes"));
     assert!(content.contains("session-owned ref still requires the same `--session`"));
@@ -126,6 +165,59 @@ fn get_full_inlines_references() {
     assert!(!content.contains("~/.agent-desktop/current_session"));
     assert!(!content.contains("resolves cross-session"));
     assert!(!content.contains("snapshot IDs do not require also passing `--session`"));
+}
+
+#[test]
+fn platform_state_root_refusals_include_a_repair_in_the_same_row() {
+    for (document, messages, fixes) in [
+        (
+            SKILL_MACOS_MAIN,
+            vec!["private file parent is accessible by group or other users"],
+            vec!["chmod 700", "let the tool create it"],
+        ),
+        (
+            SKILL_LINUX_MAIN,
+            vec!["private file parent is accessible by group or other users"],
+            vec!["chmod 700", "let the tool create it"],
+        ),
+        (
+            SKILL_WINDOWS_MAIN,
+            vec![
+                "private file DACL grants an untrusted principal",
+                "private file parent is owned by a foreign principal",
+            ],
+            vec!["AGENT_DESKTOP_HOME", "user profile"],
+        ),
+    ] {
+        for message in messages {
+            let row = document
+                .lines()
+                .find(|line| line.contains(message))
+                .unwrap_or_else(|| panic!("missing state-root error: {message}"));
+            assert!(row.starts_with("| `INTERNAL`:"), "{row}");
+            for fix in &fixes {
+                assert!(row.contains(fix), "{message} must include {fix}");
+            }
+            if message.contains("DACL") {
+                for principal in ["user", "SYSTEM", "Administrators"] {
+                    assert!(row.contains(principal), "DACL repair must name {principal}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn get_full_inlines_references() {
+    let v = get(GetArgs {
+        name: "ffi".into(),
+        full: true,
+        reference: None,
+    })
+    .expect("get full");
+    let content = v["content"].as_str().expect("string");
+    assert!(content.contains("--- references/ownership.md ---"));
+    assert!(!content.contains("--- references/macos.md ---"));
 }
 
 #[test]
@@ -145,12 +237,12 @@ fn ffi_skill_defines_ref_and_concurrency_contracts() {
 #[test]
 fn get_specific_reference() {
     let v = get(GetArgs {
-        name: "desktop".into(),
+        name: "ffi".into(),
         full: false,
-        reference: Some("workflows".into()),
+        reference: Some("ownership".into()),
     })
     .expect("get ref");
-    assert_eq!(v["reference"], "references/workflows.md");
+    assert_eq!(v["reference"], "references/ownership.md");
 }
 
 #[test]
@@ -158,15 +250,15 @@ fn linux_dropdown_recovery_uses_window_text_waits_and_root_reads() {
     let result = get(GetArgs {
         name: "linux".into(),
         full: false,
-        reference: Some("shell-tray-and-notifications".into()),
+        reference: None,
     })
     .unwrap();
-    let content = result["content"].as_str().unwrap();
+    let content = result["content"].as_str().unwrap().replace("\r\n", "\n");
     let dropdown = content
         .split("GTK4 list-backed dropdowns")
         .nth(1)
         .expect("the shipped guide must distinguish dropdowns from menus")
-        .split("## GNOME Shell")
+        .split("\n- ")
         .next()
         .unwrap();
     assert!(dropdown.contains("wait --text"));
@@ -245,7 +337,7 @@ fn walk_markdowns_inner(root: &Path, dir: &Path, found: &mut Vec<String>) {
 
 #[test]
 fn shipped_first_time_setup_names_every_platform() {
-    let section = first_time_setup_section(SKILL_DESKTOP_REF_WORKFLOWS);
+    let section = first_time_setup_section(SKILL_DESKTOP_MAIN);
     assert!(
         section.contains("macOS"),
         "setup must keep its macOS branch"
@@ -263,8 +355,8 @@ fn shipped_first_time_setup_names_every_platform() {
 
 fn first_time_setup_section(document: &str) -> String {
     let start = document
-        .find("## First-Time Setup")
-        .expect("First-Time Setup section exists");
+        .find("## First run")
+        .expect("First run section exists");
     let rest = &document[start..];
     let end = rest[1..]
         .find("\n## ")

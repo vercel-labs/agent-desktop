@@ -47,7 +47,7 @@ fn unsupported_focus_names_a_supported_target_instead_of_repeating_headed() {
 }
 
 #[test]
-fn unsupported_text_write_names_typing_for_the_actual_mode_and_a_paste_fallback() {
+fn unsupported_text_write_names_typing_for_the_actual_mode() {
     for action in [Action::SetValue("search".into()), Action::Clear] {
         for policy in [
             InteractionPolicy::headless(),
@@ -56,7 +56,7 @@ fn unsupported_text_write_names_typing_for_the_actual_mode_and_a_paste_fallback(
         ] {
             let hint = unsupported(action.clone(), policy).suggestion.unwrap();
             assert_eq!(
-                hint.contains("--headed type"),
+                hint.contains("only if the user explicitly asked"),
                 !policy.is_headed(),
                 "{hint}"
             );
@@ -65,8 +65,10 @@ fn unsupported_text_write_names_typing_for_the_actual_mode_and_a_paste_fallback(
                 policy.is_headed(),
                 "{hint}"
             );
-            assert!(hint.contains("clipboard-set"), "{hint}");
-            assert!(hint.contains("paste shortcut"), "{hint}");
+            if policy.is_headed() {
+                assert!(hint.contains("clipboard-set"), "{hint}");
+                assert!(hint.contains("paste shortcut"), "{hint}");
+            }
         }
     }
 }

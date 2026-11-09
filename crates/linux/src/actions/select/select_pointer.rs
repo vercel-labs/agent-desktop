@@ -129,9 +129,10 @@ pub(in crate::actions) fn pointer_required() -> AdapterError {
         "Selecting this dropdown choice takes the pointer, which the interaction policy does not allow",
         InteractionPolicy::headless(),
     )
-    .with_suggestion(
-        "Run select again with --headed on X11: the pointer opens the dropdown and the choice is checked against the value it shows. A headless request and a Wayland session cannot open it.",
-    )
+    .with_suggestion(format!(
+        "{} The choice is checked against the value it shows. A headless request and a Wayland session cannot open it.",
+        agent_desktop_core::headed_mode_suggestion("moves the pointer to open the dropdown on X11")
+    ))
     .with_details(json!({
         "kind": "pointer_required",
         "physical_delivery_started": false,

@@ -22,6 +22,7 @@ RESULTS AND RETRIES
   disposition.delivery and disposition.retry before acting again, and repeat
   an action only when retry is "safe". Ref actions are headless by default;
   --headed allows focus changes and real pointer and keyboard input.
+  Use --headed only if the user explicitly asked; never as failure recovery.
 
 KEY COMBOS
   Keys: return, escape, tab, space, delete, up, down, left, right, f1-f12

@@ -8,6 +8,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+pub fn private_file_error(
+    path: &Path,
+    error: std::io::Error,
+    suggestion: impl Into<String>,
+) -> std::io::Error {
+    std::io::Error::new(
+        error.kind(),
+        crate::AdapterError::internal(error.to_string())
+            .with_details(serde_json::json!({ "path": path.to_string_lossy() }))
+            .with_suggestion(suggestion),
+    )
+}
+
 /// Reads `file` fully on behalf of a `PrivateFileOps` implementation,
 /// rejecting files larger than `max_bytes` before allocating and detecting
 /// growth past the limit during the read.

@@ -134,7 +134,10 @@ pub(super) fn closed_center_policy_error(policy: InteractionPolicy) -> AdapterEr
         "The Action Center is closed and observation cannot open it in headless mode",
         policy,
     )
-    .with_suggestion(
-        "Open the Action Center yourself or pass --headed to allow opening and restoring desktop focus.",
-    )
+    .with_suggestion(format!(
+        "You can open the Action Center yourself. {}",
+        agent_desktop_core::headed_mode_suggestion(
+            "opens the Action Center and changes desktop focus"
+        )
+    ))
 }

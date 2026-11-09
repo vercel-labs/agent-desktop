@@ -5,6 +5,10 @@ pub(crate) fn ensure_private(path: &Path) -> std::io::Result<()> {
 }
 
 pub(crate) fn ensure_private_portable(path: &Path) -> std::io::Result<()> {
+    validate_private_parent(path).map_err(|error| privacy_error(path, error, "700"))
+}
+
+fn validate_private_parent(path: &Path) -> std::io::Result<()> {
     ensure_directory_path(path)?;
     let metadata = std::fs::symlink_metadata(path)?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
@@ -27,6 +31,17 @@ pub(crate) fn ensure_private_portable(path: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+pub(crate) fn privacy_error(path: &Path, error: std::io::Error, mode: &str) -> std::io::Error {
+    let quoted = path.to_string_lossy().replace('\'', "'\\''");
+    super::private_file_ops::private_file_error(
+        path,
+        error,
+        format!(
+            "Run chmod {mode} '{quoted}' on a path you own, or remove this tool-state path so agent-desktop creates it again (removal discards saved state). If another user owns it, set AGENT_DESKTOP_HOME to a directory you own."
+        ),
+    )
 }
 
 pub(crate) fn ensure_user(path: &Path) -> std::io::Result<()> {
