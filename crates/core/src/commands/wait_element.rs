@@ -85,7 +85,7 @@ pub(crate) fn wait_for_element(
                     Err(err) => return Err(AppError::Adapter(err)),
                 }
             }
-            ResolveAttemptOutcome::Failed(err) if is_retryable_wait_error(&err) => {
+            ResolveAttemptOutcome::Failed(err) if err.is_explicitly_retryable() => {
                 last_observed = json!({
                     "error": err.code.as_str(),
                     "message": err.message
@@ -107,8 +107,4 @@ fn is_retryable_observe_error(error: &crate::AdapterError) -> bool {
             error.code,
             crate::ErrorCode::Timeout | crate::ErrorCode::ElementNotFound
         )
-}
-
-fn is_retryable_wait_error(error: &crate::AdapterError) -> bool {
-    error.is_explicitly_retryable()
 }

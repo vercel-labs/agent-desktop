@@ -89,7 +89,7 @@ mod imp {
         InteractionPolicy, SELECT_LABEL, SELECT_SUGGESTION, UIAElement, VERIFY_TIMEOUT,
         annotate_container, collapse_container, offered, run_expand, rung,
     };
-    use crate::actions::chain::{legacy_select, poll_until};
+    use crate::actions::chain::{after_delivery, legacy_select, poll_until};
     use crate::actions::click::SELECT_ITEM_LABEL;
     use crate::actions::disclosure::ExpandKind;
     use crate::actions::mutation::{classify_success, classify_write};
@@ -124,8 +124,12 @@ mod imp {
             let mut expand = || expand_container(element);
             run_expand(&mut expand, policy, deadline)?;
         }
-        let selected = find_item(element, value, policy, deadline)
-            .and_then(|item| select_item(&item, policy, deadline));
+        let selected = find_item(element, value, policy, deadline).and_then(|(item, realized)| {
+            select_item(&item, policy, deadline).map_err(|error| match realized {
+                true => after_delivery(error),
+                false => error,
+            })
+        });
         match selected {
             Err(error) if collapsed => {
                 let mut collapse = || collapse_pattern(element);
@@ -151,7 +155,7 @@ mod imp {
         value: &str,
         policy: InteractionPolicy,
         deadline: Deadline,
-    ) -> Result<UIAElement, AdapterError> {
+    ) -> Result<(UIAElement, bool), AdapterError> {
         let mut found = find_named_selection_item(element, value, deadline, None)?;
         if found.is_none() && !policy.allow_focus_steal && vertical_scroll(element).is_some() {
             return Err(agent_desktop_core::mechanisms_denied(
@@ -181,14 +185,18 @@ mod imp {
                     Some(matched) => {
                         match find_named_selection_item(element, value, deadline, Some(&matched))? {
                             Some(item) => Some(item),
-                            None => realize_named_item(element, value, deadline)?,
+                            None => {
+                                let item = realize_named_item(element, value, deadline)?;
+                                realized = item.is_some();
+                                item
+                            }
                         }
                     }
                     None => None,
                 };
             }
         }
-        found.ok_or_else(|| {
+        found.map(|item| (item, realized)).ok_or_else(|| {
             AdapterError::new(
                 ErrorCode::ElementNotFound,
                 format!(

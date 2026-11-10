@@ -30,8 +30,9 @@ fn wait_until(
 ) -> Result<(), AdapterError> {
     let step = std::time::Duration::from_millis(10);
     let reached = deadline
-        .poll_until(deadline.remaining(), step, complete, |read| {
-            !matches!(read, Ok(false))
+        .poll_until(deadline.remaining(), step, complete, |read| match read {
+            Ok(reached) => *reached,
+            Err(error) => !error.is_transient_incomplete_read(),
         })
         .map_err(after_delivery)?;
     if reached {
@@ -63,6 +64,47 @@ fn after_delivery(error: AdapterError) -> AdapterError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use accessibility_sys::{kAXErrorAPIDisabled, kAXErrorCannotComplete};
+
+    fn generous_deadline() -> Deadline {
+        Deadline::after(5_000).expect("deadline")
+    }
+
+    #[test]
+    fn transient_read_errors_do_not_end_the_postcondition_poll() {
+        let mut failures_left = 2;
+        let mut reads = 0;
+        let result = wait_until(generous_deadline(), || {
+            reads += 1;
+            if failures_left > 0 {
+                failures_left -= 1;
+                return Err(crate::tree::surface_read::map_error(
+                    "AXMinimized",
+                    kAXErrorCannotComplete,
+                ));
+            }
+            Ok(true)
+        });
+
+        assert!(result.is_ok());
+        assert_eq!(reads, 3);
+    }
+
+    #[test]
+    fn terminal_read_errors_end_the_postcondition_poll_at_once() {
+        let mut reads = 0;
+        let error = wait_until(generous_deadline(), || {
+            reads += 1;
+            Err(crate::tree::surface_read::map_error(
+                "AXMinimized",
+                kAXErrorAPIDisabled,
+            ))
+        })
+        .expect_err("terminal error");
+
+        assert_eq!(reads, 1);
+        assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
+    }
 
     #[test]
     fn geometry_verification_tolerates_ax_rounding_only() {

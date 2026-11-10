@@ -17,8 +17,10 @@
 # tests/, *_tests/, test_support, examples/ and benches/ paths, files whose
 # first line is #![cfg(test)], files declared by `mod name;` right after
 # #[cfg(test)], and everything those files declare in turn. Inside a runtime
-# file the single item following each #[cfg(test)] line - an inline module or
-# other braced item, or one `;` line - is skipped; code after it is scanned.
+# file the single item following each #[cfg(test)] attribute - an inline module
+# or other braced item, or one item ended by `;` - is skipped; code on the same
+# line after the item is scanned. A file that any runtime module also declares
+# is scanned.
 #
 # Three rules fire on the remaining lines:
 #   1. a string literal equal to an application name or id installed on this
@@ -28,10 +30,11 @@
 #   2. identity shapes that name any app: "<name>.exe", "<Name>.app",
 #      "<id>.desktop" or a Windows package family name
 #   3. an identity field (.name, .bundle_id, .title, ...) compared to a
-#      non-empty string literal
+#      non-empty string literal, with the literal on either side
 #
 # Platform contracts are not applications and are listed in ALLOWED, which
-# changes only in review: the Dock and menu bar agent bundle ids, the GNOME
+# changes only in review. An allowed literal is blanked, not the whole line, so
+# a forbidden name on the same line still fires: the Dock and menu bar agent bundle ids, the GNOME
 # Shell/Mutter and KDE StatusNotifier D-Bus names (platform surfaces the
 # adapters must name), flag("Terminal") (the Desktop Entry Terminal key),
 # FRAMEWORK_ID "Chrome" (the UIA framework id Windows reports for a toolkit),
@@ -68,7 +71,7 @@ ALLOWED='"(com\.apple\.(dock|MenuBarAgent|controlcenter|systemuiserver|systemeve
 
 FIELDS='app_name|bundle_id|window_title|process_name|image_name|desktop_id|class_name|wm_class|app_id|executable|exe|image|name|app|title'
 RULE2='"[^"{}]+\.[Ee][Xx][Ee]"|"[A-Z][^"{}]*\.app"|"[A-Za-z0-9_.-]+\.desktop"|"[A-Za-z0-9]+(\.[A-Za-z0-9]+)+_[a-z0-9]{13}(![A-Za-z0-9_.]+)?"'
-RULE3="\\.(${FIELDS})[[:space:]]*(==|!=)[[:space:]]*\"[^\"]+\"|\\.(${FIELDS})[[:space:]]*==[[:space:]]*Some[[:space:]]*[(][[:space:]]*\"[^\"]+\"[[:space:]]*[)][[:space:]]*|\\.(${FIELDS})([(][)]|\\.as_deref[(][)]|\\.as_str[(][)])?[[:space:]]*\\.(eq|eq_ignore_ascii_case|contains|starts_with|ends_with)[[:space:]]*[(][[:space:]]*\"[^\"]+\""
+RULE3="\\.(${FIELDS})[[:space:]]*(==|!=)[[:space:]]*\"[^\"]+\"|\\.(${FIELDS})[[:space:]]*==[[:space:]]*Some[[:space:]]*[(][[:space:]]*\"[^\"]+\"[[:space:]]*[)][[:space:]]*|\\.(${FIELDS})([(][)]|\\.as_deref[(][)]|\\.as_str[(][)])?[[:space:]]*\\.(eq|eq_ignore_ascii_case|contains|starts_with|ends_with)[[:space:]]*[(][[:space:]]*\"[^\"]+\"|(Some[[:space:]]*[(][[:space:]]*)?\"[^\"]+\"([[:space:]]*[)])?[[:space:]]*(==|!=)[[:space:]]*(Some[[:space:]]*[(][[:space:]]*)?&?[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*\\.(${FIELDS})([(][)])?(\\.as_deref[(][)]|\\.as_str[(][)])?([^A-Za-z0-9_(]|$)"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/agent-desktop-app-names.XXXXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
@@ -178,8 +181,12 @@ END {
     changed = 1
     while (changed) {
         changed = 0
+        delete runtime_edges
         for (k = 1; k <= ne; k++) {
-            if (!(eto[k] in testonly) && (egate[k] == 1 || (efrom[k] in testonly))) {
+            if (!(egate[k] == 1 || (efrom[k] in testonly))) runtime_edges[eto[k]]++
+        }
+        for (k = 1; k <= ne; k++) {
+            if (!(eto[k] in testonly) && !(eto[k] in runtime_edges)) {
                 testonly[eto[k]] = 1
                 changed = 1
             }
@@ -196,17 +203,6 @@ function trim(s) {
     gsub(/^[[:space:]]+/, "", s)
     gsub(/[[:space:]]+$/, "", s)
     return s
-}
-function blank_strings(s) {
-    gsub(/"(\\.|[^"\\])*"/, "\"\"", s)
-    gsub(/'(\\.|[^'\\])'/, "''", s)
-    return s
-}
-function brace_delta(s,   t, o, c) {
-    t = blank_strings(s)
-    o = gsub(/\{/, "{", t)
-    c = gsub(/\}/, "}", t)
-    return o - c
 }
 function strip_comments(s,   out, rest, tok) {
     out = ""
@@ -225,50 +221,98 @@ function strip_comments(s,   out, rest, tok) {
 function is_cfgtest(s) {
     return (s ~ /^[[:space:]]*#!?\[[[:space:]]*cfg[[:space:]]*\([[:space:]]*test[[:space:]]*\)[[:space:]]*\]/)
 }
-function classify(s,   t, tb) {
-    t = trim(s)
-    if (t == "" || t ~ /^#/) { skip = 1; return }
-    if (t ~ /^}/) { skip = 0; return }
-    tb = blank_strings(s)
-    if (index(tb, "{") > 0 || index(tb, "}") > 0) {
-        depth = brace_delta(s)
-        skip = (depth > 0 ? 2 : 0)
-        return
+function skip_attribute(s, i, n,   d, c) {
+    d = 0
+    for (; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (c == "[") d++
+        else if (c == "]") {
+            d--
+            if (d <= 0) return i + 1
+        }
     }
-    if (t ~ /;[[:space:]]*$/) { skip = 0; return }
-    skip = 1
+    return n + 1
+}
+function string_end(s, i, n, h,   c, k, ok) {
+    for (; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (h < 0 && c == "\\") { i++; continue }
+        if (c != "\"") continue
+        ok = 1
+        if (h < 0) return i + 1
+        for (k = 1; k <= h; k++) if (substr(s, i + k, 1) != "#") { ok = 0; break }
+        if (ok) return i + h + 1
+    }
+    return 0
+}
+function raw_hashes(s, i,   j, p) {
+    j = i - 1
+    while (j >= 1 && substr(s, j, 1) == "#") j--
+    if (j < 1 || substr(s, j, 1) != "r") return -1
+    p = substr(s, j - 1, 1)
+    if (j > 1 && p != "b" && p ~ /[A-Za-z0-9_]/) return -1
+    return i - 1 - j
+}
+function consume(s,   i, n, c, rest, e) {
+    n = length(s)
+    i = 1
+    while (i <= n) {
+        if (instr) {
+            e = string_end(s, i, n, strh)
+            if (e == 0) return ""
+            instr = 0
+            i = e
+            continue
+        }
+        c = substr(s, i, 1)
+        if (c == "\"") {
+            strh = raw_hashes(s, i)
+            instr = 1
+            i++
+            continue
+        }
+        if (c == "'") {
+            rest = substr(s, i)
+            if (match(rest, /^'(\\.|[^'\\])'/) > 0) { i += RLENGTH; continue }
+            i++
+            continue
+        }
+        if (c ~ /[[:space:]]/) { i++; continue }
+        if (c == "#" && !seen) { i = skip_attribute(s, i, n); continue }
+        seen = 1
+        if (c == "(" || c == "[") pd++
+        else if (c == ")" || c == "]") { if (pd > 0) pd-- }
+        else if (c == "{") { bd++; st = 2 }
+        else if (c == "}") {
+            if (bd == 0) { st = 0; return substr(s, i) }
+            bd--
+            if (bd == 0) { st = 0; return substr(s, i + 1) }
+        }
+        else if (c == ";" && bd == 0 && pd == 0) { st = 0; return substr(s, i + 1) }
+        i++
+    }
+    return ""
+}
+function begin_skip(s) {
+    st = 1
+    bd = 0
+    pd = 0
+    seen = 0
+    return consume(substr(s, index(s, "]") + 1))
 }
 {
     F = $0
     n = 0
     while ((getline line < F) > 0) L[++n] = line
     close(F)
-    skip = 0
-    depth = 0
+    st = 0
+    instr = 0
     for (i = 1; i <= n; i++) {
-        raw = L[i]
-        clean = raw
-        if (index(raw, "//") > 0) clean = strip_comments(raw)
-        if (skip == 2) {
-            depth += brace_delta(clean)
-            if (depth <= 0) skip = 0
-            continue
-        }
-        if (skip == 1) {
-            t = trim(clean)
-            if (t == "" || t ~ /^#/) continue
-            if (t ~ /^}/) { skip = 0; print F ":" i ":" clean; continue }
-            classify(clean)
-            continue
-        }
-        if (is_cfgtest(clean)) {
-            idx = index(clean, "]")
-            rest = (idx > 0 ? substr(clean, idx + 1) : "")
-            if (trim(rest) == "") { skip = 1; continue }
-            classify(rest)
-            continue
-        }
-        print F ":" i ":" clean
+        seg = L[i]
+        if (index(seg, "//") > 0) seg = strip_comments(seg)
+        if (st != 0) seg = consume(seg)
+        while (st == 0 && is_cfgtest(seg)) seg = begin_skip(seg)
+        if (st == 0 && trim(seg) != "") print F ":" i ":" seg
     }
 }
 AWK_EOF
@@ -377,11 +421,21 @@ runtime_lines() {
 }
 
 hit_lines() {
+    local clean="$WORK/clean.txt" tags="$WORK/tags.txt"
+    sed -E "s#${ALLOWED}#@#g" "$1" > "$clean"
     {
-        grep -F -f "$WORK/patterns.txt" "$1" 2>/dev/null | sed 's/$/  [rule 1: names an application]/' || true
-        grep -E "$RULE2" "$1" 2>/dev/null | sed 's/$/  [rule 2: application identity]/' || true
-        grep -E "$RULE3" "$1" 2>/dev/null | sed 's/$/  [rule 3: identity field comparison]/' || true
-    } | grep -vE "$ALLOWED" | LC_ALL=C sort -u || true
+        { grep -n -F -f "$WORK/patterns.txt" "$clean" 2>/dev/null || true; } |
+            sed 's/:.*$/ rule 1: names an application/'
+        { grep -nE "$RULE2" "$clean" 2>/dev/null || true; } |
+            sed 's/:.*$/ rule 2: application identity/'
+        { grep -nE "$RULE3" "$clean" 2>/dev/null || true; } |
+            sed 's/:.*$/ rule 3: identity field comparison/'
+    } > "$tags"
+    awk '
+        FILENAME == ARGV[1] { n = index($0, " "); m[++c] = substr($0, 1, n - 1); t[c] = substr($0, n + 1); need[m[c]] = 1; next }
+        FNR in need { L[FNR] = $0 }
+        END { for (k = 1; k <= c; k++) print L[m[k]] "  [" t[k] "]" }
+    ' "$tags" "$1" | LC_ALL=C sort -u
 }
 
 cleanup_fixture_tree() {
@@ -404,6 +458,15 @@ self_test() {
     printf 'const L: &str = "Finder";\n#[path = "x_live_child.rs"]\nmod child;\n' > "$root/crates/x/src/x_live.rs"
     printf 'const C: &str = "Finder";\n' > "$root/crates/x/src/x_live_child.rs"
     printf 'const BEFORE: &str = "ok";\n#[cfg(test)]\nmod tests {\n    const T: &str = "Finder";\n}\nconst AFTER: &str = "Finder";\n' > "$root/crates/x/src/inline.rs"
+    printf 'const A: &str = "com.apple.dock"; const MIXED: &str = "Finder";\n' > "$root/crates/x/src/mixed.rs"
+    printf '#[path = "x_both.rs"]\nmod both;\n' > "$root/crates/x/src/both_runtime.rs"
+    printf '#[cfg(test)]\n#[path = "x_both.rs"]\nmod both;\n' > "$root/crates/x/src/both_gated.rs"
+    printf 'const BOTH: &str = "Finder";\n' > "$root/crates/x/src/x_both.rs"
+    printf '#[cfg(test)] mod t { const T: &str = "Finder"; } const SAMELINE: &str = "Finder";\n' > "$root/crates/x/src/sameline.rs"
+    printf '#[cfg(test)]\nmod t {\n    const T: &str = "Finder";\n} const CLOSEDLINE: &str = "Finder";\n' > "$root/crates/x/src/closedline.rs"
+    printf 'fn f(app: &App) -> bool { "Anything" == app.name }\n' > "$root/crates/x/src/reversed.rs"
+    printf '#[cfg(test)]\nconst T: &str = "line one\nline two";\nconst MULTILINE: &str = "Finder";\n' > "$root/crates/x/src/multiline.rs"
+    printf '#[cfg(test)]\nconst T: &str = r#"line "one"\nline two"#;\nconst RAWLINE: &str = "Finder";\n' > "$root/crates/x/src/rawline.rs"
     runtime_lines "$root/crates" > "$WORK/selftest_scan.txt"
     hits="$(hit_lines "$WORK/selftest_scan.txt")"
     if ! printf '%s\n' "$hits" | grep -q 'named\.rs'; then
@@ -421,6 +484,33 @@ self_test() {
     if [ "$(printf '%s\n' "$hits" | grep -c 'inline\.rs' || true)" != "1" ] || \
        ! printf '%s\n' "$hits" | grep 'inline\.rs' | grep -q 'AFTER'; then
         printf 'self-test FAIL: code after an inline #[cfg(test)] block must still be scanned\n' >&2
+        failures=1
+    fi
+    if ! printf '%s\n' "$hits" | grep 'mixed\.rs' | grep -q 'MIXED'; then
+        printf 'self-test FAIL (missed): a forbidden name on a line that also holds an allowed literal\n' >&2
+        failures=1
+    fi
+    if ! printf '%s\n' "$hits" | grep -q 'x_both\.rs'; then
+        printf 'self-test FAIL (missed): a file declared by a runtime module and by a #[cfg(test)] module\n' >&2
+        failures=1
+    fi
+    if ! printf '%s\n' "$hits" | grep 'sameline\.rs' | grep -q 'SAMELINE' || \
+       printf '%s\n' "$hits" | grep 'sameline\.rs' | grep -q 'const T:'; then
+        printf 'self-test FAIL: code after a one-line #[cfg(test)] item must be scanned and the item skipped\n' >&2
+        failures=1
+    fi
+    if ! printf '%s\n' "$hits" | grep 'closedline\.rs' | grep -q 'CLOSEDLINE' || \
+       printf '%s\n' "$hits" | grep 'closedline\.rs' | grep -q 'const T:'; then
+        printf 'self-test FAIL: code after the closing brace of a #[cfg(test)] item must be scanned\n' >&2
+        failures=1
+    fi
+    if ! printf '%s\n' "$hits" | grep 'multiline\.rs' | grep -q 'MULTILINE' || \
+       ! printf '%s\n' "$hits" | grep 'rawline\.rs' | grep -q 'RAWLINE'; then
+        printf 'self-test FAIL (missed): code after a #[cfg(test)] item whose string literal spans lines\n' >&2
+        failures=1
+    fi
+    if ! printf '%s\n' "$hits" | grep -q 'reversed\.rs'; then
+        printf 'self-test FAIL (missed): a string literal compared to an identity field\n' >&2
         failures=1
     fi
     if printf '%s\n' "$hits" | grep -qE 'live_parent\.rs|x_live\.rs|x_live_child\.rs|allowed\.rs'; then

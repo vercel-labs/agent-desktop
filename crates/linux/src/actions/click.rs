@@ -161,11 +161,13 @@ fn activate(target: &Target<'_>, action: &Action) -> Result<ActionResult, Adapte
         && crate::tree::capabilities::action_names::unsupported_entry_activation(
             view.role(),
             names,
-            &crate::tree::live_read::live_offscreen::toolkit_of(
-                target.bus,
-                target.element,
-                target.deadline,
-            ),
+            || {
+                crate::tree::live_read::live_offscreen::toolkit_of(
+                    target.bus,
+                    target.element,
+                    target.deadline,
+                )
+            },
         )
     {
         return Err(no_semantic_verb(action));

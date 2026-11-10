@@ -105,7 +105,7 @@ pub(crate) fn live_element(
         crate::tree::capabilities::action_names::unsupported_entry_activation(
             read.node.traits.role.present().copied(),
             names,
-            &placement.toolkit,
+            || &placement.toolkit,
         )
     }) {
         available_actions.retain(|action| action != "Click");

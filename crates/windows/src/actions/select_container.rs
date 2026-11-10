@@ -11,7 +11,7 @@
 //! is looked up again after it and waited for until it is on screen; the
 //! reference from before `Realize` is never selected.
 
-use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
+use agent_desktop_core::{AdapterError, Deadline, DeliverySemantics, ErrorCode};
 
 use crate::actions::chain::after_delivery;
 use crate::actions::mutation::classify_mutation;
@@ -72,6 +72,29 @@ fn lookup_verdict<T>(found: Result<T, UiaFailure>) -> Result<Option<T>, UiaFailu
     }
 }
 
+/// A lookup that failed returns its own error, never absence. After a
+/// `Realize` was sent it is a delivered mutation with an unverified outcome,
+/// and so is a lookup that then finds no usable item.
+fn lookup_answer<T>(
+    lookup: Result<Option<T>, UiaFailure>,
+    realize_sent: bool,
+) -> Result<Option<T>, AdapterError> {
+    if realize_sent && matches!(lookup, Ok(None)) {
+        return Err(after_delivery(AdapterError::new(
+            ErrorCode::ElementNotFound,
+            "The item was realized but no selectable item answers the lookup after it",
+        )));
+    }
+    lookup.map_err(|failure| {
+        let error = uia_failure_error(failure, "look up the requested item");
+        if realize_sent {
+            after_delivery(error)
+        } else {
+            error.with_disposition(DeliverySemantics::not_delivered())
+        }
+    })
+}
+
 /// The dispatched `Realize` call's verdict: `Ok` continues to the relookup
 /// that verifies the realized item; `Err` is a delivered mutation whose
 /// outcome is unverified — never an absent item and never a silent continue.
@@ -92,7 +115,8 @@ fn realize_verdict(outcome: Result<(), UiaFailure>) -> Result<(), AdapterError> 
 #[cfg(target_os = "windows")]
 mod imp {
     use super::{
-        AdapterError, Deadline, UIAElement, accept_unique_lookup, lookup_verdict, realize_verdict,
+        AdapterError, Deadline, UIAElement, accept_unique_lookup, lookup_answer, lookup_verdict,
+        realize_verdict,
     };
     use crate::actions::chain::poll_until;
     use crate::actions::select_search::{accept_selection_match, selection_item_available};
@@ -130,7 +154,7 @@ mod imp {
             return Ok(None);
         };
         let name = Variant::from(value);
-        let Some(first) = find_after(&pattern, None, &name).ok().flatten() else {
+        let Some(first) = lookup_answer(find_after(&pattern, None, &name), false)? else {
             return Ok(None);
         };
         let first = UIAElement::from(uiautomation::UIElement::from(first));
@@ -143,28 +167,32 @@ mod imp {
             }
         }
         deadline.ensure_remaining()?;
-        if let Ok(virtualized) = unsafe {
+        let virtualized = unsafe {
             first
                 .0
                 .as_ref()
                 .GetCurrentPatternAs::<IUIAutomationVirtualizedItemPattern>(
                     UIA_VirtualizedItemPatternId,
                 )
-        } {
+        };
+        let realize_sent = virtualized.is_ok();
+        if let Ok(virtualized) = virtualized {
             realize_verdict(
                 unsafe { virtualized.Realize() }
                     .map_err(|error| failure_of(&uiautomation::Error::from(error))),
             )?;
         }
-        let item = find_after(&pattern, None, &name)
-            .ok()
-            .flatten()
-            .map(|again| UIAElement::from(uiautomation::UIElement::from(again)))
-            .unwrap_or(first);
+        let Some(again) = lookup_answer(find_after(&pattern, None, &name), realize_sent)? else {
+            return Ok(None);
+        };
+        let item = UIAElement::from(uiautomation::UIElement::from(again));
         wait_until_on_screen(deadline, || {
             read_one(&item, TreeProperty::IsOffscreen).flag() == Some(false)
         })?;
-        Ok(selection_item_available(&item).then_some(item))
+        if selection_item_available(&item) {
+            return Ok(Some(item));
+        }
+        lookup_answer(Ok(None), realize_sent)
     }
 
     pub(crate) fn wait_until_on_screen(
@@ -206,7 +234,10 @@ pub(crate) use imp::realize_named_item;
 
 #[cfg(test)]
 mod tests {
-    use super::{accept_unique_lookup, container_route_applies, lookup_verdict, realize_verdict};
+    use super::{
+        accept_unique_lookup, container_route_applies, lookup_answer, lookup_verdict,
+        realize_verdict,
+    };
     use crate::system::runtime::hresult::{E_FAIL, UIA_E_ELEMENTNOTAVAILABLE, UIA_E_TIMEOUT};
     use crate::tree::automation::{ERR_NONE, ERR_NOTFOUND, ERR_TIMEOUT, UiaFailure};
     use agent_desktop_core::{DeliverySemantics, ErrorCode, RetryDisposition};
@@ -274,6 +305,34 @@ mod tests {
             assert_eq!(error.disposition, DeliverySemantics::not_delivered());
             assert_eq!(error.disposition.retry(), RetryDisposition::Safe);
         }
+    }
+
+    #[test]
+    fn a_failed_first_lookup_is_its_own_error_and_never_absence() {
+        assert!(lookup_answer(Ok(Some(3)), false).expect("found").is_some());
+        assert!(
+            lookup_answer::<()>(Ok(None), false)
+                .expect("none")
+                .is_none()
+        );
+        let error = lookup_answer::<()>(Err(UiaFailure::Hresult(UIA_E_TIMEOUT)), false)
+            .expect_err("failed lookup");
+        assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+    }
+
+    #[test]
+    fn a_relookup_after_realize_never_falls_back_to_the_item_from_before() {
+        assert_eq!(lookup_answer(Ok(Some(3)), true).expect("found"), Some(3));
+        let empty = lookup_answer::<()>(Ok(None), true).expect_err("realize was sent");
+        assert_eq!(empty.code, ErrorCode::ElementNotFound);
+        assert_eq!(empty.disposition, DeliverySemantics::delivered_unverified());
+        assert_eq!(empty.disposition.retry(), RetryDisposition::Unsafe);
+        let error = lookup_answer::<()>(Err(UiaFailure::Hresult(UIA_E_TIMEOUT)), true)
+            .expect_err("failed relookup");
+        assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
+        let unsent = lookup_answer::<()>(Err(UiaFailure::Hresult(UIA_E_TIMEOUT)), false)
+            .expect_err("failed relookup");
+        assert_eq!(unsent.disposition, DeliverySemantics::not_delivered());
     }
 
     #[test]
