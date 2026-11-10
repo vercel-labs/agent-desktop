@@ -142,7 +142,12 @@ fn unproven() -> AdapterError {
         ErrorCode::ActionNotSupported,
         "The container's selection indices cannot be mapped to accessible rows safely",
     )
-    .with_suggestion("On X11, run select again with --headed: the pointer clicks the row and the result is checked against the row's selected state. A headless select cannot establish a safe index mapping, so refreshing or retrying it does not help.")
+    .with_suggestion(
+        "On X11, run select again with --headed: the pointer clicks the row and the result is checked against the row's selected state. \
+         On Wayland (especially wlroots compositors like Hyprland), headed pointer input is not available. \
+         A headless select cannot establish a safe index mapping on GTK 4, so refreshing or retrying does not help. \
+         This is a known limitation tracked in https://github.com/vercel-labs/agent-desktop/issues/387.",
+    )
     .with_details(serde_json::json!({ "kind": UNPROVEN_INDEX_KIND, "retryable": false }))
     .with_disposition(DeliverySemantics::not_delivered())
 }
