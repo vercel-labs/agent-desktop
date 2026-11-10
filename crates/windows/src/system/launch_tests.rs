@@ -23,10 +23,12 @@ fn ambiguous_launch_target_suggestion_names_pids_instead_of_a_ref_retry() {
     let matches = vec![
         ProcessRow {
             pid: ProcessId::from(111),
+            parent_pid: None,
             name: "Cursor.exe".into(),
         },
         ProcessRow {
             pid: ProcessId::from(222),
+            parent_pid: None,
             name: "Cursor.exe".into(),
         },
     ];
@@ -56,10 +58,12 @@ fn shared_ambiguous_target_pins_the_windows_envelope() {
     let matches = vec![
         ProcessRow {
             pid: ProcessId::from(10),
+            parent_pid: None,
             name: "Cursor.exe".into(),
         },
         ProcessRow {
             pid: ProcessId::from(11),
+            parent_pid: None,
             name: "Cursor.exe".into(),
         },
     ];
