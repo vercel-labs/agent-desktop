@@ -14,17 +14,9 @@ use crate::input::elevation::{
 use super::window_identity::WindowIdentityEvidence;
 use super::window_ops::{is_foreground_window, parse_handle};
 
-/// A21-6: the committed capture recorded 0/5 first-attempt successes, and
-/// the scratch-window foreground transition did not land on the second
-/// attempt either; the repo-controlled scratch host cannot stage the
-/// contention this retry exists to survive, so that case was never
-/// exercised here. A budget still has to be finite regardless of what this
-/// host could measure: an unbounded retry against a target that truly
-/// never becomes foreground would hang the caller instead of failing
-/// closed. Two keeps the one extra attach-and-set-foreground attempt after
-/// a short delay, enough for a retry to observe an attach the first
-/// attempt raced, then exhausts and fails closed rather than asserting a
-/// success rate this capture never showed.
+/// Keep activation finite when Windows or a provider refuses the raise.
+/// The first rejected raise tries bounded provider-side activation once;
+/// one delayed native retry also observes asynchronous foreground changes.
 const FOCUS_STEAL_BUDGET: u32 = 2;
 const INTER_ATTEMPT_DELAY: Duration = Duration::from_millis(25);
 
@@ -149,6 +141,17 @@ fn raise_with_budget(
         if is_owned_foreground(handle, evidence) {
             return Ok(());
         }
+        #[cfg(target_os = "windows")]
+        if attempt == 0 {
+            lease
+                .deadline()
+                .ensure_remaining()
+                .map_err(after_foreground_write_attempted)?;
+            super::window_activate_uia::activate(handle, evidence, lease.deadline())?;
+            if is_owned_foreground(handle, evidence) {
+                return Ok(());
+            }
+        }
     }
     Err(budget_exhausted(strictly_higher))
 }
@@ -267,6 +270,10 @@ fn bring_to_foreground(
         if !owned_for_write(evidence)? {
             return Err(recycled_before_foreground());
         }
+        #[cfg(test)]
+        if skip_native_raise::is_active() {
+            return Ok(());
+        }
         let _ = SetForegroundWindow(handle);
     }
     Ok(())
@@ -295,15 +302,13 @@ fn owned_for_write(evidence: &WindowIdentityEvidence<'_>) -> Result<bool, Adapte
 /// missed case: Win32 offers no atomic "act on this window only while that
 /// process still owns it", so an ownership read and the native call it guards
 /// are always two instructions. A recycle landing between them mutates the
-/// replacement window, and nothing can undo that. Three things bound it: the
-/// read sits immediately before each write, the only unconditional write left
-/// is the foreground call itself (the visibility write is skipped when the
-/// window is already visible, which it is on every path that reaches here),
-/// and success is ownership-qualified — so the outcome of losing the race is
+/// replacement window, and nothing can undo that. The ownership read sits
+/// immediately before each native or provider write, and success is
+/// ownership-qualified — so the outcome of losing the race is
 /// a foreign window raised once and an honest not-delivered refusal, never
 /// input delivered to it. Closing it entirely needs a kernel primitive that
 /// does not exist.
-fn recycled_before_foreground() -> AdapterError {
+pub(super) fn recycled_before_foreground() -> AdapterError {
     AdapterError::new(
         ErrorCode::WindowNotFound,
         "Target window handle changed ownership before foreground delivery",
@@ -319,7 +324,7 @@ mod hooks;
 #[cfg(all(test, target_os = "windows"))]
 use hooks::{
     attempt_probe, force_strictly_higher, force_unowned_from_attempt, never_foreground,
-    restore_probe,
+    restore_probe, skip_native_raise,
 };
 
 #[cfg(test)]

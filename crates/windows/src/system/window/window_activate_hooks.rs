@@ -1,5 +1,21 @@
 use std::cell::Cell;
 
+pub(super) mod skip_native_raise {
+    use super::Cell;
+
+    thread_local! {
+        static ACTIVE: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub(crate) fn is_active() -> bool {
+        ACTIVE.with(Cell::get)
+    }
+
+    pub(crate) fn with<R>(run: impl FnOnce() -> R) -> R {
+        crate::system::fixture::test_support::with_flag(&ACTIVE, true, run)
+    }
+}
+
 pub(super) mod attempt_probe {
     use super::Cell;
 

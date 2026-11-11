@@ -97,6 +97,19 @@ fn visible_background_window_is_raised_without_restore() {
 
 #[cfg(target_os = "windows")]
 #[test]
+fn provider_fallback_recovers_a_refused_native_raise() {
+    let _stage = crate::tree::fixture::fixture_window::on_screen_stage();
+    let (target, stealer, info) = staged_pair();
+    raise_handle(stealer.handle());
+    assert!(!is_foreground_window(parse_handle(&info.id)));
+    skip_native_raise::with(|| focus_window(&info, &lease()))
+        .expect("provider activation must recover when the direct raise is refused");
+    assert_owned_success(&info);
+    let _ = target;
+}
+
+#[cfg(target_os = "windows")]
+#[test]
 fn iconic_window_is_restored_then_raised() {
     let _stage = crate::tree::fixture::fixture_window::on_screen_stage();
     let (target, stealer, info) = staged_pair();
