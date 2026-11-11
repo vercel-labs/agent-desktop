@@ -169,10 +169,15 @@ pub(crate) fn resolve_counted(
     lookup: &impl IndexLookup,
     item: &AtspiElement,
 ) -> Result<i32, AdapterError> {
-    if !lookup.accessible_indices() && !lookup.counted_indices()? {
-        return Err(unproven());
+    if lookup.accessible_indices() || lookup.counted_indices()? {
+        return revalidated(lookup, item);
     }
-    revalidated(lookup, item)
+    // Fallback: direct revalidation without count verification.
+    // GetIndexInParent + GetChildAtIndex match proves the index is correct
+    // for this specific item even when the full count cannot be verified
+    // (e.g. GTK4 on Wayland where accessible children may not cover all
+    // SelectChild indices). If revalidation passes, SelectChild is safe to try.
+    revalidated(lookup, item).or_else(|_| Err(unproven()))
 }
 
 pub(crate) fn write_counted(
@@ -227,7 +232,12 @@ mod tests {
         }
 
         fn index(&self, _: &AtspiElement) -> Result<i32, AdapterError> {
-            assert!(self.accessible_indices() || self.counted);
+            if !self.accessible_indices() && !self.counted {
+                return Err(AdapterError::new(
+                    ErrorCode::ActionNotSupported,
+                    "index not proven",
+                ));
+            }
             Ok(self.index)
         }
         fn child(&self, index: i32) -> Result<(String, String), AdapterError> {
