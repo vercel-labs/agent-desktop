@@ -236,40 +236,15 @@ fn select_through(
     if let Some(holder) = &holder {
         let verified_node = &verified_node;
         let deliver = &deliver;
-        // Try write_counted first for listbox-like containers (GTK4 where accessible_indices fails but counts may agree)
-        let rung_select_child = Rung {
+        // Use write_counted which verifies presented children count matches SelectChild count for GTK4,
+        // and propagates selection_index_unproven so after_unproven_index can fall back to pointer on headed X11.
+        rungs.push(Rung {
             label: SELECT_CHILD_LABEL,
             run: Box::new(move || {
-                // First try write_counted which verifies presented children count matches SelectChild count
                 let reply = super::select::select_index::write_counted(holder, verified_node);
-                match reply {
-                    Ok(WriteReply::Absent) => Ok(DeliveryOutcome::NotDelivered),
-                    Ok(WriteReply::Done) => deliver(Ok(WriteReply::Done)).and_then(unchanged_is_ignored),
-                    Err(e) if e.code == ErrorCode::ActionNotSupported
-                        && e.details.as_ref().is_some_and(|d| {
-                            d.get("kind").and_then(|v| v.as_str()) == Some("selection_index_unproven")
-                        }) =>
-                    {
-                        // Fall back to plain write (which will also fail with selection_index_unproven, converted to NotDelivered)
-                        let reply2 = super::select::select_index::write(holder, verified_node);
-                        match reply2 {
-                            Ok(WriteReply::Absent) => Ok(DeliveryOutcome::NotDelivered),
-                            Ok(WriteReply::Done) => deliver(Ok(WriteReply::Done)).and_then(unchanged_is_ignored),
-                            Err(e2) if e2.code == ErrorCode::ActionNotSupported
-                                && e2.details.as_ref().is_some_and(|d| {
-                                    d.get("kind").and_then(|v| v.as_str()) == Some("selection_index_unproven")
-                                }) =>
-                            {
-                                Ok(DeliveryOutcome::NotDelivered)
-                            }
-                            Err(e2) => Err(e2),
-                        }
-                    }
-                    Err(e) => Err(e),
-                }
+                deliver(reply).and_then(unchanged_is_ignored)
             }),
-        };
-        rungs.push(rung_select_child);
+        });
     }
     if own_verb {
         rungs.insert(
