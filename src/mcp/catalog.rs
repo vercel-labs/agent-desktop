@@ -10,10 +10,23 @@ const TOOL_PREFIX: &str = "desktop";
 const CLAP_HELP_SUBCOMMAND: &str = "help";
 const MAX_COUNT: u64 = 16;
 
+/// The tools whose stdout carries their child's bytes instead of a JSON envelope.
+const PASSTHROUGH_TOOLS: &[&[&str]] = &[&["sandbox", "exec"]];
+
+/// How a tool's child reports its result on stdout.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Output {
+    /// The command's one JSON envelope, as every command but `sandbox exec` writes.
+    Envelope,
+    /// The guest command's own bytes and exit status, which the host passes through unchanged.
+    Passthrough,
+}
+
 /// One leaf CLI command exposed as an MCP tool.
 pub(crate) struct Tool {
     pub name: String,
     pub path: Vec<String>,
+    pub output: Output,
     command: Command,
 }
 
@@ -49,9 +62,24 @@ fn collect(command: &Command, mut path: Vec<String>, found: &mut Vec<Tool>) {
         .replace('-', "_");
     found.push(Tool {
         name,
+        output: output_for(&path),
         path,
         command: command.clone(),
     });
+}
+
+fn output_for(path: &[String]) -> Output {
+    let passthrough = PASSTHROUGH_TOOLS.iter().any(|tool| {
+        tool.len() == path.len()
+            && tool
+                .iter()
+                .zip(path)
+                .all(|(part, name)| *part == name.as_str())
+    });
+    match passthrough {
+        true => Output::Passthrough,
+        false => Output::Envelope,
+    }
 }
 
 impl Tool {
@@ -76,19 +104,43 @@ impl Tool {
     /// Builds the CLI arguments, after the binary name, that run this command with `arguments`; a null value counts as omitted.
     pub(crate) fn argv(&self, arguments: &Map<String, Value>) -> Result<Vec<String>, String> {
         let mut argv = self.path.clone();
+        let has_last_positional = self.args().any(Arg::is_last_set);
         let mut positionals = Vec::new();
+        let mut last_positionals = Vec::new();
         for (key, value) in arguments.iter().filter(|(_, value)| !value.is_null()) {
             let arg = self
                 .args()
                 .find(|arg| property_name(arg) == *key)
                 .ok_or_else(|| self.unknown_argument(key))?;
             if arg.is_positional() {
-                positionals.push((arg.get_index().unwrap_or(usize::MAX), scalars(key, value)?));
+                let positional = (arg.get_index().unwrap_or(usize::MAX), scalars(key, value)?);
+                if arg.is_last_set() {
+                    last_positionals.push(positional);
+                } else {
+                    positionals.push(positional);
+                }
             } else {
                 push_option(&mut argv, arg, key, value)?;
             }
         }
-        if !positionals.is_empty() {
+        if has_last_positional {
+            positionals.sort_by_key(|(index, _)| *index);
+            if let Some(flag_like) = positionals
+                .iter()
+                .flat_map(|(_, values)| values)
+                .find(|value| value.starts_with('-'))
+            {
+                return Err(format!(
+                    "'{flag_like}' would be read as an option; it cannot start with '-'"
+                ));
+            }
+            argv.extend(positionals.into_iter().flat_map(|(_, values)| values));
+            if !last_positionals.is_empty() {
+                last_positionals.sort_by_key(|(index, _)| *index);
+                argv.push("--".to_string());
+                argv.extend(last_positionals.into_iter().flat_map(|(_, values)| values));
+            }
+        } else if !positionals.is_empty() {
             positionals.sort_by_key(|(index, _)| *index);
             argv.push("--".to_string());
             argv.extend(positionals.into_iter().flat_map(|(_, values)| values));

@@ -54,6 +54,10 @@ pub mod query;
 pub mod resize_window;
 pub mod restore;
 pub mod right_click;
+pub mod sandbox;
+pub mod sandbox_action;
+pub mod sandbox_install;
+mod sandbox_list;
 pub mod screenshot;
 #[cfg(test)]
 mod screenshot_tests;

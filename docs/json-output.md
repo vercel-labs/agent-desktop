@@ -58,6 +58,18 @@ recovery strategy from `recovery.strategy` only when `disposition.retry` is
 `safe`; command strings from older envelopes must not be executed blindly.
 The removed `retry_command` field has no compatibility alias.
 
+## Sandbox results
+
+`sandbox install` returns `data: {"providers": [...]}` and `sandbox list` returns `data: {"sandboxes": [...]}`. An entry has `name`, `state`, and `message`, with `next` when a further action is available; a sandbox entry, and the `data` of a single sandbox command, also carry `provider`. Provider-specific fields may appear beside these. `sandbox install <provider>` returns that entry as `data`. A build that includes no providers returns an empty `providers` array, and a command that names a provider fails with `INVALID_ARGS`. States are `unavailable`, `missing`, `ready`, `working`, `needs_setup`, `running`, `stopped`, and `broken`.
+
+A sandbox whose record is missing, malformed or unreadable, or names a provider this build does not include, is listed as `broken`, and every command on it returns `INVALID_ARGS`. agent-desktop has no provider to ask, so `next` and the error's `suggestion` name the sandbox directory to delete once nothing in it is still running. When the provider's own status check fails or times out, the entry is also `broken` and `next` carries that error's suggestion.
+
+A `sandbox create` that times out, or whose provider ends without a readable reply, keeps its record, because the provider may have made something. The sandbox stays in `sandbox list`; run `sandbox status <name>` to see what exists and `sandbox rm <name>` before creating that name again. A create the provider refuses leaves no record unless the provider left files in the sandbox directory. `create` never takes over a directory that already holds files.
+
+`create`, `start`, `stop` and `rm` on one sandbox run one at a time. A second one fails at once with `ACTION_FAILED` and `not_delivered`.
+
+`sandbox exec` passes the guest command's stdout and exit status through unchanged instead of adding an envelope; the guest's stderr is not passed through and the guest receives no stdin, so a guest command that reads `--stdin` gets empty input. A provider failure returns a host error envelope instead. agent-desktop reads at most 8 MiB from each of the guest's output streams; a command that prints more fails with `ACTION_FAILED`, so write large output to a file in the guest. A guest command that runs longer than 300 seconds fails with `TIMEOUT`. The host's session and agent id never reach the guest: the flags are refused before `sandbox exec`, and `AGENT_DESKTOP_SESSION` and `AGENT_DESKTOP_AGENT_ID` are not passed on. Give the guest command its own `--session` after `--`.
+
 ## Disposition values
 
 Every error carries `disposition`, and commands that act on a target may also
@@ -201,6 +213,7 @@ After the core resolver chooses the element, the platform adapter lands it, and 
 | `STALE_REF` | Ref could not be re-identified in the live UI |
 | `AMBIGUOUS_TARGET` | Ref recovery matched multiple plausible targets |
 | `SNAPSHOT_NOT_FOUND` | Snapshot ID is missing or expired |
+| `SANDBOX_NOT_FOUND` | No sandbox has that name; run `agent-desktop sandbox list` to see the sandboxes that exist |
 | `POLICY_DENIED` | Physical/headed path blocked by policy |
 | `ACTION_FAILED` | Action rejected, or its observed result contradicted the request |
 | `ACTION_NOT_SUPPORTED` | The target does not expose the requested action |

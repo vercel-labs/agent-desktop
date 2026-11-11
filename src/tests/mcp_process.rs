@@ -87,6 +87,46 @@ fn mcp_server_global_flags_reach_every_call() {
 }
 
 #[test]
+fn mcp_sandbox_exec_reaches_the_sandbox_when_the_server_has_globals() {
+    let name = format!("missing-{}", std::process::id());
+    let responses = serve(
+        &[
+            call(
+                1,
+                "desktop_sandbox_exec",
+                json!({ "name": name, "args": ["snapshot", "--app", "Finder"] }),
+            ),
+            call(
+                2,
+                "desktop_sandbox_exec",
+                json!({
+                    "name": format!("{name}-guest"),
+                    "args": ["--session=guest", "--headed", "snapshot", "--app", "Finder"],
+                }),
+            ),
+        ],
+        &[
+            "--session=server",
+            "--headed",
+            "--trace=/tmp/mcp-sandbox-trace",
+        ],
+    );
+    assert_eq!(responses.len(), 2, "{responses:?}");
+    for response in &responses {
+        let result = &response["result"];
+        assert_eq!(result["isError"], true, "{result}");
+        assert!(result.get("structuredContent").is_none(), "{result}");
+        let envelope: Value = serde_json::from_str(
+            result["content"][0]["text"]
+                .as_str()
+                .expect("exec passes the host's envelope through as text"),
+        )
+        .expect("the host's envelope is still JSON");
+        assert_eq!(envelope["error"]["code"], "SANDBOX_NOT_FOUND", "{result}");
+    }
+}
+
+#[test]
 fn malformed_messages_get_errors_and_the_server_keeps_serving() {
     let responses = serve(
         &[

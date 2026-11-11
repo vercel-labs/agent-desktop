@@ -2,14 +2,15 @@
 
 use serde_json::{Map, Value, json};
 use std::io::Read;
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use super::calls::Calls;
-use super::catalog::Tool;
+use super::catalog::{Output, Tool};
 
 const CANCELLED: &str = "Cancelled";
 
-/// Runs `tool` with `arguments` for request `id`, prefixed by the server's own global flags, and returns a
+/// Runs `tool` with `arguments` for request `id`, carrying the server's own global flags, and returns a
 /// `CallToolResult`. A cancelled call returns early; the caller sends no response for it.
 pub(crate) fn call(
     tool: &Tool,
@@ -26,13 +27,7 @@ pub(crate) fn call(
         Ok(exe) => exe,
         Err(error) => return error_result(&format!("Cannot locate agent-desktop: {error}")),
     };
-    let mut command = Command::new(exe);
-    command
-        .args(globals)
-        .args(&argv)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    let mut command = child_command(&exe, tool, argv, globals);
     let (stdout, stderr) = match calls.start(id, &mut command) {
         None => return error_result(CANCELLED),
         Some(Err(error)) => return error_result(&format!("Cannot run agent-desktop: {error}")),
@@ -45,17 +40,46 @@ pub(crate) fn call(
     let Some(mut child) = calls.take(id) else {
         return error_result(CANCELLED);
     };
-    let status = child
-        .wait()
-        .map_or_else(|error| error.to_string(), |status| status.to_string());
-    match serde_json::from_slice::<Value>(&stdout) {
-        Ok(envelope) => envelope_result(envelope),
-        Err(_) => error_result(&format!(
-            "agent-desktop {} exited with {status} and no JSON envelope: {}",
-            tool.path.join(" "),
-            String::from_utf8_lossy(&stderr).trim()
-        )),
+    let status = child.wait();
+    let succeeded = status.as_ref().is_ok_and(|status| status.success());
+    let status = status.map_or_else(|error| error.to_string(), |status| status.to_string());
+    tool_result(tool, &stdout, &stderr, &status, succeeded)
+}
+
+/// Maps a child's output to a result by the kind of output its tool writes, never by what the bytes look like.
+/// A passthrough tool hands back its child's own stdout, empty output included, with its exit status.
+fn tool_result(tool: &Tool, stdout: &[u8], stderr: &[u8], status: &str, succeeded: bool) -> Value {
+    match tool.output {
+        Output::Passthrough => json!({
+            "content": [{ "type": "text", "text": String::from_utf8_lossy(stdout) }],
+            "isError": !succeeded,
+        }),
+        Output::Envelope => match serde_json::from_slice::<Value>(stdout) {
+            Ok(envelope) => envelope_result(envelope),
+            Err(_) => error_result(&format!(
+                "agent-desktop {} exited with {status} and no JSON envelope: {}",
+                tool.path.join(" "),
+                String::from_utf8_lossy(stderr).trim()
+            )),
+        },
     }
+}
+
+/// Builds the child command that runs `tool`. Server globals precede an ordinary tool. `sandbox exec` gets
+/// none: they describe this host, and the guest command carries its own flags after `--`.
+fn child_command(exe: &Path, tool: &Tool, argv: Vec<String>, globals: &[String]) -> Command {
+    let globals = match tool.path == ["sandbox", "exec"] {
+        true => &[],
+        false => globals,
+    };
+    let mut command = Command::new(exe);
+    command
+        .args(globals)
+        .args(argv)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    command
 }
 
 fn read_all(pipe: Option<impl Read>) -> Vec<u8> {
@@ -94,3 +118,7 @@ fn take_inline_image(envelope: &mut Value) -> Option<Value> {
 fn error_result(message: &str) -> Value {
     json!({ "content": [{ "type": "text", "text": message }], "isError": true })
 }
+
+#[cfg(test)]
+#[path = "call_tests.rs"]
+mod tests;
