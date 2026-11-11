@@ -51,6 +51,8 @@ A tool cannot pass a global flag. Commands that need a session, such as `trace` 
 
 A tool returns the command's JSON envelope as `structuredContent`, and the same JSON as text. `isError` is `true` when the envelope's `ok` is `false`, so read `error.code` and `error.disposition` exactly as you would from the CLI. A `screenshot` without an output path returns its PNG as an image block instead of base64 text.
 
+`desktop_sandbox_exec` is the exception, because the CLI passes the guest command's stdout and exit status through unchanged. Its text is the guest's own output, empty output included, and `isError` follows the guest's exit status. When the host itself fails, such as for a sandbox that does not exist, the CLI's error envelope arrives as that same text.
+
 An unknown argument returns a tool error that names the accepted arguments, and a value of the wrong type returns an error that names the argument, so the model can correct the call.
 
 ## Start with the skills

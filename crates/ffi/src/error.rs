@@ -25,7 +25,8 @@ pub enum AdResult {
     ErrPolicyDenied = -14,
     ErrAmbiguousTarget = -15,
     ErrAppUnresponsive = -16,
-    ErrTreeTooLarge = -17,
+    ErrSandboxNotFound = -17,
+    ErrTreeTooLarge = -18,
 }
 
 const _: () = assert!(AdResult::ErrPermDenied as i32 == -1);
@@ -44,7 +45,8 @@ const _: () = assert!(AdResult::ErrSnapshotNotFound as i32 == -13);
 const _: () = assert!(AdResult::ErrPolicyDenied as i32 == -14);
 const _: () = assert!(AdResult::ErrAmbiguousTarget as i32 == -15);
 const _: () = assert!(AdResult::ErrAppUnresponsive as i32 == -16);
-const _: () = assert!(AdResult::ErrTreeTooLarge as i32 == -17);
+const _: () = assert!(AdResult::ErrSandboxNotFound as i32 == -17);
+const _: () = assert!(AdResult::ErrTreeTooLarge as i32 == -18);
 
 enum MessageSource {
     Owned(CString),
@@ -116,6 +118,7 @@ fn error_code_to_result(code: &ErrorCode) -> AdResult {
         ErrorCode::SnapshotNotFound => AdResult::ErrSnapshotNotFound,
         ErrorCode::PolicyDenied => AdResult::ErrPolicyDenied,
         ErrorCode::AppUnresponsive => AdResult::ErrAppUnresponsive,
+        ErrorCode::SandboxNotFound => AdResult::ErrSandboxNotFound,
         ErrorCode::TreeTooLarge => AdResult::ErrTreeTooLarge,
     }
 }

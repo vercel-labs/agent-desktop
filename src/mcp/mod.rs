@@ -22,12 +22,15 @@ const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 const INSTRUCTIONS: &str = "\
 agent-desktop reads native accessibility trees and operates desktop apps. Each tool runs the \
 agent-desktop CLI command of the same name and returns its JSON envelope: ok with data, or ok \
-false with error; a call rejected before the command runs returns plain text. Read \
+false with error; a call rejected before the command runs returns plain text. desktop_sandbox_exec \
+is the exception: its text is the guest command's own stdout, empty included, and isError follows \
+the guest's exit status. Read \
 desktop_skills_get with name \"desktop\" first for the observe-act loop, and with name \
 \"platform\" for what differs on this OS. The skills use CLI syntax: `agent-desktop snapshot \
 --app Finder` is desktop_snapshot with {\"app\": \"Finder\"}, and the input schema replaces \
 --help. Global flags (--session, --agent-id, --headed, --wait-for, --trace) are fixed \
-by how this server was started and cannot be passed per call. Refs such as @s8f3k2p9:e1 come from \
+by how this server was started and cannot be passed per call; desktop_sandbox_exec gets none of \
+them, so put the guest command's flags in its args. Refs such as @s8f3k2p9:e1 come from \
 desktop_snapshot and go stale when the UI changes: on STALE_REF or AMBIGUOUS_TARGET, snapshot \
 again. Repeat an action only when its disposition.retry is \"safe\".";
 
