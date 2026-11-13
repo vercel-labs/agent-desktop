@@ -119,9 +119,15 @@ pub(crate) struct ResizeWindowCliArgs {
     #[command(flatten)]
     #[serde(flatten)]
     pub scope: WindowScope,
-    #[arg(long, help = "New window width in pixels")]
+    #[arg(
+        long,
+        help = "New window width in points on macOS, pixels on Windows and Linux"
+    )]
     pub width: f64,
-    #[arg(long, help = "New window height in pixels")]
+    #[arg(
+        long,
+        help = "New window height in points on macOS, pixels on Windows and Linux"
+    )]
     pub height: f64,
 }
 

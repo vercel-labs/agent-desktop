@@ -267,7 +267,7 @@ Platform limits: Linux needs X11. See [Linux](/desktop/platforms/linux) and [Win
 Sets a window's width and height.
 
 ```bash
-agent-desktop resize-window --width PX --height PX [--app NAME] [--window-id ID]
+agent-desktop resize-window --width WIDTH --height HEIGHT [--app NAME] [--window-id ID]
 ```
 
 <table>
@@ -275,7 +275,7 @@ agent-desktop resize-window --width PX --height PX [--app NAME] [--window-id ID]
     <tr><th>Flag</th><th>Default</th><th>Meaning</th></tr>
   </thead>
   <tbody>
-    <tr><td><code>--width PX</code>, <code>--height PX</code></td><td>required</td><td>New window size.</td></tr>
+    <tr><td><code>--width WIDTH</code>, <code>--height HEIGHT</code></td><td>required</td><td>New size, in points on macOS and pixels on Windows and Linux.</td></tr>
     <tr><td><code>--app NAME</code></td><td>focused app</td><td>Application name.</td></tr>
     <tr><td><code>--window-id ID</code></td><td>none</td><td>Window id from <code>list-windows</code>.</td></tr>
   </tbody>
@@ -315,9 +315,9 @@ agent-desktop resize-window --app gedit --width 800 --height 600
 }
 ```
 
-`delivered_verified` means the adapter read the size back within `details.tolerance`. `details.observed` is a Linux addition. Errors: `INVALID_ARGS` for a non-finite or out-of-range size, `STALE_REF` when the window identity changed before the write, and `ACTION_FAILED` when the window manager clamped or ignored the request. After a failed write, read the bounds before you retry.
+`delivered_verified` means the adapter read the size back within `details.tolerance`. `details.units` is `points` on macOS, `px` on Windows, and `pixels` on Linux. `details.observed` is a Linux addition. Errors: `INVALID_ARGS` for a non-finite or out-of-range size, `STALE_REF` when the window identity changed before the write, and `ACTION_FAILED` when the window manager clamped or ignored the request. After a failed write, read the bounds before you retry.
 
-Platform limits: the tolerance differs by OS, and on Linux window control uses an X11 client, so Wayland-native windows are refused. See [Linux](/desktop/platforms/linux).
+Platform limits: the tolerance is 2 points on macOS, 8 px on Windows, and 2 pixels on Linux. On Linux, window control uses an X11 client, so Wayland-native windows are refused. See [Linux](/desktop/platforms/linux).
 
 ## move-window
 
