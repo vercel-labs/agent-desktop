@@ -127,11 +127,25 @@ fn parse_steps(value: &str) -> Option<u8> {
         .filter(|steps| (1..=(ACCESSIBILITY | SCREEN_RECORDING)).contains(steps))
 }
 
-/// TCC charges a command-line tool to the app that launched its process
-/// tree, so the guide shows the nearest ancestor that runs from an app
-/// bundle. Terminal servers such as Rex Server are not registered with
-/// LaunchServices, so the bundle comes from the executable path.
+/// TCC charges a command-line tool to its responsible process, which stays the
+/// app that launched it even when a terminal multiplexer server detaches and is
+/// reparented to launchd. The ancestor walk is the fallback. Terminal servers
+/// such as Rex Server are not registered with LaunchServices, so the bundle
+/// comes from the executable path.
 fn host_app() -> Option<PathBuf> {
+    responsible_app().or_else(ancestor_app)
+}
+
+fn responsible_app() -> Option<PathBuf> {
+    let pid = responsible_pid(i32::try_from(std::process::id()).ok()?)?;
+    crate::system::renderer_kind::executable_path(pid)
+        .as_deref()
+        .and_then(outermost_app)
+}
+
+/// The nearest ancestor that runs from an app bundle, used when the
+/// responsible process is unknown or runs outside an app bundle.
+fn ancestor_app() -> Option<PathBuf> {
     let mut pid = i32::try_from(std::process::id()).ok()?;
     for _ in 0..MAX_ANCESTORS {
         if pid <= 1 {
@@ -146,6 +160,24 @@ fn host_app() -> Option<PathBuf> {
         pid = parent_pid(pid)?;
     }
     None
+}
+
+/// Resolves the private libSystem symbol at runtime, so a macOS that drops it
+/// leaves the binary launching instead of failing to link.
+fn responsible_pid(pid: i32) -> Option<i32> {
+    let symbol = unsafe {
+        libc::dlsym(
+            libc::RTLD_DEFAULT,
+            c"responsibility_get_pid_responsible_for_pid".as_ptr(),
+        )
+    };
+    if symbol.is_null() {
+        return None;
+    }
+    let responsible: unsafe extern "C" fn(libc::pid_t) -> libc::pid_t =
+        unsafe { std::mem::transmute(symbol) };
+    let responsible = unsafe { responsible(pid) };
+    (responsible > 0).then_some(responsible)
 }
 
 /// A helper such as `Code Helper (Plugin).app` sits inside the app that TCC
@@ -326,5 +358,27 @@ mod tests {
             .next()
             .unwrap();
         assert_eq!(parent_pid(root_child), Some(1));
+    }
+
+    #[test]
+    fn the_host_survives_a_process_detaching_from_its_launcher() {
+        let launched = Command::new("/bin/sh")
+            .args(["-c", "/bin/sleep 30 >/dev/null 2>&1 & echo $!"])
+            .output()
+            .unwrap();
+        let orphan: i32 = String::from_utf8(launched.stdout)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let give_up = Instant::now() + Duration::from_secs(5);
+        while parent_pid(orphan) != Some(1) && Instant::now() < give_up {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let orphan_responsible = responsible_pid(orphan);
+        let own_responsible = responsible_pid(i32::try_from(std::process::id()).unwrap());
+        unsafe { libc::kill(orphan, libc::SIGKILL) };
+        assert!(orphan_responsible.is_some());
+        assert_eq!(orphan_responsible, own_responsible);
     }
 }
