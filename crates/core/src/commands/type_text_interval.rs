@@ -44,40 +44,34 @@ pub(crate) fn execute(
             .filter(|timeout_ms| *timeout_ms > 0)
             .unwrap_or_else(|| default_timeout_ms(unit))
     };
-    let mut last = Value::Null;
-    let mut burst: Option<Burst> = None;
-    for (index, unit) in units.iter().enumerate() {
+    let Some((first, rest)) = units.split_first() else {
+        return Err(AppError::invalid_input(
+            "type --interval-ms needs text to type",
+        ));
+    };
+    let first_slot = clock.wait();
+    let Landing {
+        value: mut last,
+        burst,
+    } = execute_landing(
+        RefArgs {
+            ref_id: args.ref_id.clone(),
+            timeout_ms: waits.then(|| budget(first)),
+        },
+        adapter,
+        context.request_base(Action::TypeText(first.clone())),
+        &per_keystroke,
+    )?;
+    clock.delivered(first_slot);
+    for (offset, unit) in rest.iter().enumerate() {
         let slot = clock.wait();
         let request = context.request_base(Action::TypeText(unit.clone()));
-        let mut landed = None;
-        let delivered = match &burst {
-            Some(burst) => deliver(adapter, burst, request, budget(unit)).map(|_| {
-                crate::ref_action::presentation::move_caret(adapter, context, &burst.handle);
-            }),
-            None => execute_landing(
-                RefArgs {
-                    ref_id: args.ref_id.clone(),
-                    timeout_ms: waits.then(|| budget(unit)),
-                },
-                adapter,
-                request,
-                &per_keystroke,
-            )
-            .map(|(value, handle)| {
-                last = value;
-                landed = Some(handle);
-            }),
-        };
-        delivered.map_err(|error| after_partial_delivery(error, index, units.len()))?;
+        deliver(adapter, &burst, request, budget(unit))
+            .map_err(|error| after_partial_delivery(error, offset + 1, units.len()))?;
+        crate::ref_action::presentation::move_caret(adapter, context, &burst.handle);
         clock.delivered(slot);
-        if let Some(handle) = landed.filter(|_| index + 1 < units.len()) {
-            burst = Some(
-                burst_around(handle, &args.ref_id, context)
-                    .map_err(|error| after_partial_delivery(error, index + 1, units.len()))?,
-            );
-        }
     }
-    if let Some(burst) = &burst {
+    if !rest.is_empty() {
         let expected = expected_final_value(&last, &units);
         super::type_text_interval_verify::verify_burst(
             &mut last,
@@ -90,8 +84,7 @@ pub(crate) fn execute(
     if context.wait_selector().is_none() {
         return Ok(value);
     }
-    let entry = crate::commands::helpers::load_ref_entry(&args.ref_id, context)?;
-    crate::commands::helpers::apply_post_action_wait(value, Some(&entry), adapter, context)
+    crate::commands::helpers::apply_post_action_wait(value, Some(&burst.entry), adapter, context)
 }
 
 /// What the field should read once every keystroke has landed, when the first
@@ -140,22 +133,47 @@ fn next_due(slot: Instant, now: Instant, interval: Duration) -> Instant {
 }
 
 /// The saved ref, its resolved element and process instance, which every later
-/// keystroke must still reach.
+/// keystroke must still reach. It exists only once the first keystroke has
+/// landed, and it carries the entry that keystroke resolved, so nothing after
+/// delivery reads the refmap again: a snapshot pruned or rewritten during the
+/// burst cannot turn delivered text into a refusal.
 struct Burst {
     entry: crate::RefEntry,
     handle: crate::NativeHandle,
     process: Option<crate::ProcessIdentity>,
 }
 
-/// Runs the first unit as a full ref action and returns the element it landed
-/// on beside its result, so the burst keeps that element instead of resolving
-/// it again.
+impl Burst {
+    fn landed(entry: crate::RefEntry, handle: crate::NativeHandle) -> Self {
+        let process = entry
+            .process
+            .process_instance
+            .as_deref()
+            .filter(|instance| !instance.is_empty())
+            .map(|instance| crate::ProcessIdentity::new(entry.process.pid, instance));
+        Self {
+            entry,
+            handle,
+            process,
+        }
+    }
+}
+
+/// The first keystroke's result and the burst it opened.
+struct Landing {
+    value: Value,
+    burst: Burst,
+}
+
+/// Runs the first unit as a full ref action and keeps the element and entry it
+/// landed on, so the burst neither resolves the element nor loads the entry
+/// again.
 fn execute_landing(
     args: RefArgs,
     adapter: &dyn PlatformAdapter,
     request: crate::ActionRequest,
     context: &CommandContext,
-) -> Result<(Value, crate::NativeHandle), AppError> {
+) -> Result<Landing, AppError> {
     let landed = Cell::new(None);
     let value = execute_ref_action_dispatching(
         args,
@@ -165,33 +183,14 @@ fn execute_landing(
         |target, request, lease| {
             let (result, handle) =
                 crate::ref_action::dispatch_resolved_landing(target, request, lease)?;
-            landed.set(Some(handle));
+            landed.set(Some(Burst::landed(target.entry.clone(), handle)));
             Ok(result)
         },
     )?;
-    let handle = landed
+    let burst = landed
         .take()
         .ok_or_else(|| AdapterError::internal("the ref action landed no element"))?;
-    Ok((value, handle))
-}
-
-fn burst_around(
-    handle: crate::NativeHandle,
-    ref_id: &str,
-    context: &CommandContext,
-) -> Result<Burst, AppError> {
-    let entry = crate::commands::helpers::load_ref_entry(ref_id, context)?;
-    let process = entry
-        .process
-        .process_instance
-        .as_deref()
-        .filter(|instance| !instance.is_empty())
-        .map(|instance| crate::ProcessIdentity::new(entry.process.pid, instance));
-    Ok(Burst {
-        entry,
-        handle,
-        process,
-    })
+    Ok(Landing { value, burst })
 }
 
 fn deliver(
