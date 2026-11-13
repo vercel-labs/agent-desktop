@@ -22,7 +22,7 @@ pub(crate) const EXHAUSTION: UiaFailure = UiaFailure::Sentinel(ERR_NONE);
 
 /// The real enumeration fault A14-4 measured: descent against a provider whose
 /// process has gone away returns `E_FAIL` with `result()` `Some`.
-pub(crate) const E_FAIL: i32 = 0x8000_4005_u32 as i32;
+pub(crate) use crate::system::runtime::hresult::E_FAIL;
 pub(crate) const REAL_FAILURE: UiaFailure = UiaFailure::Hresult(E_FAIL);
 
 /// The nodes on which each enumeration step should fail, or answer slowly,

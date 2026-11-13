@@ -17,7 +17,7 @@
 use super::presentation::{Presentation, RestState};
 #[cfg(target_os = "windows")]
 use crate::system::cursor_overlay::{
-    animation, caret_mark::CaretMark, fade, label, monitors, render, reveal::Reveal, schedule,
+    animation, caret_mark::CaretMark, fade, monitors, render, reveal::Reveal, schedule,
     session_state, text, topology::DisplayTopology, window::OverlayWindow,
 };
 #[cfg(target_os = "windows")]
@@ -358,7 +358,8 @@ impl SurfaceHost {
         ) {
             return;
         }
-        let next = self.presentation.label_from(control).and_then(label::clamp);
+        let sent = self.presentation.label_from(control);
+        let next = sent.and_then(agent_desktop_core::clamp_cursor_label);
         if next != self.presentation.label {
             self.presentation.reveal = Reveal::for_label(next.as_deref());
         }

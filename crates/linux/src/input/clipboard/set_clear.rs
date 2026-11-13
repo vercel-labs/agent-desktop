@@ -6,10 +6,12 @@ use agent_desktop_core::{
     InteractionLease,
 };
 
+use crate::system::process::process_facts;
+use crate::system::signal::{self, Signal};
+
 use super::delivery::{fresh_deadline, not_delivered, unresponsive};
 use super::owner::owner_locate::locate_helper;
 use super::owner::owner_record::{self, OwnerRecord};
-use super::owner::owner_signal::{PidfdControl, stop_by_identity};
 use super::owner::owner_spawn::{
     ChildProbe, Handshake, await_handshake, kill_and_reap, new_nonce, payload_file, reap_when_done,
 };
@@ -50,7 +52,8 @@ fn discard(dir: &Path, display: &str, nonce: &str) {
 }
 
 fn retire(env: &Env<'_>, display: &str, record: &OwnerRecord) {
-    let _ = stop_by_identity(&PidfdControl, record);
+    let instance = process_facts::instance_token(record.start_ticks);
+    let _ = signal::send(record.pid, &instance, Signal::Term);
     discard(env.record_dir, display, &record.nonce);
 }
 

@@ -1,7 +1,11 @@
 //! A session-scoped X11 overlay retained by the server between adapter calls.
 use x11rb::connection::Connection;
+use x11rb::cookie::{Cookie, VoidCookie};
+use x11rb::errors::ConnectionError;
 use x11rb::protocol::shape::{ConnectionExt as _, SK};
 use x11rb::protocol::xproto::*;
+use x11rb::rust_connection::RustConnection;
+use x11rb::x11_utils::TryParse;
 
 use agent_desktop_core::{AdapterError, CursorOverlayControl, Deadline, FileLock};
 
@@ -19,7 +23,19 @@ fn error(detail: impl std::fmt::Display) -> AdapterError {
         .with_platform_detail(detail.to_string())
 }
 
-fn connect(display: &str) -> Result<(x11rb::rust_connection::RustConnection, usize), AdapterError> {
+fn checked(
+    request: Result<VoidCookie<'_, RustConnection>, ConnectionError>,
+) -> Result<(), AdapterError> {
+    request.map_err(error)?.check().map_err(error)
+}
+
+fn replied<R: TryParse>(
+    request: Result<Cookie<'_, RustConnection, R>, ConnectionError>,
+) -> Result<R, AdapterError> {
+    request.map_err(error)?.reply().map_err(error)
+}
+
+fn connect(display: &str) -> Result<(RustConnection, usize), AdapterError> {
     let (connection, root) = crate::system::x11::control_display::open(display)
         .ok_or_else(|| error("The display did not answer the cursor connection"))?;
     let index = connection
@@ -72,17 +88,8 @@ pub(in crate::system) fn is_overlay(
     if !attributes.override_redirect || geometry.depth != 32 {
         return Ok(false);
     }
-    let atom = connection
-        .intern_atom(false, OWNER)
-        .map_err(error)?
-        .reply()
-        .map_err(error)?
-        .atom;
-    let owner = connection
-        .get_property(false, window, atom, AtomEnum::STRING, 0, 1024)
-        .map_err(error)?
-        .reply()
-        .map_err(error)?;
+    let atom = replied(connection.intern_atom(false, OWNER))?.atom;
+    let owner = replied(connection.get_property(false, window, atom, AtomEnum::STRING, 0, 1024))?;
     if owner.format != 8
         || owner.bytes_after != 0
         || !serde_json::from_slice::<(String, Option<String>)>(&owner.value)
@@ -90,11 +97,7 @@ pub(in crate::system) fn is_overlay(
     {
         return Ok(false);
     }
-    Ok(connection
-        .shape_get_rectangles(window, SK::INPUT)
-        .map_err(error)?
-        .reply()
-        .map_err(error)?
+    Ok(replied(connection.shape_get_rectangles(window, SK::INPUT))?
         .rectangles
         .is_empty())
 }
@@ -102,20 +105,9 @@ pub(in crate::system) fn is_overlay(
 fn apply(display: &str, control: &CursorOverlayControl) -> Result<(), AdapterError> {
     let (connection, index) = connect(display)?;
     let root = connection.setup().roots[index].root;
-    let atom = connection
-        .intern_atom(false, OWNER)
-        .map_err(error)?
-        .reply()
-        .map_err(error)?
-        .atom;
+    let atom = replied(connection.intern_atom(false, OWNER))?.atom;
     let mut found = false;
-    for window in connection
-        .query_tree(root)
-        .map_err(error)?
-        .reply()
-        .map_err(error)?
-        .children
-    {
+    for window in replied(connection.query_tree(root))?.children {
         let property = connection
             .get_property(false, window, atom, AtomEnum::STRING, 0, 1024)
             .map_err(error)?
@@ -132,16 +124,8 @@ fn apply(display: &str, control: &CursorOverlayControl) -> Result<(), AdapterErr
         {
             continue;
         }
-        let attrs = connection
-            .get_window_attributes(window)
-            .map_err(error)?
-            .reply()
-            .map_err(error)?;
-        let geometry = connection
-            .get_geometry(window)
-            .map_err(error)?
-            .reply()
-            .map_err(error)?;
+        let attrs = replied(connection.get_window_attributes(window))?;
+        let geometry = replied(connection.get_geometry(window))?;
         if !attrs.override_redirect || geometry.depth != 32 {
             return Err(error(
                 "The cursor ownership property names an incompatible window",
@@ -149,11 +133,7 @@ fn apply(display: &str, control: &CursorOverlayControl) -> Result<(), AdapterErr
         }
         found = true;
         if control.is_disable() {
-            connection
-                .kill_client(window)
-                .map_err(error)?
-                .check()
-                .map_err(error)?;
+            checked(connection.kill_client(window))?;
         } else {
             let (paint, _) = connect(display)?;
             let mut overlay = draw::Overlay {
