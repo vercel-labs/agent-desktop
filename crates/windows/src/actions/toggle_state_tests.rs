@@ -1,6 +1,6 @@
 use super::{ToggleGoal, ToggleKind, drive_toggle};
-use crate::actions::chain::DeliveryOutcome;
 use crate::system::fixture::test_time::deadline;
+use agent_desktop_core::DeliveryOutcome;
 use agent_desktop_core::{AdapterError, DeliverySemantics, ErrorCode};
 use std::cell::Cell;
 
@@ -38,14 +38,20 @@ const TRI_STATE: &[ToggleKind] = &[ToggleKind::Off, ToggleKind::On, ToggleKind::
 #[test]
 fn an_observed_flip_is_verified_after_one_delivery() {
     let (outcome, flips) = drive(ToggleGoal::Flip, ToggleKind::Off, TWO_STATE, false);
-    assert_eq!(outcome, DeliveryOutcome::DeliveredVerified);
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(agent_desktop_core::DeliveryObservation::Verified)
+    );
     assert_eq!(flips, 1);
 }
 
 #[test]
-fn a_flip_the_state_never_shows_is_unverified_and_not_resent() {
+fn a_flip_the_readable_state_never_shows_is_no_effect_and_not_resent() {
     let (outcome, flips) = drive(ToggleGoal::Checked(true), ToggleKind::Off, TWO_STATE, true);
-    assert_eq!(outcome, DeliveryOutcome::DeliveredUnverified);
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(agent_desktop_core::DeliveryObservation::NoEffect)
+    );
     assert_eq!(flips, 1);
 }
 
@@ -57,7 +63,10 @@ fn check_from_indeterminate_flips_twice_and_verifies() {
         TRI_STATE,
         false,
     );
-    assert_eq!(outcome, DeliveryOutcome::DeliveredVerified);
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(agent_desktop_core::DeliveryObservation::Verified)
+    );
     assert_eq!(flips, 2);
 }
 
@@ -86,7 +95,10 @@ fn a_flip_from_an_unreadable_state_is_not_verified() {
         &mut || Ok(true),
     )
     .expect("drive");
-    assert_eq!(outcome, DeliveryOutcome::DeliveredUnverified);
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(agent_desktop_core::DeliveryObservation::Unverified)
+    );
 }
 
 #[test]

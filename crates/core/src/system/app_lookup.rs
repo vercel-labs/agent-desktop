@@ -178,6 +178,7 @@ pub(crate) fn live_process_owner(
 ) -> Result<WindowInfo, AppError> {
     let stale = |reason| AppError::Adapter(AdapterError::stale_ref_because(reason));
     let expected = AppInfo {
+        aliases: Vec::new(),
         name: entry
             .source
             .source_app

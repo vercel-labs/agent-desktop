@@ -22,9 +22,15 @@ pub(super) struct CdpAdapter {
 }
 
 impl ObservationOps for CdpAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        self.list_apps_calls.fetch_add(1, Ordering::SeqCst);
-        Ok(self.running.clone())
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer({
+            self.list_apps_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(self.running.clone())
+        }?))
     }
 }
 impl ActionOps for CdpAdapter {}

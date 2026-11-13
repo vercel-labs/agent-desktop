@@ -10,8 +10,10 @@
 use agent_desktop_core::{ActionStep, AdapterError, Deadline, InteractionPolicy};
 use std::time::Duration;
 
-use crate::actions::chain::{DeliveryOutcome, after_delivery, poll_until};
+use crate::actions::chain::{after_delivery, poll_until};
+
 use crate::tree::element::UIAElement;
+use agent_desktop_core::DeliveryOutcome;
 
 pub(crate) const TOGGLE_LABEL: &str = "TogglePattern.Toggle";
 
@@ -94,16 +96,23 @@ pub(crate) fn drive_toggle(
         })
         .map_err(after_delivery)?;
         if !moved {
-            return Ok(DeliveryOutcome::DeliveredUnverified);
+            return Ok(DeliveryOutcome::Delivered(match now {
+                Some(_) => agent_desktop_core::DeliveryObservation::NoEffect,
+                None => agent_desktop_core::DeliveryObservation::Unread,
+            }));
         }
         if goal == ToggleGoal::Flip || goal.satisfied_by(now) {
-            return Ok(DeliveryOutcome::DeliveredVerified);
+            return Ok(DeliveryOutcome::Delivered(
+                agent_desktop_core::DeliveryObservation::Verified,
+            ));
         }
         if let Some(state) = now {
             before = state;
         }
     }
-    Ok(DeliveryOutcome::DeliveredUnverified)
+    Ok(DeliveryOutcome::Delivered(
+        agent_desktop_core::DeliveryObservation::Unverified,
+    ))
 }
 
 #[cfg(target_os = "windows")]
@@ -113,12 +122,13 @@ mod imp {
         ToggleGoal, ToggleKind, UIAElement, drive_toggle,
     };
     use crate::actions::chain::{
-        ALREADY_LABEL, ChainRung, DeliveryOutcome, LEGACY_LABEL, build_step, execute_chain,
-        legacy_default_action, legacy_default_action_available,
+        ALREADY_LABEL, LEGACY_LABEL, legacy_default_action, legacy_default_action_available,
+        offered, rung,
     };
     use crate::actions::mutation::{classify_success, classify_write};
     use crate::tree::properties::property_ids::TreeProperty;
     use crate::tree::properties::read_one;
+    use agent_desktop_core::DeliveryOutcome;
     use uiautomation::patterns::UITogglePattern;
 
     pub(crate) fn toggle_steps(
@@ -130,10 +140,7 @@ mod imp {
         deadline.ensure_remaining()?;
         let toggle_ok = read_one(element, TreeProperty::ToggleAvailable).flag() == Some(true);
         if goal.satisfied_by(read_toggle_state(element)) {
-            return Ok(vec![build_step(
-                ALREADY_LABEL,
-                DeliveryOutcome::SatisfiedNoDelivery,
-            )]);
+            return Ok(vec![DeliveryOutcome::Satisfied.step(ALREADY_LABEL)]);
         }
         let mut read = || read_toggle_state(element);
         let mut legacy = || {
@@ -144,24 +151,19 @@ mod imp {
         let mut read = || read_toggle_state(element);
         let mut pattern =
             || drive_toggle(goal, deadline, &mut read, &mut || pattern_toggle(element));
-        execute_chain(
+        agent_desktop_core::execute_chain(
+            &mut offered([
+                rung(
+                    LEGACY_LABEL,
+                    toggle_ok && legacy_default_action_available(element),
+                    false,
+                    &mut legacy,
+                ),
+                rung(TOGGLE_LABEL, toggle_ok, true, &mut pattern),
+            ]),
+            policy,
             deadline,
             TOGGLE_SUGGESTION,
-            policy,
-            &mut [
-                ChainRung {
-                    label: LEGACY_LABEL,
-                    available: toggle_ok && legacy_default_action_available(element),
-                    requires_headed: false,
-                    run: &mut legacy,
-                },
-                ChainRung {
-                    label: TOGGLE_LABEL,
-                    available: toggle_ok,
-                    requires_headed: true,
-                    run: &mut pattern,
-                },
-            ],
         )
     }
 

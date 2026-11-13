@@ -10,6 +10,8 @@ pub(crate) enum Decision {
 }
 
 /// Only verified canonical executable identity can establish attachment.
+/// Bare long options are not compared, so `launch nautilus` attaches to
+/// `nautilus --gapplication-service`.
 pub(crate) fn matches(
     identity: &Option<crate::system::process::executable_identity::ExecutableIdentity>,
     app: &Running,
@@ -17,7 +19,7 @@ pub(crate) fn matches(
     identity
         .as_ref()
         .zip(app.executable.as_ref())
-        .is_some_and(|(wanted, actual)| wanted.matches(actual))
+        .is_some_and(|(wanted, actual)| wanted.is_running_as(actual))
 }
 
 /// Decides before anything is spawned. No match spawns. One match is attached

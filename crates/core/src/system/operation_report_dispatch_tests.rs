@@ -16,6 +16,7 @@ fn window(instance: Option<&str>) -> WindowInfo {
 
 fn app(instance: Option<&str>) -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: "Notes".into(),
         pid: ProcessId::new(9),
         bundle_id: None,

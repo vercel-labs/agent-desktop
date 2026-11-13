@@ -127,6 +127,7 @@ impl SystemOps for WakeAdapter {
 
 fn app() -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: "Editor".into(),
         pid: crate::ProcessId::new(42),
         bundle_id: None,

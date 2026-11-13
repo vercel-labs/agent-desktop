@@ -29,6 +29,7 @@ mod tests {
     #[test]
     fn test_app_info_roundtrip() {
         let a = AppInfo {
+            aliases: Vec::new(),
             name: "Finder".into(),
             pid: agent_desktop_core::ProcessId::new(42),
             bundle_id: Some("com.apple.finder".into()),

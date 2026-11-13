@@ -11,8 +11,12 @@ struct InventoryAdapter {
 }
 
 impl ObservationOps for InventoryAdapter {
-    fn list_apps(&self, _deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        Ok(self.apps.clone())
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(self.apps.clone()))
     }
 
     fn list_windows(
@@ -30,6 +34,7 @@ impl SystemOps for InventoryAdapter {}
 
 fn app(instance: Option<&str>) -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: "Example".into(),
         pid: crate::ProcessId::new(42),
         bundle_id: Some("com.example.app".into()),
@@ -40,6 +45,7 @@ fn app(instance: Option<&str>) -> AppInfo {
 
 fn app_with_pid(pid: u32, instance: Option<&str>) -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         pid: crate::ProcessId::new(pid),
         ..app(instance)
     }
@@ -62,25 +68,26 @@ impl ScopedInventorySpy {
 }
 
 impl ObservationOps for ScopedInventorySpy {
-    fn list_apps(&self, _deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        self.global_calls.fetch_add(1, Ordering::Relaxed);
-        Err(AdapterError::new(
-            ErrorCode::AppUnresponsive,
-            "unrelated global inventory failure",
-        ))
-    }
-
-    fn list_apps_scoped(
+    fn query_app_inventory(
         &self,
-        name: &str,
-        bundle_id: Option<&str>,
+        query: crate::AppInventoryQuery<'_>,
         _deadline: Deadline,
-    ) -> Result<Vec<AppInfo>, AdapterError> {
+    ) -> Result<crate::AppInventory, AdapterError> {
+        let crate::AppInventoryQuery::Exact { name, bundle_id } = query else {
+            self.global_calls.fetch_add(1, Ordering::Relaxed);
+            return Err(AdapterError::new(
+                ErrorCode::AppUnresponsive,
+                "unrelated global inventory failure",
+            ));
+        };
         self.scopes
             .lock()
             .unwrap()
             .push((name.to_string(), bundle_id.map(str::to_string)));
-        Ok(self.apps.clone())
+        Ok(crate::AppInventory {
+            apps: self.apps.clone(),
+            skipped: Vec::new(),
+        })
     }
 }
 
@@ -91,23 +98,21 @@ impl SystemOps for ScopedInventorySpy {}
 struct ScopedPermissionAdapter;
 
 impl ObservationOps for ScopedPermissionAdapter {
-    fn list_apps(&self, _deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        Err(AdapterError::new(
-            ErrorCode::AppUnresponsive,
-            "unrelated global inventory failure",
-        ))
-    }
-
-    fn list_apps_scoped(
+    fn query_app_inventory(
         &self,
-        _name: &str,
-        _bundle_id: Option<&str>,
+        query: crate::AppInventoryQuery<'_>,
         _deadline: Deadline,
-    ) -> Result<Vec<AppInfo>, AdapterError> {
-        Err(AdapterError::new(
-            ErrorCode::PermDenied,
-            "permission denied reading requested process identity",
-        ))
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Err(match query {
+            crate::AppInventoryQuery::Exact { .. } => AdapterError::new(
+                ErrorCode::PermDenied,
+                "permission denied reading requested process identity",
+            ),
+            _ => AdapterError::new(
+                ErrorCode::AppUnresponsive,
+                "unrelated global inventory failure",
+            ),
+        })
     }
 }
 
@@ -116,7 +121,7 @@ impl InputOps for ScopedPermissionAdapter {}
 impl SystemOps for ScopedPermissionAdapter {}
 
 #[test]
-fn named_resolution_uses_scoped_inventory_when_global_inventory_fails() {
+fn named_resolution_asks_only_for_the_named_application() {
     let adapter = ScopedInventorySpy::new(vec![app(Some("generation-a"))]);
 
     let resolved = resolve_app(Some("example"), &adapter, Deadline::standard().unwrap()).unwrap();
@@ -161,7 +166,7 @@ fn scoped_target_permission_failure_is_preserved() {
 }
 
 #[test]
-fn default_scoped_inventory_filters_exact_name_and_bundle_case_insensitively() {
+fn an_exact_query_filters_name_and_bundle_case_insensitively() {
     let mut wrong_name = app_with_pid(43, Some("generation-b"));
     wrong_name.name = "Example Helper".into();
     let mut wrong_bundle = app_with_pid(44, Some("generation-c"));
@@ -171,13 +176,11 @@ fn default_scoped_inventory_filters_exact_name_and_bundle_case_insensitively() {
         windows: Vec::new(),
     };
 
-    let scoped = adapter
-        .list_apps_scoped(
-            "example",
-            Some("COM.EXAMPLE.APP"),
-            Deadline::standard().unwrap(),
-        )
-        .unwrap();
+    let scoped = crate::AppInventoryQuery::Exact {
+        name: "example",
+        bundle_id: Some("COM.EXAMPLE.APP"),
+    }
+    .select(adapter.apps.clone());
 
     assert_eq!(scoped.len(), 1);
     assert_eq!(scoped[0].pid, 42);
@@ -315,4 +318,40 @@ fn an_unknown_application_name_is_not_delivered_and_safe_to_retry() {
     assert_eq!(error.code, ErrorCode::AppNotFound);
     assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());
     assert_eq!(error.disposition.retry(), crate::RetryDisposition::Safe);
+}
+
+fn aliased(pid: u32, name: &str, alias: &str) -> AppInfo {
+    AppInfo {
+        aliases: vec![alias.into()],
+        name: name.into(),
+        ..app_with_pid(pid, Some("generation-a"))
+    }
+}
+
+#[test]
+fn a_name_two_applications_only_alias_is_ambiguous_not_a_silent_pick() {
+    let adapter = InventoryAdapter {
+        apps: vec![
+            aliased(42, "gedit", "Text Editor"),
+            aliased(43, "gnome-text-editor", "Text Editor"),
+        ],
+        windows: Vec::new(),
+    };
+
+    let error =
+        resolve_app(Some("Text Editor"), &adapter, Deadline::standard().unwrap()).unwrap_err();
+
+    assert_eq!(error.code(), "AMBIGUOUS_TARGET");
+}
+
+#[test]
+fn the_application_carrying_the_name_wins_over_one_that_aliases_it() {
+    let adapter = InventoryAdapter {
+        apps: vec![aliased(42, "electron", "code"), aliased(43, "code", "")],
+        windows: Vec::new(),
+    };
+
+    let app = resolve_app(Some("code"), &adapter, Deadline::standard().unwrap()).unwrap();
+
+    assert_eq!(app.pid, crate::ProcessId::new(43));
 }

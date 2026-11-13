@@ -50,6 +50,13 @@ pub(crate) fn hosted_application_pid(
     None
 }
 
+/// The process a top-level window belongs to as an application: the hosted
+/// application for a frame host frame, the window's own owner otherwise.
+/// list-apps and list-windows both use it, so they name the same process.
+pub(crate) fn application_pid(handle: super::window_enum::WindowHandle) -> Option<ProcessId> {
+    hosted_application_pid(handle).or_else(|| super::window_identity::live_window_owner(handle))
+}
+
 /// The first child `CoreWindow` whose owning process differs from the
 /// frame's, walked in z-order through the frame's immediate children. A
 /// child whose owner cannot be read is passed over, not fatal: one raced

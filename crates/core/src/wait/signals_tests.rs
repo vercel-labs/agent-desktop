@@ -21,6 +21,7 @@ fn app(name: &str, pid: u32) -> AppInfo {
 
 fn app_with_instance(name: &str, pid: u32, instance: &str) -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: name.into(),
         pid: crate::ProcessId::new(pid),
         bundle_id: None,

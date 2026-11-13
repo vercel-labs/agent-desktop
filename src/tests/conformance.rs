@@ -218,7 +218,7 @@ fn platform_adapter_exposes_all_capability_methods() {
             .expect_err("an adapter without window listing reports it unsupported");
         assert_eq!(windows.code, ErrorCode::PlatformNotSupported);
         let apps = adapter
-            .list_apps(deadline)
+            .query_app_inventory(agent_desktop_core::AppInventoryQuery::All, deadline)
             .expect_err("an adapter without app listing reports it unsupported");
         assert_eq!(apps.code, ErrorCode::PlatformNotSupported);
         let permissions = adapter

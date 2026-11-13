@@ -17,7 +17,7 @@ use agent_desktop_core::{
     AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionLease, InteractionPolicy, Rect,
 };
 
-use crate::actions::chain::DeliveryOutcome;
+use agent_desktop_core::DeliveryOutcome;
 
 #[cfg(target_os = "windows")]
 mod imp {
@@ -25,7 +25,7 @@ mod imp {
         AdapterError, Deadline, DeliveryOutcome, DeliverySemantics, ErrorCode, InteractionLease,
         InteractionPolicy, Rect,
     };
-    use crate::actions::chain::{ALREADY_LABEL, after_delivery, foreground_denied, poll_until};
+    use crate::actions::chain::{ALREADY_LABEL, after_delivery, poll_until};
     use crate::actions::mutation::classify_mutation;
     use crate::actions::scroll::known_bounds;
     use crate::actions::scroll_ladder::{
@@ -106,7 +106,7 @@ mod imp {
         if viewport_resolved && visibility_verified(&observe()?) {
             return Ok(ScrollIntoViewDone {
                 label: ALREADY_LABEL,
-                outcome: DeliveryOutcome::SatisfiedNoDelivery,
+                outcome: DeliveryOutcome::Satisfied,
             });
         }
         if let Some((list, name)) = native_list_box_item(element)
@@ -125,7 +125,10 @@ mod imp {
             if policy.is_headed() {
                 ladder_from_terminal(fallback, element, deadline)
             } else if viewport.is_some() {
-                Err(foreground_denied(&[LADDER_SCROLL_LABEL], policy))
+                Err(agent_desktop_core::mechanisms_denied(
+                    &[LADDER_SCROLL_LABEL],
+                    policy,
+                ))
             } else {
                 Err(fallback)
             }
@@ -134,7 +137,10 @@ mod imp {
             return ladder(unsupported_error());
         }
         if !policy.is_headed() && !is_wpf(element) {
-            return Err(foreground_denied(&[SCROLL_INTO_VIEW_API], policy));
+            return Err(agent_desktop_core::mechanisms_denied(
+                &[SCROLL_INTO_VIEW_API],
+                policy,
+            ));
         }
         let before = known_bounds(element);
         let invoke_failure = match invoke_scroll_into_view(element) {
@@ -158,7 +164,9 @@ mod imp {
         }) {
             Ok(()) => Ok(ScrollIntoViewDone {
                 label: SCROLL_INTO_VIEW_API,
-                outcome: DeliveryOutcome::DeliveredVerified,
+                outcome: DeliveryOutcome::Delivered(
+                    agent_desktop_core::DeliveryObservation::Verified,
+                ),
             }),
             Err(error) if error.disposition == DeliverySemantics::not_delivered() => ladder(error),
             Err(error) => Err(error),

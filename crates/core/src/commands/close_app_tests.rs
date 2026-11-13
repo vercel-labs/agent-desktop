@@ -5,14 +5,19 @@ use crate::{AdapterError, ErrorCode};
 struct ProtectiveAdapter;
 
 impl ObservationOps for ProtectiveAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<crate::AppInfo>, AdapterError> {
-        Ok(vec![crate::AppInfo {
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(vec![crate::AppInfo {
+            aliases: Vec::new(),
             name: "TextEdit".into(),
             pid: crate::ProcessId::new(42),
             bundle_id: Some("com.apple.TextEdit".into()),
             process_instance: Some("textedit-instance".into()),
             presentation: None,
-        }])
+        }]))
     }
 }
 
@@ -40,14 +45,19 @@ impl SystemOps for ProtectiveAdapter {
 struct FailingAdapter;
 
 impl ObservationOps for FailingAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<crate::AppInfo>, AdapterError> {
-        Ok(vec![crate::AppInfo {
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(vec![crate::AppInfo {
+            aliases: Vec::new(),
             name: "Ghost".into(),
             pid: crate::ProcessId::new(77),
             bundle_id: None,
             process_instance: Some("ghost-instance".into()),
             presentation: None,
-        }])
+        }]))
     }
 }
 
@@ -153,8 +163,12 @@ fn forced_close_reports_method_force_with_unverified_delivery() {
 struct PromptingAdapter(std::sync::atomic::AtomicUsize);
 
 impl ObservationOps for PromptingAdapter {
-    fn list_apps(&self, deadline: crate::Deadline) -> Result<Vec<crate::AppInfo>, AdapterError> {
-        ProtectiveAdapter.list_apps(deadline)
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        ProtectiveAdapter.query_app_inventory(query, deadline)
     }
 }
 

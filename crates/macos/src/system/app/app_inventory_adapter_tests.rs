@@ -31,14 +31,17 @@ fn adapter_rejects_silently_partial_apps_but_inventory_reports_skipped() {
     let (skipped, _fixture) = install_partial_inventory();
     let adapter = crate::MacOSAdapter::new();
     let inventory = adapter
-        .list_apps_inventory(Deadline::after(1000).unwrap())
+        .query_app_inventory(
+            agent_desktop_core::AppInventoryQuery::All,
+            Deadline::after(1000).unwrap(),
+        )
         .unwrap();
     assert!(inventory.apps.is_empty());
     assert_eq!(inventory.skipped, vec![skipped]);
 
-    let error = adapter
-        .list_apps(Deadline::after(1000).unwrap())
-        .expect_err("a skipped record must not become a successful complete app list");
+    let error =
+        crate::system::app::app_inventory::list_apps_complete_until(Deadline::after(1000).unwrap())
+            .expect_err("a skipped record must not become a successful complete app list");
     assert_eq!(error.code, ErrorCode::Timeout);
 }
 

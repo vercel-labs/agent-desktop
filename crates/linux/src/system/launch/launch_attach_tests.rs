@@ -69,3 +69,56 @@ fn two_matches_are_ambiguous_and_two_with_attach_off_still_refuse() {
         Decision::Refuse(vec![7, 8])
     );
 }
+
+fn started_with(pid: u32, name: &str, arguments: &[&str]) -> Running {
+    let mut running = app(pid, name);
+    if let Some(identity) = running.executable.as_mut() {
+        let argv = identity.argv.get_or_insert_with(Vec::new);
+        argv.extend(arguments.iter().map(std::ffi::OsString::from));
+    }
+    running
+}
+
+#[test]
+fn a_bare_launch_attaches_to_the_running_service_started_with_options() {
+    let service = started_with(7, "nautilus", &["--gapplication-service"]);
+
+    assert_eq!(
+        decide(
+            &keys(&["nautilus"]),
+            std::slice::from_ref(&service),
+            true,
+            false
+        ),
+        Decision::Attach(service)
+    );
+}
+
+#[test]
+fn a_bare_launch_does_not_attach_to_an_instance_running_another_file_or_code() {
+    let editor = started_with(8, "kate", &["-n", "/tmp/notes.txt"]);
+    let script = started_with(9, "python3", &["-c", "import time"]);
+
+    assert_eq!(
+        decide(&keys(&["kate"]), &[editor], true, false),
+        Decision::Spawn
+    );
+    assert_eq!(
+        decide(&keys(&["python3"]), &[script], true, false),
+        Decision::Spawn
+    );
+}
+
+#[test]
+fn a_launch_that_asks_for_a_mode_does_not_attach_to_a_process_in_another_mode() {
+    let mut gui = keys(&["tool"]);
+    if let Some(identity) = gui.as_mut() {
+        identity
+            .argv
+            .get_or_insert_with(Vec::new)
+            .push("--gui".into());
+    }
+    let daemon = started_with(7, "tool", &["--daemon"]);
+
+    assert_eq!(decide(&gui, &[daemon], true, false), Decision::Spawn);
+}

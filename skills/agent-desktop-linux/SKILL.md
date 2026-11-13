@@ -58,11 +58,17 @@ Observation and semantic actions need no helper tool.
   accessibility bus did not answer, not an empty desktop. Read
   `references/bus-and-permissions.md`; do not restart a bus you did not start.
 - **`--app` takes the name `list-apps` prints** (`gnome-calculator`,
-  `nautilus`) or a desktop-entry name or id backed by verified executable and
-  argument identity, never a window title or an arbitrary registry label. A
-  desktop-entry name such as `Files` is accepted once the entry exists.
-  `list-windows --app` is exact (aliases included); `list-apps --app` combines a
-  substring of the listed name with exact adapter aliases, ignoring case.
+  `nautilus`) or the name or id of a desktop entry that launches the process,
+  never a window title or a registry label. An entry counts when it is shown on
+  this desktop (not `NoDisplay`, allowed by `OnlyShowIn` and `NotShowIn`) and
+  its `Exec` program is the process executable, or the script an interpreter
+  runs. Its arguments other than bare long options such as `--new-window` must
+  lead the process arguments, so `Files` and `Text Editor` work for an app
+  started with a file or as a service. A listed name outranks an entry name;
+  when two apps answer only to the same entry name (`Text Editor` for gedit and
+  gnome-text-editor), the command returns `AMBIGUOUS_TARGET`.
+  `list-windows --app` is exact; `list-apps --app` combines a substring of the
+  listed name with the exact names, ignoring case.
 - **Window ids are opaque addresses** of 34 to 70 characters, valid for the
   life of the window's process; run `list-windows` again after a restart.
   `list-apps` rows carry `bundle_id` (desktop id when known) and

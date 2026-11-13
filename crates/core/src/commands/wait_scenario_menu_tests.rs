@@ -7,14 +7,19 @@ struct MenuWaitAdapter {
 }
 
 impl ObservationOps for MenuWaitAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<crate::AppInfo>, AdapterError> {
-        Ok(vec![crate::AppInfo {
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(vec![crate::AppInfo {
+            aliases: Vec::new(),
             name: "MenuApp".into(),
             pid: crate::ProcessId::new(42),
             bundle_id: None,
             process_instance: Some("test-instance".into()),
             presentation: None,
-        }])
+        }]))
     }
 }
 
@@ -67,11 +72,15 @@ fn menu_closed_wait_requests_closed_state_and_reports_found() {
 struct ExitedMenuAdapter;
 
 impl ObservationOps for ExitedMenuAdapter {
-    fn list_apps(&self, deadline: crate::Deadline) -> Result<Vec<crate::AppInfo>, AdapterError> {
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
         MenuWaitAdapter {
             open_seen: std::sync::Mutex::new(None),
         }
-        .list_apps(deadline)
+        .query_app_inventory(query, deadline)
     }
 }
 
@@ -129,8 +138,12 @@ struct BudgetProbeAdapter {
 }
 
 impl ObservationOps for BudgetProbeAdapter {
-    fn list_apps(&self, deadline: crate::Deadline) -> Result<Vec<crate::AppInfo>, AdapterError> {
-        ExitedMenuAdapter.list_apps(deadline)
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        ExitedMenuAdapter.query_app_inventory(query, deadline)
     }
 }
 

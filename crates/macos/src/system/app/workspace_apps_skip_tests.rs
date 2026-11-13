@@ -133,6 +133,10 @@ fn skipped_records_preserve_matching_apps_and_retry_missing_names() {
         )
     };
     let apps = crate::system::app::app_inventory::scoped_apps_from_sources(
+        agent_desktop_core::AppInventoryQuery::Exact {
+            name: "Finder",
+            bundle_id: None,
+        },
         capture("Finder"),
         Ok(Vec::new()),
     )
@@ -147,6 +151,10 @@ fn skipped_records_preserve_matching_apps_and_retry_missing_names() {
                 return Err(AdapterError::timeout("macOS app inventory timed out"));
             }
             crate::system::app::app_inventory::scoped_apps_from_sources(
+                agent_desktop_core::AppInventoryQuery::Exact {
+                    name: "Missing",
+                    bundle_id: None,
+                },
                 capture("Missing"),
                 Ok(Vec::new()),
             )

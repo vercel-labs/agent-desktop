@@ -55,6 +55,7 @@ impl SystemOps for LivenessAdapter {
 
 fn terminating_app(pid: u32, instance: &str) -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: "TextEdit".into(),
         pid: crate::ProcessId::new(pid),
         bundle_id: Some("com.apple.TextEdit".into()),

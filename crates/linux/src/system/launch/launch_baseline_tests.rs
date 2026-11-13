@@ -25,7 +25,7 @@ fn residents_require_the_same_canonical_executable_but_not_the_same_arguments() 
         name: "tool".to_owned(),
     };
     assert!(same_executable(Some(&requested), &owner));
-    assert!(!requested.matches(owner.executable.as_ref().unwrap()));
+    assert!(requested.is_running_as(owner.executable.as_ref().unwrap()));
     owner.executable.as_mut().unwrap().argv = None;
     assert!(same_executable(Some(&requested), &owner));
     owner.executable.as_mut().unwrap().executable = "/other/tool".into();

@@ -3,6 +3,7 @@ use agent_desktop_core::Deadline;
 
 fn app(name: &str, pid: u32) -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: name.to_string(),
         pid: agent_desktop_core::ProcessId::new(pid),
         bundle_id: None,
@@ -13,6 +14,7 @@ fn app(name: &str, pid: u32) -> AppInfo {
 
 fn app_with_bundle(name: &str, pid: u32, bundle_id: &str) -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: name.to_string(),
         pid: agent_desktop_core::ProcessId::new(pid),
         bundle_id: Some(bundle_id.to_string()),
@@ -65,6 +67,27 @@ fn matching_pids_returns_all_exact_name_instances() {
     ];
 
     assert_eq!(matching_pids(&apps, "Terminal"), vec![2, 3]);
+}
+
+#[test]
+fn a_process_source_app_named_by_the_query_outranks_a_workspace_alias() {
+    let mut aliased = app("Electron Shell", 10);
+    aliased.aliases = vec!["Editor".into()];
+    let workspace = agent_desktop_core::AppInventory {
+        apps: vec![aliased],
+        skipped: Vec::new(),
+    };
+    let query = agent_desktop_core::AppInventoryQuery::Exact {
+        name: "Editor",
+        bundle_id: None,
+    };
+
+    let apps = scoped_apps_from_sources(query, Ok(workspace), Ok(vec![app("Editor", 20)])).unwrap();
+
+    assert_eq!(
+        apps.iter().map(|app| app.pid.get()).collect::<Vec<_>>(),
+        [20]
+    );
 }
 
 #[test]

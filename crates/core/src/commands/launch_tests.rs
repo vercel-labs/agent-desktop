@@ -1,7 +1,7 @@
 use super::*;
 use crate::adapter::{ActionOps, InputOps, ObservationOps, SystemOps};
 use crate::system::launch_options::LaunchOptions;
-use crate::{AdapterError, AppInfo, InteractionLease, ProcessId, WindowInfo, WindowState};
+use crate::{AdapterError, InteractionLease, ProcessId, WindowInfo, WindowState};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 struct LaunchAdapter {
@@ -10,9 +10,15 @@ struct LaunchAdapter {
 }
 
 impl ObservationOps for LaunchAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        self.list_apps_calls.fetch_add(1, Ordering::SeqCst);
-        Ok(Vec::new())
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer({
+            self.list_apps_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(Vec::new())
+        }?))
     }
 }
 impl ActionOps for LaunchAdapter {}

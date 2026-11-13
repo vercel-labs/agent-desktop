@@ -67,70 +67,17 @@ pub trait ObservationOps: Send + Sync {
         Err(AdapterError::not_supported("list_windows"))
     }
 
-    fn list_apps(&self, _deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        Err(AdapterError::not_supported("list_apps"))
-    }
-
-    fn list_apps_inventory(&self, deadline: Deadline) -> Result<crate::AppInventory, AdapterError> {
-        Ok(crate::AppInventory {
-            apps: self.list_apps(deadline)?,
-            skipped: Vec::new(),
-        })
-    }
-
-    fn list_apps_scoped(
-        &self,
-        name: &str,
-        bundle_id: Option<&str>,
-        deadline: Deadline,
-    ) -> Result<Vec<AppInfo>, AdapterError> {
-        Ok(self
-            .list_apps(deadline)?
-            .into_iter()
-            .filter(|app| {
-                app.matches_identifier(name)
-                    && bundle_id.is_none_or(|expected| {
-                        app.bundle_id
-                            .as_deref()
-                            .is_some_and(|actual| actual.eq_ignore_ascii_case(expected))
-                    })
-            })
-            .collect())
-    }
-
-    /// Allows filtering before presentation enrichment. Skipped records describe
-    /// incomplete evidence within the query; exact lookups cannot authorize
-    /// mutation until that inventory is complete.
+    /// The running applications `query` admits, the one listing of
+    /// applications. An adapter may read only what the query can admit before
+    /// it enriches a record. Skipped records describe incomplete evidence
+    /// within the query; exact lookups cannot authorize mutation until that
+    /// inventory is complete.
     fn query_app_inventory(
         &self,
-        query: crate::AppInventoryQuery<'_>,
-        deadline: Deadline,
+        _query: crate::AppInventoryQuery<'_>,
+        _deadline: Deadline,
     ) -> Result<crate::AppInventory, AdapterError> {
-        let name = match query {
-            crate::AppInventoryQuery::All => return self.list_apps_inventory(deadline),
-            crate::AppInventoryQuery::Exact { name, bundle_id } => {
-                return Ok(crate::AppInventory {
-                    apps: self.list_apps_scoped(name, bundle_id, deadline)?,
-                    skipped: Vec::new(),
-                });
-            }
-            crate::AppInventoryQuery::NameOrAlias(name) => name,
-        };
-        let mut inventory = self.list_apps_inventory(deadline)?;
-        inventory
-            .apps
-            .retain(|app| query.matches_display_name(&app.name));
-        let aliased = match self.list_apps_scoped(name, None, deadline) {
-            Ok(apps) => apps,
-            Err(err) if err.code == ErrorCode::PlatformNotSupported => Vec::new(),
-            Err(err) => return Err(err),
-        };
-        for app in aliased {
-            if !inventory.apps.iter().any(|kept| kept.pid == app.pid) {
-                inventory.apps.push(app);
-            }
-        }
-        Ok(inventory)
+        Err(AdapterError::not_supported("query_app_inventory"))
     }
 
     fn get_tree(

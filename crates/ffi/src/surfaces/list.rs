@@ -69,11 +69,23 @@ fn process_identity_for_pid(
             "surface pid must be positive",
         ));
     }
-    let mut matches = adapter
-        .list_apps(deadline)?
+    let inventory =
+        adapter.query_app_inventory(agent_desktop_core::AppInventoryQuery::All, deadline)?;
+    let mut matches = inventory
+        .apps
         .into_iter()
         .filter(|app| app.pid.get() == pid)
         .collect::<Vec<_>>();
+    if matches.is_empty() && !inventory.skipped.is_empty() {
+        return Err(
+            agent_desktop_core::AdapterError::app_unresponsive(&pid.to_string()).with_details(
+                serde_json::json!({
+                    "kind": "app_inventory_incomplete",
+                    "skipped": inventory.skipped,
+                }),
+            ),
+        );
+    }
     if matches.is_empty() {
         return Err(agent_desktop_core::AdapterError::new(
             agent_desktop_core::ErrorCode::AppNotFound,
@@ -156,22 +168,55 @@ mod tests {
     impl SystemOps for AppInventory {}
 
     impl ObservationOps for AppInventory {
-        fn list_apps(
+        fn query_app_inventory(
             &self,
+            query: agent_desktop_core::AppInventoryQuery<'_>,
             _deadline: agent_desktop_core::Deadline,
-        ) -> Result<Vec<AppInfo>, agent_desktop_core::AdapterError> {
-            Ok(self.0.clone())
+        ) -> Result<agent_desktop_core::AppInventory, agent_desktop_core::AdapterError> {
+            Ok(query.answer(self.0.clone()))
         }
     }
 
     fn app(pid: u32, instance: &str) -> AppInfo {
         AppInfo {
+            aliases: Vec::new(),
             name: "Fixture".into(),
             pid: agent_desktop_core::ProcessId::new(pid),
             bundle_id: None,
             process_instance: Some(instance.into()),
             presentation: None,
         }
+    }
+
+    struct PartialInventory;
+
+    impl ActionOps for PartialInventory {}
+    impl InputOps for PartialInventory {}
+    impl SystemOps for PartialInventory {}
+
+    impl ObservationOps for PartialInventory {
+        fn query_app_inventory(
+            &self,
+            _query: agent_desktop_core::AppInventoryQuery<'_>,
+            _deadline: agent_desktop_core::Deadline,
+        ) -> Result<agent_desktop_core::AppInventory, agent_desktop_core::AdapterError> {
+            Ok(agent_desktop_core::AppInventory {
+                apps: Vec::new(),
+                skipped: vec![serde_json::json!({"pid": 42, "field": "application_name"})],
+            })
+        }
+    }
+
+    #[test]
+    fn a_surface_pid_missing_from_an_incomplete_inventory_is_not_reported_absent() {
+        let error = process_identity_for_pid(
+            &PartialInventory,
+            42,
+            agent_desktop_core::Deadline::standard().unwrap(),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, agent_desktop_core::ErrorCode::AppUnresponsive);
     }
 
     #[test]

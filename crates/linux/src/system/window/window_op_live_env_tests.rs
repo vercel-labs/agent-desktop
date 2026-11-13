@@ -369,6 +369,7 @@ fn window_op_live_child_xwayland() {
     assert_eq!(error.disposition, DeliverySemantics::not_delivered());
 
     let app = agent_desktop_core::AppInfo {
+        aliases: Vec::new(),
         name: "adw-native".to_owned(),
         pid: native.into(),
         bundle_id: None,

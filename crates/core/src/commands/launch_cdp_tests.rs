@@ -44,6 +44,7 @@ fn cdp_launch_rejects_a_conflicting_remote_debugging_switch() {
 fn cdp_launch_rejects_an_already_running_instance() {
     let adapter = CdpAdapter {
         running: vec![AppInfo {
+            aliases: Vec::new(),
             name: "Fixture".into(),
             pid: ProcessId::new(7),
             bundle_id: None,
@@ -87,6 +88,7 @@ fn cdp_launch_rejects_an_already_running_instance() {
 fn cdp_launch_rejects_a_running_instance_named_by_its_path() {
     let adapter = CdpAdapter {
         running: vec![AppInfo {
+            aliases: Vec::new(),
             name: "Obsidian.exe".into(),
             pid: ProcessId::new(7),
             bundle_id: None,
@@ -130,6 +132,7 @@ fn cdp_launch_rejects_a_running_instance_named_by_its_path() {
 fn cdp_launch_ignores_a_name_matching_helper_process_without_presentation() {
     let adapter = CdpAdapter {
         running: vec![AppInfo {
+            aliases: Vec::new(),
             name: "Fixture".into(),
             pid: ProcessId::new(7),
             bundle_id: None,

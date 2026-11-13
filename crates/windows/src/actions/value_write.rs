@@ -9,8 +9,10 @@ use agent_desktop_core::{
     ActionStep, AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionPolicy,
 };
 
-use crate::actions::chain::{ChainRung, DeliveryOutcome, execute_chain};
+use crate::actions::chain::{offered, rung};
+
 use crate::tree::element::UIAElement;
+use agent_desktop_core::DeliveryOutcome;
 
 pub(crate) const VALUE_LABEL: &str = "ValuePattern.SetValue";
 pub(crate) const RANGE_LABEL: &str = "RangeValuePattern.SetValue";
@@ -23,11 +25,16 @@ const VALUE_WRITE_SUGGESTION: &str =
 mod imp {
     use super::without_terminal_paragraph;
     use super::{
-        ActionStep, AdapterError, ChainRung, Deadline, DeliveryOutcome, DeliverySemantics,
-        ErrorCode, InteractionPolicy, LEGACY_VALUE_LABEL, RANGE_LABEL, UIAElement, VALUE_LABEL,
-        VALUE_WRITE_SUGGESTION, execute_chain,
+        ActionStep, AdapterError, Deadline, DeliveryOutcome, DeliverySemantics, ErrorCode,
+        InteractionPolicy, LEGACY_VALUE_LABEL, RANGE_LABEL, UIAElement, VALUE_LABEL,
+        VALUE_WRITE_SUGGESTION, offered, rung,
     };
-    use crate::actions::chain::{after_delivery, legacy_set_value};
+    use crate::actions::chain::{after_delivery, legacy_set_value, poll_until};
+    use agent_desktop_core::DeliveryObservation;
+
+    /// How long a Legacy `SetValue` gets to show the value before the write
+    /// counts as acknowledged with no effect, so a headed pattern rung may try.
+    const LEGACY_SETTLE: std::time::Duration = std::time::Duration::from_millis(600);
     use crate::actions::mutation::{classify_success, classify_write};
     use crate::tree::properties::element_properties::ElementProperties;
     use crate::tree::properties::property_ids::TreeProperty;
@@ -67,38 +74,40 @@ mod imp {
                 None => gated_pattern_value_equals(element, value),
             }
             .map_err(after_delivery)?;
-            Ok(DeliveryOutcome::from_observation(verified))
+            Ok(DeliveryOutcome::observed(verified))
         };
-        let mut legacy = || observe(legacy_set_value(element, value)?);
+        let mut legacy = || {
+            if !legacy_set_value(element, value)? {
+                return Ok(DeliveryOutcome::NotDelivered);
+            }
+            let mut last = Ok(None);
+            poll_until(deadline, LEGACY_SETTLE, || {
+                last = match parsed.filter(|_| !text_ok) {
+                    Some(target) => gated_pattern_range_equals(element, target),
+                    None => gated_pattern_value_equals(element, value),
+                };
+                !matches!(last, Ok(Some(false)))
+            })
+            .map_err(after_delivery)?;
+            Ok(match last.map_err(after_delivery)? {
+                Some(false) => DeliveryOutcome::Delivered(DeliveryObservation::NoEffect),
+                read => DeliveryOutcome::observed(read),
+            })
+        };
         let mut text = || observe(invoke_value_set(element, value)?);
         let mut range = || match parsed {
             Some(target) => observe(invoke_range_set(element, target)?),
             None => Ok(DeliveryOutcome::NotDelivered),
         };
-        execute_chain(
+        agent_desktop_core::execute_chain(
+            &mut offered([
+                rung(LEGACY_VALUE_LABEL, text_ok || range_ok, false, &mut legacy),
+                rung(VALUE_LABEL, text_ok, true, &mut text),
+                rung(RANGE_LABEL, range_ok, true, &mut range),
+            ]),
+            policy,
             deadline,
             VALUE_WRITE_SUGGESTION,
-            policy,
-            &mut [
-                ChainRung {
-                    label: LEGACY_VALUE_LABEL,
-                    available: text_ok || range_ok,
-                    requires_headed: false,
-                    run: &mut legacy,
-                },
-                ChainRung {
-                    label: VALUE_LABEL,
-                    available: text_ok,
-                    requires_headed: true,
-                    run: &mut text,
-                },
-                ChainRung {
-                    label: RANGE_LABEL,
-                    available: range_ok,
-                    requires_headed: true,
-                    run: &mut range,
-                },
-            ],
         )
         .map_err(|error| attach_value_chars(error, value))
     }
