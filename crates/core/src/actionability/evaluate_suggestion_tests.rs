@@ -98,12 +98,14 @@ fn an_offscreen_only_visibility_failure_suggests_scroll_to() {
         "{}",
         error.message
     );
-    assert_eq!(
-        error.suggestion.as_deref(),
-        Some(
-            "The target is off screen. Run 'scroll-to' on its ref first (some lists can be \
-             scrolled only with --headed), take a fresh snapshot, then retry the action."
-        )
+    let suggestion = error.suggestion.unwrap();
+    assert!(
+        suggestion.contains("Run 'scroll-to' on its ref first"),
+        "{suggestion}"
+    );
+    assert!(
+        suggestion.contains("only if the user explicitly asked"),
+        "{suggestion}"
     );
 }
 

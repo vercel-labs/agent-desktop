@@ -142,7 +142,10 @@ fn unproven() -> AdapterError {
         ErrorCode::ActionNotSupported,
         "The container's selection indices cannot be mapped to accessible rows safely",
     )
-    .with_suggestion("On X11, run select again with --headed: the pointer clicks the row and the result is checked against the row's selected state. A headless select cannot establish a safe index mapping, so refreshing or retrying it does not help.")
+    .with_suggestion(format!(
+        "A headless select cannot establish a safe index mapping, so refreshing or retrying it does not help. {} The result is checked against the row's selected state.",
+        agent_desktop_core::headed_mode_suggestion("moves the pointer to click the row on X11")
+    ))
     .with_details(serde_json::json!({ "kind": UNPROVEN_INDEX_KIND, "retryable": false }))
     .with_disposition(DeliverySemantics::not_delivered())
 }

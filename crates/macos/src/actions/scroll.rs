@@ -46,10 +46,10 @@ pub(crate) fn ax_scroll(
         "kind": "scroll_advertised_but_inert",
     }))
     .with_disposition(agent_desktop_core::DeliverySemantics::not_delivered())
-    .with_suggestion(
-        "No scroll bar of this element moved. \
-         Try the parent container, or use '--headed' for a physical wheel scroll.",
-    ))
+    .with_suggestion(format!(
+        "No scroll bar of this element moved. Try the parent container. {}",
+        agent_desktop_core::headed_mode_suggestion("moves the pointer for a physical wheel scroll")
+    )))
 }
 
 fn validate_amount(amount: u32) -> Result<(), AdapterError> {

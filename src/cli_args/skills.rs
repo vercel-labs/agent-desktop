@@ -12,7 +12,7 @@ Start here:
 
 More:
   agent-desktop skills                        # List skills
-  agent-desktop skills get desktop workflows  # One reference
+  agent-desktop skills get ffi ownership      # One FFI reference
   agent-desktop skills get windows            # A named platform guide
   agent-desktop skills path                   # Where skills live")]
 pub(crate) struct SkillsArgs {
@@ -35,7 +35,7 @@ pub(crate) struct SkillsGetArgs {
     #[arg(help = "Skill name or alias: desktop, platform, macos, windows, linux, ffi, jev")]
     pub name: String,
     #[arg(
-        help = "Reference filename (e.g. workflows or references/workflows.md). Omit for the main guide."
+        help = "Reference filename (e.g. ownership or references/ownership.md for ffi). Omit for the main guide."
     )]
     pub reference: Option<String>,
     #[arg(long, help = "Append every reference file to the output")]

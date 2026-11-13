@@ -291,9 +291,9 @@ pub trait SystemOps: Send + Sync {
                 "The named window's exact focus could not be confirmed, so no key was sent",
             )
             .with_suggestion(if policy.is_headed() {
-                "Ensure the named window remains active before retrying; a sibling window or another application's menu can hold the keyboard"
+                "Ensure the named window remains active before retrying; a sibling window or another application's menu can hold the keyboard".to_owned()
             } else {
-                "Retry with --headed so the named window is brought forward first, or name the active window"
+                format!("{} Or name the already active window.", crate::headed_mode_suggestion("brings the named window to the foreground before sending keys"))
             })
             .with_details(serde_json::json!({
                 "check": "window_active",

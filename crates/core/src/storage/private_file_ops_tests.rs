@@ -220,3 +220,27 @@ fn temporary_file_name_has_the_hidden_hex_nonce_shape_and_varies_between_calls()
         "two successive calls must produce different nonces"
     );
 }
+
+#[test]
+fn a_permission_refusal_reports_perm_denied_inside_the_error_and_through_app_error() {
+    let refused = private_file_error(
+        Path::new("/state"),
+        std::io::Error::new(ErrorKind::PermissionDenied, "shared with other users"),
+        "Make the folder private",
+    );
+    let inner = crate::AdapterError::from_io(&refused).expect("the wrapped adapter error");
+    assert_eq!(inner.code, crate::ErrorCode::PermDenied);
+    assert_eq!(crate::AppError::Io(refused).code(), "PERM_DENIED");
+}
+
+#[test]
+fn any_other_private_file_failure_stays_internal_on_both_routes() {
+    let failed = private_file_error(
+        Path::new("/state"),
+        std::io::Error::new(ErrorKind::InvalidData, "not a file"),
+        "Choose another path",
+    );
+    let inner = crate::AdapterError::from_io(&failed).expect("the wrapped adapter error");
+    assert_eq!(inner.code, crate::ErrorCode::Internal);
+    assert_eq!(crate::AppError::Io(failed).code(), "INTERNAL");
+}

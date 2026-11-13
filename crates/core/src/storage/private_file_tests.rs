@@ -4,6 +4,8 @@ use std::ffi::CString;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
+#[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -110,17 +112,71 @@ fn private_writes_and_locks_reject_group_accessible_parent() {
     std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o770)).unwrap();
     let path = directory.join("data");
 
+    for error in [
+        write_atomic(&path, b"private").unwrap_err(),
+        open_private_lock(&path, true).unwrap_err(),
+    ] {
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        let payload = crate::ErrorPayload::from_app_error(&crate::AppError::Io(error));
+        assert_eq!(payload.code, "PERM_DENIED");
+        assert_eq!(
+            payload.details.unwrap()["path"],
+            directory.to_str().unwrap()
+        );
+        let suggestion = payload.suggestion.unwrap();
+        assert!(suggestion.contains("chmod 700"), "{suggestion}");
+        assert!(
+            suggestion.contains(directory.to_str().unwrap()),
+            "{suggestion}"
+        );
+        assert!(suggestion.contains("remove"), "{suggestion}");
+    }
+    let error = crate::FileLock::acquire(&path, crate::Deadline::standard().unwrap(), "state")
+        .err()
+        .unwrap();
+    let payload = crate::ErrorPayload::from_app_error(&crate::AppError::Adapter(error));
+    assert_eq!(payload.code, "PERM_DENIED");
     assert_eq!(
-        write_atomic(&path, b"private").unwrap_err().kind(),
-        std::io::ErrorKind::PermissionDenied
+        payload.details.unwrap()["path"],
+        directory.to_str().unwrap()
     );
-    assert_eq!(
-        open_private_lock(&path, true).unwrap_err().kind(),
-        std::io::ErrorKind::PermissionDenied
-    );
+    assert!(payload.suggestion.unwrap().contains("chmod 700"));
 
     std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn private_file_privacy_errors_serialize_non_utf8_paths() {
+    let temp = crate::refs::refs_test_support::TempDir::new();
+    let directory = temp.path().join(std::ffi::OsStr::from_bytes(b"state-\xff"));
+    assert!(directory.to_str().is_none());
+    let expected_code = match std::fs::create_dir(&directory) {
+        Ok(()) => {
+            std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o770)).unwrap();
+            "PERM_DENIED"
+        }
+        Err(error) => {
+            assert_eq!(error.raw_os_error(), Some(libc::EILSEQ));
+            "INTERNAL"
+        }
+    };
+    let error = crate::storage::private_file_parent::ensure_private(&directory).unwrap_err();
+    let payload = crate::ErrorPayload::from_app_error(&crate::AppError::Io(error));
+    let response = crate::Response::err("snapshot", payload);
+    let serialized = serde_json::to_string(&response).unwrap();
+    let envelope: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+    assert_eq!(envelope["version"], "2.7");
+    assert_eq!(envelope["ok"], false);
+    assert_eq!(envelope["error"]["code"], expected_code);
+    assert_eq!(
+        envelope["error"]["details"]["path"],
+        directory.to_string_lossy().as_ref()
+    );
+    let suggestion = envelope["error"]["suggestion"].as_str().unwrap();
+    assert!(suggestion.contains("chmod 700"), "{suggestion}");
+    assert!(suggestion.contains(directory.to_string_lossy().as_ref()));
 }
 
 #[cfg(unix)]

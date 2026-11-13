@@ -21,11 +21,25 @@ pub fn execute_with_report_with_context(
         report,
     )?;
 
-    let store = RefStore::for_session(context.session_id())?;
-    let snapshot_id = store.latest_snapshot_id()?;
-    let ref_count = match snapshot_id.as_deref() {
-        Some(snapshot_id) => Some(store.load_snapshot(snapshot_id)?.len()),
-        None => None,
+    let state_root = crate::storage::state_root::resolve_configured_state_root()?;
+    let privacy = crate::storage::private_file_parent::ensure_private(&state_root);
+    let (snapshot_id, ref_count) = if privacy.is_ok() {
+        let store = RefStore::for_session(context.session_id())?;
+        let snapshot_id = store.latest_snapshot_id()?;
+        let ref_count = match snapshot_id.as_deref() {
+            Some(snapshot_id) => Some(store.load_snapshot(snapshot_id)?.len()),
+            None => None,
+        };
+        (snapshot_id, ref_count)
+    } else {
+        (None, None)
+    };
+    let privacy = match privacy {
+        Ok(()) => json!({ "ok": true }),
+        Err(error) => json!({
+            "ok": false,
+            "error": crate::ErrorPayload::from_app_error(&AppError::Io(error)),
+        }),
     };
     let session_id = context.session_id().map(str::to_string);
     let tracing = context.trace_enabled();
@@ -42,6 +56,7 @@ pub fn execute_with_report_with_context(
         "ref_count": ref_count,
         "session_id": session_id,
         "tracing": tracing,
+        "state_root_privacy": privacy,
         "supported_surfaces": adapter
             .supported_surfaces()
             .into_iter()
@@ -51,9 +66,7 @@ pub fn execute_with_report_with_context(
     if let Some(artifacts) = artifacts {
         body["artifacts"] = json!(artifacts);
     }
-    if let Ok(state_root) = crate::storage::state_root::resolve_configured_state_root() {
-        body["state_root"] = json!(state_root.to_string_lossy());
-    }
+    body["state_root"] = json!(state_root.to_string_lossy());
     Ok(body)
 }
 

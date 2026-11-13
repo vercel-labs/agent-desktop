@@ -73,7 +73,8 @@ impl FileLock {
         }
         let inherited = File::from(unsafe { OwnedFd::from_raw_fd(duplicated) });
         let inherited_meta =
-            crate::storage::private_file::validate_private_regular(&inherited).map_err(io_error)?;
+            crate::storage::private_file::validate_private_regular(&inherited, canonical_path)
+                .map_err(io_error)?;
         let canonical = crate::storage::private_file::open_private_lock(canonical_path, false)
             .map_err(io_error)?;
         let canonical_meta = canonical.metadata().map_err(io_error)?;
@@ -146,5 +147,7 @@ fn lock_timeout(
 }
 
 fn io_error(error: std::io::Error) -> AdapterError {
-    AdapterError::new(ErrorCode::Internal, error.to_string())
+    AdapterError::from_io(&error)
+        .cloned()
+        .unwrap_or_else(|| AdapterError::new(ErrorCode::Internal, error.to_string()))
 }

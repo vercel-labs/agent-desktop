@@ -156,9 +156,10 @@ fn background_fail_closed(pid: ProcessId) -> AdapterError {
         "pid": pid,
         "physical_delivery_started": false,
     }))
-    .with_suggestion(
-        "Retry with --headed so the target can be activated first, or ensure the target is already foreground",
-    )
+    .with_suggestion(format!(
+        "{} Or target an already foreground window.",
+        agent_desktop_core::headed_mode_suggestion("activates the target before sending synthetic keys")
+    ))
     .with_disposition(DeliverySemantics::not_delivered())
 }
 

@@ -16,6 +16,10 @@ pub struct AdapterError {
 }
 
 impl AdapterError {
+    pub(crate) fn from_io(error: &std::io::Error) -> Option<&Self> {
+        error.get_ref()?.downcast_ref()
+    }
+
     pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
         Self {
             code,
@@ -254,9 +258,9 @@ impl AdapterError {
 
     pub fn policy_denied(message: impl Into<String>) -> Self {
         Self::new(ErrorCode::PolicyDenied, message)
-            .with_suggestion(
-                "Use an explicit mouse/focus command if physical interaction is intended",
-            )
+            .with_suggestion(crate::headed_mode_suggestion(
+                "can take the foreground, move the pointer and send synthetic keys",
+            ))
             .with_disposition(DeliverySemantics::not_delivered())
     }
 
@@ -283,17 +287,18 @@ impl AdapterError {
     }
 }
 
-fn policy_denied_suggestion(policy: InteractionPolicy) -> &'static str {
+fn policy_denied_suggestion(policy: InteractionPolicy) -> String {
     if policy.allow_focus_steal && !policy.allow_cursor_move {
-        "Enable cursor movement in the interaction policy to permit cursor-driven actions \
-         (CLI: --headed; FFI: set allow_cursor_move in the policy), \
-         or use an explicit mouse command if physical input is intended"
+        crate::headed_mode_suggestion("moves the pointer")
     } else if !policy.allow_focus_steal && !policy.allow_cursor_move {
-        "Headless mode allows only accessibility-backed actions; \
-         enable physical interaction in the policy (CLI: --headed) only if cursor/focus movement is intended, \
-         otherwise refresh the snapshot or target an element with the needed semantic action"
+        format!(
+            "{} A headless alternative is to target an element with the needed semantic action in a fresh snapshot.",
+            crate::headed_mode_suggestion(
+                "can take the foreground, move the pointer and send synthetic keys"
+            )
+        )
     } else {
-        "Use an explicit mouse/focus command if physical interaction is intended"
+        "The requested interaction is unavailable under this policy; choose a supported semantic action".into()
     }
 }
 

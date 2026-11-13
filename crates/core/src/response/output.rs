@@ -101,7 +101,7 @@ impl ErrorPayload {
         if let Some(suggestion) = err.suggestion() {
             payload = payload.with_suggestion(suggestion);
         }
-        if let AppError::Adapter(adapter_error) = err {
+        if let Some(adapter_error) = err.adapter_error() {
             payload.platform_detail = adapter_error.platform_detail.clone();
             payload.details = adapter_error.details.clone();
             payload.disposition = adapter_error.disposition;

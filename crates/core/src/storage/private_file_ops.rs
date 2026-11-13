@@ -8,6 +8,25 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Wraps a private-file failure so it reports one code on every route: a
+/// permission refusal is `PERM_DENIED`, anything else is `INTERNAL`.
+pub fn private_file_error(
+    path: &Path,
+    error: std::io::Error,
+    suggestion: impl Into<String>,
+) -> std::io::Error {
+    let code = match error.kind() {
+        std::io::ErrorKind::PermissionDenied => crate::ErrorCode::PermDenied,
+        _ => crate::ErrorCode::Internal,
+    };
+    std::io::Error::new(
+        error.kind(),
+        crate::AdapterError::new(code, error.to_string())
+            .with_details(serde_json::json!({ "path": path.to_string_lossy() }))
+            .with_suggestion(suggestion),
+    )
+}
+
 /// Reads `file` fully on behalf of a `PrivateFileOps` implementation,
 /// rejecting files larger than `max_bytes` before allocating and detecting
 /// growth past the limit during the read.
