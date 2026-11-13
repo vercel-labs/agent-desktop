@@ -231,6 +231,11 @@ grep -q "vmhost run $tmp/sandboxes/demo/vm --window" "$FAKE_LOG" || fail 'a sand
 build_id=$(ls "$tmp/sandboxes/demo/vm/share/builds")
 [ "${#build_id}" -eq 40 ] || fail "the shared builds are [$build_id], expected one 40-character id"
 cmp -s "$AD_BINARY" "$tmp/sandboxes/demo/vm/share/builds/$build_id/agent-desktop" || fail 'start did not share the host build under its id'
+rm "$tmp/sandboxes/demo/vm/share/agent-desktop"
+provider demo stop demo
+provider demo start demo
+vm_pid=$(cat "$tmp/sandboxes/demo/vm/vmhost.pid")
+[ -f "$tmp/sandboxes/demo/vm/share/agent-desktop" ] && [ -f "$tmp/sandboxes/demo/vm/share/id_ed25519.pub" ] || fail 'start left out a file that agent-desktop 1.3.0 needs before it calls a sandbox complete'
 printf '%s' "$build_id" | grep -q '[^0-9a-f]' && fail "the build id [$build_id] is not lowercase hex"
 for leftover in id_ed25519 known_hosts guest_user; do
   [ ! -e "$tmp/sandboxes/demo/$leftover" ] || fail "start kept the leftover $leftover"

@@ -361,11 +361,16 @@ share_build() {
 }
 
 # Fills the shared folder of a stopped sandbox: the setup script, the guest agent, and the current build alone.
+# agent-desktop 1.3.0 calls a sandbox without share/agent-desktop and share/id_ed25519.pub broken and tells its
+# caller to remove it, so both names stay present for a caller that still runs that version.
 copy_guest_share() {
   share=$1/share
   [ -d "$BUILD_DIR/$GUEST_APP" ] || return 1
   mkdir -p "$share" || return 1
-  rm -rf "$share/builds" "$share/$GUEST_APP" "$share/agent-desktop" "$share/$HELPER_NAME" "$share/id_ed25519.pub" || return 1
+  rm -rf "$share/builds" "$share/$GUEST_APP" "$share/$HELPER_NAME" || return 1
+  for required_by_1_3_0 in agent-desktop id_ed25519.pub; do
+    [ -f "$share/$required_by_1_3_0" ] || : > "$share/$required_by_1_3_0" || return 1
+  done
   cp "$AD_PROVIDER_DIR/guest-setup.sh" "$share/guest-setup.sh" && chmod 0755 "$share/guest-setup.sh" && \
     cp -R "$BUILD_DIR/$GUEST_APP" "$share/$GUEST_APP" || return 1
   share_build "$1" >/dev/null
