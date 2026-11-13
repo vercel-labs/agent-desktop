@@ -558,7 +558,7 @@ create_clone() {
     emit_fail ACTION_FAILED "The VM for sandbox $name could not be cloned: $clone_reply" "Run agent-desktop sandbox rm $name, fix the cause, then create it again."
     return 1
   fi
-  if ! copy_guest_share "$VM_DIR" || ! : > "$AD_SANDBOX_DIR/setup_done"; then
+  if ! copy_guest_share "$VM_DIR" || { [ ! -e "$source/id_ed25519" ] && ! : > "$AD_SANDBOX_DIR/setup_done"; }; then
     emit_fail ACTION_FAILED "The guest files could not be copied into sandbox $name." "Run agent-desktop sandbox rm $name, then create it again."
     return 1
   fi
