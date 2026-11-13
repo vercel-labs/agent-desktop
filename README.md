@@ -140,6 +140,8 @@ agent-desktop has 61 command names, 57 operational commands. The other four (`ke
 | Sandboxes | `sandbox` |
 | System | `status`, `permissions`, `version`, `batch`, `skills` |
 
+For screenshots of multi-instance apps, select a window with `screenshot --window-id`. Adding `--app` verifies that the window belongs to a matching application process instance.
+
 ## Platform support
 
 | Platform | Requirement | Accessibility API |
