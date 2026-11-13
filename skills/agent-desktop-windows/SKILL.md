@@ -56,6 +56,12 @@ observation, actions and capture there fail or return nothing.
   `focus-window` by reflex: it steals the user's foreground.
 - **No permission dialog exists.** `permissions` reports `automation` as
   `not_required`. Elevation boundaries are the only access control.
+- **Foreground activation can be refused by Windows.** If the direct raise
+  fails, agent-desktop asks the window's UI Automation provider to reapply its
+  current visual state, preserving normal or maximized state. Provider calls
+  use a short timeout. The command still requires the exact target window to
+  become foreground before sending physical input; unsupported providers can
+  still return `ACTION_FAILED`.
 - **Chromium and Electron apps read thin before they settle.** Pass a longer
   `--timeout-ms` to `snapshot` instead of concluding the tree is empty.
 - **Blocked shortcuts.** `alt+f4`, `win+l`, `win+d`, `alt+tab`, `win+r`,
