@@ -1,4 +1,6 @@
-use super::incomplete_error::{IncompleteLocator, has_deterministic_limit};
+use super::incomplete_error::{
+    IncompleteLocator, has_deterministic_limit, has_transient_incompleteness,
+};
 use super::{
     LocatorResolution, LocatorResolveRequest, LocatorStats, ObservationRequest, ObservationRoot,
     ObservedObservation, validate_query, validate_request,
@@ -109,12 +111,6 @@ fn requires_authoritative_result(request: &LocatorResolveRequest) -> bool {
             request.selection,
             super::LocatorSelection::All { .. } | super::LocatorSelection::Count
         )
-}
-
-fn has_transient_incompleteness(stats: &LocatorStats) -> bool {
-    stats.traversal.limits.child_count_changes > 0
-        || stats.reads.health.cannot_complete > 0
-        || stats.reads.health.deadline_exhausted > 0
 }
 
 fn incomplete_evidence(resolution: &LocatorResolution) -> serde_json::Value {

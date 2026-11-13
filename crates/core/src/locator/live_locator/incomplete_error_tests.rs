@@ -1,4 +1,4 @@
-use super::incomplete_locator_error;
+use super::{IncompleteLocator, incomplete_locator_error};
 use crate::locator::live_locator::{LocatorResolution, LocatorResolutionMeta, LocatorStats};
 use crate::{DeliverySemantics, ErrorCode};
 
@@ -114,4 +114,46 @@ fn an_incomplete_result_with_no_counter_is_reported_as_unreadable_without_a_coun
     );
     assert_eq!(details["cause"], "unreadable_elements");
     assert_eq!(details["retryable"], false);
+}
+
+#[test]
+fn a_selected_match_that_could_not_be_read_is_worth_one_more_try() {
+    let mut stats = LocatorStats::default();
+    stats.reads.health.cannot_complete = 1;
+    let resolution = resolution_with(stats);
+
+    let error = IncompleteLocator::SelectedQuery(&resolution).error();
+    let suggestion = error
+        .suggestion
+        .expect("a transient hydration failure suggests retrying");
+    let details = error
+        .details
+        .expect("an incomplete locator carries details");
+
+    assert_eq!(error.code, ErrorCode::Timeout);
+    assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+    assert_eq!(details["cause"], "unreadable_elements");
+    assert_eq!(details["retryable"], true);
+    assert_eq!(suggestion, super::TRANSIENT_READ_SUGGESTION);
+}
+
+#[test]
+fn a_selected_match_behind_a_traversal_limit_is_not_retried() {
+    let mut stats = LocatorStats::default();
+    stats.traversal.limits.node_hits = 1;
+    let resolution = resolution_with(stats);
+
+    let error = IncompleteLocator::SelectedQuery(&resolution).error();
+    let suggestion = error
+        .suggestion
+        .expect("a traversal limit suggests narrowing the query");
+    let details = error
+        .details
+        .expect("an incomplete locator carries details");
+
+    assert_eq!(error.code, ErrorCode::Timeout);
+    assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+    assert_eq!(details["cause"], "traversal_limit");
+    assert_eq!(details["retryable"], false);
+    assert_eq!(suggestion, super::NARROW_THE_QUERY_SUGGESTION);
 }

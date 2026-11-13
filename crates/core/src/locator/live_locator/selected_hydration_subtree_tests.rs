@@ -91,23 +91,29 @@ fn forbidden_descendant_added_between_phases_is_rejected() {
 
 #[test]
 fn incomplete_negative_absence_proof_fails_closed() {
-    for (mode, kind, cause, attempts) in [
+    for (mode, kind, cause, retryable, suggestion_needle, attempts) in [
         (
             Mode::NegativeIncomplete,
             "locator_selected_query_incomplete",
             "unreadable_elements",
-            1,
+            true,
+            "Run the command again",
+            2,
         ),
         (
             Mode::NegativeBudget,
             "locator_selected_query_budget_limit",
             "traversal_limit",
+            false,
+            "More time will not help",
             1,
         ),
         (
             Mode::NegativeDeadline,
             "locator_selected_query_incomplete",
             "deadline",
+            true,
+            "larger --timeout-ms",
             2,
         ),
     ] {
@@ -126,12 +132,8 @@ fn incomplete_negative_absence_proof_fails_closed() {
         let details = error.details.as_ref().unwrap();
         assert_eq!(details["kind"], kind);
         assert_eq!(details["cause"], cause);
-        assert_eq!(details["retryable"], cause == "deadline");
-        assert!(error.suggestion.unwrap().contains(if cause == "deadline" {
-            "larger --timeout-ms"
-        } else {
-            "More time will not help"
-        }));
+        assert_eq!(details["retryable"], retryable);
+        assert!(error.suggestion.unwrap().contains(suggestion_needle));
         assert_attempts(&adapter, attempts);
     }
 }

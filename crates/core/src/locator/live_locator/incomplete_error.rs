@@ -1,8 +1,10 @@
 //! The one place a locator that cannot prove its result becomes an error.
 //!
-//! Observation stats and the operation deadline determine the cause. The
-//! suggestion names the lever that helps: a larger `--timeout-ms` only when the
-//! deadline ran out, a narrower query when more time cannot change the answer.
+//! Observation stats and the operation deadline determine the cause and whether
+//! retrying helps. The suggestion names the lever that helps: a larger
+//! `--timeout-ms` when the deadline ran out, running the command again after a
+//! transient hydration read failure, or a narrower query when retrying cannot
+//! change the answer.
 
 use super::{LocatorResolution, LocatorStats, ObservedNode, ObservedTree};
 use crate::{AdapterError, ErrorCode};
@@ -11,7 +13,16 @@ use serde_json::{Value, json};
 const DEADLINE_SUGGESTION: &str =
     "Retry with a larger --timeout-ms, or narrow the query with --role or --name.";
 
+const TRANSIENT_READ_SUGGESTION: &str = "Run the command again. The element could not be read while it was changing. If it keeps failing, narrow the query with --role or --name.";
+
 const NARROW_THE_QUERY_SUGGESTION: &str = "More time will not help. Narrow the query with --role or --name, or run snapshot, which returns the readable part of the tree with complete:false.";
+
+/// Whether running the same command again can change the answer.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Retry {
+    Helps,
+    CannotHelp,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum IncompleteCause {
@@ -40,10 +51,11 @@ impl IncompleteCause {
         }
     }
 
-    fn suggestion(self) -> &'static str {
-        match self {
-            Self::Deadline => DEADLINE_SUGGESTION,
-            Self::TraversalLimit | Self::UnreadableElements => NARROW_THE_QUERY_SUGGESTION,
+    fn suggestion(self, retry: Retry) -> &'static str {
+        match (self, retry) {
+            (Self::Deadline, _) => DEADLINE_SUGGESTION,
+            (_, Retry::Helps) => TRANSIENT_READ_SUGGESTION,
+            (_, Retry::CannotHelp) => NARROW_THE_QUERY_SUGGESTION,
         }
     }
 
@@ -93,6 +105,12 @@ pub(super) fn has_deterministic_limit(stats: &LocatorStats) -> bool {
         || limits.child_hits > 0
         || limits.text_hits > 0
         || limits.depth_hits > 0
+}
+
+pub(super) fn has_transient_incompleteness(stats: &LocatorStats) -> bool {
+    stats.traversal.limits.child_count_changes > 0
+        || stats.reads.health.cannot_complete > 0
+        || stats.reads.health.deadline_exhausted > 0
 }
 
 pub(super) enum IncompleteLocator<'a> {
@@ -185,14 +203,35 @@ impl IncompleteLocator<'_> {
         } else {
             IncompleteCause::of(stats)
         };
+        let retry = self.retry(cause, stats);
         details["kind"] = json!(kind);
         details["cause"] = json!(cause.as_str());
-        details["retryable"] = json!(cause == IncompleteCause::Deadline);
+        details["retryable"] = json!(retry == Retry::Helps);
         details["query_stats"] = json!(stats);
         AdapterError::new(ErrorCode::Timeout, cause.message(stats))
-            .with_suggestion(cause.suggestion())
+            .with_suggestion(cause.suggestion(retry))
             .with_details(details)
             .with_disposition(crate::DeliverySemantics::not_delivered())
+    }
+
+    fn retry(&self, cause: IncompleteCause, stats: &LocatorStats) -> Retry {
+        match self {
+            Self::Deadline(..) => Retry::Helps,
+            Self::SelectedQuery(_) | Self::SelectedEvidence(..) => {
+                if cause == IncompleteCause::Deadline || !has_deterministic_limit(stats) {
+                    Retry::Helps
+                } else {
+                    Retry::CannotHelp
+                }
+            }
+            Self::Resolution(_) | Self::Search(_) => {
+                if cause == IncompleteCause::Deadline {
+                    Retry::Helps
+                } else {
+                    Retry::CannotHelp
+                }
+            }
+        }
     }
 }
 
