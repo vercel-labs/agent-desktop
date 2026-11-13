@@ -88,13 +88,113 @@ pub(crate) fn enumerate_top_level(
         keep_going
     });
     let parameter = (&mut boxed as *mut Box<dyn FnMut(EnumeratedWindow) -> bool>) as isize;
+    unsafe { windows_sys::Win32::Foundation::SetLastError(0) };
     let succeeded = unsafe { EnumWindows(Some(callback), parameter) };
     if succeeded == 0 && !stopped_early.get() {
-        return Err(AdapterError::internal(
-            "EnumWindows failed to enumerate top-level windows",
-        ));
+        let last_error = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+        return Err(enum_windows_failure(last_error));
     }
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn current_station_and_desktop() -> (Option<String>, Option<String>) {
+    use windows_sys::Win32::System::StationsAndDesktops::{
+        GetProcessWindowStation, GetThreadDesktop,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+
+    let station = unsafe {
+        let hwinsta = GetProcessWindowStation();
+        user_object_name(hwinsta as _)
+    };
+    let desktop = unsafe {
+        let tid = GetCurrentThreadId();
+        let hdesk = GetThreadDesktop(tid);
+        user_object_name(hdesk as _)
+    };
+    (station, desktop)
+}
+
+#[cfg(target_os = "windows")]
+unsafe fn user_object_name(handle: windows_sys::Win32::Foundation::HANDLE) -> Option<String> {
+    use windows_sys::Win32::System::StationsAndDesktops::{GetUserObjectInformationW, UOI_NAME};
+
+    if handle.is_null() {
+        return None;
+    }
+    let mut needed: u32 = 0;
+    unsafe {
+        GetUserObjectInformationW(handle, UOI_NAME, core::ptr::null_mut(), 0, &mut needed);
+    }
+    if needed == 0 {
+        return None;
+    }
+    let u16_len = (needed as usize) / core::mem::size_of::<u16>();
+    let mut buffer: Vec<u16> = vec![0u16; u16_len];
+    let ok = unsafe {
+        GetUserObjectInformationW(
+            handle,
+            UOI_NAME,
+            buffer.as_mut_ptr().cast(),
+            needed,
+            &mut needed,
+        )
+    };
+    if ok == 0 {
+        return None;
+    }
+    while buffer.last() == Some(&0) {
+        buffer.pop();
+    }
+    String::from_utf16(&buffer).ok()
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn enum_windows_failure(last_error: u32) -> AdapterError {
+    let (station, desktop) = current_station_and_desktop();
+    enum_windows_failure_with_context(last_error, station, desktop)
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn enum_windows_failure_with_context(
+    last_error: u32,
+    station: Option<String>,
+    desktop: Option<String>,
+) -> AdapterError {
+    let station_str = station.as_deref().unwrap_or("unknown");
+    let desktop_str = desktop.as_deref().unwrap_or("unknown");
+    let detail =
+        format!("Win32 error: {last_error}; station: {station_str}; desktop: {desktop_str}");
+
+    let is_interactive = station
+        .as_deref()
+        .is_some_and(|s| s.eq_ignore_ascii_case("WinSta0"))
+        && desktop
+            .as_deref()
+            .is_some_and(|d| d.eq_ignore_ascii_case("default"));
+    let suggestion = if !is_interactive {
+        Some(
+            "Run agent-desktop in the interactive user desktop session (WinSta0\\default). \
+             Background sandboxes or services run in an isolated window station."
+                .to_string(),
+        )
+    } else {
+        None
+    };
+
+    let mut error = AdapterError::internal("EnumWindows failed to enumerate top-level windows")
+        .with_platform_detail(detail)
+        .with_details(serde_json::json!({
+            "win32_error": last_error,
+            "window_station": station,
+            "desktop": desktop,
+        }));
+
+    if let Some(s) = suggestion {
+        error = error.with_suggestion(s);
+    }
+    error
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -166,12 +266,7 @@ mod tests {
 
         enumerate_top_level(|window| {
             visited.push(window.handle);
-            if first {
-                first = false;
-                false
-            } else {
-                true
-            }
+            !std::mem::take(&mut first)
         })
         .expect("enumeration succeeds");
 
@@ -210,6 +305,70 @@ mod tests {
 
         assert!(total > 0, "a desktop has at least one top-level window");
         assert!(visible > 0, "the shell is visible");
+    }
+
+    #[test]
+    fn enum_windows_failure_constructs_diagnostic_context() {
+        let err = enum_windows_failure(0);
+        assert_eq!(err.code, agent_desktop_core::ErrorCode::Internal);
+        assert_eq!(
+            err.message,
+            "EnumWindows failed to enumerate top-level windows"
+        );
+        let platform_detail = err.platform_detail.expect("platform detail is present");
+        assert!(platform_detail.starts_with("Win32 error: 0; station: "));
+        assert!(platform_detail.contains("; desktop: "));
+
+        let details = err.details.expect("details json is present");
+        assert_eq!(details.get("win32_error").and_then(|v| v.as_u64()), Some(0));
+        assert!(details.get("window_station").is_some());
+        assert!(details.get("desktop").is_some());
+    }
+
+    #[test]
+    fn enum_windows_failure_with_context_formats_and_suggests_correctly() {
+        let non_interactive = enum_windows_failure_with_context(
+            0,
+            Some("WinSta0".to_string()),
+            Some("exebox-123".to_string()),
+        );
+        assert_eq!(
+            non_interactive.platform_detail.as_deref(),
+            Some("Win32 error: 0; station: WinSta0; desktop: exebox-123")
+        );
+        assert!(non_interactive.suggestion.is_some());
+        assert!(
+            non_interactive
+                .suggestion
+                .as_deref()
+                .unwrap()
+                .contains("WinSta0\\default")
+        );
+
+        let interactive = enum_windows_failure_with_context(
+            0,
+            Some("WinSta0".to_string()),
+            Some("default".to_string()),
+        );
+        assert_eq!(
+            interactive.platform_detail.as_deref(),
+            Some("Win32 error: 0; station: WinSta0; desktop: default")
+        );
+        assert!(interactive.suggestion.is_none());
+
+        let interactive_ci = enum_windows_failure_with_context(
+            0,
+            Some("winsta0".to_string()),
+            Some("Default".to_string()),
+        );
+        assert!(interactive_ci.suggestion.is_none());
+
+        let unknown = enum_windows_failure_with_context(5, None, None);
+        assert_eq!(
+            unknown.platform_detail.as_deref(),
+            Some("Win32 error: 5; station: unknown; desktop: unknown")
+        );
+        assert!(unknown.suggestion.is_some());
     }
 }
 

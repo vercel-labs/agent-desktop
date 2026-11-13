@@ -41,6 +41,22 @@ instead of calling UIA from arbitrary threads. The error's `suggestion` names
 joining the multithreaded apartment. The defect is in the calling process, not
 in the target application.
 
+## INTERNAL with an EnumWindows Detail
+
+```json
+"code": "INTERNAL",
+"message": "EnumWindows failed to enumerate top-level windows",
+"platform_detail": "Win32 error: 0; station: WinSta0; desktop: exebox-...",
+"details": { "win32_error": 0, "window_station": "WinSta0", "desktop": "exebox-..." }
+```
+
+Cause: the calling process was spawned in an isolated subshell window station
+(`WinSta0\exebox-...`) or background session without access to the interactive desktop.
+`platform_detail` and `details` report the Win32 `GetLastError()` code alongside the
+process window station and thread desktop names.
+
+Fix: run the command in the user's interactive desktop station (`WinSta0\default`).
+
 ## DPI-Scaled Coordinates
 
 Symptom: headed coordinate actions (`mouse-click --xy`, drag endpoints) land
