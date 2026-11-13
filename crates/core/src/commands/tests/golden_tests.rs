@@ -48,3 +48,32 @@ fn a_varying_key_of_another_json_type_fails() {
         &["id"],
     );
 }
+
+#[test]
+fn a_varying_integer_and_a_varying_fraction_keep_their_shapes() {
+    assert_golden(
+        json!({"a": 1, "elapsed": 250, "ratio": 0.75}),
+        include_str!("../../../../../tests/fixtures/contract/golden_selftest_fraction.json"),
+        &["elapsed", "ratio"],
+    );
+}
+
+#[test]
+#[should_panic(expected = "output differs from the golden file")]
+fn a_varying_fraction_does_not_match_an_integer_golden() {
+    assert_golden(
+        json!({"a": 1, "elapsed": 250.5, "ratio": 0.75}),
+        include_str!("../../../../../tests/fixtures/contract/golden_selftest_fraction.json"),
+        &["elapsed", "ratio"],
+    );
+}
+
+#[test]
+#[should_panic(expected = "output differs from the golden file")]
+fn a_varying_integer_does_not_match_a_fractional_golden() {
+    assert_golden(
+        json!({"a": 1, "elapsed": 250, "ratio": 3}),
+        include_str!("../../../../../tests/fixtures/contract/golden_selftest_fraction.json"),
+        &["elapsed", "ratio"],
+    );
+}
