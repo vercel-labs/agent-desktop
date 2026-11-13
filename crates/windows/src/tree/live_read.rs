@@ -253,7 +253,10 @@ pub(crate) fn live_element(read: &LiveRead) -> Result<LiveElement, AdapterError>
 }
 
 /// Whether the control-state evidence the post-action verifier reads was
-/// actually observed: a toggleable role needs a readable `ToggleState`, and
+/// actually observed: a toggleable role needs a readable `ToggleState` or,
+/// for a radio button, whose UI Automation contract is the `SelectionItem`
+/// pattern rather than `Toggle` (Chromium and WinForms radios expose no
+/// `ToggleState`), a readable `SelectionItem.IsSelected`; and
 /// the expand half needs a readable `ExpandCollapseState` wherever it applies.
 /// It applies to any element that advertises the pattern, and to an
 /// expandable role unless the provider answered that it has no
@@ -264,11 +267,16 @@ pub(crate) fn live_element(read: &LiveRead) -> Result<LiveElement, AdapterError>
 /// ordinary button whenever one optional read fails. A gate that never opened
 /// yields no value, and a defaulted value is not an observation.
 fn states_are_complete(read: &LiveRead, role: &str) -> bool {
+    use super::properties::property_ids::TreeProperty;
     use super::properties::property_outcome::PropertyOutcome;
     let toggle_observed = !roles::is_toggleable_role(role)
         || read
             .properties
-            .gated_number(super::properties::property_ids::TreeProperty::ToggleState)
+            .gated_number(TreeProperty::ToggleState)
+            .is_some()
+        || read
+            .properties
+            .gated_flag(TreeProperty::SelectionItemIsSelected)
             .is_some();
     let available = super::properties::property_ids::TreeProperty::ExpandCollapseAvailable;
     let advertised = read.properties.is_true(available);
