@@ -7,6 +7,12 @@ use crate::{AdapterError, ErrorCode, wait_timeout_duration};
 
 pub const DEFAULT_OPERATION_TIMEOUT_MS: u64 = 5_000;
 
+/// The pause between reads of a core poll loop.
+pub(crate) const POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// The shorter pause a poll takes while it waits for moving bounds to settle.
+pub(crate) const STABILITY_POLL_INTERVAL: Duration = Duration::from_millis(16);
+
 thread_local! {
     static INHERITED_DEADLINE: Cell<Option<Deadline>> = const { Cell::new(None) };
 }
@@ -112,6 +118,20 @@ impl Deadline {
         }
     }
 
+    /// The deadline that expires `tail` before this one, so the caller keeps
+    /// `tail` of the budget for cleanup whatever time passes before it acts.
+    pub fn reserving(self, tail: Duration) -> Self {
+        let expires_at = self
+            .expires_at
+            .checked_sub(tail)
+            .map_or(self.started_at, |end| end.max(self.started_at));
+        Self {
+            capped: true,
+            expires_at,
+            ..self
+        }
+    }
+
     /// Moves the expiry back by time spent on work that is not charged to this
     /// operation. An inherited deadline still bounds the result.
     pub(crate) fn extended_by(self, pause: Duration) -> Self {
@@ -131,6 +151,14 @@ impl Deadline {
 
     pub fn is_expired(self) -> bool {
         self.remaining().is_zero()
+    }
+
+    /// Sleeps for `interval` or until the deadline, whichever comes first.
+    pub(crate) fn pause(self, interval: Duration) {
+        let remaining = self.remaining();
+        if !remaining.is_zero() {
+            sleep(interval.min(remaining));
+        }
     }
 
     /// Fails with [`Self::timeout_error`] once the deadline has expired.

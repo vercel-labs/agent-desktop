@@ -1,9 +1,9 @@
-use agent_desktop_core::{AdapterError, ErrorCode};
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
 use std::io::Read;
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
 use std::sync::mpsc;
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const MAX_CAPTURED_STREAM_BYTES: usize = 8 * 1024 * 1024;
 const OUTPUT_CONTEXT_BYTES: usize = 4 * 1024;
@@ -26,27 +26,22 @@ pub(crate) fn run_with_timeout(
     label: &str,
     timeout: Duration,
 ) -> Result<Output, AdapterError> {
-    let deadline = Instant::now().checked_add(timeout).ok_or_else(|| {
-        AdapterError::timeout(format!("{label} timeout exceeds the supported range"))
-    })?;
-    run_with_deadline(command, label, deadline)
+    run_with_deadline(command, label, Deadline::from_duration(timeout)?)
 }
 
 pub(crate) fn run_with_deadline(
     command: &mut Command,
     label: &str,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Output, AdapterError> {
-    let remaining = deadline.saturating_duration_since(Instant::now());
+    let remaining = deadline.remaining();
     if remaining.is_zero() {
         return Err(AdapterError::timeout(format!(
             "{label} has no subprocess cleanup budget"
         )));
     }
     let cleanup_reserve = (remaining / 4).min(MAX_CLEANUP_RESERVE);
-    let work_deadline = deadline.checked_sub(cleanup_reserve).ok_or_else(|| {
-        AdapterError::timeout(format!("{label} has no subprocess cleanup budget"))
-    })?;
+    let work_deadline = deadline.reserving(cleanup_reserve);
     configure_process_group(command);
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|error| {
@@ -119,9 +114,9 @@ fn configure_process_group(command: &mut Command) {
     command.process_group(0);
 }
 
-fn wait_for_status(child: &mut Child, deadline: Instant) -> Result<ExitStatus, AdapterError> {
+fn wait_for_status(child: &mut Child, deadline: Deadline) -> Result<ExitStatus, AdapterError> {
     loop {
-        if Instant::now() >= deadline {
+        if deadline.is_expired() {
             return Err(AdapterError::timeout(
                 "Subprocess exceeded its work deadline",
             ));
@@ -144,7 +139,7 @@ fn cleanup_after_error(
     stdout: &mut Option<DrainHandle>,
     stderr: &mut Option<DrainHandle>,
     label: &str,
-    deadline: Instant,
+    deadline: Deadline,
     mut original: AdapterError,
 ) -> Result<Output, AdapterError> {
     let cleanup_failures = terminate_process_group(child, process_group, deadline);
@@ -159,7 +154,7 @@ fn cleanup_after_error(
 fn terminate_process_group(
     child: &mut Child,
     process_group: i32,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Vec<String> {
     terminate_process_group_with(child, process_group, deadline, signal_group)
 }
@@ -167,17 +162,15 @@ fn terminate_process_group(
 fn terminate_process_group_with(
     child: &mut Child,
     process_group: i32,
-    deadline: Instant,
+    deadline: Deadline,
     mut signal: impl FnMut(i32, i32) -> std::io::Result<bool>,
 ) -> Vec<String> {
     let mut failures = Vec::new();
     if let Err(error) = signal(process_group, 15) {
         failures.push(format!("SIGTERM process group {process_group}: {error}"));
     }
-    let grace_deadline = Instant::now()
-        .checked_add(TERM_GRACE)
-        .map_or(deadline, |grace| grace.min(deadline));
-    std::thread::sleep(grace_deadline.saturating_duration_since(Instant::now()));
+    let grace_deadline = deadline.capped(TERM_GRACE);
+    std::thread::sleep(grace_deadline.remaining());
     let kill_error = signal(process_group, 9).err();
     let reaped = poll_reap(child, deadline);
     if let Some(error) = kill_error {
@@ -209,11 +202,11 @@ fn signal_group(process_group: i32, signal: i32) -> std::io::Result<bool> {
     }
 }
 
-pub(super) fn poll_reap(child: &mut Child, deadline: Instant) -> bool {
+pub(super) fn poll_reap(child: &mut Child, deadline: Deadline) -> bool {
     loop {
         match child.try_wait() {
             Ok(Some(_)) => return true,
-            Ok(None) if Instant::now() < deadline => {
+            Ok(None) if !deadline.is_expired() => {
                 std::thread::sleep(poll_interval(deadline));
             }
             Ok(None) | Err(_) => return false,
@@ -221,10 +214,8 @@ pub(super) fn poll_reap(child: &mut Child, deadline: Instant) -> bool {
     }
 }
 
-fn poll_interval(deadline: Instant) -> Duration {
-    deadline
-        .saturating_duration_since(Instant::now())
-        .min(Duration::from_millis(20))
+fn poll_interval(deadline: Deadline) -> Duration {
+    deadline.remaining().min(Duration::from_millis(20))
 }
 
 fn spawn_drain<R>(mut reader: R) -> DrainHandle
@@ -265,12 +256,12 @@ fn receive_drain(
     handle: &mut Option<DrainHandle>,
     label: &str,
     stream: &str,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<DrainResult, AdapterError> {
     let (receiver, _) = handle
         .as_ref()
         .ok_or_else(|| AdapterError::internal(format!("{label}: missing {stream}")))?;
-    let remaining = deadline.saturating_duration_since(Instant::now());
+    let remaining = deadline.remaining();
     if remaining.is_zero() {
         return Err(AdapterError::timeout(format!(
             "{label}: timed out draining {stream}"

@@ -1,5 +1,6 @@
 use super::*;
 use crate::system::window::cg_window::WindowRecord;
+use agent_desktop_core::Deadline;
 
 fn record(app_name: &str, pid: i32, title: &str, window_number: i64) -> WindowRecord {
     WindowRecord {
@@ -101,7 +102,7 @@ fn resolved_window_preserves_verified_core_graphics_bounds() {
 #[test]
 fn capture_verification_rejects_expired_deadline_before_native_reads() {
     let requested = win("w-100", 10, "Untitled");
-    let error = resolve_capture_window(&requested, std::time::Instant::now())
+    let error = resolve_capture_window(&requested, Deadline::after(0).unwrap())
         .expect_err("expired capture verification");
 
     assert_eq!(error.code, ErrorCode::Timeout);

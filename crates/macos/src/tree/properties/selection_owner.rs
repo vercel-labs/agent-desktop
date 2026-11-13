@@ -2,6 +2,7 @@ use super::action_list::{AvailableActionsRead, read_settable, record_error};
 use super::selection_verdicts::SelectionVerdicts;
 use crate::tree::AXElement;
 use crate::tree::properties::attributes::{copy_bool_attr_result, copy_element_attr_result};
+use agent_desktop_core::Deadline;
 
 pub(crate) const MAX_SELECTION_OWNER_DEPTH: usize = 2;
 
@@ -12,7 +13,7 @@ pub(crate) const MAX_SELECTION_OWNER_DEPTH: usize = 2;
 /// incomplete and caches nothing, so an unknown is never taken for an answer.
 pub(super) fn container_selection(
     el: &AXElement,
-    deadline: std::time::Instant,
+    deadline: Deadline,
     read: &mut AvailableActionsRead,
     verdicts: &mut SelectionVerdicts,
 ) -> Option<bool> {
@@ -42,7 +43,7 @@ pub(super) fn container_selection(
 /// True when writing the container's selection is the only way to choose `el`,
 /// so a press on anything inside it would act on something else. A read that
 /// cannot complete counts as true, so an unknown never authorizes the press.
-pub(crate) fn selects_only_through_container(el: &AXElement, deadline: std::time::Instant) -> bool {
+pub(crate) fn selects_only_through_container(el: &AXElement, deadline: Deadline) -> bool {
     let mut read = AvailableActionsRead::default();
     let own = crate::actions::select::container_select::SELECTED;
     if read_settable(el, own, deadline, &mut read).unwrap_or(false) {
@@ -56,7 +57,7 @@ pub(crate) fn selects_only_through_container(el: &AXElement, deadline: std::time
 /// it does not.
 fn own_selection(
     element: &AXElement,
-    deadline: std::time::Instant,
+    deadline: Deadline,
     read: &mut AvailableActionsRead,
 ) -> Option<bool> {
     let owns = crate::actions::select::container_select::SELECTION_ATTRIBUTES
@@ -76,7 +77,7 @@ fn own_selection(
 
 fn parent_of(
     element: &AXElement,
-    deadline: std::time::Instant,
+    deadline: Deadline,
     read: &mut AvailableActionsRead,
 ) -> Option<AXElement> {
     copy_element_attr_result(element, "AXParent", deadline)

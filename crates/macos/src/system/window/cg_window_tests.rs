@@ -1,4 +1,5 @@
 use super::*;
+use agent_desktop_core::Deadline;
 
 #[test]
 fn missing_optional_owner_name_does_not_block_scoped_windows() {
@@ -58,14 +59,16 @@ fn missing_optional_owner_name_does_not_block_scoped_windows() {
 
 #[test]
 fn expired_cg_window_deadline_is_rejected_before_native_reads() {
-    let error = window_records_until(Instant::now(), WindowRecordScope::Pid(1)).unwrap_err();
+    let error =
+        window_records_until(Deadline::after(0).unwrap(), WindowRecordScope::Pid(1)).unwrap_err();
 
     assert_eq!(error.code.as_str(), "TIMEOUT");
 }
 
 #[test]
 fn deadline_expired_before_any_capture_omits_the_unstable_inventory_kind() {
-    let error = window_records_until(Instant::now(), WindowRecordScope::Pid(1)).unwrap_err();
+    let error =
+        window_records_until(Deadline::after(0).unwrap(), WindowRecordScope::Pid(1)).unwrap_err();
 
     assert!(error.details.is_none());
 }
@@ -112,16 +115,15 @@ fn inventory_includes_offscreen_and_minimized_windows() {
 fn changing_inventory_retries_until_two_consecutive_captures_match() {
     let mut attempt = 0;
     let stable = records_fixture(true);
-    let result =
-        stabilize_records_until(Instant::now() + std::time::Duration::from_secs(1), || {
-            attempt += 1;
-            Ok(if attempt == 1 {
-                records_fixture(false)
-            } else {
-                stable.clone()
-            })
+    let result = stabilize_records_until(Deadline::after(1000).unwrap(), || {
+        attempt += 1;
+        Ok(if attempt == 1 {
+            records_fixture(false)
+        } else {
+            stable.clone()
         })
-        .unwrap();
+    })
+    .unwrap();
 
     assert_eq!(attempt, 3);
     assert_eq!(result, stable);
@@ -131,14 +133,11 @@ fn changing_inventory_retries_until_two_consecutive_captures_match() {
 fn persistent_window_churn_times_out_with_exact_attempt_metrics() {
     let mut visible = false;
     let mut attempts = 0_u64;
-    let error = stabilize_records_until(
-        Instant::now() + std::time::Duration::from_millis(20),
-        || {
-            attempts += 1;
-            visible = !visible;
-            Ok(records_fixture(visible))
-        },
-    )
+    let error = stabilize_records_until(Deadline::after(20).unwrap(), || {
+        attempts += 1;
+        visible = !visible;
+        Ok(records_fixture(visible))
+    })
     .unwrap_err();
 
     assert_eq!(error.code, ErrorCode::Timeout);
@@ -163,18 +162,14 @@ fn scoped_capture_never_probes_an_unrelated_inaccessible_owner() {
     );
     let mut probed = Vec::new();
 
-    capture_process_instances_with(
-        &mut records,
-        Instant::now() + std::time::Duration::from_secs(1),
-        |pid| {
-            probed.push(pid);
-            if pid == 418 {
-                Err(AdapterError::permission_denied())
-            } else {
-                Ok(Some(format!("instance-{pid}")))
-            }
-        },
-    )
+    capture_process_instances_with(&mut records, Deadline::after(1000).unwrap(), |pid| {
+        probed.push(pid);
+        if pid == 418 {
+            Err(AdapterError::permission_denied())
+        } else {
+            Ok(Some(format!("instance-{pid}")))
+        }
+    })
     .unwrap();
 
     assert_eq!(probed, [10]);
@@ -184,12 +179,11 @@ fn scoped_capture_never_probes_an_unrelated_inaccessible_owner() {
 #[test]
 fn scoped_capture_propagates_the_selected_owners_denial() {
     let mut records = vec![record("Target", 418, 8, true)];
-    let error = capture_process_instances_with(
-        &mut records,
-        Instant::now() + std::time::Duration::from_secs(1),
-        |_| Err(AdapterError::permission_denied()),
-    )
-    .unwrap_err();
+    let error =
+        capture_process_instances_with(&mut records, Deadline::after(1000).unwrap(), |_| {
+            Err(AdapterError::permission_denied())
+        })
+        .unwrap_err();
 
     assert_eq!(error.code, ErrorCode::PermDenied);
 }
@@ -230,14 +224,10 @@ fn pid_and_window_scopes_exclude_unrelated_owners_before_identity_reads() {
             scope,
         );
         let mut probed = Vec::new();
-        capture_process_instances_with(
-            &mut records,
-            Instant::now() + std::time::Duration::from_secs(1),
-            |pid| {
-                probed.push(pid);
-                Ok(Some(format!("instance-{pid}")))
-            },
-        )
+        capture_process_instances_with(&mut records, Deadline::after(1000).unwrap(), |pid| {
+            probed.push(pid);
+            Ok(Some(format!("instance-{pid}")))
+        })
         .unwrap();
 
         assert_eq!(probed, [10]);
@@ -257,18 +247,14 @@ fn pid_set_scope_excludes_ineligible_owners_before_identity_reads() {
     );
     let mut probed = Vec::new();
 
-    capture_process_instances_with(
-        &mut records,
-        Instant::now() + std::time::Duration::from_secs(1),
-        |pid| {
-            probed.push(pid);
-            if pid == 418 {
-                Err(AdapterError::permission_denied())
-            } else {
-                Ok(Some(format!("instance-{pid}")))
-            }
-        },
-    )
+    capture_process_instances_with(&mut records, Deadline::after(1000).unwrap(), |pid| {
+        probed.push(pid);
+        if pid == 418 {
+            Err(AdapterError::permission_denied())
+        } else {
+            Ok(Some(format!("instance-{pid}")))
+        }
+    })
     .unwrap();
 
     assert_eq!(probed, [10, 11]);
@@ -291,18 +277,15 @@ fn target_churn_remains_visible_after_scoping() {
 #[test]
 fn unfiltered_capture_remains_fail_closed() {
     let mut records = vec![record("Target", 10, 7, true), record("Other", 418, 8, true)];
-    let error = capture_process_instances_with(
-        &mut records,
-        Instant::now() + std::time::Duration::from_secs(1),
-        |pid| {
+    let error =
+        capture_process_instances_with(&mut records, Deadline::after(1000).unwrap(), |pid| {
             if pid == 418 {
                 Err(AdapterError::permission_denied())
             } else {
                 Ok(Some(format!("instance-{pid}")))
             }
-        },
-    )
-    .unwrap_err();
+        })
+        .unwrap_err();
 
     assert_eq!(error.code, ErrorCode::PermDenied);
 }
@@ -377,13 +360,10 @@ fn record(app_name: &str, pid: i32, window_number: i64, visible: bool) -> Window
 #[test]
 fn persistent_capture_failure_is_not_window_churn() {
     let mut attempts = 0;
-    let error = stabilize_records_until(
-        Instant::now() + std::time::Duration::from_millis(20),
-        || {
-            attempts += 1;
-            Err(inventory_error("unavailable"))
-        },
-    )
+    let error = stabilize_records_until(Deadline::after(20).unwrap(), || {
+        attempts += 1;
+        Err(inventory_error("unavailable"))
+    })
     .unwrap_err();
     let details = error.details.unwrap();
     assert_eq!(details["attempts"], attempts);

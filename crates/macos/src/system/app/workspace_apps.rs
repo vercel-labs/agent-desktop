@@ -1,6 +1,5 @@
-use agent_desktop_core::{AdapterError, AppInfo, AppInventory, ErrorCode};
+use agent_desktop_core::{AdapterError, AppInfo, AppInventory, Deadline, ErrorCode};
 use serde::Deserialize;
-use std::time::Instant;
 const MAX_SNAPSHOT_BYTES: usize = 1024 * 1024;
 const MAX_FIELD_BYTES: usize = 16 * 1024;
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -103,7 +102,7 @@ impl WindowOwnerSnapshot {
     }
 }
 
-pub(crate) fn list_apps_inventory_until(deadline: Instant) -> Result<AppInventory, AdapterError> {
+pub(crate) fn list_apps_inventory_until(deadline: Deadline) -> Result<AppInventory, AdapterError> {
     #[cfg(test)]
     if let Some(inventory) = crate::system::app::app_inventory::adapter_tests::workspace_inventory()
     {
@@ -127,7 +126,7 @@ pub(crate) fn require_complete(skipped: &[serde_json::Value]) -> Result<(), Adap
 pub(crate) fn list_apps_scoped_until(
     name: &str,
     bundle_id: Option<&str>,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<AppInventory, AdapterError> {
     let mut inventory = list_apps_with(
         deadline,
@@ -157,7 +156,7 @@ fn has_alias(bundle_id: &Option<String>, executable: &Option<String>, identifier
         .any(|alias| alias.eq_ignore_ascii_case(identifier))
 }
 
-pub(crate) fn focused_owner_until(deadline: Instant) -> Result<Option<WindowOwner>, AdapterError> {
+pub(crate) fn focused_owner_until(deadline: Deadline) -> Result<Option<WindowOwner>, AdapterError> {
     ensure_before_deadline(deadline)?;
     crate::system::cocoa_runtime::ensure_cocoa_multithreaded()?;
     let bytes = crate::system::appkit_bridge::focused_snapshot_json()?;
@@ -168,7 +167,7 @@ pub(crate) fn focused_owner_until(deadline: Instant) -> Result<Option<WindowOwne
 }
 
 pub(crate) fn window_owner_snapshot_until(
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<WindowOwnerSnapshot, AdapterError> {
     ensure_before_deadline(deadline)?;
     crate::system::cocoa_runtime::ensure_cocoa_multithreaded()?;
@@ -178,7 +177,7 @@ pub(crate) fn window_owner_snapshot_until(
 }
 
 fn list_apps_with(
-    deadline: Instant,
+    deadline: Deadline,
     include: impl Fn(&BridgedApplication) -> bool,
     skip_cross_uid: bool,
 ) -> Result<AppInventory, AdapterError> {
@@ -196,7 +195,7 @@ fn list_apps_with(
 }
 
 #[cfg(test)]
-fn apps_from_json(bytes: &[u8], deadline: Instant) -> Result<Vec<AppInfo>, AdapterError> {
+fn apps_from_json(bytes: &[u8], deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
     apps_from_json_with(
         bytes,
         deadline,
@@ -209,7 +208,7 @@ fn apps_from_json(bytes: &[u8], deadline: Instant) -> Result<Vec<AppInfo>, Adapt
 #[cfg(test)]
 fn apps_from_json_with(
     bytes: &[u8],
-    deadline: Instant,
+    deadline: Deadline,
     include: impl Fn(&BridgedApplication) -> bool,
     skip_cross_uid: bool,
     resolve: impl FnMut(i32) -> Result<Option<String>, AdapterError>,
@@ -219,7 +218,7 @@ fn apps_from_json_with(
 
 fn apps_inventory_from_json_with(
     bytes: &[u8],
-    deadline: Instant,
+    deadline: Deadline,
     include: impl Fn(&BridgedApplication) -> bool,
     skip_cross_uid: bool,
     mut resolve: impl FnMut(i32) -> Result<Option<String>, AdapterError>,
@@ -274,7 +273,7 @@ fn presentation_of(policy: ActivationPolicy) -> agent_desktop_core::AppPresentat
 
 fn window_owner_snapshot_from_json(
     bytes: &[u8],
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<WindowOwnerSnapshot, AdapterError> {
     let bridged = bridged_snapshot(bytes)?;
     let mut owners = Vec::with_capacity(bridged.applications.len());
@@ -365,8 +364,8 @@ fn valid_launch_time(value: f64) -> bool {
     value.is_finite() && value > 0.0
 }
 
-fn ensure_before_deadline(deadline: Instant) -> Result<(), AdapterError> {
-    if Instant::now() >= deadline {
+fn ensure_before_deadline(deadline: Deadline) -> Result<(), AdapterError> {
+    if deadline.is_expired() {
         return Err(AdapterError::timeout("NSWorkspace app inventory timed out"));
     }
     Ok(())

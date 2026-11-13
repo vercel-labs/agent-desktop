@@ -25,7 +25,7 @@ pub(crate) fn click_via_bounds(
     }
     let prepared =
         crate::actions::physical_target::PreparedPhysicalTarget::prepare(element, deadline)?;
-    let read_deadline = crate::tree::locator_deadline::from_operation(deadline)?;
+    let read_deadline = deadline;
     let bounds = crate::tree::element_bounds::read_bounds_with_deadline(element, read_deadline)?
         .ok_or_else(|| {
             AdapterError::new(ErrorCode::ActionFailed, "Element has no readable bounds")

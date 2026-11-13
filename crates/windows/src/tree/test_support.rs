@@ -4,8 +4,6 @@
 
 use crate::tree::properties::property_ids::TreeProperty;
 use crate::tree::properties::{ElementProperties, PropertyOutcome, PropertyValue};
-#[cfg(target_os = "windows")]
-use agent_desktop_core::NativeHandle;
 
 /// Builds an `ElementProperties` from an explicit read set, the way every
 /// producer test stages one node's evidence.
@@ -26,13 +24,6 @@ pub(crate) fn number(property: TreeProperty, value: i32) -> (TreeProperty, Prope
 
 pub(crate) fn text(value: &str) -> PropertyOutcome {
     PropertyOutcome::Known(PropertyValue::Text(value.into()))
-}
-
-/// A handle no resolved attempt should ever reach - the retry loop's own
-/// tests use it to prove a classification without a live provider.
-#[cfg(target_os = "windows")]
-pub(crate) fn unreachable_handle() -> NativeHandle {
-    NativeHandle::new(())
 }
 
 /// Asserts that no non-doc line of any `(name, source)` pair satisfies

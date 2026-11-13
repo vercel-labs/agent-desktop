@@ -41,7 +41,7 @@ fn a_settled_stale_ref_is_query_retryable_complete_and_not_adapter_loop_retryabl
         "a completed search that found nothing is a complete answer"
     );
     assert!(
-        !crate::tree::resolve::is_retryable_resolution_error(&error),
+        !error.is_transient_incomplete_read(),
         "the adapter loop must not replay a settled non-match"
     );
 }

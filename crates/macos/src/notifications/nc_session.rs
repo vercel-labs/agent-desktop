@@ -178,7 +178,7 @@ impl Drop for NcSession {
 #[cfg(target_os = "macos")]
 fn frontmost_app(deadline: Deadline) -> Result<Option<ProcessIdentity>, AdapterError> {
     let snapshot = crate::system::app::workspace_apps::window_owner_snapshot_until(
-        operation_deadline(deadline, std::time::Duration::from_secs(2))?,
+        deadline.capped(std::time::Duration::from_secs(2)),
     )?;
     let Some(owner) = snapshot.frontmost() else {
         return Ok(None);
@@ -232,7 +232,7 @@ fn nc_pid(deadline: Deadline) -> Result<Option<i32>, AdapterError> {
     let output = crate::system::process::run_with_deadline(
         &mut command,
         "pgrep NotificationCenter",
-        operation_deadline(deadline, std::time::Duration::from_secs(1))?,
+        deadline.capped(std::time::Duration::from_secs(1)),
     );
     nc_pid_from_output(output)
 }
@@ -283,7 +283,7 @@ fn open_nc(deadline: Deadline) -> Result<(), AdapterError> {
     let output = crate::system::process::run_with_deadline(
         &mut command,
         "osascript open-nc",
-        operation_deadline(deadline, std::time::Duration::from_secs(2))?,
+        deadline.capped(std::time::Duration::from_secs(2)),
     )?;
     if !output.status.success() {
         return Err(crate::system::permissions::map_automation_command_failure(
@@ -350,18 +350,4 @@ fn wait_for_nc_ready(deadline: Deadline) -> Result<i32, AdapterError> {
 #[cfg(not(target_os = "macos"))]
 fn wait_for_nc_ready(_deadline: Deadline) -> Result<i32, AdapterError> {
     Err(AdapterError::not_supported("wait_for_nc_ready"))
-}
-
-fn operation_deadline(
-    deadline: Deadline,
-    maximum: std::time::Duration,
-) -> Result<std::time::Instant, AdapterError> {
-    let remaining = deadline.remaining();
-    if remaining.is_zero() {
-        Err(deadline.timeout_error())
-    } else {
-        std::time::Instant::now()
-            .checked_add(remaining.min(maximum))
-            .ok_or_else(|| AdapterError::timeout("Notification subprocess deadline overflowed"))
-    }
 }

@@ -8,7 +8,7 @@ use crate::tree::resolve::resolve_search::{
     find_entry_by_path, incomplete_traversal_error, walk_finite_path,
 };
 use agent_desktop_core::{
-    RefCapabilities, RefEntryIdentity, RefGeometry, RefProcess, RefScope, RefSource,
+    Deadline, RefCapabilities, RefEntryIdentity, RefGeometry, RefProcess, RefScope, RefSource,
     SnapshotSurface,
 };
 
@@ -155,45 +155,17 @@ fn a_saved_ref_without_an_element_token_is_refused_not_searched_for() {
     tokenless.process.pid = agent_desktop_core::ProcessId::try_from(pid).unwrap();
     tokenless.process.process_instance = Some(instance);
 
-    let error = resolve_element_with_deadline(
-        &tokenless,
-        agent_desktop_core::Deadline::after(1_000).unwrap(),
-    )
-    .err()
-    .expect("a tokenless ref must be refused");
+    let error = resolve_element_with_deadline(&tokenless, Deadline::after(1_000).unwrap())
+        .err()
+        .expect("a tokenless ref must be refused");
 
     assert_eq!(error.code, ErrorCode::ElementNotFound);
     assert_eq!(error.details.unwrap()["kind"], "element_token_required");
 }
 
 #[test]
-fn only_explicitly_retryable_incomplete_errors_retry() {
-    let retryable = incomplete_traversal_error("children", 3);
-    assert!(is_retryable_resolution_error(&retryable));
-    assert!(!is_retryable_resolution_error(
-        &AdapterError::element_not_found("element")
-    ));
-    assert!(!is_retryable_resolution_error(
-        &AdapterError::permission_denied()
-    ));
-}
-
-#[test]
-fn cannot_complete_retry_can_recover_before_one_deadline() {
-    let attempts = std::cell::Cell::new(0);
-    let deadline = Instant::now() + Duration::from_secs(5);
-
-    let result = retry_incomplete_until(deadline, || {
-        attempts.set(attempts.get() + 1);
-        if attempts.get() == 1 {
-            Err(incomplete_traversal_error("children", 1))
-        } else {
-            Ok(7_u8)
-        }
-    });
-
-    assert_eq!(result.unwrap(), 7);
-    assert_eq!(attempts.get(), 2);
+fn an_incomplete_traversal_is_a_transient_read() {
+    assert!(incomplete_traversal_error("children", 3).is_transient_incomplete_read());
 }
 
 #[test]
@@ -206,7 +178,7 @@ fn incomplete_traversal_is_never_element_not_found() {
 
 #[test]
 fn expired_deadline_fails_before_path_reads() {
-    let mut context = ResolveReadContext::new(Instant::now());
+    let mut context = ResolveReadContext::new(Deadline::after(0).unwrap());
     let error = find_entry_by_path(
         &[],
         &entry(Some(42), Some("w-42"), None, None),

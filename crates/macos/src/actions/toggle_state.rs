@@ -224,10 +224,10 @@ fn settle_checked_state(
     want_checked: bool,
     action_deadline: Deadline,
 ) -> Result<Option<bool>, AdapterError> {
-    let deadline = verification_deadline(action_deadline)?;
+    let deadline = action_deadline.capped(TOGGLE_TIMEOUT);
     loop {
         let state = checked_state(el, action_deadline)?;
-        if state == Some(want_checked) || std::time::Instant::now() >= deadline {
+        if state == Some(want_checked) || deadline.is_expired() {
             return Ok(state);
         }
         sleep_poll(deadline, action_deadline)?;
@@ -239,7 +239,7 @@ fn wait_for_value_change(
     before: &str,
     action_deadline: Deadline,
 ) -> Result<(), AdapterError> {
-    let deadline = verification_deadline(action_deadline)?;
+    let deadline = action_deadline.capped(TOGGLE_TIMEOUT);
     let mut candidate: Option<(String, std::time::Instant)> = None;
     loop {
         if let Some(changed) = read_value(el, action_deadline)? {
@@ -258,7 +258,7 @@ fn wait_for_value_change(
                 candidate = None;
             }
         }
-        if std::time::Instant::now() >= deadline {
+        if deadline.is_expired() {
             return Err(AdapterError::new(
                 ErrorCode::ActionFailed,
                 "toggle did not change the element value",
@@ -274,20 +274,8 @@ fn wait_for_value_change(
     }
 }
 
-fn verification_deadline(action_deadline: Deadline) -> Result<std::time::Instant, AdapterError> {
-    let local = std::time::Instant::now() + TOGGLE_TIMEOUT;
-    let remaining = action_deadline.remaining();
-    if remaining.is_zero() {
-        Err(action_deadline.timeout_error())
-    } else {
-        Ok(std::time::Instant::now()
-            .checked_add(remaining)
-            .map_or(local, |deadline| deadline.min(local)))
-    }
-}
-
-fn sleep_poll(deadline: std::time::Instant, action_deadline: Deadline) -> Result<(), AdapterError> {
-    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+fn sleep_poll(deadline: Deadline, action_deadline: Deadline) -> Result<(), AdapterError> {
+    let remaining = deadline.remaining();
     if !remaining.is_zero() {
         std::thread::sleep(remaining.min(std::time::Duration::from_millis(25)));
     }

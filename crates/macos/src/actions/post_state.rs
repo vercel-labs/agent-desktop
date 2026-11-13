@@ -113,7 +113,7 @@ fn read_live_observation_once(
             stats: &mut stats,
             usage: &mut usage,
             requirements: EvidenceRequirements::snapshot(),
-            deadline: crate::tree::locator_deadline::from_operation(deadline)?,
+            deadline,
             child_plan,
         },
     )?;

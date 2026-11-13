@@ -40,7 +40,7 @@ pub(crate) fn resolve_locator_anchor(
     entry: &RefEntry,
     deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
-    crate::tree::resolve::retry_incomplete_until(deadline, || {
+    agent_desktop_core::refs::resolve_retry::retry_incomplete_until(deadline, || {
         resolve_locator_anchor_once(entry, deadline)
     })
 }

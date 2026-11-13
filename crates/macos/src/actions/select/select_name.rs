@@ -1,10 +1,12 @@
-use agent_desktop_core::{AdapterError, ErrorCode, EvidenceRequirements, LocatorEvidence};
+use agent_desktop_core::{
+    AdapterError, Deadline, ErrorCode, EvidenceRequirements, LocatorEvidence,
+};
 
 pub(crate) fn collection_target(
     element: &crate::tree::AXElement,
     root: &crate::tree::AXElement,
     value: &str,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<Option<crate::tree::AXElement>, AdapterError> {
     let (read, stats) = candidate_read(element, deadline)?;
     let named = evidence_matches(&read.evidence, value, stats)?;
@@ -71,7 +73,7 @@ fn text_value_matches(
     element: &crate::tree::AXElement,
     attrs: &crate::tree::NodeAttrs,
     value: &str,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<bool, AdapterError> {
     if attrs.role.as_deref() != Some("AXTextField") {
         return Ok(false);
@@ -88,7 +90,7 @@ fn text_value_matches(
 pub(crate) fn matches(
     element: &crate::tree::AXElement,
     value: &str,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<bool, AdapterError> {
     let (read, stats) = candidate_read(element, deadline)?;
     evidence_matches(&read.evidence, value, stats)
@@ -96,7 +98,7 @@ pub(crate) fn matches(
 
 fn candidate_read(
     element: &crate::tree::AXElement,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<
     (
         crate::tree::query::node_read::NodeRead,

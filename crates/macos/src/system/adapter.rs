@@ -146,10 +146,7 @@ impl SystemOps for MacOSAdapter {
         _policy: agent_desktop_core::InteractionPolicy,
         lease: &InteractionLease,
     ) -> Result<WindowInfo, AdapterError> {
-        crate::tree::shell_surface::resolve_surface(
-            surface,
-            crate::tree::locator_deadline::from_operation(lease.deadline())?,
-        )
+        crate::tree::shell_surface::resolve_surface(surface, lease.deadline())
     }
 
     fn capture_signal_baseline(
@@ -157,10 +154,7 @@ impl SystemOps for MacOSAdapter {
         filter: &SignalFilter,
         deadline: Deadline,
     ) -> Result<SignalBaseline, AdapterError> {
-        crate::system::signals::capture_signal_baseline_impl(
-            filter,
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
+        crate::system::signals::capture_signal_baseline_impl(filter, deadline)
     }
 
     fn close_app(
@@ -217,9 +211,7 @@ impl SystemOps for MacOSAdapter {
     }
 
     fn focused_window(&self, deadline: Deadline) -> Result<Option<WindowInfo>, AdapterError> {
-        crate::system::window::window_inventory::focused_window_until(
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
+        crate::system::window::window_inventory::focused_window_until(deadline)
     }
 
     fn press_key_for_app(
@@ -246,10 +238,7 @@ impl SystemOps for MacOSAdapter {
         win: &WindowInfo,
         deadline: Deadline,
     ) -> Result<WindowInfo, AdapterError> {
-        crate::system::window::window_resolve::resolve_window_strict(
-            win,
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
+        crate::system::window::window_resolve::resolve_window_strict(win, deadline)
     }
 
     fn window_op(

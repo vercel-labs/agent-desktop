@@ -1,4 +1,5 @@
 use crate::tree::AXElement;
+use agent_desktop_core::Deadline;
 
 use super::{
     child_page::read_paged_prefix, child_read_status::ChildReadStatus,
@@ -96,7 +97,7 @@ mod imp {
         element: &AXElement,
         role: Option<&str>,
         budget: ChildReadBudget,
-        deadline: std::time::Instant,
+        deadline: Deadline,
     ) -> ChildRead {
         super::super::child_source::read_resilient(
             crate::tree::properties::element::child_attributes(role),
@@ -109,7 +110,7 @@ mod imp {
         element: &AXElement,
         role: Option<&str>,
         index: usize,
-        deadline: std::time::Instant,
+        deadline: Deadline,
     ) -> ChildRead {
         super::super::child_source::read_resilient(
             crate::tree::properties::element::child_attributes(role),
@@ -122,7 +123,7 @@ mod imp {
         element: &AXElement,
         attribute: &str,
         budget: impl Into<ChildReadBudget>,
-        deadline: std::time::Instant,
+        deadline: Deadline,
     ) -> ChildRead {
         let budget = budget.into();
         let (max_elements, boundary) = (budget.max_elements, budget.boundary);
@@ -180,7 +181,7 @@ mod imp {
         element: &AXElement,
         attribute: &str,
         index: usize,
-        deadline: std::time::Instant,
+        deadline: Deadline,
     ) -> ChildRead {
         let mut status = ChildReadStatus::default();
         if check_deadline(deadline, &mut status).is_err() {
@@ -237,7 +238,7 @@ mod imp {
         element: &AXElement,
         attribute: &str,
         max_elements: usize,
-        deadline: std::time::Instant,
+        deadline: Deadline,
         mut status: ChildReadStatus,
     ) -> ChildRead {
         if max_elements == 0 {
@@ -261,11 +262,7 @@ mod imp {
         }
     }
 
-    fn child_count(
-        element: &AXElement,
-        attribute: &str,
-        deadline: std::time::Instant,
-    ) -> Result<usize, i32> {
+    fn child_count(element: &AXElement, attribute: &str, deadline: Deadline) -> Result<usize, i32> {
         let attribute = CFString::new(attribute);
         crate::tree::properties::ax_ipc::attribute_value_count(
             element,
@@ -278,7 +275,7 @@ mod imp {
         element: &AXElement,
         attribute: &str,
         requested: usize,
-        deadline: std::time::Instant,
+        deadline: Deadline,
         status: &mut ChildReadStatus,
     ) -> Result<Vec<AXElement>, i32> {
         let result = read_paged_prefix(requested, CHILD_PAGE_SIZE, |index, page_len| {
@@ -294,7 +291,7 @@ mod imp {
     fn stable_count(
         element: &AXElement,
         attribute: &str,
-        deadline: std::time::Instant,
+        deadline: Deadline,
         status: &mut ChildReadStatus,
     ) -> Result<usize, i32> {
         check_deadline(deadline, status).map_err(|_| accessibility_sys::kAXErrorCannotComplete)?;
@@ -307,7 +304,7 @@ mod imp {
         attribute: &str,
         index: usize,
         max_values: usize,
-        deadline: std::time::Instant,
+        deadline: Deadline,
     ) -> Result<Vec<AXElement>, i32> {
         let attribute = CFString::new(attribute);
         let index = CFIndex::try_from(index).map_err(|_| i32::MIN)?;
@@ -342,10 +339,7 @@ mod imp {
         Ok(elements)
     }
 
-    fn check_deadline(
-        deadline: std::time::Instant,
-        status: &mut ChildReadStatus,
-    ) -> Result<(), ()> {
+    fn check_deadline(deadline: Deadline, status: &mut ChildReadStatus) -> Result<(), ()> {
         crate::tree::locator_deadline::remaining(deadline)
             .map(|_| ())
             .map_err(|_| {
@@ -367,7 +361,7 @@ mod imp {
         _element: &AXElement,
         _role: Option<&str>,
         _budget: ChildReadBudget,
-        _deadline: std::time::Instant,
+        _deadline: Deadline,
     ) -> ChildRead {
         ChildRead::empty(true)
     }
@@ -376,7 +370,7 @@ mod imp {
         _element: &AXElement,
         _attribute: &str,
         _budget: impl Into<ChildReadBudget>,
-        _deadline: std::time::Instant,
+        _deadline: Deadline,
     ) -> ChildRead {
         ChildRead::empty(true)
     }
@@ -385,7 +379,7 @@ mod imp {
         _element: &AXElement,
         _role: Option<&str>,
         _index: usize,
-        _deadline: std::time::Instant,
+        _deadline: Deadline,
     ) -> ChildRead {
         ChildRead::empty(true)
     }

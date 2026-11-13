@@ -1,7 +1,9 @@
 #[cfg(target_os = "macos")]
 use agent_desktop_core::refs::ref_identity::element_token;
-use agent_desktop_core::{AdapterError, ErrorCode, NativeHandle, RefEntry, SnapshotSurface};
-use std::time::{Duration, Instant};
+use agent_desktop_core::{
+    AdapterError, Deadline, ErrorCode, NativeHandle, RefEntry, SnapshotSurface,
+};
+use std::time::Instant;
 
 #[cfg(target_os = "macos")]
 use super::resolve::resolve_classify::identity_summary_for_message;
@@ -20,13 +22,13 @@ use super::resolve::resolve_search::find_entry_by_path;
 #[cfg(target_os = "macos")]
 pub(crate) fn resolve_element_with_deadline(
     entry: &RefEntry,
-    operation_deadline: agent_desktop_core::Deadline,
+    operation_deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
     let identity = verify_process_instance(entry)?;
     if element_token(entry).is_none() {
         return Err(element_token_required(entry));
     }
-    let deadline = crate::tree::locator_deadline::from_operation(operation_deadline)?;
+    let deadline = operation_deadline;
     let result = resolve_with_recovery(entry, identity, deadline, || {
         resolve_token_once(entry, deadline)
     });
@@ -41,10 +43,10 @@ pub(crate) fn resolve_element_with_deadline(
 #[cfg(target_os = "macos")]
 pub(crate) fn resolve_locator_anchor_with_deadline(
     entry: &RefEntry,
-    operation_deadline: agent_desktop_core::Deadline,
+    operation_deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
     let identity = verify_process_instance(entry)?;
-    let deadline = crate::tree::locator_deadline::from_operation(operation_deadline)?;
+    let deadline = operation_deadline;
     let result = resolve_with_recovery(entry, identity, deadline, || {
         resolve_locator_anchor_once(entry, deadline)
     });
@@ -88,7 +90,7 @@ fn verify_process_instance(
 fn resolve_with_recovery<T>(
     entry: &RefEntry,
     identity: crate::system::process::process_identity::ProcessIdentity,
-    deadline: Instant,
+    deadline: Deadline,
     mut operation: impl FnMut() -> Result<T, AdapterError>,
 ) -> Result<T, AdapterError> {
     if matches!(
@@ -97,7 +99,7 @@ fn resolve_with_recovery<T>(
     ) {
         crate::tree::app_menu::observe(identity, deadline, operation)
     } else {
-        retry_incomplete_until(deadline, || {
+        agent_desktop_core::refs::resolve_retry::retry_incomplete_until(deadline, || {
             if !identity.still_matches()? {
                 return Err(AdapterError::stale_ref_because(
                     "Saved target process instance changed during resolution",
@@ -115,7 +117,7 @@ fn resolve_with_recovery<T>(
 }
 
 #[cfg(target_os = "macos")]
-fn resolve_token_once(entry: &RefEntry, deadline: Instant) -> Result<NativeHandle, AdapterError> {
+fn resolve_token_once(entry: &RefEntry, deadline: Deadline) -> Result<NativeHandle, AdapterError> {
     let started = Instant::now();
     crate::tree::locator_deadline::remaining(deadline)?;
     let mut read_context = ResolveReadContext::new(deadline);
@@ -128,7 +130,7 @@ fn resolve_token_once(entry: &RefEntry, deadline: Instant) -> Result<NativeHandl
 #[cfg(target_os = "macos")]
 fn resolve_locator_anchor_once(
     entry: &RefEntry,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
     let started = Instant::now();
     crate::tree::locator_deadline::remaining(deadline)?;
@@ -173,7 +175,7 @@ fn resolve_locator_anchor_once(
 #[cfg(target_os = "macos")]
 fn token_resolution(
     entry: &RefEntry,
-    deadline: Instant,
+    deadline: Deadline,
     context: &mut ResolveReadContext,
     started: Instant,
 ) -> Option<Result<NativeHandle, AdapterError>> {
@@ -227,45 +229,6 @@ fn finish_resolution<T>(
 }
 
 #[cfg(target_os = "macos")]
-pub(super) fn retry_incomplete_until<T>(
-    deadline: Instant,
-    mut operation: impl FnMut() -> Result<T, AdapterError>,
-) -> Result<T, AdapterError> {
-    let mut last_incomplete = None;
-    loop {
-        if let Err(timeout) = crate::tree::locator_deadline::remaining(deadline) {
-            return Err(last_incomplete
-                .map(mark_deadline_elapsed)
-                .unwrap_or(timeout));
-        }
-        match operation() {
-            Ok(value) => return Ok(value),
-            Err(error) if is_retryable_resolution_error(&error) => {
-                last_incomplete = Some(error);
-                sleep_before_retry(deadline);
-            }
-            Err(error) if error.code == ErrorCode::Timeout => match last_incomplete {
-                Some(incomplete) => return Err(mark_deadline_elapsed(incomplete)),
-                None => return Err(error),
-            },
-            Err(error) => return Err(error),
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn sleep_before_retry(deadline: Instant) {
-    if let Ok(remaining) = crate::tree::locator_deadline::remaining(deadline) {
-        std::thread::sleep(remaining.min(Duration::from_millis(25)));
-    }
-}
-
-/// Core owns the payload (`agent_desktop_core::refs::resolve_errors::mark_deadline_elapsed`)
-/// so both adapters share one definition.
-#[cfg(target_os = "macos")]
-use agent_desktop_core::refs::resolve_errors::mark_deadline_elapsed;
-
-#[cfg(target_os = "macos")]
 fn stale_ref_error(entry: &RefEntry, cause: &AdapterError) -> AdapterError {
     let retryable = cause.permits_retry_by_default();
     AdapterError::new(
@@ -281,11 +244,6 @@ fn stale_ref_error(entry: &RefEntry, cause: &AdapterError) -> AdapterError {
         "source_window_id": entry.source.source_window_id,
         "cause": cause.details,
     }))
-}
-
-#[cfg(target_os = "macos")]
-fn is_retryable_resolution_error(error: &AdapterError) -> bool {
-    error.is_transient_incomplete_read()
 }
 
 /// A tokenless anchor lands by position, so the gate asks only that its path be
@@ -320,7 +278,7 @@ mod tests_more;
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn resolve_element_with_deadline(
     _entry: &RefEntry,
-    _deadline: agent_desktop_core::Deadline,
+    _deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
     Err(AdapterError::not_supported(
         "resolve_element_strict_with_timeout",

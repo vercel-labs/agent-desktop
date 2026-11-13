@@ -1,6 +1,5 @@
 use agent_desktop_core::{AdapterError, Deadline, ErrorCode, KeyCombo, Modifier};
 use std::collections::VecDeque;
-use std::time::Instant;
 
 use super::{element_attribute, read_error};
 use crate::tree::AXElement;
@@ -61,19 +60,15 @@ fn children(element: &AXElement, deadline: Deadline) -> Result<Vec<AXElement>, A
         element,
         "AXChildren",
         MAX_MENU_CHILDREN,
-        instant(deadline)?,
+        deadline,
     );
     deadline.ensure_remaining()?;
     validate_menu_children(read)
 }
 
 fn has_children(element: &AXElement, deadline: Deadline) -> Result<bool, AdapterError> {
-    let read = crate::tree::query::child_read::read_attribute_children(
-        element,
-        "AXChildren",
-        0,
-        instant(deadline)?,
-    );
+    let read =
+        crate::tree::query::child_read::read_attribute_children(element, "AXChildren", 0, deadline);
     deadline.ensure_remaining()?;
     validate_child_status(&read)?;
     Ok(read.total_count > 0)
@@ -210,12 +205,6 @@ fn malformed_menu_modifiers() -> AdapterError {
         "kind": "menu_modifier_value_invalid",
         "complete": false,
     }))
-}
-
-fn instant(deadline: Deadline) -> Result<Instant, AdapterError> {
-    Instant::now()
-        .checked_add(deadline.remaining())
-        .ok_or_else(|| AdapterError::new(ErrorCode::InvalidArgs, "Deadline is out of range"))
 }
 
 pub(super) fn is_bounded_menu_incomplete(error: &AdapterError) -> bool {

@@ -34,8 +34,7 @@ pub(crate) fn show_menu_on_children(
     element: &AXElement,
     deadline: Deadline,
 ) -> Result<DeliveryOutcome, AdapterError> {
-    let instant = instant(deadline)?;
-    for child in crate::tree::surface_read::elements(element, "AXChildren", instant)?
+    for child in crate::tree::surface_read::elements(element, "AXChildren", deadline)?
         .into_iter()
         .take(5)
     {
@@ -135,9 +134,7 @@ fn wait_for_new_menu(pid: i32, deadline: Deadline) -> Result<bool, AdapterError>
 /// probe is the expected shape of "a menu is up" rather than an application
 /// fault. Verification must never turn a delivered action into an error.
 fn menu_probe(pid: i32, deadline: Deadline) -> bool {
-    instant(deadline)
-        .and_then(|instant| crate::tree::surfaces::is_menu_open(pid, instant))
-        .unwrap_or(false)
+    crate::tree::surfaces::is_menu_open(pid, deadline).unwrap_or(false)
 }
 
 fn select_containing_item(element: &AXElement, deadline: Deadline) -> Result<bool, AdapterError> {
@@ -164,10 +161,7 @@ fn select_containing_item(element: &AXElement, deadline: Deadline) -> Result<boo
 }
 
 fn selected(element: &AXElement, deadline: Deadline) -> Result<bool, AdapterError> {
-    Ok(
-        crate::tree::surface_read::boolean(element, "AXSelected", instant(deadline)?)?
-            == Some(true),
-    )
+    Ok(crate::tree::surface_read::boolean(element, "AXSelected", deadline)? == Some(true))
 }
 
 fn window_ancestor(
@@ -179,7 +173,7 @@ fn window_ancestor(
         let Some(ancestor) = current else {
             return Ok(None);
         };
-        if crate::tree::surface_read::string(&ancestor, "AXRole", instant(deadline)?)?.as_deref()
+        if crate::tree::surface_read::string(&ancestor, "AXRole", deadline)?.as_deref()
             == Some("AXWindow")
         {
             return Ok(Some(ancestor));
@@ -215,7 +209,7 @@ fn selected_items_menu_button(
             continue;
         }
         stack.extend(
-            crate::tree::surface_read::elements(&candidate, "AXChildren", instant(deadline)?)?
+            crate::tree::surface_read::elements(&candidate, "AXChildren", deadline)?
                 .into_iter()
                 .rev()
                 .map(|child| (child, depth.saturating_add(1))),
@@ -228,13 +222,13 @@ fn is_selected_items_control(
     element: &AXElement,
     deadline: Deadline,
 ) -> Result<bool, AdapterError> {
-    if crate::tree::surface_read::string(element, "AXRole", instant(deadline)?)?.as_deref()
+    if crate::tree::surface_read::string(element, "AXRole", deadline)?.as_deref()
         != Some("AXMenuButton")
     {
         return Ok(false);
     }
     for attribute in ["AXHelp", "AXDescription", "AXTitle"] {
-        if crate::tree::surface_read::string(element, attribute, instant(deadline)?)?
+        if crate::tree::surface_read::string(element, attribute, deadline)?
             .is_some_and(|value| value.to_ascii_lowercase().contains("selected item"))
         {
             return Ok(true);
@@ -244,11 +238,7 @@ fn is_selected_items_control(
 }
 
 fn parent(element: &AXElement, deadline: Deadline) -> Result<Option<AXElement>, AdapterError> {
-    crate::tree::surface_read::element(element, "AXParent", instant(deadline)?)
-}
-
-fn instant(deadline: Deadline) -> Result<std::time::Instant, AdapterError> {
-    crate::tree::locator_deadline::from_operation(deadline)
+    crate::tree::surface_read::element(element, "AXParent", deadline)
 }
 
 fn prepare(element: &AXElement, deadline: Deadline) -> Result<(), AdapterError> {

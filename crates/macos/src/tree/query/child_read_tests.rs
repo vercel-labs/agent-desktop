@@ -4,11 +4,12 @@ use super::*;
 use accessibility_sys::{
     kAXErrorAttributeUnsupported, kAXErrorCannotComplete, kAXErrorFailure, kAXErrorNoValue,
 };
+use agent_desktop_core::Deadline;
 
 #[test]
 fn child_reads_distinguish_expired_deadlines_from_invalid_elements() {
     let element = AXElement(std::ptr::null_mut());
-    let expired = read_attribute_children(&element, "AXChildren", 1, std::time::Instant::now());
+    let expired = read_attribute_children(&element, "AXChildren", 1, Deadline::after(0).unwrap());
 
     assert!(!expired.complete);
     assert_eq!(expired.status.health.deadline_exhausted, 1);
@@ -20,7 +21,7 @@ fn child_reads_distinguish_expired_deadlines_from_invalid_elements() {
             &element,
             "AXChildren",
             max_elements,
-            std::time::Instant::now() + std::time::Duration::from_secs(1),
+            Deadline::after(1000).unwrap(),
         );
 
         assert!(!invalid.complete);
@@ -197,7 +198,7 @@ fn count_fallback_preserves_a_terminal_prefix_failure() {
         &AXElement(std::ptr::null_mut()),
         "AXChildren",
         1,
-        std::time::Instant::now() + std::time::Duration::from_secs(1),
+        Deadline::after(1000).unwrap(),
         status,
     );
 

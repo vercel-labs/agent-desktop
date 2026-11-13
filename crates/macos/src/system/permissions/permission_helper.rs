@@ -52,7 +52,7 @@ pub(crate) fn request(
     let output = crate::system::process::run_with_deadline(
         &mut command,
         "macOS permission prompt helper",
-        deadline_instant(deadline)?,
+        deadline,
     )?;
     if !output.status.success() {
         return Err(AdapterError::new(
@@ -213,12 +213,6 @@ fn canonical_current_executable_text() -> Result<String, String> {
         .into_os_string()
         .into_string()
         .map_err(|_| "permission helper executable path is not valid UTF-8".into())
-}
-
-fn deadline_instant(deadline: Deadline) -> Result<std::time::Instant, AdapterError> {
-    std::time::Instant::now()
-        .checked_add(deadline.remaining())
-        .ok_or_else(|| AdapterError::internal("Permission helper deadline is out of range"))
 }
 
 fn response_error(reason: &str) -> AdapterError {

@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use serde_json::json;
 
 use crate::{
@@ -10,11 +8,10 @@ use crate::{
     ref_action::ref_action_wait_evidence::{failed_check, should_scroll_after_preflight},
     ref_action::ref_action_wait_support::{trace_resolve_error, trace_resolve_ok},
     ref_action::{ResolvedRefAction, into_adapter_error, preflight_resolved},
-    refs::ref_resolve_deadline::{POLL_INTERVAL, land_within_deadline},
+    refs::ref_resolve_deadline::attempt_within_deadline,
     refs::resolve_attempt_outcome::ResolveAttemptOutcome,
+    wait::deadline::{POLL_INTERVAL, STABILITY_POLL_INTERVAL},
 };
-
-const STABILITY_POLL_INTERVAL: Duration = Duration::from_millis(16);
 
 /// Waits until the target looks actionable and returns only counters. The
 /// resolved handle is deliberately not handed to dispatch: this loop runs
@@ -40,7 +37,9 @@ pub(crate) fn execute_poll_loop(
     };
     loop {
         state.resolve_attempts = state.resolve_attempts.saturating_add(1);
-        match land_within_deadline(context.adapter, context.entry, deadline) {
+        match attempt_within_deadline(deadline, |slice| {
+            crate::refs::resolve_saved_ref::land_saved_ref(context.adapter, context.entry, slice)
+        }) {
             ResolveAttemptOutcome::DeadlinePassed => return Err(timeout(&state, deadline)),
             ResolveAttemptOutcome::Failed(error) => {
                 handle_resolve_failure(
@@ -89,14 +88,11 @@ fn handle_actionability_failure(
     let stability_changed = failed_check(&error, "stable");
     state.record_preflight_error(&error);
     ensure_before_deadline(deadline, state)?;
-    sleep_until_next_poll(
-        deadline,
-        if stability_changed {
-            STABILITY_POLL_INTERVAL
-        } else {
-            POLL_INTERVAL
-        },
-    );
+    deadline.pause(if stability_changed {
+        STABILITY_POLL_INTERVAL
+    } else {
+        POLL_INTERVAL
+    });
     Ok(())
 }
 
@@ -123,7 +119,7 @@ fn handle_resolve_failure(
     }
     state.saw_ambiguity |= error.code == ErrorCode::AmbiguousTarget;
     state.record_resolve_error(&error);
-    sleep_until_next_poll(deadline, POLL_INTERVAL);
+    deadline.pause(POLL_INTERVAL);
     Ok(())
 }
 
@@ -135,13 +131,6 @@ fn ensure_before_deadline(
         return Err(timeout(state, deadline));
     }
     Ok(())
-}
-
-fn sleep_until_next_poll(deadline: Deadline, interval: Duration) {
-    let remaining = deadline.remaining();
-    if !remaining.is_zero() {
-        crate::wait::deadline::sleep(interval.min(remaining));
-    }
 }
 
 fn is_permanent_error(code: &ErrorCode) -> bool {

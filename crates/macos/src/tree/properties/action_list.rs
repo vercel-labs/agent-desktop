@@ -1,5 +1,6 @@
 use super::capabilities::{copy_action_names_with_status, is_attr_settable_with_status};
 use crate::tree::AXElement;
+use agent_desktop_core::Deadline;
 use agent_desktop_core::actions::capability;
 
 #[cfg(target_os = "macos")]
@@ -41,7 +42,7 @@ pub(crate) fn read_platform_available_actions(
     el: &AXElement,
     role: &str,
     attrs: &crate::tree::NodeAttrs,
-    deadline: std::time::Instant,
+    deadline: Deadline,
     usage: &mut crate::tree::observation_usage::ObservationUsage,
 ) -> (AvailableActionsRead, bool) {
     let mut read = AvailableActionsRead::default();
@@ -126,7 +127,7 @@ pub(crate) fn read_platform_available_actions(
 pub(super) fn read_settable(
     element: &AXElement,
     attribute: &str,
-    deadline: std::time::Instant,
+    deadline: Deadline,
     read: &mut AvailableActionsRead,
 ) -> Option<bool> {
     if crate::tree::locator_deadline::remaining(deadline).is_err() {
@@ -213,7 +214,7 @@ pub(crate) fn read_platform_available_actions(
     _el: &AXElement,
     _role: &str,
     _attrs: &crate::tree::NodeAttrs,
-    _deadline: std::time::Instant,
+    _deadline: Deadline,
     _usage: &mut crate::tree::observation_usage::ObservationUsage,
 ) -> (AvailableActionsRead, bool) {
     (

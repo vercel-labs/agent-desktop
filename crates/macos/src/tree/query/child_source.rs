@@ -8,7 +8,7 @@ const READ_ATTEMPTS: usize = 3;
 
 pub(crate) fn read_resilient(
     attributes: &[&str],
-    deadline: std::time::Instant,
+    deadline: agent_desktop_core::Deadline,
     mut read_attribute: impl FnMut(&str) -> ChildRead,
 ) -> ChildRead {
     let mut status = ChildReadStatus::default();
@@ -20,7 +20,7 @@ pub(crate) fn read_resilient(
             && !read.status.invalid_element
             && !read.status.api_disabled
             && attempt < READ_ATTEMPTS
-            && std::time::Instant::now() < deadline;
+            && !deadline.is_expired();
         status.merge(std::mem::take(&mut read.status));
         if !retry {
             read.status = status;
@@ -28,7 +28,7 @@ pub(crate) fn read_resilient(
         }
         std::thread::sleep(
             deadline
-                .saturating_duration_since(std::time::Instant::now())
+                .remaining()
                 .min(std::time::Duration::from_millis(1)),
         );
     }
@@ -161,7 +161,7 @@ mod tests {
         let mut attempts = 0;
         let selected = read_resilient(
             &["AXChildren"],
-            std::time::Instant::now() + std::time::Duration::from_secs(1),
+            agent_desktop_core::Deadline::after(1000).unwrap(),
             |_| {
                 attempts += 1;
                 read(1, attempts == 3, ChildSourceAvailability::Available)
@@ -177,7 +177,7 @@ mod tests {
         let mut attempts = 0;
         let selected = read_resilient(
             &["AXChildren"],
-            std::time::Instant::now() + std::time::Duration::from_secs(1),
+            agent_desktop_core::Deadline::after(1000).unwrap(),
             |_| {
                 attempts += 1;
                 read(0, false, ChildSourceAvailability::Unknown)
@@ -193,7 +193,7 @@ mod tests {
         let mut attempts = 0;
         let selected = read_resilient(
             &["AXWindows"],
-            std::time::Instant::now() + std::time::Duration::from_secs(60),
+            agent_desktop_core::Deadline::after(60000).unwrap(),
             |attribute| {
                 assert_eq!(attribute, "AXWindows");
                 attempts += 1;
@@ -216,8 +216,9 @@ mod tests {
     fn window_surface_does_not_retry_terminal_or_complete_reads() {
         for outcome in ["empty", "permission", "invalid", "expired"] {
             let mut attempts = 0;
-            let deadline = std::time::Instant::now()
-                + std::time::Duration::from_secs(if outcome == "expired" { 0 } else { 60 });
+            let deadline =
+                agent_desktop_core::Deadline::after(if outcome == "expired" { 0 } else { 60_000 })
+                    .unwrap();
             let selected = read_resilient(&["AXWindows"], deadline, |_| {
                 attempts += 1;
                 let mut result = read(

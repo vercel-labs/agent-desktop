@@ -1,4 +1,4 @@
-use agent_desktop_core::{AdapterError, ErrorCode};
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
 
 pub(crate) use super::ax_perform::{advertises_action, perform_observed_action};
 
@@ -18,7 +18,7 @@ mod imp {
     pub(crate) fn try_ax_action_or_err(
         el: &AXElement,
         name: &str,
-        deadline: agent_desktop_core::Deadline,
+        deadline: Deadline,
     ) -> Result<bool, AdapterError> {
         if advertises_action(el, name, deadline) == Some(false) {
             return Ok(false);
@@ -37,7 +37,7 @@ mod imp {
         el: &AXElement,
         attr: &str,
         value: bool,
-        deadline: agent_desktop_core::Deadline,
+        deadline: Deadline,
     ) -> Result<bool, AdapterError> {
         let cf_attr = CFString::new(attr);
         let cf_val = if value {
@@ -65,7 +65,7 @@ mod imp {
         el: &AXElement,
         attr: &str,
         value: &str,
-        deadline: agent_desktop_core::Deadline,
+        deadline: Deadline,
     ) -> Result<(), AdapterError> {
         let cf_attr = CFString::new(attr);
         let cf_val = CFString::new(value);
@@ -97,7 +97,7 @@ mod imp {
     pub(crate) fn is_attr_settable(
         el: &AXElement,
         attr: &str,
-        deadline: agent_desktop_core::Deadline,
+        deadline: Deadline,
     ) -> Result<bool, AdapterError> {
         let cf_attr = CFString::new(attr);
         let (err, settable) = crate::tree::properties::ax_ipc::is_attribute_settable(
@@ -111,7 +111,7 @@ mod imp {
 
     pub(crate) fn ax_focus_or_err(
         el: &AXElement,
-        deadline: agent_desktop_core::Deadline,
+        deadline: Deadline,
     ) -> Result<bool, AdapterError> {
         set_ax_bool_or_err(el, kAXFocusedAttribute, true, deadline)
     }
@@ -123,7 +123,7 @@ mod imp {
     pub(crate) fn set_ax_value_coerced(
         el: &AXElement,
         value: &str,
-        deadline: agent_desktop_core::Deadline,
+        deadline: Deadline,
     ) -> Result<(), AdapterError> {
         let cf_attr = CFString::new(kAXValueAttribute);
         let (read, current) = crate::tree::properties::ax_ipc::copy_attribute_value(
@@ -188,10 +188,7 @@ mod imp {
         }
     }
 
-    fn prepare(
-        element: &AXElement,
-        deadline: agent_desktop_core::Deadline,
-    ) -> Result<(), AdapterError> {
+    fn prepare(element: &AXElement, deadline: Deadline) -> Result<(), AdapterError> {
         crate::tree::properties::attributes::set_messaging_timeout(element, deadline)
     }
 
@@ -199,8 +196,8 @@ mod imp {
         element: &AXElement,
         operation: &str,
         api: &str,
-        deadline: agent_desktop_core::Deadline,
-        mutate: impl FnOnce(agent_desktop_core::Deadline) -> Result<i32, AdapterError>,
+        deadline: Deadline,
+        mutate: impl FnOnce(Deadline) -> Result<i32, AdapterError>,
     ) -> Result<bool, AdapterError> {
         let error = mutate(deadline)?;
         let delivered = ax_mutation::classify_result(element, operation, api, error)?;
@@ -251,7 +248,7 @@ mod imp {
             .with_disposition(agent_desktop_core::DeliverySemantics::not_delivered())
     }
 
-    fn ensure_read_finished(deadline: agent_desktop_core::Deadline) -> Result<(), AdapterError> {
+    fn ensure_read_finished(deadline: Deadline) -> Result<(), AdapterError> {
         if deadline.is_expired() {
             Err(deadline
                 .timeout_error()
@@ -280,16 +277,16 @@ mod imp {
 
     pub(crate) fn element_role(
         el: &AXElement,
-        deadline: agent_desktop_core::Deadline,
+        deadline: Deadline,
     ) -> Result<Option<String>, AdapterError> {
         use accessibility_sys::kAXRoleAttribute;
         prepare(el, deadline)?;
-        let read_deadline = crate::tree::properties::ax_ipc::AxDeadline::absolute(deadline)?;
-        let role = crate::tree::read_recovery::read(read_deadline, || {
+        deadline.ensure_remaining()?;
+        let role = crate::tree::read_recovery::read(deadline, || {
             crate::tree::properties::attributes::copy_string_attr_result(
                 el,
                 kAXRoleAttribute,
-                read_deadline,
+                deadline,
             )
         })
         .map_err(|error| read_failure(kAXRoleAttribute, error))?;
@@ -339,7 +336,7 @@ mod imp {
     pub fn try_ax_action_or_err(
         _el: &AXElement,
         _name: &str,
-        _deadline: agent_desktop_core::Deadline,
+        _deadline: Deadline,
     ) -> Result<bool, AdapterError> {
         Ok(false)
     }
@@ -347,7 +344,7 @@ mod imp {
         _el: &AXElement,
         _attr: &str,
         _value: bool,
-        _deadline: agent_desktop_core::Deadline,
+        _deadline: Deadline,
     ) -> Result<bool, AdapterError> {
         Ok(false)
     }
@@ -355,33 +352,30 @@ mod imp {
         _el: &AXElement,
         _attr: &str,
         _value: &str,
-        _deadline: agent_desktop_core::Deadline,
+        _deadline: Deadline,
     ) -> Result<(), AdapterError> {
         Err(AdapterError::not_supported("set_ax_string_or_err"))
     }
     pub fn is_attr_settable(
         _el: &AXElement,
         _attr: &str,
-        _deadline: agent_desktop_core::Deadline,
+        _deadline: Deadline,
     ) -> Result<bool, AdapterError> {
         Ok(false)
     }
-    pub fn ax_focus_or_err(
-        _el: &AXElement,
-        _deadline: agent_desktop_core::Deadline,
-    ) -> Result<bool, AdapterError> {
+    pub fn ax_focus_or_err(_el: &AXElement, _deadline: Deadline) -> Result<bool, AdapterError> {
         Ok(false)
     }
     pub fn set_ax_value_coerced(
         _el: &AXElement,
         _value: &str,
-        _deadline: agent_desktop_core::Deadline,
+        _deadline: Deadline,
     ) -> Result<(), AdapterError> {
         Err(AdapterError::not_supported("set_ax_value_coerced"))
     }
     pub fn element_role(
         _el: &AXElement,
-        _deadline: agent_desktop_core::Deadline,
+        _deadline: Deadline,
     ) -> Result<Option<String>, AdapterError> {
         Ok(None)
     }

@@ -42,7 +42,6 @@ fn expand_complete_no_candidate_fails_immediately_with_stale_ref() {
             context: &CommandContext::default(),
         },
         ActionRequest::headless(Action::Expand).with_timeout_ms(Some(5_000)),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .unwrap_err();
 
@@ -68,7 +67,6 @@ fn incomplete_resolution_still_polls_until_success() {
             context: &CommandContext::default(),
         },
         request_with_timeout(5_000),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .unwrap();
 

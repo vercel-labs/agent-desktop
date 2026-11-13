@@ -1,4 +1,5 @@
 use super::*;
+use agent_desktop_core::Deadline;
 
 pub(super) const UNCONSUMED_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -16,7 +17,7 @@ pub(super) fn fail_until_the_third_attempt(
 #[test]
 fn persistent_appkit_bridge_failure_preserves_operation_and_status() {
     let mut attempts = 0_u64;
-    let error = stabilize_global_with(Instant::now() + UNCONSUMED_BUDGET, || {
+    let error = stabilize_global_with(Deadline::from_duration(UNCONSUMED_BUDGET).unwrap(), || {
         fail_until_the_third_attempt(&mut attempts, || {
             AdapterError::new(
                 ErrorCode::AppUnresponsive,
@@ -49,7 +50,7 @@ fn persistent_appkit_bridge_failure_preserves_operation_and_status() {
 #[test]
 fn a_failure_without_context_leaves_the_last_failure_fields_out() {
     let mut attempts = 0_u64;
-    let error = stabilize_global_with(Instant::now() + UNCONSUMED_BUDGET, || {
+    let error = stabilize_global_with(Deadline::from_duration(UNCONSUMED_BUDGET).unwrap(), || {
         fail_until_the_third_attempt(&mut attempts, || {
             AdapterError::new(
                 ErrorCode::AppUnresponsive,

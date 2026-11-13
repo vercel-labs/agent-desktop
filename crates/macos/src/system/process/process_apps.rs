@@ -1,7 +1,6 @@
-use agent_desktop_core::{AdapterError, AppInfo, ErrorCode};
-use std::time::Instant;
+use agent_desktop_core::{AdapterError, AppInfo, Deadline, ErrorCode};
 
-pub(crate) fn list_apps_until(deadline: Instant) -> Result<Vec<AppInfo>, AdapterError> {
+pub(crate) fn list_apps_until(deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
     #[cfg(test)]
     if crate::system::app::app_inventory::adapter_tests::workspace_inventory().is_some() {
         return Ok(Vec::new());
@@ -11,16 +10,16 @@ pub(crate) fn list_apps_until(deadline: Instant) -> Result<Vec<AppInfo>, Adapter
 
 pub(crate) fn list_apps_scoped_until(
     name: &str,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Vec<AppInfo>, AdapterError> {
     list_apps_with_filter(Some(name), deadline)
 }
 
 fn list_apps_with_filter(
     name: Option<&str>,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Vec<AppInfo>, AdapterError> {
-    if Instant::now() >= deadline {
+    if deadline.is_expired() {
         return Err(AdapterError::timeout("process app inventory timed out"));
     }
     let mut apps = Vec::new();

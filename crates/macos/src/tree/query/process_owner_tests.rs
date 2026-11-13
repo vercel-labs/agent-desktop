@@ -1,4 +1,5 @@
 use super::*;
+use agent_desktop_core::Deadline;
 
 #[test]
 fn process_owner_surfaces_require_saved_process_identity_before_tree_read() {
@@ -16,7 +17,7 @@ fn process_owner_surfaces_require_saved_process_identity_before_tree_read() {
     for surface in [SnapshotSurface::Window, SnapshotSurface::MenuBarExtras] {
         let mut request = ObservationRequest::snapshot(
             &agent_desktop_core::TreeOptions::default(),
-            agent_desktop_core::Deadline::after(1_000).unwrap(),
+            Deadline::after(1_000).unwrap(),
         );
         request.surface = surface;
         let error = observe_tree(ObservationRoot::Window(&window), &request)

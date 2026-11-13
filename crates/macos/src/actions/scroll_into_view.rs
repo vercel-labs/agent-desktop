@@ -82,7 +82,7 @@ mod imp {
         element: &AXElement,
         deadline: Deadline,
     ) -> Result<Option<Direction>, AdapterError> {
-        let instant = crate::tree::locator_deadline::from_operation(deadline)?;
+        let instant = deadline;
         let bounds = crate::tree::element_bounds::read_bounds_with_deadline(element, instant)?
             .ok_or_else(|| AdapterError::new(ErrorCode::ActionFailed, "Target has no bounds"))?;
         let found = crate::actions::scroll::find_scroll_area(element, deadline)?;
@@ -184,7 +184,7 @@ mod imp {
                     }),
                 )));
             }
-            if Instant::now() >= local_end {
+            if std::time::Instant::now() >= local_end {
                 return settled_scroll_outcome(before, element_bounds(element, deadline));
             }
             let pause = deadline
@@ -208,10 +208,7 @@ mod imp {
         element: &AXElement,
         deadline: Deadline,
     ) -> Result<Option<Rect>, AdapterError> {
-        crate::tree::element_bounds::read_bounds_with_deadline(
-            element,
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
+        crate::tree::element_bounds::read_bounds_with_deadline(element, deadline)
     }
 
     pub(crate) fn scroll_effect_observed(before: Option<Rect>, after: Option<Rect>) -> bool {
