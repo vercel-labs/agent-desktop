@@ -64,19 +64,25 @@ fn assert_golden(mut actual: Value, golden: &str, varying: &[&str]) {
     );
 }
 
+/// The placeholder a varying value is replaced with: one per JSON type, and a fractional number stays apart from an integer.
+fn placeholder(value: &Value) -> Value {
+    match value {
+        Value::Number(number) if number.is_f64() => Value::from(0.0),
+        Value::Number(_) => Value::from(0),
+        Value::Bool(_) => Value::Bool(false),
+        Value::Array(_) => Value::Array(Vec::new()),
+        Value::Object(_) => Value::Object(Default::default()),
+        Value::Null => Value::Null,
+        Value::String(_) => Value::String("<varies>".into()),
+    }
+}
+
 fn redact(value: &mut Value, key: &str) {
     match value {
         Value::Object(map) => {
             for (name, inner) in map.iter_mut() {
                 if name == key {
-                    *inner = match inner {
-                        Value::Number(_) => Value::from(0),
-                        Value::Bool(_) => Value::Bool(false),
-                        Value::Array(_) => Value::Array(Vec::new()),
-                        Value::Object(_) => Value::Object(Default::default()),
-                        Value::Null => Value::Null,
-                        Value::String(_) => Value::String("<varies>".into()),
-                    };
+                    *inner = placeholder(inner);
                 } else {
                     redact(inner, key);
                 }
