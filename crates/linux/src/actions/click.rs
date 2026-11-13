@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use agent_desktop_core::{
     Action, ActionResult, AdapterError, ChainRung, Deadline, DeliveryOutcome, DeliverySemantics,
@@ -27,24 +27,6 @@ const INNER_TOGGLE_SCAN: usize = 4;
 const CLICK_LABEL: &str = "Action.DoAction";
 const SUGGESTION: &str =
     "Refresh the snapshot and inspect the element before deciding whether to retry.";
-
-pub(super) fn poll_until<T>(
-    deadline: Deadline,
-    budget: Duration,
-    step: Duration,
-    mut read: impl FnMut() -> T,
-    done: impl Fn(&T) -> bool,
-) -> T {
-    let end = Instant::now() + budget.min(deadline.remaining());
-    loop {
-        let value = read();
-        let now = Instant::now();
-        if done(&value) || now >= end {
-            return value;
-        }
-        std::thread::sleep(step.min(end - now));
-    }
-}
 
 pub(super) fn refusal(
     code: ErrorCode,
@@ -218,8 +200,7 @@ fn activate(target: &Target<'_>, action: &Action) -> Result<ActionResult, Adapte
         };
         deliver(reply, || {
             before.as_ref().and_then(|before| {
-                poll_until(
-                    target.deadline,
+                target.deadline.poll_until(
                     budget,
                     step,
                     || {

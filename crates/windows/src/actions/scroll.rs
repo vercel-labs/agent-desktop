@@ -74,6 +74,18 @@ mod imp {
     use agent_desktop_core::{DeliverySemantics, LocatorField, Rect};
     use uiautomation::patterns::UIScrollPattern;
 
+    /// The ScrollPattern of `element` when it scrolls vertically.
+    pub(crate) fn vertical_scroll(element: &UIAElement) -> Option<UIScrollPattern> {
+        if read_one(element, TreeProperty::ScrollAvailable).flag() != Some(true) {
+            return None;
+        }
+        element
+            .0
+            .get_pattern::<UIScrollPattern>()
+            .ok()
+            .filter(|pattern| pattern.is_vertically_scrollable().unwrap_or(false))
+    }
+
     pub(crate) fn scroll_steps(
         element: &UIAElement,
         direction: &Direction,
@@ -280,7 +292,7 @@ mod imp {
 pub(crate) use imp::scroll_steps;
 
 #[cfg(target_os = "windows")]
-pub(crate) use imp::known_bounds;
+pub(crate) use imp::{known_bounds, vertical_scroll};
 
 #[cfg(all(test, target_os = "windows"))]
 pub(crate) use imp::scroll_judged_for;

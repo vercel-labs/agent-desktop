@@ -5,10 +5,11 @@ use crate::tree::properties::toolkit_trust::{ToolkitKind, kind, read_toolkit};
 use crate::tree::{AtspiElement, atspi_element};
 
 /// The bus guid the refs of an observation are tokened under, or empty for
-/// none. A token is issued only for a toolkit whose object paths were measured
-/// never to be handed to a new object (GTK3, GTK4 and Chromium, L17-15); Qt
-/// gave a dead path to a new object with the same role and name, so a token
-/// could name a replacement there, and its refs keep the capture proof.
+/// none. A token is issued only for a toolkit whose accessible objects were
+/// measured to keep their path for one record (GTK3 and GTK4, L17-15 and the
+/// row-rebind census); Qt gave a dead path to a new object with the same role
+/// and name, and a Chromium list recycles a DOM node for another row under the
+/// same path and fingerprint, so their refs keep the capture proof.
 pub(crate) fn guid_for(bus: &SharedBus, root: &ObservationRoot<'_>, deadline: Deadline) -> String {
     let app = match root {
         ObservationRoot::Window(window) => window_id::decode(&window.id)
@@ -27,14 +28,15 @@ pub(crate) fn guid_for(bus: &SharedBus, root: &ObservationRoot<'_>, deadline: De
     };
     let connection = connection.inner();
     match within(deadline, read_toolkit(connection, &app)) {
-        Ok(toolkit)
-            if matches!(
-                kind(&toolkit),
-                ToolkitKind::Gtk3 | ToolkitKind::Gtk4 | ToolkitKind::Chromium
-            ) =>
-        {
-            connection.server_guid().to_string()
-        }
+        Ok(toolkit) if issues_tokens(kind(&toolkit)) => connection.server_guid().to_string(),
         _ => String::new(),
     }
 }
+
+fn issues_tokens(toolkit: ToolkitKind) -> bool {
+    matches!(toolkit, ToolkitKind::Gtk3 | ToolkitKind::Gtk4)
+}
+
+#[cfg(test)]
+#[path = "token_scope_tests.rs"]
+mod tests;

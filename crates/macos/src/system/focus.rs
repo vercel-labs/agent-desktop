@@ -1,7 +1,7 @@
 use agent_desktop_core::{AdapterError, Deadline, DeliverySemantics, ErrorCode, WindowInfo};
 
 #[cfg(target_os = "macos")]
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[cfg(target_os = "macos")]
 const VERIFY_LIMIT: Duration = Duration::from_millis(500);
@@ -119,38 +119,30 @@ fn focus_until(
         return Ok(false);
     }
     let delivered = activate()?;
-    let local_deadline = Instant::now() + VERIFY_LIMIT;
-    loop {
-        match is_frontmost() {
-            Ok(true) => return Ok(delivered),
-            Ok(false) => {}
-            Err(error) => {
-                return Err(if delivered {
-                    after_delivery(error)
-                } else {
-                    error
-                });
-            }
+    let mark = |error| {
+        if delivered {
+            after_delivery(error)
+        } else {
+            error
         }
-        if std::time::Instant::now() >= local_deadline || deadline.is_expired() {
-            let error = AdapterError::timeout("Application did not become frontmost")
-                .with_details(serde_json::json!({ "kind": "focus_verification", "physical_delivery_started": false }));
-            return Err(if delivered {
-                after_delivery(error)
-            } else {
-                error
-            });
-        }
-        std::thread::sleep(deadline.remaining_slice(Duration::from_millis(5)).map_err(
-            |error| {
-                if delivered {
-                    after_delivery(error)
-                } else {
-                    error
-                }
-            },
-        )?);
+    };
+    match deadline.poll_until(VERIFY_LIMIT, POLL, &mut is_frontmost, settled) {
+        Ok(true) => Ok(delivered),
+        Err(error) => Err(mark(error)),
+        Ok(false) => Err(mark(
+            AdapterError::timeout("Application did not become frontmost").with_details(
+                serde_json::json!({ "kind": "focus_verification", "physical_delivery_started": false }),
+            ),
+        )),
     }
+}
+
+const POLL: Duration = Duration::from_millis(5);
+
+/// A read that answers the question or fails ends a poll; only a clean
+/// "not yet" polls again.
+fn settled(read: &Result<bool, AdapterError>) -> bool {
+    !matches!(read, Ok(false))
 }
 
 #[cfg(target_os = "macos")]
@@ -249,23 +241,17 @@ fn wait_until(
     deadline: Deadline,
     timeout_message: &str,
 ) -> Result<(), AdapterError> {
-    let local_deadline = Instant::now() + VERIFY_LIMIT;
-    loop {
-        if read_boolean(element, attribute, deadline)? {
-            return Ok(());
-        }
-        deadline.ensure_remaining()?;
-        if std::time::Instant::now() >= local_deadline {
-            return Err(
-                AdapterError::timeout(timeout_message).with_details(serde_json::json!({
-                    "kind": "focus_verification",
-                    "physical_delivery_started": false,
-                })),
-            );
-        }
-        let pause = deadline.remaining_slice(Duration::from_millis(5))?;
-        std::thread::sleep(pause.min(Duration::from_millis(5)));
+    let read = || read_boolean(element, attribute, deadline);
+    if deadline.poll_until(VERIFY_LIMIT, POLL, read, settled)? {
+        return Ok(());
     }
+    deadline.ensure_remaining()?;
+    Err(
+        AdapterError::timeout(timeout_message).with_details(serde_json::json!({
+            "kind": "focus_verification",
+            "physical_delivery_started": false,
+        })),
+    )
 }
 
 #[cfg(target_os = "macos")]

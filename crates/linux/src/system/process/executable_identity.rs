@@ -45,28 +45,54 @@ impl ExecutableIdentity {
         Some(Self { executable, argv })
     }
 
-    /// Whether a launcher with this identity names `running`: the same
-    /// executable under the same invocation name, or an interpreter running
-    /// the launcher's script, with the launcher's arguments leading the
-    /// process's own. A bare long option such as `--new-window` is not
-    /// compared, because a launcher and the service it starts pass different
-    /// ones; every other word is, so an interpreter entry never names another
+    /// How a desktop entry's launcher names `running`: the same executable
+    /// under the same invocation name, or an interpreter running the
+    /// launcher's script. `Exact` means every argument of the entry appears
+    /// in the process's arguments, in order, with only bare long options
+    /// between them. `Launcher` is the looser match for a service, where the
+    /// entry and the process pass different bare long options
+    /// (`--new-window` against `--gapplication-service`) and every other word
+    /// leads the process's own, so an interpreter entry never names another
     /// script.
-    pub(crate) fn names(&self, running: &Self) -> bool {
-        let (Some(argv), Some(actual)) = (self.argv.as_deref(), running.argv.as_deref()) else {
-            return false;
-        };
+    pub(crate) fn naming(&self, running: &Self) -> Option<Naming> {
+        let (argv, actual) = (self.argv.as_deref()?, running.argv.as_deref()?);
         let actual = if self.executable == running.executable && same_invocation(argv, actual) {
             actual
         } else {
-            match script_run(&self.executable, &running.executable, actual) {
-                Some(rest) => rest,
-                None => return false,
-            }
+            script_run(&self.executable, &running.executable, actual)?
         };
+        let arguments = &argv[1.min(argv.len())..];
+        if holds_in_order(arguments, &actual[1.min(actual.len())..]) {
+            return Some(Naming::Exact(arguments.len()));
+        }
         let (wanted, found) = (compared(argv), compared(actual));
-        found.len() >= wanted.len() && found[..wanted.len()] == wanted[..]
+        (found.len() >= wanted.len() && found[..wanted.len()] == wanted[..])
+            .then_some(Naming::Launcher)
     }
+}
+
+/// How strongly a desktop entry names a running process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Naming {
+    Launcher,
+    Exact(usize),
+}
+
+fn holds_in_order(wanted: &[OsString], found: &[OsString]) -> bool {
+    consume_in_order(wanted, &mut found.iter())
+}
+
+fn consume_in_order(wanted: &[OsString], rest: &mut std::slice::Iter<'_, OsString>) -> bool {
+    wanted.iter().all(|word| {
+        rest.by_ref()
+            .find(|candidate| *candidate == word || !is_bare_long_option(candidate))
+            .is_some_and(|candidate| candidate == word)
+    })
+}
+
+fn is_bare_long_option(word: &OsString) -> bool {
+    let bytes = word.as_encoded_bytes();
+    bytes.len() > 2 && bytes.starts_with(b"--") && !bytes.contains(&b'=')
 }
 
 /// The process arguments from the script on, when `actual` runs `script`:
@@ -121,19 +147,18 @@ impl ExecutableIdentity {
         let (Some(argv), Some(actual)) = (self.argv.as_deref(), running.argv.as_deref()) else {
             return false;
         };
-        self.executable == running.executable
-            && same_invocation(argv, actual)
-            && argv.iter().skip(1).collect::<Vec<_>>() == compared(actual)
+        if self.executable != running.executable || !same_invocation(argv, actual) {
+            return false;
+        }
+        let mut rest = actual[1..].iter();
+        consume_in_order(&argv[1..], &mut rest) && rest.all(is_bare_long_option)
     }
 }
 
 fn compared(argv: &[OsString]) -> Vec<&OsString> {
     argv.iter()
         .skip(1)
-        .filter(|word| {
-            let bytes = word.as_encoded_bytes();
-            !(bytes.len() > 2 && bytes.starts_with(b"--") && !bytes.contains(&b'='))
-        })
+        .filter(|word| !is_bare_long_option(word))
         .collect()
 }
 

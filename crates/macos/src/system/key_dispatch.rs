@@ -128,18 +128,18 @@ fn require_focused_element(
     policy: InteractionPolicy,
     deadline: Deadline,
 ) -> Result<AXElement, AdapterError> {
-    let local_deadline = deadline.capped(Duration::from_millis(500));
-    loop {
-        if let Some(focused) = focused_element(app, deadline)? {
-            return Ok(focused);
-        }
-        deadline.ensure_remaining()?;
-        if local_deadline.is_expired() {
-            return Err(no_focused_element_error(policy));
-        }
-        let pause = deadline.remaining_slice(Duration::from_millis(5))?;
-        std::thread::sleep(pause.min(Duration::from_millis(5)));
+    let read = || focused_element(app, deadline);
+    let found = deadline.poll_until(
+        Duration::from_millis(500),
+        Duration::from_millis(5),
+        read,
+        |read| !matches!(read, Ok(None)),
+    )?;
+    if let Some(focused) = found {
+        return Ok(focused);
     }
+    deadline.ensure_remaining()?;
+    Err(no_focused_element_error(policy))
 }
 
 fn focused_element(app: &AXElement, deadline: Deadline) -> Result<Option<AXElement>, AdapterError> {
