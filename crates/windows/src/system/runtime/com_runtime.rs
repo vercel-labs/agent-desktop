@@ -1,5 +1,6 @@
 use crate::system::runtime::dpi;
 use crate::system::runtime::hresult::{RPC_E_CHANGED_MODE, S_FALSE, S_OK, com_hresult_detail};
+use crate::system::runtime::mta_usage::{classify_mta_usage_hresult, co_increment_mta_usage};
 use agent_desktop_core::{AdapterError, ErrorCode};
 use std::sync::OnceLock;
 
@@ -102,7 +103,7 @@ fn initialize_owned_process_apartment() -> Result<ComApartment, AdapterError> {
 fn initialize_hosted_library_apartment() -> Result<RetainedMtaCookieAddress, AdapterError> {
     #[cfg(test)]
     native_call_probe::HOSTED_INITIALIZATIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let (hresult, cookie_address) = imp::co_increment_mta_usage();
+    let (hresult, cookie_address) = co_increment_mta_usage();
     classify_mta_usage_hresult(hresult).map_err(|failure| {
         com_bootstrap_failure(
             "Process-wide COM MTA usage could not be registered",
@@ -121,10 +122,6 @@ pub(crate) fn classify_co_initialize_hresult(hresult: i32) -> Result<ComApartmen
     }
 }
 
-pub(crate) fn classify_mta_usage_hresult(hresult: i32) -> Result<(), i32> {
-    if hresult >= 0 { Ok(()) } else { Err(hresult) }
-}
-
 pub(crate) fn apartment_probe_reports_mta(hresult: i32, apartment_type: i32) -> bool {
     hresult >= 0 && apartment_type == APTTYPE_MTA_VALUE
 }
@@ -140,18 +137,11 @@ fn com_bootstrap_failure(message: &str, hresult: i32) -> AdapterError {
 #[cfg(target_os = "windows")]
 mod imp {
     use windows_sys::Win32::System::Com::{
-        APTTYPE, APTTYPEQUALIFIER, CO_MTA_USAGE_COOKIE, COINIT_MULTITHREADED, CoGetApartmentType,
-        CoIncrementMTAUsage, CoInitializeEx,
+        APTTYPE, APTTYPEQUALIFIER, COINIT_MULTITHREADED, CoGetApartmentType, CoInitializeEx,
     };
 
     pub(super) fn co_initialize_multithreaded() -> i32 {
         unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32) }
-    }
-
-    pub(super) fn co_increment_mta_usage() -> (i32, usize) {
-        let mut cookie: CO_MTA_USAGE_COOKIE = std::ptr::null_mut();
-        let hresult = unsafe { CoIncrementMTAUsage(&mut cookie) };
-        (hresult, cookie.expose_provenance())
     }
 
     pub(super) fn current_thread_apartment_type() -> (i32, i32) {
@@ -166,10 +156,6 @@ mod imp {
 mod imp {
     pub(super) fn co_initialize_multithreaded() -> i32 {
         super::S_OK
-    }
-
-    pub(super) fn co_increment_mta_usage() -> (i32, usize) {
-        (super::S_OK, 0)
     }
 
     pub(super) fn current_thread_apartment_type() -> (i32, i32) {
@@ -228,15 +214,6 @@ mod tests {
     fn a_real_co_initialize_failure_stays_a_failure() {
         assert_eq!(
             classify_co_initialize_hresult(E_OUTOFMEMORY_HRESULT),
-            Err(E_OUTOFMEMORY_HRESULT)
-        );
-    }
-
-    #[test]
-    fn mta_usage_success_and_failure_split_on_hresult_sign() {
-        assert_eq!(classify_mta_usage_hresult(S_OK), Ok(()));
-        assert_eq!(
-            classify_mta_usage_hresult(E_OUTOFMEMORY_HRESULT),
             Err(E_OUTOFMEMORY_HRESULT)
         );
     }
