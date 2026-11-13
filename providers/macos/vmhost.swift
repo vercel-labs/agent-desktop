@@ -776,8 +776,8 @@ struct IpCommand {
     }
 }
 
-/// Leaves the caller's POSIX session for work that outlives the command that started it, so a launcher that
-/// exits or is killed does not take a running sandbox host down with it.
+/// Leaves the caller's POSIX session so a launcher that exits or is killed does not take a running sandbox
+/// host down with it.
 enum CallerSession {
     static func leave() {
         guard setsid() == -1 else { return }
@@ -795,7 +795,6 @@ enum VMHost {
             let rest = Array(arguments.dropFirst())
             switch command {
             case "install":
-                CallerSession.leave()
                 try InstallCommand.execute(rest)
             case "run":
                 CallerSession.leave()
