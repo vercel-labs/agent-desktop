@@ -35,7 +35,7 @@ The grant belongs to the app that launched agent-desktop, not to the shell. A di
 }
 ```
 
-`automation` stays `unknown` until macOS would need to prompt. `permissions --request` is the only path that prompts, and it covers Automation; `--guide` covers Accessibility and Screen Recording. Under tmux or SSH there is no launching app, so add the terminal app that started tmux by hand.
+`automation` stays `unknown` until macOS would need to prompt. `permissions --request` is the only path that prompts, and it covers Automation; `--guide` covers Accessibility and Screen Recording. Under tmux, the guide offers the app that started the tmux server, which can differ from the terminal you attach from. Under SSH there is no launching app, so the guide offers the `agent-desktop` binary.
 
 ## What works headless
 
