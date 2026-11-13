@@ -3,7 +3,7 @@ const { dirname, join, relative, resolve } = require('path');
 
 module.exports = function linkWindowsBin(directory, binaryName) {
   const binary = resolve(directory, binaryName);
-  if (!existsSync(binary) || /[%!\r\n"]/.test(binary)) return false;
+  if (!existsSync(binary) || /[^\x00-\x7f]|[%!\r\n"]/.test(binary)) return false;
   const entry = join(directory, 'agent-desktop');
   let ancestor = directory;
   let linked = false;
