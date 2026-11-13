@@ -1,233 +1,112 @@
-use super::{
-    CheckUncheckPlan, ToggleAvailability, ToggleKind, check_uncheck_judged_for, toggle_judged_for,
-};
+use super::{ToggleGoal, ToggleKind, drive_toggle};
 use crate::actions::chain::DeliveryOutcome;
 use crate::system::fixture::test_time::deadline;
-use agent_desktop_core::{ActionStepOutcome, ErrorCode, InteractionPolicy};
+use agent_desktop_core::{AdapterError, DeliverySemantics, ErrorCode};
 use std::cell::Cell;
 
-#[test]
-fn toggle_change_observed_is_verified() {
-    let toggle = Cell::new(0u8);
-    let steps = toggle_judged_for(
+fn drive(
+    goal: ToggleGoal,
+    start: ToggleKind,
+    cycle: &'static [ToggleKind],
+    stuck: bool,
+) -> (DeliveryOutcome, u8) {
+    let state = Cell::new(start);
+    let flips = Cell::new(0u8);
+    let outcome = drive_toggle(
+        goal,
         deadline(5_000),
-        InteractionPolicy::headless(),
-        ToggleAvailability {
-            toggle_ok: true,
-            invoke_ok: false,
-        },
-        || {
-            toggle.set(toggle.get() + 1);
-            Ok(DeliveryOutcome::DeliveredVerified)
-        },
-        || Ok(DeliveryOutcome::NotDelivered),
-    )
-    .expect("toggle");
-    assert_eq!(toggle.get(), 1);
-    assert_eq!(steps[0].label(), "TogglePattern.Toggle");
-    assert!(matches!(steps[0].outcome, ActionStepOutcome::Succeeded));
-    assert_eq!(steps[0].verified(), Some(true));
-}
-
-#[test]
-fn toggle_no_change_is_unverified() {
-    let steps = toggle_judged_for(
-        deadline(5_000),
-        InteractionPolicy::headless(),
-        ToggleAvailability {
-            toggle_ok: true,
-            invoke_ok: false,
-        },
-        || Ok(DeliveryOutcome::DeliveredUnverified),
-        || Ok(DeliveryOutcome::NotDelivered),
-    )
-    .expect("toggle");
-    assert_eq!(steps[0].verified(), Some(false));
-}
-
-#[test]
-fn toggle_absent_falls_to_invoke() {
-    let toggle = Cell::new(0u8);
-    let invoke = Cell::new(0u8);
-    let steps = toggle_judged_for(
-        deadline(5_000),
-        InteractionPolicy::headless(),
-        ToggleAvailability {
-            toggle_ok: false,
-            invoke_ok: true,
-        },
-        || {
-            toggle.set(toggle.get() + 1);
-            Ok(DeliveryOutcome::DeliveredVerified)
-        },
-        || {
-            invoke.set(invoke.get() + 1);
-            Ok(DeliveryOutcome::DeliveredUnverified)
-        },
-    )
-    .expect("invoke fallback");
-    assert_eq!(toggle.get(), 0);
-    assert_eq!(invoke.get(), 1);
-    assert_eq!(steps[1].label(), "InvokePattern.Invoke");
-    assert_eq!(steps[1].verified(), Some(false));
-}
-
-#[test]
-fn check_from_off_toggles_once() {
-    let toggles = Cell::new(0u8);
-    let state = Cell::new(Some(ToggleKind::Off));
-    let steps = check_uncheck_judged_for(
-        deadline(5_000),
-        CheckUncheckPlan {
-            want_checked: true,
-            toggle_ok: true,
-            invoke_ok: false,
-        },
-        || state.get(),
-        || {
-            toggles.set(toggles.get() + 1);
-            state.set(Some(ToggleKind::On));
-            Ok(true)
-        },
-        || Ok(false),
-    )
-    .expect("check");
-    assert_eq!(toggles.get(), 1);
-    assert_eq!(steps.len(), 1);
-    assert_eq!(steps[0].verified(), Some(true));
-}
-
-#[test]
-fn check_from_indeterminate_toggles_twice() {
-    let toggles = Cell::new(0u8);
-    let state = Cell::new(Some(ToggleKind::Indeterminate));
-    let steps = check_uncheck_judged_for(
-        deadline(5_000),
-        CheckUncheckPlan {
-            want_checked: true,
-            toggle_ok: true,
-            invoke_ok: false,
-        },
-        || state.get(),
-        || {
-            let next = match state.get() {
-                Some(ToggleKind::Indeterminate) => ToggleKind::Off,
-                Some(ToggleKind::Off) => ToggleKind::On,
-                other => other.unwrap_or(ToggleKind::On),
-            };
-            toggles.set(toggles.get() + 1);
-            state.set(Some(next));
-            Ok(true)
-        },
-        || Ok(false),
-    )
-    .expect("tri-state");
-    assert_eq!(toggles.get(), 2);
-    assert_eq!(steps.len(), 2);
-    assert_eq!(steps[1].verified(), Some(true));
-}
-
-#[test]
-fn check_already_on_skips_without_invoke() {
-    let toggles = Cell::new(0u8);
-    let invokes = Cell::new(0u8);
-    let steps = check_uncheck_judged_for(
-        deadline(5_000),
-        CheckUncheckPlan {
-            want_checked: true,
-            toggle_ok: true,
-            invoke_ok: true,
-        },
-        || Some(ToggleKind::On),
-        || {
-            toggles.set(toggles.get() + 1);
-            Ok(true)
-        },
-        || {
-            invokes.set(invokes.get() + 1);
+        &mut || Some(state.get()),
+        &mut || {
+            if !stuck {
+                let at = cycle
+                    .iter()
+                    .position(|kind| *kind == state.get())
+                    .unwrap_or(0);
+                state.set(cycle[(at + 1) % cycle.len()]);
+            }
+            flips.set(flips.get() + 1);
             Ok(true)
         },
     )
-    .expect("already");
-    assert_eq!(toggles.get(), 0);
-    assert_eq!(invokes.get(), 0);
-    assert_eq!(steps[0].label(), "AlreadyInState");
-    assert!(matches!(steps[0].outcome, ActionStepOutcome::Skipped));
-    assert_eq!(steps[0].verified(), Some(true));
+    .expect("drive");
+    (outcome, flips.get())
+}
+
+const TWO_STATE: &[ToggleKind] = &[ToggleKind::Off, ToggleKind::On];
+const TRI_STATE: &[ToggleKind] = &[ToggleKind::Off, ToggleKind::On, ToggleKind::Indeterminate];
+
+#[test]
+fn an_observed_flip_is_verified_after_one_delivery() {
+    let (outcome, flips) = drive(ToggleGoal::Flip, ToggleKind::Off, TWO_STATE, false);
+    assert_eq!(outcome, DeliveryOutcome::DeliveredVerified);
+    assert_eq!(flips, 1);
 }
 
 #[test]
-fn uncheck_already_off_skips_without_invoke() {
-    let toggles = Cell::new(0u8);
-    let steps = check_uncheck_judged_for(
+fn a_flip_the_state_never_shows_is_unverified_and_not_resent() {
+    let (outcome, flips) = drive(ToggleGoal::Checked(true), ToggleKind::Off, TWO_STATE, true);
+    assert_eq!(outcome, DeliveryOutcome::DeliveredUnverified);
+    assert_eq!(flips, 1);
+}
+
+#[test]
+fn check_from_indeterminate_flips_twice_and_verifies() {
+    let (outcome, flips) = drive(
+        ToggleGoal::Checked(true),
+        ToggleKind::Indeterminate,
+        TRI_STATE,
+        false,
+    );
+    assert_eq!(outcome, DeliveryOutcome::DeliveredVerified);
+    assert_eq!(flips, 2);
+}
+
+#[test]
+fn a_mechanism_that_is_absent_reports_not_delivered() {
+    let outcome = drive_toggle(
+        ToggleGoal::Flip,
         deadline(5_000),
-        CheckUncheckPlan {
-            want_checked: false,
-            toggle_ok: true,
-            invoke_ok: true,
-        },
-        || Some(ToggleKind::Off),
-        || {
-            toggles.set(toggles.get() + 1);
-            Ok(true)
-        },
-        || Ok(true),
+        &mut || Some(ToggleKind::Off),
+        &mut || Ok(false),
     )
-    .expect("already");
-    assert_eq!(toggles.get(), 0);
-    assert_eq!(steps[0].verified(), Some(true));
+    .expect("drive");
+    assert_eq!(outcome, DeliveryOutcome::NotDelivered);
 }
 
 #[test]
-fn zero_budget_check_times_out_without_sleeping_past_deadline() {
-    let toggles = Cell::new(0u8);
-    let error = check_uncheck_judged_for(
-        deadline(0),
-        CheckUncheckPlan {
-            want_checked: true,
-            toggle_ok: true,
-            invoke_ok: false,
-        },
-        || Some(ToggleKind::Off),
-        || {
-            toggles.set(toggles.get() + 1);
-            Ok(true)
-        },
-        || Ok(false),
-    )
-    .expect_err("timeout");
-    assert_eq!(error.code, ErrorCode::Timeout);
-    assert_eq!(toggles.get(), 0);
-}
-
-/// A provider that reports the same state after a delivered toggle is
-/// ambiguous: the toggle may have landed unseen. Firing again on that
-/// ambiguity is the one move that can leave the control back at its starting
-/// state while every step claims delivery, so the run stops at one toggle and
-/// hands the caller an unverified delivery to re-read.
-#[test]
-fn check_does_not_refire_a_toggle_the_provider_never_showed_moving() {
-    let toggles = Cell::new(0u8);
-    let invokes = Cell::new(0u8);
-    let steps = check_uncheck_judged_for(
+fn a_flip_from_an_unreadable_state_is_not_verified() {
+    let reads = Cell::new(0u8);
+    let outcome = drive_toggle(
+        ToggleGoal::Flip,
         deadline(5_000),
-        CheckUncheckPlan {
-            want_checked: true,
-            toggle_ok: true,
-            invoke_ok: true,
+        &mut || {
+            reads.set(reads.get() + 1);
+            (reads.get() > 1).then_some(ToggleKind::Off)
         },
-        || Some(ToggleKind::Off),
-        || {
-            toggles.set(toggles.get() + 1);
-            Ok(true)
-        },
-        || {
-            invokes.set(invokes.get() + 1);
-            Ok(true)
+        &mut || Ok(true),
+    )
+    .expect("drive");
+    assert_eq!(outcome, DeliveryOutcome::DeliveredUnverified);
+}
+
+#[test]
+fn an_error_on_the_second_flip_keeps_the_first_delivery() {
+    let state = Cell::new(ToggleKind::Indeterminate);
+    let flips = Cell::new(0u8);
+    let error = drive_toggle(
+        ToggleGoal::Checked(true),
+        deadline(5_000),
+        &mut || Some(state.get()),
+        &mut || {
+            flips.set(flips.get() + 1);
+            if flips.get() == 1 {
+                state.set(ToggleKind::Off);
+                return Ok(true);
+            }
+            Err(AdapterError::new(ErrorCode::ActionFailed, "not enabled")
+                .with_disposition(DeliverySemantics::not_delivered()))
         },
     )
-    .expect("delivered unverified");
-    assert_eq!(toggles.get(), 1, "a second toggle would undo the first");
-    assert_eq!(invokes.get(), 0);
-    assert!(steps.iter().all(|step| step.verified() == Some(false)));
+    .expect_err("second flip fails");
+    assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
 }

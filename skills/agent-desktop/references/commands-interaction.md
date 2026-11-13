@@ -16,6 +16,8 @@ Which gestures have a headless path:
 | `type`, `right-click`, `focus` | OS-dependent. Read the platform skill for which need `--headed` |
 | `double-click`, `triple-click`, `hover`, `drag`, `mouse-*` | No. They need `--headed` |
 
+A platform also refuses a headless action with `POLICY_DENIED` when no background path exists for its effect, such as a menu shown over the user's window. The platform skill names these actions.
+
 Native cross-app drag and drop may not start from synthetic events. It works for same-view drags and for web drag and drop.
 
 ## Read the result
@@ -64,12 +66,12 @@ Exit codes: `0` success, `1` structured error, `2` argument error. The `error` o
 
 ## Actionability
 
-Before a ref action dispatches, core checks the target under one bounded budget. `--timeout-ms` (default 5000) sets that budget. For `drag`, the same deadline also covers pickup, movement, drop delay and completion; gesture time is not added to it. The checks are `visible`, `stable`, `enabled`, `supported_action`, `policy`, `editable`, and `receives_events` for pointer delivery. Each is `pass`, `fail` or `unknown`. The full report is in `error.details`: `{ "actionable": false, "checks": [ { "check", "status", "reason" } ] }`.
+Before a ref action dispatches, core checks the target under one bounded budget. `--timeout-ms` (default 5000) sets that budget. For `drag`, the same deadline also covers pickup, movement, drop delay and completion; gesture time is not added to it. The checks are `visible`, `stable`, `enabled`, `supported_action`, `policy`, `editable`, and `receives_events` for pointer delivery. When the platform reports that the action takes the foreground (a popup, menu or dialog opener) and the policy forbids it, the report holds only the `foreground` check, failed with `POLICY_DENIED`. Each is `pass`, `fail` or `unknown`. The full report is in `error.details`: `{ "actionable": false, "checks": [ { "check", "status", "reason" } ] }`.
 
 - Transient checks (`visible`, `stable`, `enabled`, `receives_events`) are polled about every 100 ms until they pass. On expiry the result is `TIMEOUT` or `ACTION_FAILED`.
 - A disabled target waits out the whole budget and ends `TIMEOUT` with `kind: actionability_timeout`; its `last_report` carries the failed `enabled` check. A target that is also off screen is not scrolled while it stays disabled, so the result does not depend on where the page was scrolled.
 - A ref that matches nothing on a complete live read waits the whole budget and ends `STALE_REF` (`AMBIGUOUS_TARGET` if several match), not `TIMEOUT`. A `hover` or `drag` wait that ends on such a settled ref names that code too.
-- Terminal checks (`supported_action`, `policy`, `editable`) cannot be healed by waiting. They fail at once with `ACTION_NOT_SUPPORTED` or `POLICY_DENIED`.
+- Terminal checks (`foreground`, `supported_action`, `policy`, `editable`) cannot be healed by waiting. They fail at once with `ACTION_NOT_SUPPORTED` or `POLICY_DENIED`.
 - `hover` and each ref endpoint of `drag` use a pointer resolver: live visibility and bounds, one scroll-into-view try, a second equal-bounds sample, then `receives_events`. They do not need an element action.
 - `receives_events` runs only when the action reaches the target by pointer: a headed action, `hover`, `drag`, or a click with no semantic delivery. A headless click that dispatches by a semantic action skips it.
 - `receives_events` fails with `reason: "occluded by <role>"` and an `occluder` of `{ role, name, bounds }` when another element is on top. Bring the target window to the front or dismiss the occluder, then retry. A blind retry fails the same way.
@@ -101,9 +103,10 @@ agent-desktop type @s8f3k2p9:e2 "hello world" --interval-ms 60
 agent-desktop set-value @s8f3k2p9:e2 "new value"
 printf '%s' 'hello' | agent-desktop set-value @s8f3k2p9:e2 --stdin
 agent-desktop clear @s8f3k2p9:e2
-agent-desktop focus @s8f3k2p9:e2
+agent-desktop focus @s8f3k2p9:e2 --headed
 ```
 
+- `focus` sets key focus inside the target app. Where the platform reports that this takes the foreground (Windows, and Linux GTK3), it needs `--headed`; headless it returns `POLICY_DENIED` with `details.check: "foreground"`. On macOS an `AXFocused` write stays inside the app and runs headless.
 - `type` inserts text and checks the result when value and selection are readable. A readable mismatch returns `ACTION_FAILED`, and an unreadable result succeeds as `delivered_unverified`. Text sent as keystrokes reaches the field through the app's event queue, so the check re-reads the field while it changes, inside the `--timeout-ms` budget. If it settles on other text, or never settles, the result is `delivered_unverified` with `verification_reason: postcondition_mismatch`. Headed typing that focuses an inactive field can change the selection, and the result then stays unverified. Read the field with `get` before you write again.
 - The default `--timeout-ms` of `type` is 5000 plus 30 ms per character of the text. An explicit `--timeout-ms` wins.
 - `type --interval-ms N` (1 to 2000) types one keystroke every N ms inside one command; `--timeout-ms` then applies to each keystroke, and `0` makes each keystroke try once. A keystroke keeps combining marks, emoji sequences and CR LF together. The first keystroke is a full ref action (headed, it also focuses the window), and the rest go to the same element, taking the interaction lease one keystroke at a time. A headed keystroke is posted only while the target's process and focused element are unchanged; if focus moves, the burst stops with an error. The result adds `keystrokes` and `interval_ms`, and `post_state` is the field after the last keystroke. It stays `delivered_verified` only when that read shows the whole text; otherwise it is `delivered_unverified` with `verification_reason` `postcondition_mismatch`, `insufficient_evidence` (typed part way through the field) or `final_read_failed` (no `post_state`). `--wait-for` waits once, after the last keystroke. A failure part way through adds `details.typed_keystrokes` and `details.keystrokes` and is `delivered_unverified`: read the field before you type again.
@@ -145,14 +148,14 @@ agent-desktop scroll-to @s8f3k2p9:e8
 ## Keyboard
 
 ```bash
-agent-desktop press return
-agent-desktop press ctrl+shift+z
+agent-desktop press return --headed
+agent-desktop press ctrl+shift+z --headed
 agent-desktop press cmd+s --app "TextEdit" --wait-for "button:Save" --wait-timeout 5000
 ```
 
 - Key names: `return`, `escape`, `tab`, `space`, `delete`, `up`, `down`, `left`, `right`, `f1` to `f12`. Modifiers: `cmd`/`meta`, `ctrl`, `alt`, `shift`, joined with `+`. Modifier names and blocked combos differ by OS. Read the platform skill.
 - A bare uppercase letter adds Shift: `press H` sends `shift+h`.
-- `--app` or `--window-id` targets one app. Use `--window-id` when several instances share a name and `--app` alone is `AMBIGUOUS_TARGET`. Unscoped `press` goes to the foreground app.
+- `--app` or `--window-id` targets one app. Use `--window-id` when several instances share a name and `--app` alone is `AMBIGUOUS_TARGET`. Unscoped `press` goes to the foreground app, which is the user's window, so it needs `--headed`; headless it returns `POLICY_DENIED` (`details.effect: "focus_steal"`) and no key is sent.
 - `press` reports `delivered_unverified`, because delivery does not prove the shortcut did its job. Wait for the expected effect once with `--wait-for` or `--wait-for-gone`. A timeout keeps the delivered result and is unsafe to retry blindly.
 - To open a window with a shortcut, keep the press and the wait in one `batch`, so the baseline is taken before delivery: `press`, then `wait --event window-opened`. A failed wait does not make the press safe to repeat.
 - Dangerous shortcuts are refused with `POLICY_DENIED` by the adapter. `--force` sends one anyway. Adding a modifier to a blocked shortcut usually gives another blocked one.

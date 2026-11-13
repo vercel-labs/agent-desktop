@@ -129,7 +129,7 @@ Drag is physical and needs `--headed`. Confirm the drop by reading the destinati
 
 ```bash
 agent-desktop list-windows --app "Finder"
-agent-desktop focus-window --window-id w-5678
+agent-desktop focus-window --window-id w-5678 --headed
 agent-desktop snapshot --app "Finder" --window-id w-5678 -i
 ```
 
@@ -141,7 +141,7 @@ agent-desktop snapshot --app "Calculator" -i
 agent-desktop close-app "Calculator"
 ```
 
-Read `data.window` in the launch result. If it is absent and you need a window, use `launch --activate` or `wait --event window-opened`. The launch identifier rules differ by OS (platform skill).
+Read `data.window` in the launch result. If it is absent and you need a window, use `launch --activate --headed` or `wait --event window-opened`. The launch identifier rules differ by OS (platform skill).
 
 ## Chromium app: two tools
 
@@ -174,7 +174,7 @@ agent-desktop batch '[
   {"command":"click","args":{"ref_id":"@s8f3k2p9:e1"}},
   {"command":"wait","args":{"ms":200}},
   {"command":"press","args":{"combo":"return"}}
-]' --stop-on-error
+]' --stop-on-error --headed
 ```
 
 Batch saves process starts. It is not a transaction. Entries after a failure run unless you pass `--stop-on-error`.

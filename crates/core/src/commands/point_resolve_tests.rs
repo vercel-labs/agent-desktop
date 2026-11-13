@@ -1,4 +1,5 @@
 use super::*;
+use crate::AdapterError;
 
 fn resolve_test_point(
     args: PointResolveArgs<'_>,

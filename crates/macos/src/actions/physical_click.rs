@@ -17,12 +17,7 @@ pub(crate) fn click_via_bounds(
     policy: InteractionPolicy,
     deadline: Deadline,
 ) -> Result<(), AdapterError> {
-    if !policy.allow_cursor_move || !policy.allow_focus_steal {
-        return Err(AdapterError::policy_denied_for_policy(
-            "Physical click fallback is disabled by the current interaction policy",
-            policy,
-        ));
-    }
+    crate::actions::background_effect::Effect::PhysicalInput.refuse_unless_permitted(policy)?;
     let prepared =
         crate::actions::physical_target::PreparedPhysicalTarget::prepare(element, deadline)?;
     let read_deadline = deadline;

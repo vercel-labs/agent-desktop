@@ -93,7 +93,8 @@ pub(crate) fn decode(token: &str) -> Option<ElementToken> {
 }
 
 /// A hash of the fields resolution holds an element to: role, stable name,
-/// description and native identifier. Values and bounds are never identity.
+/// description and native identifier. Values and bounds are never identity,
+/// and neither is a name borrowed from a label when a native id is recorded.
 fn fingerprint(evidence: &LocatorEvidence) -> Option<u64> {
     let role = evidence.role.known()?;
     let name = read(&evidence.name)?;
@@ -102,9 +103,10 @@ fn fingerprint(evidence: &LocatorEvidence) -> Option<u64> {
     if !evidence.identifiers.is_complete() {
         return None;
     }
-    let name = agent_desktop_core::refs::ref_identity::stable_name(role, name, value);
-    let description = description.filter(|text| !text.trim().is_empty());
     let native_id = evidence.identifiers.preferred_value();
+    let name = agent_desktop_core::refs::ref_identity::stable_name(role, name, value)
+        .filter(|_| !(evidence.identifiers.name_is_borrowed() && native_id.is_some()));
+    let description = description.filter(|text| !text.trim().is_empty());
     let fields = [Some(role.as_str()), name, description, native_id];
     Some(fields.iter().fold(FNV_OFFSET, |hash, field| {
         let text = field.unwrap_or_default();

@@ -10,7 +10,7 @@ fn a_value_with_no_match_in_the_sidebar_is_not_found_and_writes_nothing() {
     let session = open("gnome-control-center", &[]).expect("settings opens");
     let list = find(&session, |view| view.role() == Some(LIST)).expect("a list");
     let error = act(&session, &list, |target| {
-        select(target, "No Such Panel 7f3a", None)
+        select(target, "No Such Panel 7f3a", None, false)
     })
     .expect_err("no match");
     assert_eq!(error.code, ErrorCode::ElementNotFound);

@@ -71,6 +71,7 @@ fn launch_lease_uses_the_requested_timeout() {
             options,
         },
         &adapter,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
 
@@ -93,6 +94,7 @@ fn zero_launch_timeout_keeps_a_bounded_lease_for_the_single_attempt() {
             },
         },
         &adapter,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
 
@@ -118,8 +120,36 @@ fn plain_launch_without_cdp_never_calls_list_apps() {
             options: LaunchOptions::default(),
         },
         &adapter,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
 
     assert_eq!(adapter.list_apps_calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn headless_launch_with_activate_is_refused_before_anything_is_launched() {
+    let adapter = LaunchAdapter {
+        lease_timeout_ms: AtomicU64::new(0),
+        list_apps_calls: AtomicUsize::new(0),
+    };
+    let options = LaunchOptions {
+        activate: true,
+        ..LaunchOptions::default()
+    };
+    let error = execute(
+        LaunchArgs {
+            app: "Fixture".into(),
+            options,
+        },
+        &adapter,
+        crate::InteractionPolicy::headless(),
+    )
+    .unwrap_err();
+    let crate::AppError::Adapter(error) = error else {
+        panic!("a policy refusal is an adapter error");
+    };
+    assert_eq!(error.code, ErrorCode::PolicyDenied);
+    assert_eq!(error.details.unwrap()["effect"], "focus_steal");
+    assert_eq!(adapter.lease_timeout_ms.load(Ordering::SeqCst), 0);
 }

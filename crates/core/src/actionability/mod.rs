@@ -2,6 +2,7 @@ mod check;
 mod check_result;
 mod evaluate;
 mod evidence;
+pub(crate) mod foreground;
 mod gates;
 mod hit_test_evidence;
 mod live;

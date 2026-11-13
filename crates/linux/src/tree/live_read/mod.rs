@@ -231,6 +231,7 @@ pub(crate) fn element_via<R: NodeReader>(
         reader.placement(element, deadline)
     };
     let mut live = live_element(&node.read, &node.evidence, &placed, global)?;
+    closed_menu::reach_closed_menu_item(reader, element, &node.read, &placed.toolkit, &mut live);
     if element.is_menu_target() {
         let context = reader.menu_context(element, deadline)?;
         let object = context.map_or_else(
@@ -365,6 +366,7 @@ pub(crate) fn get_element_bounds(
     )
 }
 
+mod closed_menu;
 pub(crate) mod live_offscreen;
 pub(crate) mod live_project;
 pub(crate) mod pointer_refusal;

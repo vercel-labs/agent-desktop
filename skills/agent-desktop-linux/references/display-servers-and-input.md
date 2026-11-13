@@ -98,7 +98,7 @@ unmoved). `hover --xy` has no target element to prove.
 ## Keys and `press`
 
 ```bash
-agent-desktop press ctrl+a
+agent-desktop press ctrl+a --headed
 agent-desktop press return --app gnome-text-editor
 ```
 

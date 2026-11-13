@@ -55,6 +55,7 @@ fn marked_fields() -> NodeFields {
             states: LocatorField::Unknown,
             name: LocatorField::Known(MARKER.to_string()),
             description: LocatorField::Known(MARKER.to_string()),
+            name_borrowed: false,
         },
         label: LabelOutcome::Text(MARKER.to_string()),
         provider_description: PropertyOutcome::Known(PropertyValue::Text(

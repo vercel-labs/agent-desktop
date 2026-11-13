@@ -1,9 +1,8 @@
-use agent_desktop_core::{AdapterError, DeliverySemantics, ErrorCode};
+use agent_desktop_core::{
+    AdapterError, ChainRung, DeliveryObservation, DeliveryOutcome, DeliverySemantics, ErrorCode,
+};
 
 use super::mutation::WriteReply;
-use crate::actions::chain::chain_delivery_outcome::DeliveryOutcome;
-use crate::actions::chain::chain_observed::Observed;
-use crate::actions::chain::chain_rung::Rung;
 
 pub(crate) const VALUE_INTERFACE: &str = "org.a11y.atspi.Value";
 pub(crate) const VALUE_LABEL: &str = "Value.CurrentValue";
@@ -69,25 +68,26 @@ fn read_only() -> AdapterError {
     .with_disposition(DeliverySemantics::not_delivered())
 }
 
-pub(crate) fn write_rungs(port: &dyn NumericPort, plan: Plan) -> Vec<Rung<'_>> {
+pub(crate) fn write_rungs(port: &dyn NumericPort, plan: Plan) -> Vec<ChainRung<'_>> {
     let write = move || {
         let before = port.stored();
         if port.set(plan.value)? == WriteReply::Absent {
             return Err(read_only());
         }
         let observed = match port.stored() {
-            _ if !plan.readback_proves_commit => Observed::Unread,
-            None => Observed::Unread,
-            Some(stored) if agrees(stored, plan.value) => Observed::Matched,
+            _ if !plan.readback_proves_commit => DeliveryObservation::Unread,
+            None => DeliveryObservation::Unread,
+            Some(stored) if agrees(stored, plan.value) => DeliveryObservation::Verified,
             Some(stored) if before.is_some_and(|old| agrees(stored, old)) => {
                 return Err(write_ignored());
             }
-            Some(_) => Observed::Unchanged,
+            Some(_) => DeliveryObservation::Unverified,
         };
         Ok(DeliveryOutcome::Delivered(observed))
     };
-    vec![Rung {
+    vec![ChainRung {
         label: VALUE_LABEL,
+        effects: &[],
         run: Box::new(write),
     }]
 }

@@ -21,6 +21,7 @@ fn cdp_launch_injects_both_the_port_and_the_loopback_address_switch() {
             options,
         },
         &adapter,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
 
@@ -49,6 +50,7 @@ fn cdp_launch_rejects_a_conflicting_remote_debugging_address_switch() {
                 options,
             },
             &adapter,
+            crate::InteractionPolicy::headed(),
         )
         .unwrap_err(),
     );
@@ -79,6 +81,7 @@ fn cdp_launch_rejects_a_conflicting_remote_allow_origins_switch() {
                 options,
             },
             &adapter,
+            crate::InteractionPolicy::headed(),
         )
         .unwrap_err(),
     );
@@ -120,6 +123,7 @@ fn cdp_launch_rejects_an_already_running_instance_matched_by_bundle_id() {
                 options,
             },
             &adapter,
+            crate::InteractionPolicy::headed(),
         )
         .unwrap_err(),
     );
@@ -158,6 +162,7 @@ fn cdp_launch_rejects_a_busy_requested_port_without_ever_calling_launch() {
                 options,
             },
             &adapter,
+            crate::InteractionPolicy::headed(),
         )
         .unwrap_err(),
     );
@@ -195,6 +200,7 @@ fn cdp_launch_verification_failure_carries_the_probes_details_merged_with_launch
                 options,
             },
             &adapter,
+            crate::InteractionPolicy::headed(),
         )
         .unwrap_err(),
     );

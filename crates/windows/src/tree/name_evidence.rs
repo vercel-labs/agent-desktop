@@ -55,6 +55,15 @@ pub fn name_fields(
     )
 }
 
+/// Whether the element's name is its `LabeledBy` target's text: the label
+/// supplies it, or the provider computed `Name` from that label.
+pub fn name_borrowed(properties: &ElementProperties, label: &LabelOutcome) -> bool {
+    agent_desktop_core::name_is_borrowed(
+        &evidence_of(properties, label),
+        &status_of(properties, label),
+    )
+}
+
 fn evidence_of(properties: &ElementProperties, label: &LabelOutcome) -> NameEvidence {
     NameEvidence {
         native_title: text_of(properties.get(TreeProperty::Name)),

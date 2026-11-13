@@ -70,3 +70,79 @@ fn unsupported_text_write_names_typing_for_the_actual_mode_and_a_paste_fallback(
         }
     }
 }
+
+struct ForegroundAdapter;
+
+impl crate::adapter::ObservationOps for ForegroundAdapter {}
+impl crate::adapter::InputOps for ForegroundAdapter {}
+impl crate::adapter::SystemOps for ForegroundAdapter {}
+impl crate::adapter::ActionOps for ForegroundAdapter {
+    fn headed_requirement(
+        &self,
+        _handle: &NativeHandle,
+        _request: &ActionRequest,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::HeadedRequirement, AdapterError> {
+        Ok(crate::HeadedRequirement::FocusedApplication)
+    }
+}
+
+fn button(hidden: bool) -> ActionabilityEvidence {
+    ActionabilityEvidence {
+        nonspatial: false,
+        state: crate::ElementState {
+            role: "button".into(),
+            states: Vec::new(),
+            value: None,
+            enabled: Some(true),
+            hidden: Some(hidden),
+            offscreen: Some(false),
+        },
+        states_complete: true,
+        bounds: None,
+        available_actions: vec!["Click".into()],
+    }
+}
+
+fn checked(request: ActionRequest, hidden: bool) -> Result<ActionabilityReport, AdapterError> {
+    let handle = NativeHandle::null();
+    check_with_stability(
+        StabilityExpectation::permissive(None),
+        &button(hidden),
+        &request,
+        Some((&handle, &ForegroundAdapter)),
+        crate::Deadline::standard().unwrap(),
+    )
+}
+
+/// A hidden button fails visibility; a headless request is refused for the
+/// foreground alone, before it. A policy that allows focus is not refused.
+#[test]
+fn a_foreground_the_policy_forbids_is_the_only_refusal_and_comes_first() {
+    let error = checked(ActionRequest::headless(Action::Click), true).unwrap_err();
+    assert_eq!(error.code, ErrorCode::PolicyDenied);
+    assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());
+    let checks = error.details.unwrap()["checks"].clone();
+    assert_eq!(checks.as_array().map(Vec::len), Some(1), "{checks}");
+    assert_eq!(checks[0]["check"], "foreground");
+    assert!(error.suggestion.unwrap().contains("--headed"));
+    for request in [
+        ActionRequest::headed(Action::Click),
+        ActionRequest::focus_fallback(Action::Click),
+    ] {
+        let result = checked(request, false);
+        assert!(result.is_ok(), "{result:?}");
+    }
+}
+
+#[test]
+fn a_raw_dispatch_passes_the_same_foreground_gate() {
+    let handle = NativeHandle::null();
+    let deadline = crate::Deadline::standard().unwrap();
+    let gate =
+        |request| crate::ensure_foreground_allowed(&ForegroundAdapter, &handle, &request, deadline);
+    let error = gate(ActionRequest::headless(Action::SetFocus)).unwrap_err();
+    assert_eq!(error.code, ErrorCode::PolicyDenied);
+    assert_eq!(error.details.unwrap()["check"], "foreground");
+    assert!(gate(ActionRequest::focus_fallback(Action::SetFocus)).is_ok());
+}

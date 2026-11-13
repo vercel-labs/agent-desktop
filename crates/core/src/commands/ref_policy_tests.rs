@@ -1,6 +1,6 @@
 use crate::adapter::{ActionOps, InputOps, ObservationOps, SystemOps};
 use crate::{
-    Action, AdapterError, Direction,
+    AdapterError, Direction,
     actions::action_request::ActionRequest,
     actions::action_result::ActionResult,
     actions::interaction_policy::InteractionPolicy,
@@ -49,10 +49,6 @@ impl RecordingAdapter {
         Self {
             requests: Mutex::new(Vec::new()),
         }
-    }
-
-    fn last_request(&self) -> ActionRequest {
-        self.requests.lock().unwrap().last().cloned().unwrap()
     }
 }
 
@@ -268,19 +264,6 @@ fn default_ref_commands_use_least_permissive_supported_policy() {
     for request in adapter.requests.lock().unwrap().iter() {
         assert_headless(request);
     }
-}
-
-#[test]
-fn focus_command_is_explicit_headless_policy() {
-    let _guard = HomeGuard::new();
-    let snapshot_id = snapshot_id();
-    let adapter = RecordingAdapter::new();
-
-    focus::execute(ref_args(&snapshot_id), &adapter, &CommandContext::default()).unwrap();
-
-    let request = adapter.last_request();
-    assert!(matches!(request.action, Action::SetFocus));
-    assert_eq!(request.policy, InteractionPolicy::headless());
 }
 
 #[test]

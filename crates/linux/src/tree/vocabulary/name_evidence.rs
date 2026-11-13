@@ -1,5 +1,6 @@
 use agent_desktop_core::{
-    LocatorField, NameEvidence, NameSlotStatus, SlotStatus, resolve_description, resolve_name,
+    LocatorField, NameEvidence, NameSlotStatus, SlotStatus, name_is_borrowed, resolve_description,
+    resolve_name,
 };
 
 use super::label_outcome::LabelOutcome;
@@ -54,7 +55,8 @@ fn placeholder_slot(placeholder: &PlaceholderRead) -> SlotStatus {
     }
 }
 
-/// The name and the description of a node, resolved by core's one precedence.
+/// The name and the description of a node, resolved by core's one precedence,
+/// and whether the name is a `LabelledBy` target's text.
 /// `Name` is the toolkit's own computed name, so a `LabelledBy` target is
 /// admitted only when `Name` is blank; the other slots do not apply to AT-SPI.
 pub(crate) fn name_fields(
@@ -62,7 +64,7 @@ pub(crate) fn name_fields(
     role: &Field<u32>,
     placeholder: &PlaceholderRead,
     label: &LabelOutcome,
-) -> (LocatorField<String>, LocatorField<String>) {
+) -> (LocatorField<String>, LocatorField<String>, bool) {
     let (description, description_status) = description_of(properties, role, placeholder);
     let evidence = NameEvidence {
         native_title: text_of(&properties.name),
@@ -88,6 +90,7 @@ pub(crate) fn name_fields(
     (
         resolve_name(&evidence, &status),
         resolve_description(&evidence, &status),
+        name_is_borrowed(&evidence, &status),
     )
 }
 

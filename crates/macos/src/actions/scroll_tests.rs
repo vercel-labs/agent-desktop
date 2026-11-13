@@ -28,8 +28,6 @@ fn semantic_scroll_actions_and_value_fallback_preserve_direction() {
         super::scroll_bar_action(&Direction::Up),
         ("AXVerticalScrollBar", "AXDecrement")
     );
-    assert_eq!(super::page_action(&Direction::Down), "AXScrollDownByPage");
-    assert_eq!(super::page_action(&Direction::Up), "AXScrollUpByPage");
     assert!((super::shifted_value(0.0, &Direction::Down, 1) - 0.1).abs() < f64::EPSILON);
     assert!(super::shifted_value(0.1, &Direction::Up, 1).abs() < f64::EPSILON);
     assert!(super::value_shift_verified(0.2, 0.3, &Direction::Down));

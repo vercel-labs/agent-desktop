@@ -28,6 +28,18 @@ pub(crate) fn untagged_element_token(retained_object: &str) -> Option<&str> {
         .filter(|token| !token.is_empty())
 }
 
+/// The name a ref records as identity: none when the name came from another
+/// element and the ref also records a native id, because a label beside the
+/// element can change while the element stays the same; otherwise the name.
+pub(crate) fn recorded_name(
+    name: Option<String>,
+    borrowed: bool,
+    native_id: Option<&crate::ElementIdentifier>,
+) -> Option<String> {
+    let identified = native_id.is_some_and(|identifier| !identifier.value.trim().is_empty());
+    if borrowed && identified { None } else { name }
+}
+
 pub fn has_meaningful_identity(entry: &RefEntry) -> bool {
     element_token(entry).is_some()
         || recorded_native_id(entry).is_some()

@@ -78,6 +78,12 @@ impl NodeView {
             .map(String::as_str)
     }
 
+    /// The node's name as read: `None` when the read failed, `Some(None)` when
+    /// the node has no name.
+    pub(crate) fn name_read(&self) -> Option<Option<String>> {
+        text_of(&self.node.read.node.properties.name)
+    }
+
     /// The node's value, withheld from a secure field whatever was read and
     /// from a read that stopped at the cap: a prefix is never the value, so
     /// no write is judged, verified or sized by it.

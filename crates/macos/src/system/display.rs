@@ -175,47 +175,6 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use super::*;
-
-    pub fn list_displays_impl(_deadline: Deadline) -> Result<Vec<DisplayInfo>, AdapterError> {
-        Err(AdapterError::not_supported("list_displays"))
-    }
-
-    pub fn display_at(_index: usize, _deadline: Deadline) -> Result<DisplayInfo, AdapterError> {
-        Err(AdapterError::not_supported("list_displays"))
-    }
-
-    pub fn capture_selection(
-        _expected: &DisplayInfo,
-        _deadline: Deadline,
-    ) -> Result<(usize, DisplayInfo), AdapterError> {
-        Err(AdapterError::not_supported("list_displays"))
-    }
-
-    pub fn display_at_capture_index(
-        _raw_index: usize,
-        _deadline: Deadline,
-    ) -> Result<DisplayInfo, AdapterError> {
-        Err(AdapterError::not_supported("list_displays"))
-    }
-
-    pub fn scale_for_bounds(
-        _bounds: Option<Rect>,
-        _deadline: Deadline,
-    ) -> Result<f64, AdapterError> {
-        Ok(1.0)
-    }
-
-    pub fn display_for_bounds(
-        _bounds: Option<Rect>,
-        _deadline: Deadline,
-    ) -> Result<DisplayInfo, AdapterError> {
-        Err(AdapterError::not_supported("list_displays"))
-    }
-}
-
 pub(crate) use imp::{
     capture_selection, display_at, display_at_capture_index, display_for_bounds,
     list_displays_impl, scale_for_bounds,

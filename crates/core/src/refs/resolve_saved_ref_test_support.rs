@@ -182,6 +182,10 @@ pub(super) fn resolve(
 }
 
 pub(super) fn capture(root: AccessibilityNode, name: &str) -> RefEntry {
+    capture_by(root, |entry| entry.identity.name.as_deref() == Some(name))
+}
+
+pub(super) fn capture_by(root: AccessibilityNode, pick: impl Fn(&RefEntry) -> bool) -> RefEntry {
     let mut refmap = RefMap::new();
     let observed = crate::adapter::observed_tree(&ObservationRoot::Window(&window()), root.clone())
         .expect("the fixture observes");
@@ -193,7 +197,7 @@ pub(super) fn capture(root: AccessibilityNode, name: &str) -> RefEntry {
     allocate_refs(root, &mut refmap, &config).unwrap();
     (1..=refmap.len())
         .filter_map(|index| refmap.get(&format!("@e{index}")).cloned())
-        .find(|entry| entry.identity.name.as_deref() == Some(name))
+        .find(|entry| pick(entry))
         .expect("the captured element has a ref")
 }
 

@@ -142,50 +142,6 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use crate::tree::{AXElement, properties::bounded_string::BoundedString};
-
-    pub(crate) fn copy_string_attr_result(
-        _el: &AXElement,
-        _attr: &str,
-        _deadline: agent_desktop_core::Deadline,
-    ) -> Result<Option<String>, i32> {
-        Ok(None)
-    }
-
-    pub(crate) fn copy_string_attr_bounded_result(
-        _el: &AXElement,
-        _attr: &str,
-        _deadline: agent_desktop_core::Deadline,
-        _usage: &mut crate::tree::observation_usage::ObservationUsage,
-    ) -> Result<Option<BoundedString>, i32> {
-        Ok(None)
-    }
-
-    pub(crate) fn copy_value_typed(
-        _el: &AXElement,
-        _deadline: agent_desktop_core::Deadline,
-    ) -> Option<String> {
-        None
-    }
-
-    pub(crate) fn copy_value_typed_result(
-        _el: &AXElement,
-        _deadline: agent_desktop_core::Deadline,
-    ) -> Result<Option<String>, i32> {
-        Ok(None)
-    }
-
-    pub(crate) fn copy_value_typed_bounded_result(
-        _el: &AXElement,
-        _deadline: agent_desktop_core::Deadline,
-        _usage: &mut crate::tree::observation_usage::ObservationUsage,
-    ) -> Result<Option<BoundedString>, i32> {
-        Ok(None)
-    }
-}
-
 pub(crate) use imp::{
     copy_string_attr_bounded_result, copy_string_attr_result, copy_value_typed,
     copy_value_typed_bounded_result, copy_value_typed_result,

@@ -332,21 +332,6 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use agent_desktop_core::{
-        AdapterError, Point, adapter::hit_test::HitTestResult, adapter::native_handle::NativeHandle,
-    };
-
-    pub fn hit_test_impl(
-        _handle: &NativeHandle,
-        _point: Point,
-        _deadline: agent_desktop_core::Deadline,
-    ) -> Result<HitTestResult, AdapterError> {
-        Err(AdapterError::not_supported("hit_test"))
-    }
-}
-
 pub(crate) use imp::hit_test_impl;
 
 #[cfg(target_os = "macos")]

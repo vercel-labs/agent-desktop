@@ -1,9 +1,8 @@
 use std::cell::{Cell, RefCell};
 
-use agent_desktop_core::{AdapterError, DeliverySemantics, ErrorCode};
+use agent_desktop_core::{AdapterError, DeliveryOutcome, DeliverySemantics, ErrorCode};
 
 use super::*;
-use crate::actions::chain::chain_delivery_outcome::DeliveryOutcome;
 
 struct Control {
     maximum: f64,
@@ -52,7 +51,10 @@ fn planned(request: &str, spin: bool, step: Option<f64>) -> Plan {
 fn a_value_above_the_range_reads_back_clamped_and_is_a_mismatch() {
     let control = Control::slider();
     let outcome = write(&control, planned("500", false, None)).expect("written");
-    assert_eq!(outcome, DeliveryOutcome::Delivered(Observed::Unchanged));
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(DeliveryObservation::Unverified)
+    );
     assert_eq!(*control.held.borrow(), 100.0);
 }
 
@@ -60,7 +62,10 @@ fn a_value_above_the_range_reads_back_clamped_and_is_a_mismatch() {
 fn a_whole_step_spin_button_can_commit_a_fraction() {
     let control = Control::slider();
     let outcome = write(&control, planned("7.5", true, Some(1.0))).expect("written");
-    assert_eq!(outcome, DeliveryOutcome::Delivered(Observed::Matched));
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(DeliveryObservation::Verified)
+    );
     assert_eq!(*control.held.borrow(), 7.5);
     assert_eq!(control.sets.get(), 1);
 }
@@ -71,7 +76,10 @@ fn a_fraction_on_a_spin_button_with_an_unreadable_step_is_not_proved_by_the_read
     let plan = planned("7.5", true, None);
     assert!(!plan.readback_proves_commit);
     let outcome = write(&control, plan).expect("written");
-    assert_eq!(outcome, DeliveryOutcome::Delivered(Observed::Unread));
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(DeliveryObservation::Unread)
+    );
 }
 
 #[test]
@@ -97,7 +105,10 @@ fn an_unreadable_value_after_the_write_is_unobserved() {
     let mut control = Control::slider();
     control.readable = false;
     let outcome = write(&control, planned("5", false, None)).expect("written");
-    assert_eq!(outcome, DeliveryOutcome::Delivered(Observed::Unread));
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(DeliveryObservation::Unread)
+    );
 }
 
 #[test]
@@ -118,6 +129,9 @@ fn a_large_clamped_change_is_delivered_even_when_it_is_close_to_the_old_value() 
     control.maximum = 1_000_000_001.0;
     *control.held.borrow_mut() = 1_000_000_000.0;
     let outcome = write(&control, planned("2000000000", false, None)).expect("the value changed");
-    assert_eq!(outcome, DeliveryOutcome::Delivered(Observed::Unchanged));
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(DeliveryObservation::Unverified)
+    );
     assert_eq!(*control.held.borrow(), 1_000_000_001.0);
 }

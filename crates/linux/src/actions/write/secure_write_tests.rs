@@ -1,8 +1,8 @@
-use agent_desktop_core::{AdapterError, DeliverySemantics, ErrorCode};
+use agent_desktop_core::{
+    AdapterError, DeliveryObservation, DeliveryOutcome, DeliverySemantics, ErrorCode,
+};
 
 use super::*;
-use crate::actions::chain::chain_delivery_outcome::DeliveryOutcome;
-use crate::actions::chain::chain_observed::Observed;
 use crate::actions::write::text_write::fakes::{Fake, Script, drive, span};
 use crate::actions::write::text_write::{insert_rungs, replace_rungs};
 
@@ -46,7 +46,10 @@ fn an_ordinary_text_box_is_not_secure() {
 fn a_secure_set_issues_no_read_and_carries_no_verdict() {
     let fake = Fake::holding("");
     let (_, outcome) = drive(&mut replace_rungs(&fake, SECRET, true)).expect("delivered");
-    assert_eq!(outcome, DeliveryOutcome::Delivered(Observed::Unread));
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(DeliveryObservation::Unread)
+    );
     assert_eq!(fake.reads.get(), 0);
 }
 
@@ -54,7 +57,10 @@ fn a_secure_set_issues_no_read_and_carries_no_verdict() {
 fn a_secure_clear_issues_no_read() {
     let fake = Fake::holding("");
     let (_, outcome) = drive(&mut replace_rungs(&fake, "", true)).expect("delivered");
-    assert_eq!(outcome, DeliveryOutcome::Delivered(Observed::Unread));
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(DeliveryObservation::Unread)
+    );
     assert_eq!(fake.reads.get(), 0);
 }
 
@@ -63,7 +69,10 @@ fn a_secure_type_issues_no_read_and_carries_no_verdict() {
     let mut fake = Fake::holding("");
     fake.caret = Ok(Some((0, vec![])));
     let (_, outcome) = drive(&mut insert_rungs(&fake, SECRET, true)).expect("delivered");
-    assert_eq!(outcome, DeliveryOutcome::Delivered(Observed::Unread));
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(DeliveryObservation::Unread)
+    );
     assert_eq!(fake.reads.get(), 0);
 }
 

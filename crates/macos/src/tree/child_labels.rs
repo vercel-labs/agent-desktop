@@ -115,15 +115,6 @@ fn label_read_completeness(reads_complete: bool, capped: bool, label_found: bool
     reads_complete && (!capped || !label_found)
 }
 
-#[cfg(not(target_os = "macos"))]
-fn label_from_children(
-    _children: &[AXElement],
-    _deadline: Deadline,
-    _sinks: &mut NameEvidenceSinks<'_>,
-) -> Result<(Option<String>, bool), agent_desktop_core::AdapterError> {
-    Ok((None, true))
-}
-
 #[cfg(target_os = "macos")]
 fn timed_string(
     element: &AXElement,

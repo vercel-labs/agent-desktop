@@ -54,6 +54,7 @@ fn default_with_only_text_writes_text_content() {
             file_urls: vec![],
         },
         &double,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
     assert_eq!(out["type"], "text");
@@ -73,6 +74,7 @@ fn omitted_text_defaults_to_empty_string_not_error() {
             file_urls: vec![],
         },
         &double,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
     assert_eq!(out["type"], "text");
@@ -104,6 +106,7 @@ fn missing_file_url_reports_invalid_args_with_count_and_index_only() {
             ],
         },
         &double,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap_err();
 
@@ -153,6 +156,7 @@ fn image_flag_reads_bytes_and_dimensions_from_file() {
             file_urls: vec![],
         },
         &double,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
 
@@ -205,6 +209,7 @@ fn file_urls_take_priority_over_text_and_image() {
             file_urls: vec![existing.to_string_lossy().into_owned()],
         },
         &double,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
 
@@ -253,4 +258,25 @@ fn image_rejects_device_files() {
     .unwrap_err();
 
     assert_eq!(error.code(), ErrorCode::InvalidArgs.as_str());
+}
+
+#[test]
+fn headless_clipboard_write_is_refused_before_the_clipboard_is_touched() {
+    let double = LocalDouble::new();
+    let err = execute(
+        ClipboardSetArgs {
+            text: Some("secret".into()),
+            image: None,
+            file_urls: vec![],
+        },
+        &double,
+        crate::InteractionPolicy::headless(),
+    )
+    .unwrap_err();
+    let AppError::Adapter(err) = err else {
+        panic!("a policy refusal is an adapter error");
+    };
+    assert_eq!(err.code, crate::ErrorCode::PolicyDenied);
+    assert_eq!(err.details.unwrap()["effect"], "clipboard_write");
+    assert!(double.seen.lock().unwrap().is_none());
 }

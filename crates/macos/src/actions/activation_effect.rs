@@ -14,12 +14,15 @@ mod imp {
     /// selection rather than the focus. Selection is therefore read as well,
     /// on every element, because an attribute an element does not publish reads
     /// as absent and the rule simply never fires for it. The focused editor's
-    /// value is read because a press can replace what that editor shows.
+    /// value is read because a press can replace what that editor shows. The
+    /// pressed element's own value is read because a radio button answers
+    /// -25205 to the press that turns it on and publishes no `AXSelected`.
     #[derive(Default)]
     pub(crate) struct FocusState {
         focused_element: Option<AXElement>,
         focused_value: Option<String>,
         selected: Option<bool>,
+        own_value: Option<String>,
         menu_open: Option<bool>,
     }
 
@@ -64,51 +67,9 @@ mod imp {
             )
             .ok()
             .flatten(),
-            menu_open: owned_menu_open(element, deadline),
+            own_value: crate::tree::copy_value_typed(element, deadline),
+            menu_open: crate::actions::owned_menu::owned_menu_open(element, deadline),
         })
-    }
-
-    fn owned_menu_open(element: &AXElement, deadline: Deadline) -> Option<bool> {
-        use crate::tree::surface_read;
-        let end = deadline;
-        let role = surface_read::string(element, "AXRole", end).ok()??;
-        if !matches!(
-            role.as_str(),
-            "AXMenuButton" | "AXPopUpButton" | "AXMenuBarItem" | "AXMenuItem"
-        ) {
-            return None;
-        }
-        let mut complete = true;
-        for child in surface_read::elements(element, "AXChildren", end).ok()? {
-            if surface_read::string(&child, "AXRole", end).ok()?? != "AXMenu" {
-                continue;
-            }
-            let visible = surface_read::boolean(&child, "AXVisible", end).ok()?;
-            let hidden = surface_read::boolean(&child, "AXHidden", end).ok()?;
-            let bounds =
-                crate::tree::element_bounds::read_bounds_with_deadline(&child, end).ok()?;
-            match menu_visibility(visible, hidden, bounds) {
-                Some(true) => return Some(true),
-                Some(false) => {}
-                None => complete = false,
-            }
-        }
-        complete.then_some(false)
-    }
-
-    fn menu_visibility(
-        visible: Option<bool>,
-        hidden: Option<bool>,
-        bounds: Option<agent_desktop_core::Rect>,
-    ) -> Option<bool> {
-        if visible == Some(false) || hidden == Some(true) {
-            return Some(false);
-        }
-        let bounds = bounds?;
-        if bounds.width <= 0.0 || bounds.height <= 0.0 {
-            return Some(false);
-        }
-        (visible == Some(true) || hidden == Some(false)).then_some(true)
     }
 
     pub(crate) fn changed_now(
@@ -185,6 +146,7 @@ mod imp {
             && matches!((before, after), (Some(before), Some(after)) if before != after);
         focus_moved_to_target
             || selection_turned_on(before, after)
+            || own_value_changed(before, after)
             || matches!(
                 (
                     before.as_ref().and_then(|state| state.menu_open),
@@ -214,6 +176,18 @@ mod imp {
             &window(focused).ok()??,
             &window(element).ok()??,
         ))
+    }
+
+    /// An element whose own value changed after the press was acted on: a
+    /// radio button or checkbox reads 0 before and 1 after.
+    fn own_value_changed(before: &Option<FocusState>, after: &Option<FocusState>) -> bool {
+        matches!(
+            (
+                before.as_ref().and_then(|state| state.own_value.as_ref()),
+                after.as_ref().and_then(|state| state.own_value.as_ref()),
+            ),
+            (Some(old), Some(new)) if old != new
+        )
     }
 
     /// An element that was not selected and now is has been acted on, whatever
@@ -284,6 +258,32 @@ mod imp {
         }
 
         #[test]
+        fn a_radio_value_that_turned_on_is_an_effect_and_an_unchanged_one_is_not() {
+            let valued = |value: Option<&str>| {
+                Some(FocusState {
+                    own_value: value.map(str::to_owned),
+                    ..FocusState::default()
+                })
+            };
+            assert!(observed_change(
+                &valued(Some("0")),
+                &valued(Some("1")),
+                false
+            ));
+            for (before, after) in [
+                (Some("1"), Some("1")),
+                (None, Some("1")),
+                (Some("0"), None),
+                (None, None),
+            ] {
+                assert!(
+                    !observed_change(&valued(before), &valued(after), false),
+                    "before={before:?} after={after:?}"
+                );
+            }
+        }
+
+        #[test]
         fn an_unchanged_or_unreadable_selection_proves_nothing() {
             for (before, after) in [
                 (Some(true), Some(true)),
@@ -329,69 +329,6 @@ mod imp {
                 }
             }
         }
-
-        #[test]
-        fn menu_verification_requires_visible_nonempty_geometry() {
-            let bounds = agent_desktop_core::Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 100.0,
-                height: 100.0,
-            };
-            assert_eq!(menu_visibility(None, Some(false), Some(bounds)), Some(true));
-            assert_eq!(menu_visibility(Some(true), None, Some(bounds)), Some(true));
-            assert_eq!(menu_visibility(None, None, Some(bounds)), None);
-            assert_eq!(menu_visibility(Some(true), None, None), None);
-            assert_eq!(
-                menu_visibility(Some(false), Some(false), Some(bounds)),
-                Some(false)
-            );
-            assert_eq!(
-                menu_visibility(Some(true), Some(true), Some(bounds)),
-                Some(false)
-            );
-            assert_eq!(
-                menu_visibility(
-                    Some(true),
-                    Some(false),
-                    Some(agent_desktop_core::Rect {
-                        width: 0.0,
-                        ..bounds
-                    })
-                ),
-                Some(false)
-            );
-        }
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use agent_desktop_core::Deadline;
-
-    use crate::tree::AXElement;
-
-    #[derive(Default, PartialEq)]
-    pub(crate) struct FocusState;
-
-    pub(crate) fn focus_state(_element: &AXElement, _deadline: Deadline) -> FocusState {
-        FocusState
-    }
-
-    pub(crate) fn changed_now(
-        _before: &FocusState,
-        _element: &AXElement,
-        _deadline: Deadline,
-    ) -> bool {
-        false
-    }
-
-    pub(crate) fn settled_change(
-        _before: &FocusState,
-        _element: &AXElement,
-        _deadline: Deadline,
-    ) -> bool {
-        false
     }
 }
 

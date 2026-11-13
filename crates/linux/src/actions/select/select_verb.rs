@@ -4,11 +4,11 @@ use super::select_exclusive::{
 use super::select_verify::read_verification;
 use crate::actions::context::Target;
 use crate::tree::AtspiElement;
-use agent_desktop_core::{AdapterError, DeliverySemantics, ErrorCode};
+use agent_desktop_core::{
+    AdapterError, DeliveryObservation, DeliveryOutcome, DeliverySemantics, ErrorCode,
+};
 
-use crate::actions::chain::chain_delivery_outcome::DeliveryOutcome;
-use crate::actions::chain::chain_observed::Observed;
-use crate::actions::click::{observed_of, refusal};
+use crate::actions::click::refusal;
 use crate::actions::toggle_state::{Flag, drive_to};
 use crate::actions::write::mutation::WriteReply;
 
@@ -37,11 +37,11 @@ pub(super) fn deliver(
     } else {
         match invoke()? {
             WriteReply::Absent => DeliveryOutcome::NotDelivered,
-            WriteReply::Done => DeliveryOutcome::Delivered(Observed::Unread),
+            WriteReply::Done => DeliveryOutcome::Delivered(DeliveryObservation::Unread),
         }
     };
     match outcome {
-        DeliveryOutcome::Delivered(_) => Ok(DeliveryOutcome::Delivered(observed_of(observe()?))),
+        DeliveryOutcome::Delivered(_) => Ok(DeliveryOutcome::observed(observe()?)),
         DeliveryOutcome::Satisfied => match observe()? {
             Some(true) => Ok(DeliveryOutcome::Satisfied),
             _ => Err(refusal(
