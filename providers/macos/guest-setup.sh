@@ -2,55 +2,79 @@
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
-key_file="$here/id_ed25519.pub"
-binary="$here/agent-desktop"
-helper="$here/agent-desktop-macos-helper"
-ssh_dir="$HOME/.ssh"
-auth_file="$ssh_dir/authorized_keys"
-bin_dir="$HOME/.local/bin"
-installed="$bin_dir/agent-desktop"
-installed_helper="$bin_dir/agent-desktop-macos-helper"
+name=agent-desktop-guest
+label=com.agent-desktop.guest
+source_app=$here/$name.app
+app=$HOME/Applications/$name.app
+agent=$app/Contents/MacOS/$name
+plist=$HOME/Library/LaunchAgents/$label.plist
+domain=gui/$(id -u)
+lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 
-if [ ! -f "$key_file" ]; then
-  echo "The public key id_ed25519.pub is not in this folder, so run the sandbox create step on the host again." >&2
-  exit 1
-fi
-if [ ! -f "$binary" ]; then
-  echo "The agent-desktop binary is not in this folder, so run the sandbox create step on the host again." >&2
-  exit 1
-fi
-if [ ! -f "$helper" ]; then
-  echo "The agent-desktop-macos-helper binary is not in this folder, so run the sandbox create step on the host again." >&2
+if [ ! -f "$source_app/Contents/MacOS/$name" ]; then
+  echo "$name.app is not in this folder, so run agent-desktop sandbox start on the host again." >&2
   exit 1
 fi
 
-mkdir -p -m 700 "$ssh_dir"
-touch "$auth_file"
-chmod 600 "$auth_file"
+loaded() {
+  launchctl print "$domain/$label" >/dev/null 2>&1
+}
 
-key=$(cat "$key_file")
-if grep -qxF "$key" "$auth_file"; then
-  echo "The sandbox key is already in $auth_file."
+mkdir -p "$HOME/Applications" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
+if cmp -s "$source_app/Contents/MacOS/$name" "$agent"; then
+  echo "The guest agent at $app is already current."
 else
-  if [ -s "$auth_file" ] && [ "$(tail -c 1 "$auth_file" | wc -l)" -eq 0 ]; then
-    printf '\n' >> "$auth_file"
+  if loaded; then
+    launchctl bootout "$domain/$label" >/dev/null 2>&1 || true
+    tries=0
+    while loaded && [ "$tries" -lt 50 ]; do
+      sleep 0.1
+      tries=$((tries + 1))
+    done
   fi
-  printf '%s\n' "$key" >> "$auth_file"
-  echo "Added the sandbox key to $auth_file."
+  rm -rf "$app"
+  cp -R "$source_app" "$app"
+  "$lsregister" -f "$app" >/dev/null 2>&1 || true
+  tccutil reset Accessibility "$label" >/dev/null 2>&1 || true
+  tccutil reset ScreenCapture "$label" >/dev/null 2>&1 || true
+  echo "Installed the guest agent at $app."
 fi
 
-mkdir -p "$bin_dir"
-cp "$binary" "$installed.new"
-chmod 755 "$installed.new"
-mv -f "$installed.new" "$installed"
-cp "$helper" "$installed_helper.new"
-chmod 755 "$installed_helper.new"
-mv -f "$installed_helper.new" "$installed_helper"
-echo "Installed agent-desktop and agent-desktop-macos-helper at $bin_dir."
+cat > "$plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>$label</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$agent</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>LimitLoadToSessionType</key>
+  <string>Aqua</string>
+  <key>StandardErrorPath</key>
+  <string>$HOME/Library/Logs/$name.log</string>
+</dict>
+</plist>
+PLIST
 
-echo "Requesting the macOS permissions agent-desktop needs."
-"$installed" permissions --request
+if loaded; then
+  start="kickstart -k $domain/$label"
+else
+  start="bootstrap $domain $plist"
+fi
+if ! launchctl $start; then
+  echo "The guest agent could not be started. Log in to the desktop, open Terminal there, and run this script again." >&2
+  exit 1
+fi
 
-echo "Two steps are left, and you do them by hand in System Settings:"
-echo "1. Turn on Remote Login in System Settings > General > Sharing."
-echo "2. If macOS asks, allow Accessibility for \"sshd-keygen-wrapper\", or find it in System Settings > Privacy & Security > Accessibility and switch it on."
+echo "One step is left: when macOS asks, open System Settings > Privacy & Security > Accessibility and switch on $name."
+echo "For screenshots, switch it on under Screen & System Audio Recording too."
+if ! defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser >/dev/null 2>&1; then
+  echo "Automatic login is off. Turn it on in System Settings > Users & Groups, or the sandbox cannot reach its desktop when it starts without a window."
+fi

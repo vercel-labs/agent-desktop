@@ -10,7 +10,7 @@ cleanup() {
 }
 trap cleanup 0
 trap 'exit 1' 1 2 3 15
-mkdir -p "$tmp/bin" "$tmp/provider/build" "$tmp/sandboxes" "$tmp/guest/.local/bin"
+mkdir -p "$tmp/bin" "$tmp/provider" "$tmp/sandboxes" "$tmp/guest/.local/bin"
 
 AD_PROVIDER_DIR=$tmp/provider
 AD_BINARY=$tmp/agent-desktop
@@ -21,7 +21,9 @@ FAKE_GUEST_HOME=$tmp/guest
 export AD_PROVIDER_DIR AD_BINARY AD_CALLER_CWD VMHOST FAKE_LOG FAKE_GUEST_HOME
 
 printf '#!/bin/sh\n' > "$AD_PROVIDER_DIR/guest-setup.sh"
-: > "$AD_PROVIDER_DIR/build/vmhost"
+printf 'guest agent source\n' > "$AD_PROVIDER_DIR/guestagent.swift"
+mkdir -p "$tmp/bin/agent-desktop-guest.app/Contents/MacOS"
+printf 'guest agent\n' > "$tmp/bin/agent-desktop-guest.app/Contents/MacOS/agent-desktop-guest"
 printf 'binary\n' > "$AD_BINARY"
 printf 'helper\n' > "$tmp/agent-desktop-macos-helper"
 chmod 0755 "$tmp/agent-desktop-macos-helper"
@@ -46,38 +48,6 @@ fake codesign <<'FAKE'
 #!/bin/sh
 printf 'com.apple.security.virtualization\n'
 FAKE
-fake ssh-keygen <<'FAKE'
-#!/bin/sh
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = -f ]; then shift; key=$1; fi
-  shift
-done
-n=$(cat "$FAKE_KEY_COUNTER" 2>/dev/null || printf '0')
-n=$((n + 1))
-printf '%s\n' "$n" > "$FAKE_KEY_COUNTER"
-printf 'private key %s\n' "$n" > "$key"
-printf 'public key %s\n' "$n" > "$key.pub"
-FAKE
-FAKE_KEY_COUNTER=$tmp/key-counter
-FAKE_VOLUME=$tmp/volume
-export FAKE_KEY_COUNTER FAKE_VOLUME
-fake hdiutil <<'FAKE'
-#!/bin/sh
-[ "${FAKE_HDIUTIL:-ok}" = ok ] || exit 1
-case ${1:-} in
-  attach)
-    if [ ! -e "$FAKE_VOLUME" ]; then
-      mkdir -p "$FAKE_VOLUME/private/etc/ssh"
-      : > "$FAKE_VOLUME/private/etc/ssh/ssh_host_ed25519_key"
-      : > "$FAKE_VOLUME/private/etc/ssh/ssh_host_ed25519_key.pub"
-    fi
-    mkdir -p "$FAKE_VOLUME.preboot"
-    printf '/dev/disk99s1\tFAKE\t%s\n/dev/disk99s2\tFAKE\t%s\n' "$FAKE_VOLUME.preboot" "$FAKE_VOLUME"
-    ;;
-  detach) printf 'hdiutil %s\n' "$*" >> "$FAKE_LOG" ;;
-  info) printf 'image-path      : %s\n/dev/disk99\n' "$AD_SANDBOX_DIR/vm/Disk.img" ;;
-esac
-FAKE
 fake pgrep <<'FAKE'
 #!/bin/sh
 [ "${FAKE_JOB_ALIVE:-0}" = 1 ]
@@ -97,7 +67,27 @@ case $1 in
     mkdir -p "$3"
     cp "$2/Disk.img" "$3/Disk.img" 2>/dev/null || :
     ;;
-  ip) printf '{"ok":true,"ip":"192.0.2.2"}\n' ;;
+  status)
+    case ${FAKE_GUEST:-granted} in
+      granted) printf '{"accessibility":true,"agent":1,"ok":true}\n' ;;
+      denied) printf '{"accessibility":false,"agent":1,"ok":true}\n' ;;
+      silent)
+        printf '{"message":"The guest agent is not answering.","ok":false,"suggestion":"Run it again."}\n'
+        exit 3
+        ;;
+    esac
+    ;;
+  exec)
+    shift 3
+    case ${FAKE_GUEST:-granted} in
+      silent)
+        printf '{"code":"ACTION_FAILED","message":"The guest agent is not answering.","ok":false,"suggestion":"Run agent-desktop sandbox status demo."}\n'
+        exit 125
+        ;;
+    esac
+    HOME=$FAKE_GUEST_HOME "$FAKE_GUEST_HOME/.local/bin/agent-desktop" "$@"
+    exit $?
+    ;;
   run)
     [ "${FAKE_BOOT:-ok}" = ok ] || exit 1
     printf '%s\n' "$$" > "$2/vmhost.pid"
@@ -116,30 +106,6 @@ done
 case $out in
   *.catalog) printf '%s' "$FAKE_CATALOG" > "$out" ;;
   *) printf '%s' "$FAKE_IMAGE" > "$out" ;;
-esac
-FAKE
-fake scp <<'FAKE'
-#!/bin/sh
-printf 'scp %s\n' "$*" >> "$FAKE_LOG"
-FAKE
-fake ssh <<'FAKE'
-#!/bin/sh
-printf 'ssh %s\n' "$*" >> "$FAKE_LOG"
-for remote do :; done
-[ "${FAKE_SSH:-ok}" != unreachable ] || exit 255
-[ "${FAKE_SSH:-ok}" != no-binary ] || exit 3
-if [ -n "${FAKE_PROBE_FLOOD:-}" ]; then
-  case $remote in
-    *permissions*|*'shasum -a 1'*)
-      head -c 33554432 /dev/zero | tr '\0' 'x' && : > "$FAKE_PROBE_FLOOD"
-      exit
-      ;;
-  esac
-fi
-case $remote in
-  *permissions*) printf '{"data":{"accessibility":{"state":"%s"}}}\n' "${FAKE_ACCESSIBILITY:-granted}" ;;
-  *'shasum -a 1'*) printf '%s  file\n' "${FAKE_GUEST_SHA:-stale}" ;;
-  '~/.local/bin/agent-desktop '*) HOME=$FAKE_GUEST_HOME sh -c "$remote" ;;
 esac
 FAKE
 cat > "$tmp/guest/.local/bin/agent-desktop" <<'FAKE'
@@ -197,11 +163,10 @@ put() {
   FAKE_JOB_ALIVE=0
   FAKE_VM_DIR=$dir/vm
   for file in Disk.img AuxiliaryStorage HardwareModel MachineIdentifier config.json \
-    share/guest-setup.sh share/id_ed25519.pub share/agent-desktop install.done; do
+    share/guest-setup.sh share/agent-desktop install.done; do
     : > "$dir/vm/$file"
   done
-  for file in id_ed25519 id_ed25519.pub known_hosts setup_done; do : > "$dir/$file"; done
-  printf 'guest\n' > "$dir/guest_user"
+  : > "$dir/setup_done"
   case $2 in
     installing) rm "$dir/vm/install.done" "$dir/vm/Disk.img"; printf '1\n' > "$dir/vm/install.pid"; FAKE_JOB_ALIVE=1 ;;
     failed) rm "$dir/vm/install.done" "$dir/vm/Disk.img"; printf '1\n' > "$dir/vm/install.pid" ;;
@@ -219,6 +184,14 @@ provider none FAKE_HV_SUPPORT=0 check
 expect 'a Mac that cannot run VMs' 0 state unavailable
 provider none check
 expect 'a built and signed VM host' 0 state ready
+mv "$tmp/bin/agent-desktop-guest.app" "$tmp/agent-desktop-guest.away"
+fake xcrun <<'FAKE'
+#!/bin/sh
+exit 0
+FAKE
+provider none check
+expect 'a VM host without the guest agent' 0 state missing
+mv "$tmp/agent-desktop-guest.away" "$tmp/bin/agent-desktop-guest.app"
 
 # Every verb in every phase. Columns: phase, then the expected "exit:field=value" for each verb.
 while read -r phase status_want start_want stop_want rm_want exec_want; do
@@ -243,32 +216,27 @@ provider demo start demo
 vm_pid=$(cat "$tmp/sandboxes/demo/vm/vmhost.pid")
 expect 'start boots a stopped sandbox' 0 state running
 grep -q "vmhost run $tmp/sandboxes/demo/vm\$" "$FAKE_LOG" || fail 'a set-up sandbox did not start headless'
-[ -s "$tmp/sandboxes/demo/vm/host_key.pub" ] || fail 'start did not give the sandbox its own SSH host key'
-grep -q '^192.0.2.2 ' "$tmp/sandboxes/demo/known_hosts" || fail 'start did not pin the sandbox host key'
-grep -q -- '-o StrictHostKeyChecking=yes' "$FAKE_LOG" || fail 'a pinned sandbox did not verify the host key it pinned'
-grep -q 'hdiutil detach /dev/disk99' "$FAKE_LOG" || fail 'the guest disk stayed mounted after the host key was written'
-grep -q '^private key' "$FAKE_VOLUME/private/etc/ssh/ssh_host_ed25519_key" && grep -q '^public key' "$FAKE_VOLUME/private/etc/ssh/ssh_host_ed25519_key.pub" || fail 'the new host key did not reach the guest disk'
-put demo stopped
-provider demo FAKE_HDIUTIL=broken start demo
-expect 'a guest disk that cannot be opened' 1 code ACTION_FAILED
-[ ! -f "$tmp/sandboxes/demo/vm/vmhost.pid" ] || fail 'a sandbox without its own host key was booted'
 
-for link in private private/etc private/etc/ssh private/etc/ssh/ssh_host_ed25519_key private/etc/ssh/ssh_host_ed25519_key.pub; do
-  rm -rf "$FAKE_VOLUME" "$tmp/host"
-  mkdir -p "$FAKE_VOLUME/private/etc/ssh" "$tmp/host"
-  printf 'host file\n' > "$FAKE_VOLUME/private/etc/ssh/ssh_host_ed25519_key"
-  printf 'host file\n' > "$FAKE_VOLUME/private/etc/ssh/ssh_host_ed25519_key.pub"
-  mv "$FAKE_VOLUME/$link" "$tmp/host/target"
-  ln -s "$tmp/host/target" "$FAKE_VOLUME/$link"
-  put demo stopped
-  : > "$FAKE_LOG"
-  provider demo start demo
-  expect "a guest disk whose $link is a link to the host" 1 code ACTION_FAILED
-  [ -z "$(find "$tmp/host" -type f -exec grep -L '^host file$' {} +)" ] || fail "a host file behind the guest link $link was overwritten"
-  [ ! -f "$tmp/sandboxes/demo/vm/vmhost.pid" ] || fail "a sandbox whose $link is a link to the host was booted"
-  grep -q 'hdiutil detach /dev/disk99' "$FAKE_LOG" || fail "the guest disk stayed mounted after the link at $link was refused"
+put demo stopped
+: > "$tmp/sandboxes/demo/id_ed25519"
+: > "$tmp/sandboxes/demo/known_hosts"
+printf 'guest\n' > "$tmp/sandboxes/demo/guest_user"
+: > "$tmp/sandboxes/demo/vm/host_key.pub"
+provider demo start demo
+vm_pid=$(cat "$tmp/sandboxes/demo/vm/vmhost.pid")
+expect 'start of a sandbox that was set up over SSH' 0 state needs_setup
+grep -q "vmhost run $tmp/sandboxes/demo/vm --window" "$FAKE_LOG" || fail 'a sandbox that was set up over SSH did not reopen its setup window'
+[ ! -e "$tmp/sandboxes/demo/setup_done" ] || fail 'a sandbox that was set up over SSH kept its setup record'
+[ -f "$tmp/sandboxes/demo/vm/share/agent-desktop-guest.app/Contents/MacOS/agent-desktop-guest" ] || fail 'start did not put the guest agent in the shared folder'
+build_id=$(ls "$tmp/sandboxes/demo/vm/share/builds")
+[ "${#build_id}" -eq 40 ] || fail "the shared builds are [$build_id], expected one 40-character id"
+cmp -s "$AD_BINARY" "$tmp/sandboxes/demo/vm/share/builds/$build_id/agent-desktop" || fail 'start did not share the host build under its id'
+printf '%s' "$build_id" | grep -q '[^0-9a-f]' && fail "the build id [$build_id] is not lowercase hex"
+for leftover in id_ed25519 known_hosts guest_user; do
+  [ ! -e "$tmp/sandboxes/demo/$leftover" ] || fail "start kept the leftover $leftover"
 done
-rm -rf "$FAKE_VOLUME" "$tmp/host"
+[ ! -e "$tmp/sandboxes/demo/vm/host_key.pub" ] || fail 'start kept the leftover host key file'
+
 put demo stopped
 provider demo AD_SET_WINDOW=on 'AD_SET_TITLE=Review build' start demo
 vm_pid=$(cat "$tmp/sandboxes/demo/vm/vmhost.pid")
@@ -294,42 +262,46 @@ rm "$tmp/sandboxes/demo/setup_done"
 provider demo status demo
 expect 'status records a finished setup' 0 state running
 [ -f "$tmp/sandboxes/demo/setup_done" ] || fail 'status did not record the finished setup'
-provider demo FAKE_ACCESSIBILITY=denied status demo
+provider demo FAKE_GUEST=denied status demo
 expect 'accessibility not granted' 0 state needs_setup
 [ "$(field next)" = 'agent-desktop sandbox stop demo' ] && [ ! -f "$tmp/sandboxes/demo/setup_done" ] || fail 'a headless sandbox that lost its setup was not sent back to a window'
-: > "$tmp/sandboxes/demo/setup_done"
-provider demo FAKE_SSH=unreachable status demo
+put demo running
+provider demo FAKE_GUEST=silent status demo
 expect 'a guest that does not answer yet' 0 state working
-provider demo FAKE_SSH=no-binary status demo
-expect 'a guest without agent-desktop' 0 state needs_setup
-field message | grep -q 'agent-desktop is not installed in the guest' || fail 'the probe lost the exit status that reports a missing guest binary'
+put demo running
+touch -t 202001010000 "$tmp/sandboxes/demo/vm/vmhost.started"
+provider demo FAKE_GUEST=silent status demo
+expect 'a guest agent silent for two minutes' 0 state needs_setup
+[ ! -f "$tmp/sandboxes/demo/setup_done" ] || fail 'a guest agent that has been silent for two minutes kept its setup record'
 
+put demo running
 : > "$FAKE_LOG"
 provider demo exec demo -- type "two words" 'it'"'"'s $HOME `id`' '' --
 [ "$status" = 0 ] || fail "exec exited $status"
 printf '[type]\n[two words]\n[it'"'"'s $HOME `id`]\n[]\n[--]\n' > "$tmp/want"
 cmp -s "$tmp/out" "$tmp/want" || fail 'exec changed the guest arguments'
 [ "$(cat "$tmp/err")" = 'guest warning' ] || fail 'exec changed the guest stderr'
-grep -q '^scp ' "$FAKE_LOG" || fail 'exec did not copy a changed agent-desktop into the guest'
-grep '^ssh ' "$FAKE_LOG" | grep -v -e '-F /dev/null .*BatchMode=yes.*ConnectTimeout=5.*ServerAliveInterval=3' > "$tmp/unbounded" || true
-[ ! -s "$tmp/unbounded" ] || fail "an ssh call can hang or read the user's ssh config: $(cat "$tmp/unbounded")"
+build_id=$(ls "$tmp/sandboxes/demo/vm/share/builds")
+grep -q "^vmhost exec $tmp/sandboxes/demo/vm $build_id type " "$FAKE_LOG" || fail 'exec did not tell the guest which build to run'
+cp "$AD_BINARY" "$tmp/host-build"
+cp "$AD_BINARY" "$tmp/sandboxes/demo/vm/share/builds/$build_id/first-read"
+printf 'changed\n' >> "$AD_BINARY"
+: > "$FAKE_LOG"
+provider demo exec demo -- version
+[ "$status" = 0 ] || fail "exec after a host rebuild exited $status"
+new_build_id=$(sed -n "s|^vmhost exec $tmp/sandboxes/demo/vm \([0-9a-f]*\) version\$|\1|p" "$FAKE_LOG")
+[ "${#new_build_id}" -eq 40 ] && [ "$new_build_id" != "$build_id" ] || fail 'exec kept the old build id after the host build changed'
+cmp -s "$AD_BINARY" "$tmp/sandboxes/demo/vm/share/builds/$new_build_id/agent-desktop" || fail 'exec did not share the rebuilt agent-desktop under a new id'
+cmp -s "$tmp/host-build" "$tmp/sandboxes/demo/vm/share/builds/$build_id/agent-desktop" && [ -f "$tmp/sandboxes/demo/vm/share/builds/$build_id/first-read" ] || fail 'exec changed a build the running guest may already have read'
+cp "$tmp/host-build" "$AD_BINARY"
 for guest_exit in 3 125 255; do
   provider demo FAKE_GUEST_EXIT=$guest_exit exec demo -- version
   [ "$status" = "$guest_exit" ] || fail "exec turned guest exit $guest_exit into $status"
 done
 provider demo FAKE_GUEST_NOISE=300000 FAKE_GUEST_EXIT=7 exec demo -- version
 [ "$status" = 7 ] && [ "$(cat "$tmp/out")" = '[version]' ] || fail 'a noisy guest lost its output or exit status'
-[ "$(wc -c < "$tmp/err")" -le 65536 ] || fail 'guest stderr reached the host unbounded'
-provider demo FAKE_SSH=unreachable exec demo -- version
-expect 'exec with no Remote Login' 125 code ACTION_FAILED
-provider demo "FAKE_PROBE_FLOOD=$tmp/flooded" status demo
-expect 'status with a guest that floods its reply' 0 state needs_setup
-[ ! -e "$tmp/flooded" ] || fail 'a status probe accepted the whole guest reply'
-: > "$tmp/sandboxes/demo/setup_done"
-provider demo "FAKE_PROBE_FLOOD=$tmp/flooded" exec demo -- version
-[ "$status" = 0 ] || fail "exec with a guest that floods its reply exited $status"
-[ "$(cat "$tmp/out")" = '[version]' ] || fail 'a guest that floods its reply lost the exec output'
-[ ! -e "$tmp/flooded" ] || fail 'an exec probe accepted the whole guest reply'
+provider demo FAKE_GUEST=silent exec demo -- version
+expect 'exec with a guest agent that does not answer' 125 code ACTION_FAILED
 
 # create: every bad combination of settings is refused before anything is touched.
 refuse() {
@@ -352,7 +324,7 @@ refuse 'from and user' AD_SET_FROM=base AD_SET_USER=alice
 refuse 'an unknown key' AD_SET_ISPW=latest
 refuse 'an empty value' AD_SET_IPSW=
 refuse 'a missing image' AD_SET_IPSW=/nowhere/image.ipsw
-refuse 'a bad guest user' AD_SET_IPSW=latest 'AD_SET_USER=not a user!'
+refuse 'the retired user setting' AD_SET_IPSW=latest AD_SET_USER=alice
 
 wait_for_install() {
   tries=0
@@ -365,11 +337,10 @@ wait_for_install() {
 
 printf 'image\n' > "$tmp/my image.ipsw"
 rm -rf "$tmp/sandboxes/new"
-provider new AD_SET_IPSW='my image.ipsw' AD_SET_USER=alice create new
+provider new AD_SET_IPSW='my image.ipsw' create new
 expect 'create from a supplied image' 0 state working
 wait_for_install new
 grep -q "vmhost install $tmp/sandboxes/new/vm $tmp/my image.ipsw" "$FAKE_LOG" || fail 'a relative image path was not resolved against the caller directory'
-[ "$(cat "$tmp/sandboxes/new/guest_user")" = alice ] || fail 'the guest user was not recorded'
 [ -f "$tmp/sandboxes/new/vm/install.done" ] || fail "the install job did not finish: $(cat "$tmp/sandboxes/new/vm/install.log")"
 
 FAKE_IMAGE='newest image this Mac can run'
@@ -420,6 +391,10 @@ field message | grep -q 'clonefile is not supported here' || fail 'the clone fai
 rm -rf "$tmp/sandboxes/new"
 provider new AD_SET_FROM=base create new
 expect 'cloning a stopped, set-up sandbox' 0 state stopped
-[ -f "$tmp/sandboxes/new/setup_done" ] && [ "$(cat "$tmp/sandboxes/new/guest_user")" = guest ] || fail 'the clone did not keep the setup record and guest user'
+[ -f "$tmp/sandboxes/new/setup_done" ] || fail 'the clone has no setup record'
+[ -n "$(ls "$tmp/sandboxes/new/vm/share/builds" 2>/dev/null)" ] && [ -f "$tmp/sandboxes/new/vm/share/agent-desktop-guest.app/Contents/MacOS/agent-desktop-guest" ] || fail 'the clone has no guest agent or host build in its shared folder'
+for leftover in id_ed25519 known_hosts guest_user; do
+  [ ! -e "$tmp/sandboxes/new/$leftover" ] || fail "the clone holds the leftover $leftover"
+done
 
 printf 'provider tests passed\n'

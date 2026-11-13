@@ -26,6 +26,7 @@ struct Bundle {
     var startedFile: URL { root.appendingPathComponent("vmhost.started") }
     var lockFile: URL { root.appendingPathComponent("vmhost.lock") }
     var installLog: URL { root.appendingPathComponent("install.log") }
+    var controlSocket: String { "vmhost.sock" }
 }
 
 struct VMConfig: Codable {
@@ -36,7 +37,7 @@ struct VMConfig: Codable {
 
 enum Usage {
     static var noCommand: VMError {
-        VMError(message: "vmhost needs one of the commands install, run, clone or ip.",
+        VMError(message: "vmhost needs one of the commands install, run, clone, status or exec.",
                 suggestion: "Run `agent-desktop sandbox create <name>` so the provider calls vmhost itself.")
     }
 
@@ -60,9 +61,14 @@ enum Usage {
                 suggestion: "Run `agent-desktop sandbox create <name> --set from=<source>` so the provider calls it correctly.")
     }
 
-    static var ipArguments: VMError {
-        VMError(message: "vmhost ip takes one bundle path.",
+    static var statusArguments: VMError {
+        VMError(message: "vmhost status takes one bundle path.",
                 suggestion: "Run `agent-desktop sandbox status <name>` so the provider calls it correctly.")
+    }
+
+    static var execArguments: VMError {
+        VMError(message: "vmhost exec needs a bundle path and a build id before the guest arguments.",
+                suggestion: "Run `agent-desktop sandbox exec <name> -- <args>` so the provider calls it correctly.")
     }
 
     static var unwritableReply: VMError {
@@ -77,11 +83,13 @@ enum Output {
         FileHandle.standardOutput.write(Data((line + "\n").utf8))
     }
 
-    static func fail(_ error: VMError) -> Never {
-        if let line = encode(["ok": false, "message": error.message, "suggestion": error.suggestion]) {
+    static func fail(_ error: VMError, status: Int32 = 1, code: String? = nil) -> Never {
+        var fields: [String: Any] = ["ok": false, "message": error.message, "suggestion": error.suggestion]
+        if let code { fields["code"] = code }
+        if let line = encode(fields) {
             FileHandle.standardOutput.write(Data((line + "\n").utf8))
         }
-        exit(1)
+        exit(status)
     }
 
     static func encode(_ fields: [String: Any]) -> String? {
@@ -275,6 +283,7 @@ enum VMBuilder {
         configuration.storageDevices = [VZVirtioBlockDeviceConfiguration(attachment: disk)]
         configuration.networkDevices = [network]
         configuration.directorySharingDevices = [share]
+        configuration.socketDevices = [VZVirtioSocketDeviceConfiguration()]
         configuration.graphicsDevices = [graphics]
         configuration.keyboards = [VZUSBKeyboardConfiguration()]
         configuration.pointingDevices = [VZUSBScreenCoordinatePointingDeviceConfiguration()]
@@ -604,13 +613,17 @@ struct RunCommand {
         defer {
             PidFile.clear(at: bundle.pidFile)
             PidFile.clear(at: bundle.startedFile)
+            ControlSocket.remove(from: bundle)
         }
-        try boot(bundle: bundle, configuration: configuration, showWindow: showWindow)
+        signal(SIGPIPE, SIG_IGN)
+        let listener = try ControlSocket.listen(in: bundle)
+        try boot(bundle: bundle, configuration: configuration, showWindow: showWindow, listener: listener)
     }
 
-    static func boot(bundle: Bundle, configuration: VZVirtualMachineConfiguration, showWindow: Bool) throws {
+    static func boot(bundle: Bundle, configuration: VZVirtualMachineConfiguration, showWindow: Bool, listener: Int32) throws {
         let queue = showWindow ? DispatchQueue.main : DispatchQueue(label: "com.agent-desktop.vmhost")
         let machine = VZVirtualMachine(configuration: configuration, queue: queue)
+        GuestRelay(listener: listener, machine: machine, queue: queue).start()
         let outcome = ResultBox()
         let window = showWindow ? SandboxWindow.make(bundle: bundle, machine: machine) : nil
         let finish: (Result<Void, Error>) -> Void = { result in
@@ -732,47 +745,265 @@ struct CloneCommand {
     }
 }
 
-enum LeaseTable {
-    static func newestAddress(for octets: [Int], in contents: String) -> String? {
-        var leases: [(mine: Bool, address: String, expiry: UInt64)] = []
-        var record: [String: String] = [:]
-        for line in contents.split(whereSeparator: \.isNewline) {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed == "{" {
-                record = [:]
-            } else if trimmed == "}" {
-                if let hardware = record["hw_address"], let address = record["ip_address"] {
-                    let digits = record["lease"]?.dropFirst(2) ?? ""
-                    leases.append((MACAddress.octets(hardware) == octets, address, UInt64(digits, radix: 16) ?? 0))
-                }
-            } else if let separator = trimmed.firstIndex(of: "=") {
-                record[String(trimmed[..<separator])] = String(trimmed[trimmed.index(after: separator)...])
+/// The byte protocol spoken to the agent inside the guest, over the virtual machine's socket device.
+enum GuestWire {
+    static let port: UInt32 = 7273
+    static let agentVersion = 1
+    static let frameLimit = 65536
+    static let statusLimit = 4096
+    static let messageLimit = 512
+    static let stdout: UInt8 = 1
+    static let stderr: UInt8 = 2
+    static let exit: UInt8 = 3
+    static let failure: UInt8 = 4
+}
+
+/// The socket file in the bundle through which one sandbox command reaches the process that owns the machine.
+enum ControlSocket {
+    static func listen(in bundle: Bundle) throws -> Int32 {
+        let descriptor = try inside(bundle) { address, size -> Int32? in
+            unlink(bundle.controlSocket)
+            let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+            guard descriptor >= 0 else { return nil }
+            guard bind(descriptor, address, size) == 0, chmod(bundle.controlSocket, S_IRUSR | S_IWUSR) == 0,
+                  Darwin.listen(descriptor, 16) == 0 else {
+                close(descriptor)
+                return nil
             }
+            return descriptor
         }
-        guard let newest = leases.filter(\.mine).max(by: { $0.expiry < $1.expiry }) else { return nil }
-        let reassigned = leases.contains { !$0.mine && $0.address == newest.address && $0.expiry > newest.expiry }
-        return reassigned ? nil : newest.address
+        guard let descriptor else { throw VMErrors.posix("The sandbox control socket cannot be created") }
+        return descriptor
+    }
+
+    static func connect(in bundle: Bundle) -> Int32? {
+        let descriptor = try? inside(bundle) { address, size -> Int32? in
+            let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+            guard descriptor >= 0 else { return nil }
+            guard Darwin.connect(descriptor, address, size) == 0 else {
+                close(descriptor)
+                return nil
+            }
+            return descriptor
+        }
+        return descriptor ?? nil
+    }
+
+    static func remove(from bundle: Bundle) {
+        unlink(bundle.root.appendingPathComponent(bundle.controlSocket).path)
+    }
+
+    /// Only the account that runs the virtual machine may send it guest commands.
+    static func peerIsOwner(_ descriptor: Int32) -> Bool {
+        var user: uid_t = 0
+        var group: gid_t = 0
+        return getpeereid(descriptor, &user, &group) == 0 && user == geteuid()
+    }
+
+    /// A socket path holds 104 bytes, so the socket is named relative to the bundle directory.
+    private static func inside<T>(_ bundle: Bundle, _ body: (UnsafePointer<sockaddr>, socklen_t) -> T) throws -> T {
+        let previous = open(".", O_RDONLY)
+        guard previous >= 0, chdir(bundle.root.path) == 0 else {
+            if previous >= 0 { close(previous) }
+            throw VMErrors.posix("The sandbox directory cannot be opened")
+        }
+        defer {
+            fchdir(previous)
+            close(previous)
+        }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { path in
+            path.copyBytes(from: bundle.controlSocket.utf8)
+        }
+        return withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { body($0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
     }
 }
 
-struct IpCommand {
-    static func execute(_ arguments: [String]) throws {
-        guard arguments.count == 1 else { throw Usage.ipArguments }
+/// Joins each control socket client to a new connection to the guest agent and copies bytes both ways.
+final class GuestRelay: @unchecked Sendable {
+    private let listener: Int32
+    private let machine: VZVirtualMachine
+    private let queue: DispatchQueue
+
+    init(listener: Int32, machine: VZVirtualMachine, queue: DispatchQueue) {
+        self.listener = listener
+        self.machine = machine
+        self.queue = queue
+    }
+
+    func start() {
+        Thread.detachNewThread { [self] in
+            while true {
+                let client = accept(listener, nil, nil)
+                if client < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                guard ControlSocket.peerIsOwner(client) else {
+                    close(client)
+                    continue
+                }
+                queue.async { self.attach(client) }
+            }
+        }
+    }
+
+    private func attach(_ client: Int32) {
+        guard let device = machine.socketDevices.first as? VZVirtioSocketDevice else {
+            close(client)
+            return
+        }
+        device.connect(toPort: GuestWire.port) { result in
+            guard case let .success(connection) = result else {
+                close(client)
+                return
+            }
+            GuestRelay.splice(client, connection)
+        }
+    }
+
+    private static func splice(_ client: Int32, _ connection: VZVirtioSocketConnection) {
+        let guest = connection.fileDescriptor
+        let finished = DispatchGroup()
+        for (source, sink) in [(client, guest), (guest, client)] {
+            finished.enter()
+            Thread.detachNewThread {
+                Bytes.copy(from: source, to: sink)
+                shutdown(client, SHUT_RDWR)
+                shutdown(guest, SHUT_RDWR)
+                finished.leave()
+            }
+        }
+        finished.notify(queue: .global()) {
+            close(client)
+            connection.close()
+        }
+    }
+}
+
+enum Bytes {
+    static func copy(from source: Int32, to sink: Int32) {
+        var buffer = [UInt8](repeating: 0, count: GuestWire.frameLimit)
+        while true {
+            let got = Darwin.read(source, &buffer, buffer.count)
+            if got < 0 && errno == EINTR { continue }
+            guard got > 0, write(Data(buffer[0..<got]), to: sink) else { return }
+        }
+    }
+
+    static func write(_ data: Data, to descriptor: Int32) -> Bool {
+        var sent = 0
+        while sent < data.count {
+            let wrote = data.withUnsafeBytes { Darwin.write(descriptor, $0.baseAddress! + sent, data.count - sent) }
+            if wrote < 0 && errno == EINTR { continue }
+            guard wrote > 0 else { return false }
+            sent += wrote
+        }
+        return true
+    }
+
+    static func read(_ count: Int, from descriptor: Int32) -> Data? {
+        var bytes = [UInt8](repeating: 0, count: count)
+        var filled = 0
+        while filled < count {
+            let got = bytes.withUnsafeMutableBytes { Darwin.read(descriptor, $0.baseAddress! + filled, count - filled) }
+            if got < 0 && errno == EINTR { continue }
+            guard got > 0 else { return nil }
+            filled += got
+        }
+        return Data(bytes)
+    }
+}
+
+/// One request to the guest agent and the frames it answers with. The guest decides what it sends, so every
+/// frame is at most `GuestWire.frameLimit` bytes and nothing is held beyond the frame being copied.
+struct GuestCall {
+    let descriptor: Int32
+
+    init?(_ bundle: Bundle, operation: String, build: String = "", arguments: [String] = [], timeout: Int = 0) {
+        guard let descriptor = ControlSocket.connect(in: bundle) else { return nil }
+        self.descriptor = descriptor
+        if timeout > 0 {
+            var limit = timeval(tv_sec: timeout, tv_usec: 0)
+            setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
+        }
+        guard let body = try? JSONSerialization.data(withJSONObject: ["op": operation, "build": build, "args": arguments]) else { return nil }
+        var request = Data()
+        withUnsafeBytes(of: UInt32(body.count).bigEndian) { request.append(contentsOf: $0) }
+        request.append(body)
+        guard Bytes.write(request, to: descriptor) else { return nil }
+    }
+
+    func frame() -> (kind: UInt8, payload: Data)? {
+        guard let header = Bytes.read(5, from: descriptor) else { return nil }
+        let length = header.dropFirst().reduce(0) { ($0 << 8) | Int($1) }
+        guard length <= GuestWire.frameLimit else { return nil }
+        if length == 0 { return (header[header.startIndex], Data()) }
+        guard let payload = Bytes.read(length, from: descriptor) else { return nil }
+        return (header[header.startIndex], payload)
+    }
+}
+
+struct GuestCommand {
+    static let silentStatus: Int32 = 3
+    static let providerFailureStatus: Int32 = 125
+
+    static func status(_ arguments: [String]) throws {
+        guard arguments.count == 1 else { throw Usage.statusArguments }
         let bundle = Bundle(arguments[0])
-        let config = try BundleData.config(bundle)
-        let octets = MACAddress.octets(config.macAddress)!
-        let contents: String
-        do {
-            contents = try String(contentsOfFile: "/var/db/dhcpd_leases", encoding: .utf8)
-        } catch {
-            throw VMError(message: "The DHCP lease file /var/db/dhcpd_leases cannot be read.",
-                          suggestion: "Run `agent-desktop sandbox status \(bundle.sandboxName)` to see whether the sandbox is running.")
+        let silent = VMError(message: "The guest agent in sandbox \(bundle.sandboxName) is not answering.",
+                             suggestion: "Run `agent-desktop sandbox status \(bundle.sandboxName)` again in a few seconds.")
+        guard let call = GuestCall(bundle, operation: "status", timeout: 5) else { Output.fail(silent, status: silentStatus) }
+        var reply = Data()
+        while let frame = call.frame() {
+            if frame.kind == GuestWire.stdout {
+                reply.append(frame.payload)
+                guard reply.count <= GuestWire.statusLimit else { break }
+            } else if frame.kind == GuestWire.exit {
+                guard let state = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
+                      let accessibility = state["accessibility"] as? Bool,
+                      let agent = state["agent"] as? Int else { break }
+                Output.succeed(["ok": true, "accessibility": accessibility, "agent": agent])
+                return
+            } else {
+                break
+            }
         }
-        guard let address = LeaseTable.newestAddress(for: octets, in: contents) else {
-            throw VMError(message: "The VM has no network address yet.",
-                          suggestion: "Wait a few seconds, then run `agent-desktop sandbox status \(bundle.sandboxName)`.")
+        Output.fail(silent, status: silentStatus)
+    }
+
+    static func exec(_ arguments: [String]) throws {
+        guard arguments.count >= 2 else { throw Usage.execArguments }
+        let bundle = Bundle(arguments[0])
+        signal(SIGPIPE, SIG_IGN)
+        guard let call = GuestCall(bundle, operation: "exec", build: arguments[1], arguments: Array(arguments.dropFirst(2))) else {
+            fail("The guest agent in sandbox \(bundle.sandboxName) is not answering.", bundle)
         }
-        Output.succeed(["ok": true, "ip": address])
+        while let frame = call.frame() {
+            switch frame.kind {
+            case GuestWire.stdout:
+                guard Bytes.write(frame.payload, to: STDOUT_FILENO) else { exit(providerFailureStatus) }
+            case GuestWire.stderr:
+                _ = Bytes.write(frame.payload, to: STDERR_FILENO)
+            case GuestWire.exit:
+                guard frame.payload.count == 4 else { fail("The guest agent sent an unreadable exit status.", bundle) }
+                exit(Int32(truncatingIfNeeded: frame.payload.reduce(0) { ($0 << 8) | Int($1) }))
+            case GuestWire.failure:
+                let reason = String(decoding: frame.payload.prefix(GuestWire.messageLimit), as: UTF8.self)
+                fail(reason.isEmpty ? "The guest agent refused the command." : reason, bundle)
+            default:
+                fail("The guest agent sent a reply this build does not understand.", bundle)
+            }
+        }
+        fail("The guest agent in sandbox \(bundle.sandboxName) stopped answering before the command finished.", bundle)
+    }
+
+    private static func fail(_ message: String, _ bundle: Bundle) -> Never {
+        Output.fail(VMError(message: message, suggestion: "Run agent-desktop sandbox status \(bundle.sandboxName)."),
+                    status: providerFailureStatus, code: "ACTION_FAILED")
     }
 }
 
@@ -802,8 +1033,10 @@ enum VMHost {
                 try RunCommand.execute(rest)
             case "clone":
                 try CloneCommand.execute(rest)
-            case "ip":
-                try IpCommand.execute(rest)
+            case "status":
+                try GuestCommand.status(rest)
+            case "exec":
+                try GuestCommand.exec(rest)
             default:
                 throw Usage.unknown(command)
             }

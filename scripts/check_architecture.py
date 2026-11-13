@@ -103,8 +103,15 @@ STR = re.compile(r"__S(\d+)__")
 
 PROVIDERS_DIR = "providers"
 PROVIDERS_SUFFIXES = {".sh", ".swift"}
-PROVIDERS_LISTENER = re.compile(
-    r"(?<![A-Za-z0-9_])(?:socket\s*\(|listen\s*\(|bind\s*\(|nc\s|socat|NWListener|VZVirtioSocket)")
+PROVIDERS_NETWORK = re.compile(
+    r"(?<![A-Za-z0-9_])(?:nc\s|socat|NWListener|NWConnection|AF_INET6?|PF_INET6?|sockaddr_in6?)(?![A-Za-z0-9_])")
+PROVIDERS_SOCKET = re.compile(r"(?<![A-Za-z0-9_])(?:socket\s*\(|listen\s*\(|bind\s*\(|VZVirtioSocket)")
+# A provider drives a desktop and serves nothing on a network. Only these files may hold a socket, and only the
+# local kind named beside them; a new entry is a review decision.
+PROVIDERS_SOCKET_ALLOWLIST = {
+    "providers/macos/vmhost.swift": "the machine's socket device, and a socket file in the sandbox for its owner",
+    "providers/macos/guestagent.swift": "the machine's socket device inside the guest, for the host alone",
+}
 
 
 class Source:
@@ -411,13 +418,23 @@ def check(repo):
     for stale in sorted(LISTENER_ALLOWLIST - serving):
         err("G12", f"LISTENER_ALLOWLIST lists {stale}, which no longer opens a listener")
 
+    provider_sockets = set()
     for path in provider_files(repo):
         rel = os.path.relpath(path, repo).replace(os.sep, "/")
         with open(path, encoding="utf-8", errors="replace") as fh:
-            hit = PROVIDERS_LISTENER.search(fh.read())
-        if hit:
-            err("G12", f"{rel} opens a listener ({hit.group(0).strip()}); a provider drives a desktop and "
-                       "serves nothing, so a socket or listener here needs a review decision")
+            text = fh.read()
+        network = PROVIDERS_NETWORK.search(text)
+        local = PROVIDERS_SOCKET.search(text)
+        if network:
+            err("G12", f"{rel} reaches the network ({network.group(0).strip()}); a provider drives a desktop and "
+                       "serves nothing on a network")
+        if local and rel not in PROVIDERS_SOCKET_ALLOWLIST:
+            err("G12", f"{rel} opens a socket ({local.group(0).strip()}); a provider drives a desktop and "
+                       "serves nothing, so a socket here needs a PROVIDERS_SOCKET_ALLOWLIST entry in review")
+        if local:
+            provider_sockets.add(rel)
+    for stale in sorted(set(PROVIDERS_SOCKET_ALLOWLIST) - provider_sockets):
+        err("G12", f"PROVIDERS_SOCKET_ALLOWLIST lists {stale}, which no longer opens a socket")
 
     for p in PLATFORMS:
         if not os.path.exists(os.path.join(repo, "crates", p, "Cargo.toml")):
@@ -614,6 +631,8 @@ PLANTS = {
 PLANTS["G12"] = [
     ("providers/macos/provider.sh", "#!/bin/sh\nsocat TCP-LISTEN:9000,fork EXEC:sh\n"),
     ("providers/macos/vmhost.swift", "import Network\nlet l = try NWListener(using: .tcp)\n"),
+    ("providers/macos/vmhost.swift", "let d = VZVirtioSocketDeviceConfiguration()\n"),
+    ("providers/macos/guestagent.swift", "let fd = socket(AF_INET, SOCK_STREAM, 0)\n"),
     ("crates/macos/src/system/host.rs", "fn f() { let _ = std::os::unix::net::UnixListener::bind(\"/tmp/h.sock\"); }\n"),
     ("crates/core/src/system/host.rs", "fn f() { let _ = std::net::TcpListener::bind((\"127.0.0.1\", 0)); }\n"),
     ("crates/windows/src/system/host.rs", "fn f() { let _ = CreateNamedPipeW; }\n"),
@@ -625,9 +644,10 @@ SUPPORT = {"G2": {"crates/core/custom.rs": "fn main() {}\n"},
 
 def self_test():
     """Plant one violation per case in a minimal clean workspace; every case must fire, the clean tree must pass."""
-    global CORE_OS_ALLOWLIST, LISTENER_ALLOWLIST
+    global CORE_OS_ALLOWLIST, LISTENER_ALLOWLIST, PROVIDERS_SOCKET_ALLOWLIST
     saved = CORE_OS_ALLOWLIST
     saved_listeners = LISTENER_ALLOWLIST
+    saved_provider_sockets = PROVIDERS_SOCKET_ALLOWLIST
     tmp = tempfile.mkdtemp(prefix="arch-selftest-")
     try:
         def build(overrides):
@@ -649,6 +669,7 @@ def self_test():
 
         CORE_OS_ALLOWLIST = set()
         LISTENER_ALLOWLIST = set()
+        PROVIDERS_SOCKET_ALLOWLIST = {}
         build({})
         clean = check(tmp)
         if clean:
@@ -669,9 +690,15 @@ def self_test():
         build({})
         if not [e for e in check(tmp) if e.startswith("G12:") and "no longer" in e]:
             raise SystemExit("self-test: a stale LISTENER_ALLOWLIST entry was not reported")
+        LISTENER_ALLOWLIST = set()
+        PROVIDERS_SOCKET_ALLOWLIST = {"providers/macos/vmhost.swift": "self-test"}
+        build({})
+        if not [e for e in check(tmp) if e.startswith("G12:") and "no longer opens a socket" in e]:
+            raise SystemExit("self-test: a stale PROVIDERS_SOCKET_ALLOWLIST entry was not reported")
     finally:
         CORE_OS_ALLOWLIST = saved
         LISTENER_ALLOWLIST = saved_listeners
+        PROVIDERS_SOCKET_ALLOWLIST = saved_provider_sockets
         shutil.rmtree(tmp, ignore_errors=True)
 
 

@@ -37,9 +37,11 @@ AD_SANDBOX_DIR=${AD_SANDBOX_DIR:-}
 AD_PROVIDER_DIR=${AD_PROVIDER_DIR:-}
 AD_BINARY=${AD_BINARY:-}
 # The built VM host is keyed by its own source, so an agent-desktop upgrade that leaves it unchanged reuses it.
-vmhost_key=$(cat "$AD_PROVIDER_DIR/vmhost.swift" "$AD_PROVIDER_DIR/vm.entitlements" 2>/dev/null | shasum -a 1 | cut -c1-16)
+vmhost_key=$(cat "$AD_PROVIDER_DIR/vmhost.swift" "$AD_PROVIDER_DIR/guestagent.swift" "$AD_PROVIDER_DIR/vm.entitlements" 2>/dev/null | shasum -a 1 | cut -c1-16)
 VMHOST=${VMHOST:-$(dirname "$AD_PROVIDER_DIR")/build-$vmhost_key/vmhost}
 HELPER_NAME=agent-desktop-macos-helper
+GUEST_AGENT=agent-desktop-guest
+GUEST_APP=$GUEST_AGENT.app
 SCRIPT_PATH=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
 verb=${1:-}
 if [ "$#" -gt 0 ]; then shift; fi
@@ -86,13 +88,6 @@ valid_name() {
   esac
 }
 
-valid_guest_user() {
-  case $1 in
-    ''|-*|*[!A-Za-z0-9._-]*) return 1 ;;
-    *) return 0 ;;
-  esac
-}
-
 resolve_image_path() {
   case $1 in
     /*) printf '%s\n' "$1" ;;
@@ -133,7 +128,7 @@ build_tools_available() {
 }
 
 provider_ready() {
-  [ -f "$BUILD_DIR/vmhost" ] || return 1
+  [ -f "$BUILD_DIR/vmhost" ] && [ -f "$BUILD_DIR/$GUEST_APP/Contents/MacOS/$GUEST_AGENT" ] || return 1
   if ! entitlements=$(codesign -d --entitlements - "$BUILD_DIR/vmhost" 2>&1); then return 1; fi
   case $entitlements in
     *com.apple.security.virtualization*) return 0 ;;
@@ -151,6 +146,38 @@ do_check() {
   emit_ok missing "The macOS VM host has not been built and signed." "agent-desktop sandbox install macos"
 }
 
+# The guest agent is an app bundle so that macOS files its Accessibility switch under a bundle id, which is the
+# only kind of entry guest-setup.sh can reset when the agent changes.
+build_guest_agent() {
+  app=$BUILD_DIR/$GUEST_APP
+  rm -rf "$app"
+  mkdir -p "$app/Contents/MacOS" || return 1
+  xcrun swiftc -O -target arm64-apple-macos13.0 "$AD_PROVIDER_DIR/guestagent.swift" -o "$app/Contents/MacOS/$GUEST_AGENT" || return 1
+  cat > "$app/Contents/Info.plist" <<PLIST || return 1
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>com.agent-desktop.guest</string>
+  <key>CFBundleName</key>
+  <string>$GUEST_AGENT</string>
+  <key>CFBundleExecutable</key>
+  <string>$GUEST_AGENT</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+  <key>LSUIElement</key>
+  <true/>
+</dict>
+</plist>
+PLIST
+  codesign -f -s - "$app"
+}
+
 do_install() {
   if provider_ready; then
     emit_ok ready "The macOS VM provider is ready."
@@ -162,8 +189,8 @@ do_install() {
     emit_fail ACTION_FAILED "The macOS VM build directory is not writable." "Make $AD_PROVIDER_DIR writable, then run agent-desktop sandbox install macos."
     return 1
   fi
-  if [ ! -f "$AD_PROVIDER_DIR/vmhost.swift" ] || [ ! -f "$AD_PROVIDER_DIR/vm.entitlements" ]; then
-    printf '%s\n' "The VM host source or entitlements file is missing from $AD_PROVIDER_DIR." >> "$BUILD_LOG"
+  if [ ! -f "$AD_PROVIDER_DIR/vmhost.swift" ] || [ ! -f "$AD_PROVIDER_DIR/guestagent.swift" ] || [ ! -f "$AD_PROVIDER_DIR/vm.entitlements" ]; then
+    printf '%s\n' "The VM host source, guest agent source or entitlements file is missing from $AD_PROVIDER_DIR." >> "$BUILD_LOG"
     emit_fail ACTION_FAILED "The macOS VM host could not be installed; see $BUILD_LOG." "Read $BUILD_LOG, then run agent-desktop sandbox install macos again."
     return 1
   fi
@@ -177,26 +204,28 @@ do_install() {
     emit_fail ACTION_FAILED "The macOS VM host could not be signed; see $BUILD_LOG." "Read $BUILD_LOG, then run agent-desktop sandbox install macos again."
     return 1
   fi
+  if ! build_guest_agent >> "$BUILD_LOG" 2>&1; then
+    rm -rf "$BUILD_DIR/vmhost" "$BUILD_DIR/$GUEST_APP"
+    emit_fail ACTION_FAILED "The macOS guest agent could not be compiled and signed; see $BUILD_LOG." "Read $BUILD_LOG, then run agent-desktop sandbox install macos again."
+    return 1
+  fi
   if ! provider_ready; then
     rm -f "$BUILD_DIR/vmhost"
     printf '%s\n' 'The signed VM host does not contain the virtualization entitlement.' >> "$BUILD_LOG"
     emit_fail ACTION_FAILED "The macOS VM host is missing its virtualization entitlement; see $BUILD_LOG." "Read $BUILD_LOG, then run agent-desktop sandbox install macos again."
     return 1
   fi
-  emit_ok ready "The macOS VM host was built and signed; the provider is ready."
+  emit_ok ready "The macOS VM host and guest agent were built and signed; the provider is ready."
 }
 
 vm_bundle_complete() {
   [ -f "$1/Disk.img" ] && [ -f "$1/AuxiliaryStorage" ] && \
     [ -f "$1/HardwareModel" ] && [ -f "$1/MachineIdentifier" ] && [ -f "$1/config.json" ] && \
-    [ -f "$1/share/guest-setup.sh" ] && [ -f "$1/share/id_ed25519.pub" ] && \
-    [ -f "$1/share/agent-desktop" ]
+    [ -f "$1/share/guest-setup.sh" ]
 }
 
 target_has_sandbox_data() {
-  [ -e "$VM_DIR" ] || [ -e "$AD_SANDBOX_DIR/id_ed25519" ] || \
-    [ -e "$AD_SANDBOX_DIR/id_ed25519.pub" ] || [ -e "$AD_SANDBOX_DIR/known_hosts" ] || \
-    [ -e "$AD_SANDBOX_DIR/guest_user" ] || [ -e "$AD_SANDBOX_DIR/setup_done" ]
+  [ -e "$VM_DIR" ] || [ -e "$AD_SANDBOX_DIR/setup_done" ]
 }
 
 vmhost_is_live() {
@@ -312,41 +341,42 @@ catalog_firmware() {
   '
 }
 
-copy_guest_share() {
-  share=$1/share
+# The VM mounts <vm dir>/share read-only. A guest keeps the first content it reads from a shared file and loses a
+# name the host replaces, so the host's agent-desktop build goes under builds/<id>, a name that is new for every
+# build, and exec tells the guest agent which id to run. Prints the id.
+share_build() {
   host_helper=$(host_helper_path)
-  if [ ! -f "$AD_BINARY" ] || [ ! -f "$host_helper" ] || [ ! -x "$host_helper" ]; then
-    return 1
+  [ -f "$AD_BINARY" ] && [ -x "$host_helper" ] || return 1
+  build_id=$(cat "$AD_BINARY" "$host_helper" 2>/dev/null | shasum -a 1 | cut -c1-40)
+  [ "${#build_id}" -eq 40 ] || return 1
+  builds=$1/share/builds
+  if [ ! -d "$builds/$build_id" ]; then
+    staged=$builds/.$build_id.$$
+    mkdir -p "$staged" && cp "$AD_BINARY" "$staged/agent-desktop" && cp "$host_helper" "$staged/$HELPER_NAME" && \
+      chmod 0755 "$staged/agent-desktop" "$staged/$HELPER_NAME" || return 1
+    mv "$staged" "$builds/$build_id" 2>/dev/null || rm -rf "$staged"
+    [ -d "$builds/$build_id" ] || return 1
   fi
-  mkdir -p "$share" || return 1
-  cp "$AD_PROVIDER_DIR/guest-setup.sh" "$share/guest-setup.sh" || return 1
-  cp "$AD_SANDBOX_DIR/id_ed25519.pub" "$share/id_ed25519.pub" || return 1
-  cp "$AD_BINARY" "$share/agent-desktop" || return 1
-  cp "$host_helper" "$share/$HELPER_NAME" || return 1
-  chmod 0755 "$share/guest-setup.sh" "$share/agent-desktop" "$share/$HELPER_NAME" || return 1
+  printf '%s\n' "$build_id"
 }
 
-create_guest_identity() {
-  guest_user=${AD_SET_USER:-}
-  if [ -z "$guest_user" ]; then guest_user=$(id -un 2>/dev/null || true); fi
-  if [ -z "$guest_user" ]; then
-    emit_fail ACTION_FAILED "The guest user name could not be determined." "Run agent-desktop sandbox create $1 --set user=<name>."
-    return 1
-  fi
-  if ! valid_guest_user "$guest_user"; then
-    emit_fail INVALID_ARGS "The guest user name contains unsupported characters." "Run agent-desktop sandbox create $1 --set user=<short-name>."
-    return 1
-  fi
-  if ! ssh-keygen -t ed25519 -N '' -f "$AD_SANDBOX_DIR/id_ed25519" >/dev/null 2>&1; then
-    emit_fail ACTION_FAILED "The SSH key for sandbox $1 could not be created." "Run agent-desktop sandbox create $1 again."
-    return 1
-  fi
-  if ! chmod 0600 "$AD_SANDBOX_DIR/id_ed25519" || \
-    ! : > "$AD_SANDBOX_DIR/known_hosts" || \
-    ! printf '%s\n' "$guest_user" > "$AD_SANDBOX_DIR/guest_user"; then
-    emit_fail ACTION_FAILED "The SSH settings for sandbox $1 could not be saved securely." "Run agent-desktop sandbox create $1 again after checking directory permissions."
-    return 1
-  fi
+# Fills the shared folder of a stopped sandbox: the setup script, the guest agent, and the current build alone.
+copy_guest_share() {
+  share=$1/share
+  [ -d "$BUILD_DIR/$GUEST_APP" ] || return 1
+  mkdir -p "$share" || return 1
+  rm -rf "$share/builds" "$share/$GUEST_APP" "$share/agent-desktop" "$share/$HELPER_NAME" "$share/id_ed25519.pub" || return 1
+  cp "$AD_PROVIDER_DIR/guest-setup.sh" "$share/guest-setup.sh" && chmod 0755 "$share/guest-setup.sh" && \
+    cp -R "$BUILD_DIR/$GUEST_APP" "$share/$GUEST_APP" || return 1
+  share_build "$1" >/dev/null
+}
+
+# A sandbox that was set up over SSH has no guest agent, so its setup record is dropped with its key files and
+# the next start opens the setup window once.
+retire_ssh_setup() {
+  [ -e "$AD_SANDBOX_DIR/id_ed25519" ] || return 0
+  rm -f "$AD_SANDBOX_DIR/setup_done" "$AD_SANDBOX_DIR/id_ed25519" "$AD_SANDBOX_DIR/id_ed25519.pub" \
+    "$AD_SANDBOX_DIR/known_hosts" "$AD_SANDBOX_DIR/guest_user" "$VM_DIR/host_key.pub" "$VM_DIR/ssh_refused"
 }
 
 file_mtime() {
@@ -454,10 +484,9 @@ reject_unknown_settings() {
 
 do_create() {
   name=$1
-  reject_unknown_settings "ipsw from user" || return 1
+  reject_unknown_settings "ipsw from" || return 1
   reject_empty_setting "${AD_SET_IPSW+x}" "${AD_SET_IPSW:-}" ipsw "$name" || return 1
   reject_empty_setting "${AD_SET_FROM+x}" "${AD_SET_FROM:-}" from "$name" || return 1
-  reject_empty_setting "${AD_SET_USER+x}" "${AD_SET_USER:-}" user "$name" || return 1
   case ${AD_SET_FROM:+from}${AD_SET_IPSW:+ipsw} in
     from|ipsw) ;;
     *)
@@ -465,10 +494,6 @@ do_create() {
       return 1
       ;;
   esac
-  if [ -n "${AD_SET_FROM:-}" ] && [ -n "${AD_SET_USER:-}" ]; then
-    emit_fail INVALID_ARGS "The user setting applies only to an install; a clone keeps its source's guest user." "Run agent-desktop sandbox create $name --set from=$AD_SET_FROM without --set user."
-    return 1
-  fi
   if target_has_sandbox_data; then
     emit_fail ACTION_FAILED "Sandbox $name already has provider data." "Run agent-desktop sandbox status $name."
     return 1
@@ -498,15 +523,6 @@ do_create() {
       return 1
     fi
   fi
-  guest_name=${AD_SET_USER:-$(id -un 2>/dev/null || true)}
-  if [ -z "$guest_name" ]; then
-    emit_fail ACTION_FAILED "The guest user name could not be determined." "Run agent-desktop sandbox create $name --set user=<name>."
-    return 1
-  fi
-  if ! valid_guest_user "$guest_name"; then
-    emit_fail INVALID_ARGS "The guest user name contains unsupported characters." "Run agent-desktop sandbox create $name --set user=<short-name>."
-    return 1
-  fi
   if [ "$image_path" = latest ]; then
     if ! resolved=$(latest_image "$AD_SANDBOX_DIR/restore.ipsw.catalog"); then
       emit_fail ACTION_FAILED "$resolved" "Run agent-desktop sandbox create $name --set ipsw=<path> with a macOS image this Mac can install, or update macOS on this host."
@@ -516,7 +532,6 @@ do_create() {
     AD_IMAGE_SHA1=$(printf '%s\n' "$resolved" | sed -n '2p')
     export AD_IMAGE_URL AD_IMAGE_SHA1
   fi
-  if ! create_guest_identity "$name"; then return 1; fi
   start_install_job "$name" "$image_path"
 }
 
@@ -534,163 +549,15 @@ create_clone() {
     emit_fail ACTION_FAILED "Sandbox $source_name is $source_phase, and only a stopped, set-up sandbox can be cloned." "Run agent-desktop sandbox status $source_name."
     return 1
   fi
-  if ! cp "$source/id_ed25519" "$source/id_ed25519.pub" "$source/known_hosts" "$source/guest_user" "$source/setup_done" "$AD_SANDBOX_DIR/" || \
-    ! chmod 0600 "$AD_SANDBOX_DIR/id_ed25519"; then
-    emit_fail ACTION_FAILED "The SSH settings could not be copied from sandbox $source_name." "Run agent-desktop sandbox status $source_name."
-    return 1
-  fi
   if ! clone_reply=$("$VMHOST" clone "$source/vm" "$VM_DIR" 2>&1); then
     emit_fail ACTION_FAILED "The VM for sandbox $name could not be cloned: $clone_reply" "Run agent-desktop sandbox rm $name, fix the cause, then create it again."
     return 1
   fi
-  rm -f "$AD_SANDBOX_DIR/known_hosts" "$AD_SANDBOX_DIR/vm/host_key.pub"
-  rotate_status=0
-  rotate_host_key || rotate_status=$?
-  if [ "$rotate_status" -ne 0 ]; then
-    emit_fail ACTION_FAILED "Sandbox $name could not be given its own SSH host key." "Run agent-desktop sandbox rm $name and create it again; a guest disk that cannot be opened cannot be cloned safely."
-    return 1
-  fi
-  if ! copy_guest_share "$VM_DIR"; then
-    emit_fail ACTION_FAILED "The guest setup files could not be copied into sandbox $name." "Run agent-desktop sandbox status $name."
+  if ! copy_guest_share "$VM_DIR" || ! : > "$AD_SANDBOX_DIR/setup_done"; then
+    emit_fail ACTION_FAILED "The guest files could not be copied into sandbox $name." "Run agent-desktop sandbox rm $name, then create it again."
     return 1
   fi
   emit_ok stopped "Sandbox $name is a stopped copy of sandbox $source_name." "agent-desktop sandbox start $name"
-}
-
-guest_user() {
-  [ -s "$AD_SANDBOX_DIR/guest_user" ] || return 1
-  stored_guest_user=$(cat "$AD_SANDBOX_DIR/guest_user" 2>/dev/null || true)
-  valid_guest_user "$stored_guest_user" || return 1
-  printf '%s\n' "$stored_guest_user"
-}
-
-guest_transport() {
-  transport_tool=$1
-  shift
-  host_key_check=accept-new
-  [ -s "$AD_SANDBOX_DIR/vm/host_key.pub" ] && host_key_check=yes
-  "$transport_tool" -F /dev/null -i "$AD_SANDBOX_DIR/id_ed25519" \
-    -o IdentitiesOnly=yes \
-    -o "StrictHostKeyChecking=$host_key_check" \
-    -o "UserKnownHostsFile=$AD_SANDBOX_DIR/known_hosts" \
-    -o BatchMode=yes \
-    -o ConnectTimeout=5 \
-    -o ConnectionAttempts=1 \
-    -o ServerAliveInterval=3 \
-    -o ServerAliveCountMax=3 \
-    "$@"
-}
-
-PROBE_REPLY_LIMIT=65536
-
-# The guest decides how much a probe prints, so the host reads at most PROBE_REPLY_LIMIT bytes of the reply and
-# closes the pipe on the rest. Returns the ssh exit status.
-guest_probe() {
-  {
-    reply_status=$(
-      {
-        {
-          probe_ssh_status=0
-          guest_transport ssh "$@" 2>/dev/null 3>&- 4>&- || probe_ssh_status=$?
-          printf '%s\n' "$probe_ssh_status" >&3
-        } | head -c "$PROBE_REPLY_LIMIT" >&4
-      } 3>&1
-    )
-  } 4>&1
-  return "${reply_status:-255}"
-}
-
-detach_guest_disk() {
-  disk=$1
-  for dev in $(hdiutil info 2>/dev/null | awk -v img="$disk" '$1 == "image-path" { path = $0; sub(/^[^:]*:[[:space:]]*/, "", path); found = (path == img) } found && $1 ~ /^\/dev\/disk/ { print $1 }'); do
-    hdiutil detach "$dev" >/dev/null 2>&1 || true
-  done
-}
-
-# The guest chooses every path on its disk, so the keys are written only through directories and files that are
-# opened without following a symlink and that sit on the mounted volume. Exits 2 when the host key is not on it.
-write_guest_host_key() {
-  perl -e '
-    BEGIN { $SIG{__DIE__} = sub { exit 1 } }
-    use strict;
-    use Fcntl qw(:mode O_WRONLY O_CREAT O_NOFOLLOW O_NONBLOCK);
-    my ($volume_root, @sources) = @ARGV;
-    my @contents;
-    for my $source (@sources) {
-      open(my $in, "<", $source) or exit 1;
-      my $bytes = do { local $/; <$in> };
-      defined $bytes or exit 1;
-      push @contents, $bytes;
-    }
-    chdir $volume_root or exit 1;
-    my @root = stat "." or exit 1;
-    my $volume = $root[0];
-    for my $part (qw(private etc ssh)) {
-      my @seen = lstat $part or exit($!{ENOENT} ? 2 : 1);
-      $seen[0] == $volume or exit 2;
-      S_ISDIR($seen[2]) or exit 1;
-      chdir $part or exit 1;
-      my @entered = stat "." or exit 1;
-      $entered[0] == $seen[0] && $entered[1] == $seen[1] or exit 1;
-    }
-    my @writes;
-    for my $target (["ssh_host_ed25519_key", 0], ["ssh_host_ed25519_key.pub", O_CREAT]) {
-      my ($name, $create) = @$target;
-      sysopen(my $out, $name, O_WRONLY | O_NOFOLLOW | O_NONBLOCK | $create, 0644) or exit($!{ENOENT} ? 2 : 1);
-      my @held = stat $out or exit 1;
-      S_ISREG($held[2]) && $held[0] == $volume or exit 1;
-      push @writes, [$out, shift @contents];
-    }
-    for my $write (@writes) {
-      my ($out, $bytes) = @$write;
-      truncate($out, 0) or exit 1;
-      (syswrite($out, $bytes) // -1) == length($bytes) or exit 1;
-      close($out) or exit 1;
-    }
-  ' "$1" "$2" "$3"
-}
-
-rotate_host_key() {
-  disk=$AD_SANDBOX_DIR/vm/Disk.img
-  pub=$AD_SANDBOX_DIR/vm/host_key.pub
-  [ -s "$pub" ] && return 0
-  [ -f "$disk" ] || return 2
-  tmp=$(mktemp -d "${TMPDIR:-/tmp}/ad-host-key.XXXXXX") || return 1
-  if ! ssh-keygen -q -t ed25519 -N '' -C agent-desktop-sandbox-host -f "$tmp/key" >/dev/null 2>&1; then
-    rm -rf "$tmp"
-    return 1
-  fi
-  detach_guest_disk "$disk"
-  if ! attach=$(hdiutil attach "$disk" -imagekey diskimage-class=CRawDiskImage -owners off -noverify -noautoopen 2>/dev/null); then
-    rm -rf "$tmp"
-    return 1
-  fi
-  printf '%s\n' "$attach" | awk -F '\t' '$3 ~ /^\// { print $3 }' > "$tmp/mounts"
-  write_status=2
-  while IFS= read -r mount_point; do
-    write_status=0
-    write_guest_host_key "$mount_point" "$tmp/key" "$tmp/key.pub" || write_status=$?
-    [ "$write_status" -eq 2 ] || break
-  done < "$tmp/mounts"
-  detach_guest_disk "$disk"
-  if [ "$write_status" -ne 0 ]; then
-    rm -rf "$tmp"
-    return "$write_status"
-  fi
-  if ! cp "$tmp/key.pub" "$pub"; then
-    rm -rf "$tmp"
-    return 1
-  fi
-  rm -rf "$tmp"
-  return 0
-}
-
-pin_host_key() {
-  ip=$1
-  pub=$AD_SANDBOX_DIR/vm/host_key.pub
-  [ -s "$pub" ] || return 0
-  printf '%s %s\n' "$ip" "$(awk 'NR == 1 { print $1, $2 }' "$pub")" > "$AD_SANDBOX_DIR/known_hosts" || return 1
-  chmod 0600 "$AD_SANDBOX_DIR/known_hosts"
 }
 
 # A guest that needs a person is only reachable through its window, so a headless one must be restarted.
@@ -707,33 +574,25 @@ needs_setup() {
   fi
 }
 
+GUEST_STEPS='In the guest, turn on automatic login in System Settings > Users & Groups, run sh "/Volumes/My Shared Files/guest-setup.sh" in Terminal, then switch on agent-desktop-guest in System Settings > Privacy & Security > Accessibility.'
+
 setup_window() {
-  needs_setup "Sandbox $1 is running in a setup window; enable Remote Login, run guest-setup.sh in Terminal, and grant Accessibility permission." "$1"
+  needs_setup "Sandbox $1 is open in a setup window. $GUEST_STEPS" "$1"
 }
 
-ssh_refused_too_long() {
-  [ -f "$VM_DIR/ssh_refused" ] || printf '' > "$VM_DIR/ssh_refused" 2>/dev/null || return 1
-  refused_since=$(file_mtime "$VM_DIR/ssh_refused")
-  case $refused_since in ''|*[!0-9]*|0) return 1 ;; esac
-  [ $(( $(date +%s) - refused_since )) -ge 120 ]
-}
-
+# The guest agent starts with the guest's login, so a set-up guest that stays silent has lost the agent or the login.
 guest_not_answering() {
-  if [ -f "$AD_SANDBOX_DIR/setup_done" ]; then
-    if [ -n "${2:-}" ] && ssh_refused_too_long; then
-      needs_setup "Sandbox $1 has had a network address for over two minutes, but Remote Login refuses the guest user $2. Check in the guest that Remote Login is on and that this account exists." "$1"
-      return 0
-    fi
-    emit_ok working "Sandbox $1 is running and the guest is still starting." "agent-desktop sandbox status $1"
-  else
-    needs_setup "Remote Login is unreachable, agent-desktop is not installed, and Accessibility is not granted in the guest." "$1"
+  if [ ! -f "$AD_SANDBOX_DIR/setup_done" ]; then
+    needs_setup "The guest agent in sandbox $1 is not answering. $GUEST_STEPS" "$1"
+    return 0
   fi
-}
-
-missing_guest_binary() {
-  next="agent-desktop sandbox status $1"
-  [ ! -f "$AD_SANDBOX_DIR/setup_done" ] || next="agent-desktop sandbox exec $1 -- version"
-  emit_ok needs_setup "agent-desktop is not installed in the guest, so Accessibility permission cannot yet be checked." "$next"
+  started=$(file_mtime "$VM_DIR/vmhost.started")
+  case $started in ''|*[!0-9]*) started=0 ;; esac
+  if [ "$started" -gt 0 ] && [ $(( $(date +%s) - started )) -ge 120 ]; then
+    needs_setup "Sandbox $1 has run for over two minutes and its guest agent is not answering. $GUEST_STEPS" "$1"
+  else
+    emit_ok working "Sandbox $1 is running and the guest is still starting." "agent-desktop sandbox status $1"
+  fi
 }
 
 vmhost_missing() {
@@ -742,46 +601,23 @@ vmhost_missing() {
 
 check_guest_setup() {
   name=$1
-  if ! user=$(guest_user); then
-    needs_setup "Sandbox $name needs a guest user before SSH setup can continue." "$name"
-    return 0
-  fi
   if [ ! -x "$VMHOST" ]; then
     vmhost_missing
     return 1
   fi
-  ip_json=$("$VMHOST" ip "$VM_DIR" 2>/dev/null || true)
-  ip=$(printf '%s' "$ip_json" | sed -n 's/.*"ip"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-  if [ -z "$ip" ]; then
+  if ! guest_state=$("$VMHOST" status "$VM_DIR" 2>/dev/null); then
     guest_not_answering "$name"
     return 0
   fi
-  if ! pin_host_key "$ip"; then
-    emit_fail ACTION_FAILED "The SSH host key for sandbox $name could not be saved." "Run agent-desktop sandbox status $name again after checking directory permissions."
-    return 1
-  fi
-  target=$user@$ip
-  probe_status=0
-  permissions=$(guest_probe "$target" 'if [ ! -x ~/.local/bin/agent-desktop ]; then exit 3; fi; ~/.local/bin/agent-desktop permissions') || probe_status=$?
-  if [ "$probe_status" -eq 255 ]; then
-    guest_not_answering "$name" "$user"
-    return 0
-  fi
-  rm -f "$VM_DIR/ssh_refused"
-  if [ "$probe_status" -eq 3 ]; then
-    missing_guest_binary "$name"
-    return 0
-  fi
-  compact=$(printf '%s' "$permissions" | tr -d '[:space:]')
-  case $compact in
-    *'"accessibility":{"state":"granted"'*)
+  case $guest_state in
+    *'"accessibility":true'*)
       if [ ! -f "$AD_SANDBOX_DIR/setup_done" ] && ! printf '' > "$AD_SANDBOX_DIR/setup_done"; then
         emit_fail ACTION_FAILED "The setup record for sandbox $name could not be saved." "Run agent-desktop sandbox status $name again after checking directory permissions."
         return 1
       fi
       emit_ok running "Sandbox $name is running and guest setup is complete."
       ;;
-    *) needs_setup "Accessibility permission is not granted for agent-desktop in the guest." "$name" ;;
+    *) needs_setup "Accessibility is off for agent-desktop-guest in sandbox $name. In the guest, switch it on in System Settings > Privacy & Security > Accessibility." "$name" ;;
   esac
 }
 
@@ -818,10 +654,11 @@ do_start() {
       return 1
       ;;
   esac
-  mode=headless
-  if [ ! -f "$AD_SANDBOX_DIR/setup_done" ] || [ "${AD_SET_WINDOW:-off}" = on ] || [ -n "${AD_SET_TITLE:-}" ]; then mode=window; fi
   phase=$(sandbox_phase "$AD_SANDBOX_DIR")
   if report_phase "$name" "$phase"; then return 0; fi
+  if [ "$phase" = stopped ]; then retire_ssh_setup; fi
+  mode=headless
+  if [ ! -f "$AD_SANDBOX_DIR/setup_done" ] || [ "${AD_SET_WINDOW:-off}" = on ] || [ -n "${AD_SET_TITLE:-}" ]; then mode=window; fi
   if [ "$phase" = running ] && [ "$mode" = window ] && ! window_is_open; then
     emit_fail INVALID_ARGS "Sandbox $name is already running without a window." "Run agent-desktop sandbox stop $name, then start it again with --window."
     return 1
@@ -832,10 +669,8 @@ do_start() {
       vmhost_missing
       return 1
     fi
-    rotate_status=0
-    rotate_host_key || rotate_status=$?
-    if [ "$rotate_status" -ne 0 ] && [ "$rotate_status" -ne 2 ]; then
-      emit_fail ACTION_FAILED "Sandbox $name could not be given its own SSH host key." "Run agent-desktop sandbox status $name; a guest disk that cannot be opened cannot be started safely."
+    if ! copy_guest_share "$VM_DIR"; then
+      emit_fail ACTION_FAILED "The guest files for sandbox $name could not be placed in its shared folder." "Rebuild agent-desktop with its helper, then run agent-desktop sandbox start $name again."
       return 1
     fi
     if ! spawn_vmhost "$mode"; then
@@ -912,32 +747,6 @@ do_rm() {
   emit_ok stopped "The VM files for sandbox $name were removed."
 }
 
-shell_quote() {
-  printf "'"
-  printf '%s' "$1" | sed "s/'/'\\\\''/g"
-  printf "'"
-}
-
-sync_guest_file() {
-  target=$1
-  source_file=$2
-  guest_name=$3
-  host_hash=$4
-  guest_hash=$5
-  if [ "$host_hash" = "$guest_hash" ]; then return 0; fi
-  staged="~/.local/bin/$guest_name.$$.new"
-  if ! guest_transport ssh "$target" 'mkdir -p ~/.local/bin' >/dev/null || \
-    ! guest_transport scp "$source_file" "$target:$staged" >/dev/null || \
-    ! guest_transport ssh "$target" "chmod 755 $staged && mv -f $staged ~/.local/bin/$guest_name" >/dev/null; then
-    guest_transport ssh "$target" "rm -f $staged" >/dev/null 2>&1 || true
-    return 1
-  fi
-}
-
-remote_login_failure() {
-  exec_failure "Remote Login could not be reached in sandbox $1." "Run agent-desktop sandbox status $1."
-}
-
 exec_failure() {
   emit_fail ACTION_FAILED "$1" "$2"
   exit 125
@@ -963,71 +772,14 @@ do_exec() {
   if ! require_host_package "Rebuild agent-desktop with its helper, then run sandbox exec $name again."; then
     exit 125
   fi
-  user=$(guest_user || true)
-  if [ -z "$user" ]; then
-    exec_failure "Sandbox $name has no configured guest user." "Run agent-desktop sandbox status $name."
-  fi
   if [ ! -x "$VMHOST" ]; then
     vmhost_missing
     exit 125
   fi
-  ip_json=$("$VMHOST" ip "$VM_DIR" 2>/dev/null || true)
-  ip=$(printf '%s' "$ip_json" | sed -n 's/.*"ip"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-  if [ -z "$ip" ]; then
-    exec_failure "Sandbox $name has no reachable guest address yet." "Run agent-desktop sandbox status $name."
+  if ! build_id=$(share_build "$VM_DIR"); then
+    exec_failure "agent-desktop could not be placed in the shared folder of sandbox $name." "Run agent-desktop sandbox status $name."
   fi
-  if ! pin_host_key "$ip"; then
-    exec_failure "The SSH host key for sandbox $name could not be saved." "Run agent-desktop sandbox status $name again after checking directory permissions."
-  fi
-  if ! host_hash_line=$(shasum -a 1 "$AD_BINARY" 2>/dev/null); then
-    exec_failure "The host agent-desktop binary could not be hashed." "Rebuild agent-desktop, then run sandbox exec $name again."
-  fi
-  host_helper=$(host_helper_path)
-  if ! host_helper_hash_line=$(shasum -a 1 "$host_helper" 2>/dev/null); then
-    exec_failure "The host $HELPER_NAME binary could not be hashed." "Rebuild agent-desktop with its helper, then run sandbox exec $name again."
-  fi
-  host_hash=$(printf '%s\n' "$host_hash_line" | awk '{ print tolower($1) }')
-  host_helper_hash=$(printf '%s\n' "$host_helper_hash_line" | awk '{ print tolower($1) }')
-  target=$user@$ip
-  probe_status=0
-  guest_hash_line=$(guest_probe "$target" 'shasum -a 1 ~/.local/bin/agent-desktop') || probe_status=$?
-  if [ "$probe_status" -eq 255 ]; then remote_login_failure "$name"; fi
-  guest_hash=$(printf '%s\n' "$guest_hash_line" | awk '{ print tolower($1) }')
-  probe_status=0
-  guest_helper_hash_line=$(guest_probe "$target" "shasum -a 1 ~/.local/bin/$HELPER_NAME") || probe_status=$?
-  if [ "$probe_status" -eq 255 ]; then remote_login_failure "$name"; fi
-  guest_helper_hash=$(printf '%s\n' "$guest_helper_hash_line" | awk '{ print tolower($1) }')
-  if ! sync_guest_file "$target" "$AD_BINARY" agent-desktop "$host_hash" "$guest_hash"; then
-    exec_failure "agent-desktop could not be copied into sandbox $name." "Run agent-desktop sandbox status $name."
-  fi
-  if ! sync_guest_file "$target" "$host_helper" "$HELPER_NAME" "$host_helper_hash" "$guest_helper_hash"; then
-    exec_failure "The macOS clipboard helper could not be copied into sandbox $name." "Run agent-desktop sandbox status $name."
-  fi
-  exec_marker="AD_EXEC_EXIT_$$"
-  remote_command='~/.local/bin/agent-desktop'
-  for argument do
-    remote_command="$remote_command $(shell_quote "$argument")"
-  done
-  remote_command="$remote_command; ad_status=\$?; printf '%s:%s\\n' '$exec_marker' \"\$ad_status\" >&2; exit \"\$ad_status\""
-  if ! exec_stderr=$(mktemp "$AD_SANDBOX_DIR/exec-stderr.XXXXXX"); then
-    exec_failure "The exec output file for sandbox $name could not be created." "Run agent-desktop sandbox status $name."
-  fi
-  trap 'rm -f "$exec_stderr" "$exec_stderr.status"' EXIT
-  # The guest controls how much it writes to stderr, so only the last 64 KiB ever reaches the host disk.
-  exec 3>&1
-  {
-    ssh_status=0
-    guest_transport ssh "$target" "$remote_command" 2>&1 >&3 || ssh_status=$?
-    printf '%s\n' "$ssh_status" > "$exec_stderr.status"
-  } | tail -c 65536 > "$exec_stderr"
-  exec 3>&-
-  ssh_status=$(cat "$exec_stderr.status" 2>/dev/null || printf '255\n')
-  guest_status=$(sed -n "s/^.*$exec_marker:\([0-9][0-9]*\)\$/\1/p" "$exec_stderr" | tail -n 1)
-  sed -e "/^$exec_marker:[0-9][0-9]*\$/d" -e "s/$exec_marker:[0-9][0-9]*\$//" "$exec_stderr" >&2
-  if [ "$ssh_status" -eq 255 ] && [ -z "$guest_status" ]; then
-    remote_login_failure "$name"
-  fi
-  return "${guest_status:-$ssh_status}"
+  exec "$VMHOST" exec "$VM_DIR" "$build_id" "$@"
 }
 
 require_provider_environment

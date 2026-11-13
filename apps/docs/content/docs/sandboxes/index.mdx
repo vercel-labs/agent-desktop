@@ -10,7 +10,7 @@ The `agent-desktop sandbox` commands manage local macOS VMs through the `macos` 
 
 ## How commands reach the sandbox
 
-The local provider starts a VM. `sandbox exec` runs each command inside the guest and passes the guest command's stdout and exit status through without adding an envelope; a provider failure becomes a host error envelope. The guest has one state root shared by every `sandbox exec` call, so snapshots, refs, sessions, and traces stay in the guest, not the host.
+The local provider starts a VM. `sandbox exec` runs each command inside the guest through a guest agent and passes the guest command's stdout and exit status through without adding an envelope; a provider failure becomes a host error envelope. The guest has one state root shared by every `sandbox exec` call, so snapshots, refs, sessions, and traces stay in the guest, not the host.
 
 <Diagram name="sandboxes" title="How agent-desktop works with sandboxes" aspectRatio="720 / 468" />
 
@@ -34,7 +34,7 @@ agent-desktop launch Finder --activate
 agent-desktop snapshot --app Finder -i
 ```
 
-An automation that already runs in `demo` uses the same two commands without `sandbox exec`. Accessibility permission belongs to the guest app that launches agent-desktop, and the host cannot grant it; the SSH grant from setup covers `sandbox exec`, not a different terminal or harness. See [Grant and check permissions](/desktop/platforms/macos#grant-and-check-permissions).
+An automation that already runs in `demo` uses the same two commands without `sandbox exec`. Accessibility permission belongs to the guest app that launches agent-desktop, and the host cannot grant it; the grant from setup belongs to the guest agent that `sandbox exec` uses, not to a different terminal or harness. See [Grant and check permissions](/desktop/platforms/macos#grant-and-check-permissions).
 
 ## Commands
 

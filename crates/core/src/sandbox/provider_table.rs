@@ -6,6 +6,8 @@ const MACOS_VM_PROVIDER: &str = include_str!("../../../../providers/macos/provid
 #[cfg(not(test))]
 const MACOS_VM_HOST: &str = include_str!("../../../../providers/macos/vmhost.swift");
 #[cfg(not(test))]
+const MACOS_VM_GUEST_AGENT: &str = include_str!("../../../../providers/macos/guestagent.swift");
+#[cfg(not(test))]
 const MACOS_VM_ENTITLEMENTS: &str = include_str!("../../../../providers/macos/vm.entitlements");
 #[cfg(not(test))]
 const MACOS_VM_GUEST_SETUP: &str = include_str!("../../../../providers/macos/guest-setup.sh");
@@ -16,6 +18,7 @@ pub(crate) const PROVIDERS: &[ProviderSpec] = &[ProviderSpec {
     files: &[
         ("provider.sh", MACOS_VM_PROVIDER),
         ("vmhost.swift", MACOS_VM_HOST),
+        ("guestagent.swift", MACOS_VM_GUEST_AGENT),
         ("vm.entitlements", MACOS_VM_ENTITLEMENTS),
         ("guest-setup.sh", MACOS_VM_GUEST_SETUP),
     ],
