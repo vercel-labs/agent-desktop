@@ -1,0 +1,1 @@
+{"app_launched":{"elapsed_ms":0,"event":{"app":"TextEdit","kind":"app_launched","pid":42},"found":true},"window_opened":{"elapsed_ms":0,"event":{"app":"TextEdit","kind":"window_opened","pid":42,"title":"Untitled","window_id":"w-9"},"found":true}}
