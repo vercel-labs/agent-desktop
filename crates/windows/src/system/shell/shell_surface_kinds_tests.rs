@@ -30,6 +30,93 @@ fn quick_settings_refusal_names_build_and_capability_holder() {
     );
 }
 
+fn action_center_key(build: u32) -> u16 {
+    let row = row_for_build(SnapshotSurface::ActionCenter, build)
+        .expect("action-center is a known surface kind");
+    let SurfaceRaise::Accelerator { modifiers, key } = row.raise else {
+        panic!("the Action Center is raised by an accelerator on build {build}");
+    };
+    assert_eq!(modifiers, &[VK_LWIN], "the chord holds the Windows key");
+    key
+}
+
+/// Windows 11 moved Win+A to Quick Settings, a different window that never
+/// carries the Action Center landmarks, so a Win+A raise there waits out the
+/// deadline. Server 2019 and 2022 keep the Windows 10 shell.
+#[test]
+fn the_action_center_raises_by_win_a_before_windows_11_and_win_n_from_it() {
+    for build in [17_763, 19_045, 20_348, FIRST_WINDOWS_11_BUILD - 1] {
+        assert_eq!(action_center_key(build), VK_A, "build {build} keeps Win+A");
+    }
+    for build in [FIRST_WINDOWS_11_BUILD, 22_631, 26_100, 26_300] {
+        assert_eq!(
+            action_center_key(build),
+            VK_N,
+            "build {build} raises by Win+N"
+        );
+    }
+}
+
+#[test]
+fn the_windows_11_action_center_differs_only_in_its_accelerator() {
+    let windows_10 = row_for_build(SnapshotSurface::ActionCenter, FIRST_WINDOWS_11_BUILD - 1)
+        .expect("action-center before Windows 11");
+    let windows_11 = row_for_build(SnapshotSurface::ActionCenter, FIRST_WINDOWS_11_BUILD)
+        .expect("action-center on Windows 11");
+    let (
+        SurfaceFamily::Immersive {
+            expected_class: class_10,
+            host_images: hosts_10,
+            landmarks: landmarks_10,
+        },
+        SurfaceFamily::Immersive {
+            expected_class: class_11,
+            host_images: hosts_11,
+            landmarks: landmarks_11,
+        },
+    ) = (windows_10.family, windows_11.family)
+    else {
+        panic!("both Action Center rows are immersive surfaces");
+    };
+
+    assert_eq!(class_10, class_11);
+    assert_eq!(hosts_10, hosts_11);
+    assert_eq!(landmarks_10, landmarks_11);
+    assert_eq!(windows_10.dismiss, windows_11.dismiss);
+    assert_eq!(windows_10.exists_on_build, windows_11.exists_on_build);
+    assert_eq!(windows_10.capability_holder, windows_11.capability_holder);
+}
+
+fn raise_chord(row: &SurfaceKindRow) -> Option<(&'static [u16], u16)> {
+    match row.raise {
+        SurfaceRaise::Accelerator { modifiers, key } => Some((modifiers, key)),
+        SurfaceRaise::AlreadyRaised | SurfaceRaise::ChevronInvoke => None,
+    }
+}
+
+#[test]
+fn every_other_kind_resolves_the_same_row_on_every_build() {
+    for row in KINDS {
+        if row.kind == SnapshotSurface::ActionCenter {
+            continue;
+        }
+        for build in [17_763, FIRST_WINDOWS_11_BUILD, 26_300] {
+            let resolved = row_for_build(row.kind, build).expect("a row in the table resolves");
+            let name = crate::system::shell::shell_surface::kebab(row.kind);
+            assert!(resolved.kind == row.kind, "'{name}' resolved another kind");
+            assert_eq!(
+                resolved.dismiss, row.dismiss,
+                "'{name}' changed its dismissal"
+            );
+            assert_eq!(
+                raise_chord(resolved),
+                raise_chord(row),
+                "'{name}' must not change its raise with the build"
+            );
+        }
+    }
+}
+
 #[test]
 fn kind_pointed_at_an_absent_class_times_out() {
     let row = SurfaceKindRow {
