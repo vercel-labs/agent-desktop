@@ -43,7 +43,7 @@ pub fn execute(
         ref_id: args.ref_id.as_deref(),
         xy: args.xy,
         missing_input_message: "Provide a ref (@<snapshot_id>:e1) or --xy x,y",
-        headed_requirement: crate::HeadedRequirement::FocusedWindowAndCursor,
+        focuses_window: true,
     };
     let auto_wait = args.timeout_ms.is_some_and(|timeout_ms| timeout_ms > 0);
     let cursor = crate::cursor_overlay::hold_cursor(context, deadline);

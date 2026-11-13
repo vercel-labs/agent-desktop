@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 struct DisabledBelowTheFold {
     scroll_calls: AtomicU32,
     dispatch_calls: AtomicU32,
+    declared: Option<crate::DeclaredEffect>,
 }
 
 impl ObservationOps for DisabledBelowTheFold {
@@ -46,9 +47,19 @@ impl ObservationOps for DisabledBelowTheFold {
 }
 
 impl ActionOps for DisabledBelowTheFold {
+    fn foreground_effect(
+        &self,
+        _handle: &NativeHandle,
+        _request: &ActionRequest,
+        _deadline: crate::Deadline,
+    ) -> Result<Option<crate::DeclaredEffect>, AdapterError> {
+        Ok(self.declared)
+    }
+
     fn scroll_into_view(
         &self,
         _handle: &NativeHandle,
+        _policy: crate::InteractionPolicy,
         _lease: &crate::InteractionLease,
     ) -> Result<(), AdapterError> {
         self.scroll_calls.fetch_add(1, Ordering::SeqCst);
@@ -98,6 +109,7 @@ fn a_disabled_field_below_the_fold_waits_out_the_budget_like_one_in_view() {
     let adapter = DisabledBelowTheFold {
         scroll_calls: AtomicU32::new(0),
         dispatch_calls: AtomicU32::new(0),
+        declared: None,
     };
     let request = ActionRequest::headless(Action::SetValue("7".into())).with_timeout_ms(Some(400));
 
@@ -106,6 +118,32 @@ fn a_disabled_field_below_the_fold_waits_out_the_budget_like_one_in_view() {
     assert_eq!(error.code, ErrorCode::Timeout);
     let details = error.details.expect("timeout details");
     assert_eq!(details["kind"], "actionability_timeout");
+    assert_eq!(adapter.scroll_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(adapter.dispatch_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());
+}
+
+/// Waiting and scrolling cannot cure a refusal, so a declared foreground effect
+/// the policy forbids is refused at once, before the budget or a scroll is spent.
+#[test]
+fn a_declared_foreground_effect_is_refused_before_the_wait_and_the_scroll() {
+    let adapter = DisabledBelowTheFold {
+        scroll_calls: AtomicU32::new(0),
+        dispatch_calls: AtomicU32::new(0),
+        declared: Some(crate::DeclaredEffect {
+            effect: crate::Effect::FocusSteal,
+            kind: "opens_dialog",
+        }),
+    };
+    let request = ActionRequest::headless(Action::SetValue("7".into())).with_timeout_ms(Some(400));
+
+    let error = execute_entry(&adapter, &entry(), request).unwrap_err();
+
+    assert_eq!(error.code, ErrorCode::PolicyDenied);
+    let details = error.details.expect("refusal details");
+    assert_eq!(details["kind"], "opens_dialog");
+    assert_eq!(details["foreground_effect"], true);
+    assert_eq!(details["mechanisms"], serde_json::json!(["set-value"]));
     assert_eq!(adapter.scroll_calls.load(Ordering::SeqCst), 0);
     assert_eq!(adapter.dispatch_calls.load(Ordering::SeqCst), 0);
     assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());

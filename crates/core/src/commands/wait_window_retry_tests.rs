@@ -50,6 +50,32 @@ fn window_wait_keeps_polling_an_application_that_has_not_registered_yet() {
 }
 
 #[test]
+fn window_wait_polls_again_after_an_error_that_stamps_itself_retryable() {
+    let stamped = AdapterError::new(ErrorCode::StaleRef, "The window list changed")
+        .with_details(json!({ "retryable": true }));
+    let err = execute(
+        WaitArgs {
+            mode: WaitModeArgs {
+                window: Some("Document".into()),
+                ..wait_args().mode
+            },
+            timeout_ms: 40,
+            ..wait_args()
+        },
+        &MissingAppAdapter(stamped),
+        &CommandContext::default(),
+    )
+    .unwrap_err();
+
+    let AppError::Adapter(adapter_err) = err else {
+        panic!("a retryable stamp must end in the wait timeout");
+    };
+    assert_eq!(adapter_err.code, ErrorCode::Timeout);
+    let details = adapter_err.details.expect("timeout details");
+    assert_eq!(details["last_error"]["code"], "STALE_REF");
+}
+
+#[test]
 fn window_wait_returns_explicitly_terminal_absence_without_normalizing_it() {
     for code in [ErrorCode::AppNotFound, ErrorCode::WindowNotFound] {
         let original = AdapterError::new(code, "The target cannot appear")

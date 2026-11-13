@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use agent_desktop_core::{
     Action, ActionResult, AdapterError, ChainRung, Deadline, DeliveryObservation, DeliveryOutcome,
-    DeliverySemantics, ErrorCode,
+    DeliverySemantics, ErrorCode, StepMechanism,
 };
 use serde_json::json;
 use zbus::zvariant::{OwnedValue, Structure, Value};
@@ -235,6 +235,7 @@ fn select_through(
         rungs.push(ChainRung {
             label: SELECT_CHILD_LABEL,
             effects: &[],
+            mechanism: StepMechanism::SemanticApi,
             run: Box::new(move || {
                 let reply = super::select::select_index::write(holder, verified_node);
                 deliver(reply).and_then(unchanged_is_ignored)
@@ -247,6 +248,7 @@ fn select_through(
             ChainRung {
                 label: SELECT_VERB_LABEL,
                 effects: &[],
+                mechanism: StepMechanism::SemanticApi,
                 run: Box::new(|| {
                     select_verb::deliver(
                         resolve_verb(names, verbs).is_some_and(|index| {

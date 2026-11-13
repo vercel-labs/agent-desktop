@@ -195,27 +195,6 @@ fn automation_report_state() -> PermissionState {
     map_automation_probe(imp::probe_automation_permission())
 }
 
-pub(crate) fn require_automation_permission() -> Result<(), AdapterError> {
-    let status = imp::probe_automation_permission();
-    match status {
-        NO_ERR => Ok(()),
-        ERR_AE_EVENT_NOT_PERMITTED | ERR_AE_EVENT_WOULD_REQUIRE_USER_CONSENT => {
-            Err(automation_permission_error(status))
-        }
-        _ => Err(AdapterError::new(
-            agent_desktop_core::ErrorCode::AppUnresponsive,
-            "Could not verify Automation permission without prompting",
-        )
-        .with_details(serde_json::json!({
-            "kind": "automation_permission_probe",
-            "os_status": status,
-            "target": "System Events",
-            "prompted": false,
-        }))
-        .with_suggestion("Ensure System Events is running, then retry the command")),
-    }
-}
-
 pub(crate) fn map_automation_probe(status: i32) -> PermissionState {
     match status {
         NO_ERR => PermissionState::Granted,
@@ -225,53 +204,6 @@ pub(crate) fn map_automation_probe(status: i32) -> PermissionState {
         PROC_NOT_FOUND | ERR_AE_EVENT_WOULD_REQUIRE_USER_CONSENT => PermissionState::Unknown,
         _ => PermissionState::Unknown,
     }
-}
-
-pub(crate) fn map_automation_command_failure(
-    status: std::process::ExitStatus,
-    stderr: &[u8],
-) -> AdapterError {
-    let detail = bounded_platform_text(stderr);
-    if automation_denial_text(&detail) {
-        return automation_permission_error(ERR_AE_EVENT_NOT_PERMITTED)
-            .with_platform_detail(detail);
-    }
-    AdapterError::new(
-        agent_desktop_core::ErrorCode::ActionFailed,
-        "System Events did not complete the requested Automation operation",
-    )
-    .with_platform_detail(detail)
-    .with_details(serde_json::json!({
-        "kind": "automation_command",
-        "exit_code": status.code(),
-        "target": "System Events",
-    }))
-}
-
-fn automation_permission_error(status: i32) -> AdapterError {
-    AdapterError::new(
-        agent_desktop_core::ErrorCode::PermDenied,
-        "Automation permission for System Events is required",
-    )
-    .with_suggestion(AUTOMATION_SUGGESTION)
-    .with_details(serde_json::json!({
-        "kind": "automation_permission",
-        "os_status": status,
-        "target": "System Events",
-        "prompted": false,
-    }))
-}
-
-fn automation_denial_text(value: &str) -> bool {
-    let lower = value.to_ascii_lowercase();
-    lower.contains("-1743")
-        || lower.contains("not authorized to send apple events")
-        || lower.contains("not permitted to send apple events")
-}
-
-fn bounded_platform_text(bytes: &[u8]) -> String {
-    const MAX_BYTES: usize = 4 * 1024;
-    String::from_utf8_lossy(&bytes[..bytes.len().min(MAX_BYTES)]).into_owned()
 }
 
 pub(crate) mod permission_guide;

@@ -9,7 +9,7 @@
 //! forbids that foreground before it checks anything else.
 
 use agent_desktop_core::{
-    Action, ActionRequest, AdapterError, Deadline, HeadedRequirement, NativeHandle,
+    Action, ActionRequest, AdapterError, Deadline, DeclaredEffect, Effect, NativeHandle,
 };
 
 use super::context::Target;
@@ -24,12 +24,14 @@ use crate::tree::vocabulary::state_bits::HAS_POPUP;
 
 const SHOW_MENU: &str = "ShowMenu";
 
-pub(crate) fn headed_requirement(
+/// The foreground effect of `request` on the element `handle` names. Only a
+/// policy that denies focus is read, because no other policy refuses it.
+pub(crate) fn foreground_effect(
     bus: &SharedBus,
     handle: &NativeHandle,
     request: &ActionRequest,
     deadline: Deadline,
-) -> Result<HeadedRequirement, AdapterError> {
+) -> Result<Option<DeclaredEffect>, AdapterError> {
     let opens = matches!(
         request.action,
         Action::Click
@@ -41,16 +43,19 @@ pub(crate) fn headed_requirement(
             | Action::Select(_)
     );
     let Ok(element) = atspi_element(handle) else {
-        return Ok(request.headed_requirement());
+        return Ok(None);
     };
-    if request.policy.is_headed() {
-        return Ok(request.headed_requirement());
+    if request.policy.allow_focus_steal {
+        return Ok(None);
     }
     if matches!(request.action, Action::SetFocus) {
-        return Ok(HeadedRequirement::FocusedApplication);
+        return Ok(Some(DeclaredEffect {
+            effect: Effect::FocusSteal,
+            kind: "focus",
+        }));
     }
     if !opens {
-        return Ok(request.headed_requirement());
+        return Ok(None);
     }
     let view = read_node_view(bus, handle, deadline)?;
     let toolkit = kind(&toolkit_of(bus, element, deadline));
@@ -68,13 +73,12 @@ pub(crate) fn headed_requirement(
         element,
         deadline,
     };
-    let takes = takes_foreground(&request.action, &view, toolkit, owner)?
-        && !already_selected(&target, &request.action);
-    Ok(if takes {
-        HeadedRequirement::FocusedApplication
-    } else {
-        request.headed_requirement()
-    })
+    Ok(takes_foreground(&request.action, &view, toolkit, owner)?
+        .filter(|_| !already_selected(&target, &request.action))
+        .map(|kind| DeclaredEffect {
+            effect: Effect::FocusSteal,
+            kind,
+        }))
 }
 
 /// A drop down that already shows the wanted choice is answered without
@@ -91,23 +95,29 @@ fn already_selected(target: &Target<'_>, action: &Action) -> bool {
 /// its own; `owner` reads the combo or button that holds it, only when the
 /// element itself does not already decide. A field the read could not answer
 /// counts as taking the foreground: unread evidence never proves an action
-/// safe.
+/// safe. The answer is the reason it takes the foreground, `None` when it
+/// does not.
 fn takes_foreground(
     action: &Action,
     view: &NodeView,
     toolkit: ToolkitKind,
     owner: impl FnOnce() -> Result<Option<NodeView>, AdapterError>,
-) -> Result<bool, AdapterError> {
+) -> Result<Option<&'static str>, AdapterError> {
     if view.action_names().is_none_or(shows_menu) {
-        return Ok(true);
+        return Ok(Some("shows_menu"));
     }
     if toolkit == ToolkitKind::Gtk3 {
-        return Ok(false);
+        return Ok(None);
     }
-    if opens_dialog(action, view.name_read()) || opens_popup_without_selection(view) {
-        return Ok(true);
+    if opens_dialog(action, view.name_read()) {
+        return Ok(Some("opens_dialog"));
     }
-    Ok(owner()?.is_some_and(|owner| opens_popup_without_selection(&owner)))
+    if opens_popup_without_selection(view) {
+        return Ok(Some("opens_popup"));
+    }
+    Ok(owner()?
+        .is_some_and(|owner| opens_popup_without_selection(&owner))
+        .then_some("opens_popup"))
 }
 
 fn shows_menu(names: &[String]) -> bool {

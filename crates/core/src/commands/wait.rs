@@ -260,10 +260,10 @@ fn wait_for_text(
             Err(AppError::Adapter(err)) if wait_timeout::is_deadline_expired(&err) => {
                 return wait_timeout::text(&text, timeout_ms, expected_count, last_error);
             }
-            Err(err) if is_retryable_wait_app_error(&err) => {
+            Err(AppError::Adapter(err)) if is_retryable_window_poll_error(&err) => {
                 last_error = Some(json!({
-                    "code": err.code(),
-                    "message": err.to_string()
+                    "code": err.code.as_str(),
+                    "message": err.message
                 }));
             }
             Err(AppError::Adapter(mut err)) if err.code == ErrorCode::AmbiguousTarget => {
@@ -283,24 +283,16 @@ fn wait_for_text(
     }
 }
 
-pub(crate) fn is_retryable_wait_poll_error(code: &ErrorCode) -> bool {
-    matches!(code, ErrorCode::Timeout | ErrorCode::ElementNotFound)
-}
-
 /// A window wait polls a condition that is not yet true, and an application
 /// that has not registered on the desktop yet is that condition: the window
 /// cannot exist before the application does. Absence is retried until the
 /// deadline unless the adapter explicitly marks the error non-retryable.
 fn is_retryable_window_poll_error(error: &crate::AdapterError) -> bool {
-    is_retryable_wait_poll_error(&error.code)
+    error.is_retryable_poll_failure()
         || (matches!(
             error.code,
             ErrorCode::AppNotFound | ErrorCode::WindowNotFound
         ) && error.permits_retry_by_default())
-}
-
-fn is_retryable_wait_app_error(err: &AppError) -> bool {
-    matches!(err, AppError::Adapter(err) if is_retryable_window_poll_error(err))
 }
 
 #[cfg(test)]

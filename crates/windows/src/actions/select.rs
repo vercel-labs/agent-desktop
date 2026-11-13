@@ -35,6 +35,7 @@ mod imp {
     use crate::actions::mutation::{classify_success, classify_write};
     use crate::actions::scroll::vertical_scroll;
     use crate::actions::select_combo::{COMBO_SELECT_LABEL, native_combo, select_native_combo};
+    use crate::actions::select_container::{container_route_applies, realize_named_item};
     use crate::actions::select_search::{
         find_named_selection_item, name_matches, scroll_to_realize, selection_item_available,
     };
@@ -82,7 +83,8 @@ mod imp {
     /// step. A second match across the scrolls is `AMBIGUOUS_TARGET`. After a
     /// scroll the item is the one a new search finds and proves to be the
     /// element matched before; an element kept from before a scroll is never
-    /// selected, so a row that left the list or changed is not found.
+    /// selected: a row that left the list or changed is found again through
+    /// the container's own lookup, or it is not found.
     fn find_item(
         element: &UIAElement,
         value: &str,
@@ -96,7 +98,12 @@ mod imp {
                 policy,
             ));
         }
-        if policy.allow_focus_steal {
+        let mut realized = false;
+        if container_route_applies(found.is_some(), policy.allow_focus_steal) {
+            found = realize_named_item(element, value, deadline)?;
+            realized = found.is_some();
+        }
+        if policy.allow_focus_steal && !realized {
             let mut seen = found.clone();
             let mut scrolled = false;
             scroll_to_realize(element, deadline, || {
@@ -111,7 +118,10 @@ mod imp {
             if scrolled {
                 found = match seen {
                     Some(matched) => {
-                        find_named_selection_item(element, value, deadline, Some(&matched))?
+                        match find_named_selection_item(element, value, deadline, Some(&matched))? {
+                            Some(item) => Some(item),
+                            None => realize_named_item(element, value, deadline)?,
+                        }
                     }
                     None => None,
                 };
@@ -149,13 +159,13 @@ mod imp {
         let mut pattern = || observe(pattern_select(item)?);
         agent_desktop_core::execute_chain(
             &mut offered([
-                rung(SELECT_ITEM_LABEL, true, false, &mut legacy),
                 rung(
                     SELECT_LABEL,
                     selection_item_available(item),
                     true,
                     &mut pattern,
                 ),
+                rung(SELECT_ITEM_LABEL, true, false, &mut legacy),
             ]),
             policy,
             deadline,

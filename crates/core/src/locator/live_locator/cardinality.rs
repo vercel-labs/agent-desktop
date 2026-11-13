@@ -1,4 +1,4 @@
-use super::{LocatorCardinality, LocatorMatch, LocatorResolution};
+use super::{LocatorCardinality, LocatorMatch, LocatorResolution, incomplete_locator_error};
 use crate::{AdapterError, AppError, ErrorCode};
 use serde_json::json;
 
@@ -60,13 +60,8 @@ pub fn require_unique(resolution: LocatorResolution) -> Result<LocatorMatch, App
                 })),
             ))
         }
-        LocatorCardinality::Incomplete { observed } => Err(AppError::Adapter(
-            AdapterError::timeout("Locator traversal could not prove a unique result")
-                .with_details(json!({
-                    "kind": "locator_incomplete",
-                    "observed_matches": observed,
-                    "query_stats": resolution.stats,
-                })),
-        )),
+        LocatorCardinality::Incomplete { .. } => {
+            Err(AppError::Adapter(incomplete_locator_error(&resolution)))
+        }
     }
 }

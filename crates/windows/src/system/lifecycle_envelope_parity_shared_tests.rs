@@ -16,9 +16,9 @@ fn assert_class_a_envelope(error: &AdapterError, code: ErrorCode, expected: Deli
 /// exhaustion; macOS's activation path carries no equivalent budget to
 /// exhaust, so no macOS call site pins this exact pair. The pair still
 /// expresses a cross-platform rule rather than a Windows-only one:
-/// `crates/macos/src/actions/chain/mod.rs::exhaustion_disposition` reports the
-/// identical `ActionFailed`/not-delivered pair whenever its own chain, too,
-/// has issued no successful step.
+/// the core delivery chain (`agent_desktop_core::execute_chain`), which every
+/// platform runs, reports the identical `ActionFailed`/not-delivered pair
+/// whenever no rung delivered and none was held back.
 #[test]
 fn shared_action_failed_before_delivery_pins_the_windows_envelope() {
     let error = budget_exhausted(false);

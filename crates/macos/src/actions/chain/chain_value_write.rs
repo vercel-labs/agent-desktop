@@ -1,8 +1,8 @@
 #[cfg(target_os = "macos")]
 mod imp {
-    use agent_desktop_core::{AdapterError, Deadline};
+    use agent_desktop_core::{AdapterError, Deadline, DeliveryObservation, DeliveryOutcome};
 
-    use crate::actions::{ax_helpers, chain::chain_delivery::DeliveryOutcome, chain::chain_verify};
+    use crate::actions::{ax_helpers, chain::chain_verify};
     use crate::tree::AXElement;
 
     pub(crate) fn set_dynamic_verified(
@@ -30,7 +30,7 @@ mod imp {
                 observed.as_deref(),
             );
             return if verified {
-                Ok(DeliveryOutcome::DeliveredVerified)
+                Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified))
             } else {
                 Err(error)
             };
@@ -72,9 +72,9 @@ mod imp {
         for _ in 0..MAX_INCREMENT_STEPS {
             if increment_target_reached(&current_text, requested) {
                 return Ok(if delivered {
-                    DeliveryOutcome::DeliveredVerified
+                    DeliveryOutcome::Delivered(DeliveryObservation::Verified)
                 } else {
-                    DeliveryOutcome::SatisfiedNoDelivery
+                    DeliveryOutcome::Satisfied
                 });
             }
             if deadline.is_expired() {
@@ -114,7 +114,7 @@ mod imp {
             }
         }
         if increment_target_reached(&current_text, requested) {
-            return Ok(DeliveryOutcome::DeliveredVerified);
+            return Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified));
         }
         if (current - start).abs() >= f64::EPSILON {
             return Err(chain_verify::increment_step_limit_error(
@@ -137,7 +137,7 @@ mod imp {
                 if error.disposition == agent_desktop_core::DeliverySemantics::uncertain()
                     && focus_write_had_effect(element, attribute, value, deadline) =>
             {
-                return Ok(DeliveryOutcome::DeliveredVerified);
+                return Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified));
             }
             Err(error) => return Err(error),
         };

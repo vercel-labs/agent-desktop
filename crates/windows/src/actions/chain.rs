@@ -6,13 +6,16 @@
 //! SelectionItem, ScrollItem on proxied controls) activates the target's
 //! window on every provider measured (W-W0-6, W-W0-7), so those rungs declare
 //! that effect and core runs them only when the policy allows it. The
-//! LegacyIAccessible and Win32 message rungs change no foreground state and
-//! run first in both modes. Core stops at the first rung that delivers or
-//! finds the target already satisfied, and refuses with `POLICY_DENIED` when
-//! nothing was delivered and a rung was held back for its effect.
+//! LegacyIAccessible and Win32 message rungs change no foreground state. The
+//! verifiable pattern rungs are listed first, so in headed mode they run
+//! first and Legacy is the fallback; in headless mode the pattern rungs are
+//! held back and Legacy runs alone. Core stops at the first rung that
+//! delivers or finds the target already satisfied, and refuses with
+//! `POLICY_DENIED` when nothing was delivered and a rung was held back for
+//! its effect.
 
 use agent_desktop_core::{
-    AdapterError, ChainRung, Deadline, DeliveryOutcome, DeliverySemantics, Effect,
+    AdapterError, ChainRung, Deadline, DeliveryOutcome, DeliverySemantics, Effect, StepMechanism,
 };
 use std::time::{Duration, Instant};
 
@@ -90,6 +93,7 @@ pub(crate) fn rung<'a>(
         } else {
             &[]
         },
+        mechanism: StepMechanism::SemanticApi,
         run: Box::new(run),
     })
 }

@@ -324,7 +324,8 @@ impl<'a, S: TreeSource> TreeWalk<'a, S> {
 /// Builds the structured error a failed enumeration surfaces.
 ///
 /// Shape only: the failure's own HRESULT or sentinel, which axis faulted, how
-/// deep the walk was, and how many siblings had been retired. No name, class
+/// deep the walk was, and how many siblings had been retired, beside the
+/// `complete` and `retryable` disposition `uia_failure_error` stamps. No name, class
 /// name, property value, window title, or provider description may enter here —
 /// adapter error text is cloned into session trace segments and the trace HTML
 /// export, so anything baked in is persisted.

@@ -18,6 +18,7 @@ pub(crate) mod scroll_ladder;
 pub(crate) mod scroll_list_box;
 pub(crate) mod select;
 pub(crate) mod select_combo;
+pub(crate) mod select_container;
 pub(crate) mod select_search;
 pub(crate) mod toggle_state;
 pub(crate) mod value_write;

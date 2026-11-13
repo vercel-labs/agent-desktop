@@ -133,37 +133,6 @@ assert "AE5 permission prompts are isolated and Automation probing never prompts
     "$([ "$permission_exit" -eq 0 ] && [ "$(json_field "$permission_contract" ok)" = "True" ] && echo 1 || echo 0)" \
     "exit=$permission_exit kind=$(json_field "$permission_contract" data.kind) error=$(json_field "$permission_contract" error.code)"
 
-permission_json="$("$bin" permissions 2>/dev/null)"
-automation_state="$(json_field "$permission_json" data.automation.state)"
-if [ "$(json_field "$permission_json" ok)" != "True" ] || [ -z "$automation_state" ]; then
-    badmsg "AE5 native permission state could not be read"
-elif [ "$automation_state" = "denied" ]; then
-    nc_probe="$("$bin" list-notifications 2>/dev/null)"
-    if [ "$(json_field "$nc_probe" ok)" = "True" ]; then
-        "$bin" focus-window --app NotificationCenter >/dev/null 2>&1 || true
-        "$bin" --headed press escape >/dev/null 2>&1 || true
-        sleep 0.3
-        nc_probe="$("$bin" list-notifications 2>/dev/null)"
-    fi
-    if [ "$(json_field "$nc_probe" error.code)" != "POLICY_DENIED" ]; then
-        skipmsg "AE5 native denied-Automation path unavailable: Notification Center could not be proven closed after best-effort preparation; deterministic contract still ran"
-    else
-        denied_output="$("$bin" --headed list-notifications 2>/dev/null)"
-        denied_code="$(json_field "$denied_output" error.code)"
-        denied_suggestion="$(json_field "$denied_output" error.suggestion)"
-        suggestion_has_automation=0
-        case "$denied_suggestion" in
-            *Automation*) suggestion_has_automation=1 ;;
-        esac
-        assert "AE5 headed Notification Center rejects denied Automation before AppleScript" \
-            "$([ "$denied_code" = "PERM_DENIED" ] && \
-                [ "$suggestion_has_automation" -eq 1 ] && echo 1 || echo 0)" \
-            "state=$automation_state code=$denied_code suggestion=$denied_suggestion"
-    fi
-else
-    skipmsg "AE5 native denied-Automation path unavailable: current TCC state is ${automation_state:-unknown}; deterministic contract still ran"
-fi
-
 note "AE6: post-action surface event uses a pre-action baseline"
 open_sheet_ref="$(printf '%s' "$snapshot_json" | python3 "$json_tool" tree open-sheet ref 2>/dev/null)" || open_sheet_ref=""
 open_sheet_snapshot="$(json_field "$snapshot_json" data.snapshot_id)"

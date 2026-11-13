@@ -1,6 +1,6 @@
-use agent_desktop_core::{Action, ActionRequest, AdapterError, Deadline, HeadedRequirement};
+use agent_desktop_core::{Action, ActionRequest, AdapterError, Deadline, DeclaredEffect, Effect};
 
-use super::{headed_requirement, takes_foreground};
+use super::{foreground_effect, takes_foreground};
 use crate::tree::Field;
 use crate::tree::capabilities::action_read::NodeView;
 use crate::tree::properties::toolkit_trust::ToolkitKind::{self, Gtk3, Gtk4, Other, Qt};
@@ -11,6 +11,15 @@ use crate::tree::vocabulary::state_bits::{HAS_POPUP, SHOWING};
 /// A node as pinned on linuxbox: role, name, actions, whether it carries
 /// HAS_POPUP and whether it offers Selection.
 type Node = (u32, &'static str, &'static [&'static str], bool, bool);
+
+/// An action on a node of a toolkit, its owner, and the reason expected.
+type Row = (
+    Action,
+    Node,
+    ToolkitKind,
+    Option<Node>,
+    Option<&'static str>,
+);
 
 fn view((role, name, actions, popup, selection): Node) -> NodeView {
     let mut read = read_of(role, name, actions);
@@ -35,40 +44,64 @@ const TEST: Node = (PUSH_BUTTON, "Test…", &["Click"], false, false);
 /// One row per element measured in wave0 (C2, C3, L-W0-11 to L-W0-13).
 #[test]
 fn each_measured_element_is_refused_exactly_when_it_took_the_foreground() {
-    let rows: [(Action, Node, ToolkitKind, Option<Node>, bool); 16] = [
+    let rows: [Row; 16] = [
         (
             Action::Select("Gradians".into()),
             DROP_DOWN,
             Gtk4,
             None,
-            true,
+            Some("opens_popup"),
         ),
-        (Action::Expand, DROP_DOWN, Gtk4, None, true),
-        (Action::Click, TOGGLE, Gtk4, Some(DROP_DOWN), true),
-        (Action::Click, TOGGLE, Gtk4, Some(MENU_BUTTON), true),
-        (Action::Click, TOGGLE, Gtk3, Some(MENU_BUTTON), false),
+        (Action::Expand, DROP_DOWN, Gtk4, None, Some("opens_popup")),
+        (
+            Action::Click,
+            TOGGLE,
+            Gtk4,
+            Some(DROP_DOWN),
+            Some("opens_popup"),
+        ),
+        (
+            Action::Click,
+            TOGGLE,
+            Gtk4,
+            Some(MENU_BUTTON),
+            Some("opens_popup"),
+        ),
+        (Action::Click, TOGGLE, Gtk3, Some(MENU_BUTTON), None),
         (
             Action::Select("Speakers".into()),
             (COMBO_BOX, "Output Device", &[], false, true),
             Gtk4,
             None,
-            false,
+            None,
         ),
-        (Action::Click, MENU_BAR_ENTRY, Qt, None, true),
-        (Action::RightClick, MENU_BAR_ENTRY, Qt, None, true),
-        (Action::Click, MENU_BAR_ENTRY, Gtk3, None, true),
+        (Action::Click, MENU_BAR_ENTRY, Qt, None, Some("shows_menu")),
+        (
+            Action::RightClick,
+            MENU_BAR_ENTRY,
+            Qt,
+            None,
+            Some("shows_menu"),
+        ),
+        (
+            Action::Click,
+            MENU_BAR_ENTRY,
+            Gtk3,
+            None,
+            Some("shows_menu"),
+        ),
         (
             Action::Click,
             (MENU_ITEM, "Show Path in Titlebar", &["Press"], false, false),
             Qt,
             None,
-            false,
+            None,
         ),
-        (Action::Click, CONFIGURE, Qt, None, true),
-        (Action::Click, CONFIGURE, Other, None, true),
-        (Action::RightClick, CONFIGURE, Qt, None, false),
-        (Action::Click, TEST, Gtk4, None, true),
-        (Action::Click, TEST, Gtk3, None, false),
+        (Action::Click, CONFIGURE, Qt, None, Some("opens_dialog")),
+        (Action::Click, CONFIGURE, Other, None, Some("opens_dialog")),
+        (Action::RightClick, CONFIGURE, Qt, None, None),
+        (Action::Click, TEST, Gtk4, None, Some("opens_dialog")),
+        (Action::Click, TEST, Gtk3, None, None),
         (
             Action::Check,
             (
@@ -80,7 +113,7 @@ fn each_measured_element_is_refused_exactly_when_it_took_the_foreground() {
             ),
             Gtk4,
             None,
-            false,
+            None,
         ),
     ];
     for (action, element, toolkit, owner, expected) in rows {
@@ -104,19 +137,25 @@ fn a_field_the_read_could_not_answer_never_proves_an_action_safe() {
         (Action::Expand, no_states, Gtk4),
     ] {
         let none = || Ok::<_, AdapterError>(None);
-        assert!(takes_foreground(&action, &view_of(read), toolkit, none).unwrap());
+        let takes = takes_foreground(&action, &view_of(read), toolkit, none).unwrap();
+        assert!(takes.is_some());
     }
 }
 
 #[test]
-fn a_headless_focus_needs_the_application_and_a_headed_one_keeps_its_requirement() {
+fn a_headless_focus_takes_the_foreground_and_a_policy_that_allows_it_reads_nothing() {
     let bus = crate::system::SharedBus::default();
     let handle = crate::tree::AtspiElement::new(":1.9", "/item", 9).into_native_handle();
     let deadline = Deadline::standard().unwrap();
-    let headless = ActionRequest::headless(Action::SetFocus);
-    let headed = ActionRequest::headed(Action::SetFocus);
-    let of =
-        |request: &ActionRequest| headed_requirement(&bus, &handle, request, deadline).unwrap();
-    assert_eq!(of(&headless), HeadedRequirement::FocusedApplication);
-    assert_eq!(of(&headed), headed.headed_requirement());
+    let of = |request: ActionRequest| foreground_effect(&bus, &handle, &request, deadline).unwrap();
+    assert_eq!(
+        of(ActionRequest::headless(Action::SetFocus)),
+        Some(DeclaredEffect {
+            effect: Effect::FocusSteal,
+            kind: "focus",
+        })
+    );
+    assert_eq!(of(ActionRequest::headed(Action::SetFocus)), None);
+    assert_eq!(of(ActionRequest::focus_fallback(Action::SetFocus)), None);
+    assert_eq!(of(ActionRequest::headed(Action::Click)), None);
 }

@@ -30,10 +30,10 @@ mod imp {
         VALUE_WRITE_SUGGESTION, offered, rung,
     };
     use crate::actions::chain::{after_delivery, legacy_set_value, poll_until};
-    use agent_desktop_core::DeliveryObservation;
 
     /// How long a Legacy `SetValue` gets to show the value before the write
-    /// counts as acknowledged with no effect, so a headed pattern rung may try.
+    /// counts as acknowledged with no observed effect and ends the chain
+    /// unverified.
     const LEGACY_SETTLE: std::time::Duration = std::time::Duration::from_millis(600);
     use crate::actions::mutation::{classify_success, classify_write};
     use crate::tree::properties::element_properties::ElementProperties;
@@ -50,12 +50,14 @@ mod imp {
         set_value_steps(element, "", policy, deadline)
     }
 
-    /// Writes `value` through LegacyIAccessible `SetValue`, which lands with
+    /// Writes `value` through ValuePattern or RangeValuePattern, which
+    /// activate the window and are headed rungs, so they run first when the
+    /// policy allows the foreground. LegacyIAccessible `SetValue` follows as
+    /// the fallback and is the only rung that runs headless; it lands with
     /// no foreground change on Win32 and RichEdit edits, WinForms and WPF
-    /// text boxes, a WinForms TrackBar and a WPF Slider (C4, P2), then
-    /// through ValuePattern or RangeValuePattern, which activate the window
-    /// and are headed rungs. Every delivery is verified by re-reading the
-    /// value through the IsPassword gate.
+    /// text boxes, a WinForms TrackBar and a WPF Slider (C4, P2). Every
+    /// delivery is verified by re-reading the value through the IsPassword
+    /// gate.
     pub(crate) fn set_value_steps(
         element: &UIAElement,
         value: &str,
@@ -89,10 +91,7 @@ mod imp {
                 !matches!(last, Ok(Some(false)))
             })
             .map_err(after_delivery)?;
-            Ok(match last.map_err(after_delivery)? {
-                Some(false) => DeliveryOutcome::Delivered(DeliveryObservation::NoEffect),
-                read => DeliveryOutcome::observed(read),
-            })
+            Ok(DeliveryOutcome::observed(last.map_err(after_delivery)?))
         };
         let mut text = || observe(invoke_value_set(element, value)?);
         let mut range = || match parsed {
@@ -101,9 +100,9 @@ mod imp {
         };
         agent_desktop_core::execute_chain(
             &mut offered([
-                rung(LEGACY_VALUE_LABEL, text_ok || range_ok, false, &mut legacy),
                 rung(VALUE_LABEL, text_ok, true, &mut text),
                 rung(RANGE_LABEL, range_ok, true, &mut range),
+                rung(LEGACY_VALUE_LABEL, text_ok || range_ok, false, &mut legacy),
             ]),
             policy,
             deadline,

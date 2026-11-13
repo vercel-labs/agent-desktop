@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use agent_desktop_core::{
     Action, ActionResult, AdapterError, ChainRung, DeliveryOutcome, DeliverySemantics, ErrorCode,
+    StepMechanism,
 };
 use serde_json::json;
 
@@ -86,6 +87,7 @@ pub(crate) fn focus(target: &Target<'_>) -> Result<ActionResult, AdapterError> {
     let mut rungs = [ChainRung {
         label: GRAB_FOCUS_LABEL,
         effects: &[],
+        mechanism: StepMechanism::SemanticApi,
         run: Box::new(run),
     }];
     run_semantic_chain(

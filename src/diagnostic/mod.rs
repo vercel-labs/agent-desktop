@@ -1,3 +1,5 @@
+const UNKNOWN_COMMAND_NAME: &str = "unknown";
+
 pub(crate) fn clap_command_name(args: impl IntoIterator<Item = String>) -> String {
     let command = crate::root_command();
     let global_flags: Vec<_> = command
@@ -58,7 +60,7 @@ pub(crate) fn clap_command_name(args: impl IntoIterator<Item = String>) -> Strin
             return name.clone();
         }
     }
-    "unknown".to_owned()
+    UNKNOWN_COMMAND_NAME.to_owned()
 }
 
 pub(crate) fn bounded_text(text: &str, max_chars: usize) -> String {
@@ -107,6 +109,37 @@ pub(crate) fn clap_error_summary(message: &str) -> String {
         return "parse error".to_owned();
     }
     summary
+}
+
+/// Builds the `suggestion` for a clap parse failure: every `tip:` line clap
+/// printed, its `Usage:` line, then a pointer at the subcommand's `--help`.
+/// `command_name` is `clap_command_name`'s result; `UNKNOWN_COMMAND_NAME`
+/// means no subcommand was identified, so the `--help` sentence is dropped.
+/// `None` when clap printed neither a tip nor a usage line.
+pub(crate) fn clap_error_suggestion(message: &str, command_name: &str) -> Option<String> {
+    let mut tips = Vec::new();
+    let mut usage = None;
+    for line in message.lines() {
+        let line = line.trim();
+        if line.starts_with("tip:") {
+            tips.push(line.to_owned());
+        } else if usage.is_none() && line.starts_with("Usage:") {
+            usage = Some(line.to_owned());
+        }
+    }
+    if tips.is_empty() && usage.is_none() {
+        return None;
+    }
+    let mut parts = tips;
+    if let Some(usage) = usage {
+        parts.push(usage);
+    }
+    if command_name != UNKNOWN_COMMAND_NAME {
+        parts.push(format!(
+            "Run `agent-desktop {command_name} --help` for every argument."
+        ));
+    }
+    Some(parts.join("\n"))
 }
 
 #[cfg(test)]

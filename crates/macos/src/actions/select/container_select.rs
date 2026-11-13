@@ -61,10 +61,9 @@ fn verify_selection(
 
 #[cfg(target_os = "macos")]
 mod imp {
-    use agent_desktop_core::{AdapterError, Deadline};
+    use agent_desktop_core::{AdapterError, Deadline, DeliveryObservation, DeliveryOutcome};
     use core_foundation::{array::CFArray, base::TCFType};
 
-    use crate::actions::chain::chain_delivery::DeliveryOutcome;
     use crate::tree::AXElement;
 
     use super::{SELECTED, SELECTION_ATTRIBUTES};
@@ -96,7 +95,7 @@ mod imp {
         deadline: Deadline,
     ) -> Result<DeliveryOutcome, AdapterError> {
         if select_member_directly(element, deadline)? {
-            return Ok(DeliveryOutcome::DeliveredVerified);
+            return Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified));
         }
         if element_activates_by_selection(element, deadline) {
             return select_in_ancestor_containers(element, deadline);
@@ -118,7 +117,7 @@ mod imp {
                 return Ok(DeliveryOutcome::NotDelivered);
             };
             if select_member_in_container(&parent, element, deadline)? {
-                return Ok(DeliveryOutcome::DeliveredVerified);
+                return Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified));
             }
             container = parent;
         }
@@ -137,11 +136,11 @@ mod imp {
                 return Ok(DeliveryOutcome::NotDelivered);
             };
             if select_member_in_container(&parent, &member, deadline)? {
-                return Ok(DeliveryOutcome::DeliveredVerified);
+                return Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified));
             }
             member = parent;
             if select_member_directly(&member, deadline)? {
-                return Ok(DeliveryOutcome::DeliveredVerified);
+                return Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified));
             }
         }
         Ok(DeliveryOutcome::NotDelivered)

@@ -47,10 +47,10 @@ pub(crate) fn synthesize_text(
                 DeliverySemantics::delivered_unverified()
             };
             error
-                .with_details(serde_json::json!({
-                    "delivered_chunks": delivered_chunks,
-                    "total_chunks": total,
-                }))
+                .with_details(agent_desktop_core::text_chunk_progress(
+                    delivered_chunks,
+                    total,
+                ))
                 .with_disposition(disposition)
         })?;
         post_keyboard_inputs(&chunk_events(&chunk));

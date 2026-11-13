@@ -177,6 +177,40 @@ fn execute_rejects_an_incomplete_live_traversal_with_structured_evidence() {
     assert_eq!(error.details.as_ref().unwrap()["observed_matches"], 0);
 }
 
+/// The measured case: the walk finished in time and hit no limit, but some
+/// native reads failed. More time cannot change that, so the caller must not
+/// be told to raise `--timeout-ms`.
+#[test]
+fn unreadable_elements_reach_the_caller_without_a_raise_the_timeout_suggestion() {
+    let _guard = HomeGuard::new();
+    let adapter = LiveFindAdapter::with_failed_reads(2);
+
+    let error = execute(
+        named_find("w-1", "missing"),
+        &adapter,
+        &CommandContext::default(),
+    )
+    .expect_err("an incomplete result is not authoritative");
+
+    let AppError::Adapter(error) = error else {
+        panic!("expected adapter error");
+    };
+    assert_eq!(error.code, crate::ErrorCode::Timeout);
+    let suggestion = error.suggestion.expect("a timeout carries a suggestion");
+    assert!(
+        suggestion.contains("More time will not help"),
+        "{suggestion}"
+    );
+    assert!(!suggestion.contains("Raise --timeout-ms"), "{suggestion}");
+    let details = error
+        .details
+        .expect("an incomplete locator carries details");
+    assert_eq!(details["kind"], "locator_incomplete");
+    assert_eq!(details["cause"], "unreadable_elements");
+    assert_eq!(details["retryable"], false);
+    assert_eq!(details["query_stats"]["reads"]["native_read_failures"], 2);
+}
+
 #[test]
 fn count_uses_live_evidence_without_creating_a_snapshot() {
     let _guard = HomeGuard::new();

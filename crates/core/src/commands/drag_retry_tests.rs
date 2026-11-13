@@ -273,6 +273,7 @@ impl ActionOps for MutuallyOffscreenAdapter {
     fn scroll_into_view(
         &self,
         handle: &NativeHandle,
+        _policy: crate::InteractionPolicy,
         _lease: &crate::InteractionLease,
     ) -> Result<(), AdapterError> {
         self.visible_pid

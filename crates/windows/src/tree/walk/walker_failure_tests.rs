@@ -6,7 +6,9 @@ use crate::tree::walk::walker_fake::{FakeTree, budget, walk};
 
 /// The enumeration error carries shape and nothing else: no value, name, class
 /// name, window title, or provider description may reach a message that
-/// `ref_action.rs` clones into session trace segments.
+/// `ref_action.rs` clones into session trace segments. Its details are the
+/// enumeration's own shape keys and the UIA failure's disposition, `complete`
+/// and `retryable`, which the annotation keeps rather than erases.
 #[test]
 fn an_enumeration_error_carries_shape_only() {
     let fake = FakeTree::default()
@@ -23,7 +25,17 @@ fn an_enumeration_error_carries_shape_only() {
         .expect("a details object")
         .keys()
         .collect();
-    assert_eq!(keys, ["axis", "child_index", "kind", "raw_depth"]);
+    assert_eq!(
+        keys,
+        [
+            "axis",
+            "child_index",
+            "complete",
+            "kind",
+            "raw_depth",
+            "retryable"
+        ]
+    );
     assert_eq!(
         details["axis"], "first_child",
         "the axis names which enumeration call failed; a key-presence check accepts either name"

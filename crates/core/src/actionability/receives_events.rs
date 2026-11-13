@@ -4,6 +4,7 @@ use super::{
     check_result::{occluded, pass, unknown},
     hit_test_evidence::HitTestEvidence,
     report::ActionabilityReport,
+    suggestion::ACTION_FAILED_SUGGESTION,
 };
 use crate::{
     AdapterError, ErrorCode, Point,
@@ -108,8 +109,6 @@ pub(crate) fn require_receives_events(
         format!("Target is not actionable: {}", report.failure_reasons()),
     )
     .with_details(json!(report))
-    .with_suggestion(
-        "Wait for the target to become actionable, refresh the snapshot, or use an explicit physical/focus command if intended.",
-    )
+    .with_suggestion(ACTION_FAILED_SUGGESTION)
     .with_disposition(crate::DeliverySemantics::not_delivered()))
 }

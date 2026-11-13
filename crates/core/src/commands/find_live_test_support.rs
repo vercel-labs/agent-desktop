@@ -35,6 +35,7 @@ pub(crate) struct LiveFindAdapter {
     token_root: bool,
     token_matches: bool,
     unread_member: bool,
+    failed_reads: u64,
     window_reads: std::sync::atomic::AtomicUsize,
 }
 
@@ -46,6 +47,7 @@ impl LiveFindAdapter {
             token_root: false,
             token_matches: false,
             unread_member: false,
+            failed_reads: 0,
             window_reads: Default::default(),
         }
     }
@@ -55,6 +57,21 @@ impl LiveFindAdapter {
             structurally_complete: false,
             ..Self::complete()
         }
+    }
+
+    /// An incomplete window whose observation counted `failed_reads` native
+    /// reads that failed, with no deadline or traversal limit involved.
+    pub(crate) fn with_failed_reads(failed_reads: u64) -> Self {
+        Self {
+            failed_reads,
+            ..Self::incomplete()
+        }
+    }
+
+    fn observed_stats(&self) -> LocatorStats {
+        let mut stats = LocatorStats::default();
+        stats.reads.health.native_read_failures = self.failed_reads;
+        stats
     }
 
     pub(crate) fn with_framed_label() -> Self {
@@ -180,7 +197,7 @@ impl ObservationOps for LiveFindAdapter {
         ObservedTree::from_roots(
             vec![root_node],
             ObservationSource::from_root(&root, request.surface),
-            LocatorStats::default(),
+            self.observed_stats(),
             self.structurally_complete,
         )
     }

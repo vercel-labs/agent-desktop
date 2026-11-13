@@ -214,6 +214,7 @@ pub(in crate::actions) fn select_in_popup(
         return Err(agent_desktop_core::foreground_denied(
             "Opening this drop-down takes the keyboard, which the interaction policy does not allow",
             "popup",
+            "select",
             agent_desktop_core::InteractionPolicy::headless(),
         ));
     }

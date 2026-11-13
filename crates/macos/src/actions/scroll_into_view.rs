@@ -1,9 +1,9 @@
 #[cfg(target_os = "macos")]
 mod imp {
-    use crate::actions::chain::chain_delivery::DeliveryOutcome;
     use crate::tree::AXElement;
     use agent_desktop_core::{
-        AdapterError, Deadline, DeliverySemantics, Direction, ErrorCode, InteractionPolicy, Rect,
+        AdapterError, Deadline, DeliveryObservation, DeliveryOutcome, DeliverySemantics, Direction,
+        ErrorCode, InteractionPolicy, Rect,
     };
     use std::time::{Duration, Instant};
 
@@ -21,12 +21,10 @@ mod imp {
         deadline: Deadline,
     ) -> Result<DeliveryOutcome, AdapterError> {
         match scroll_to_verified(element, deadline)? {
-            outcome @ (DeliveryOutcome::SatisfiedNoDelivery
-            | DeliveryOutcome::DeliveredVerified) => Ok(outcome),
-            DeliveryOutcome::NotDelivered | DeliveryOutcome::DeliveredWithoutEffect => {
-                scroll_ancestor_until_visible(element, deadline)
-            }
-            DeliveryOutcome::DeliveredUnverified => Err(unverified_scroll_error()),
+            outcome @ (DeliveryOutcome::Satisfied
+            | DeliveryOutcome::Delivered(DeliveryObservation::Verified)) => Ok(outcome),
+            DeliveryOutcome::NotDelivered => scroll_ancestor_until_visible(element, deadline),
+            DeliveryOutcome::Delivered(_) => Err(unverified_scroll_error()),
         }
     }
 
@@ -48,9 +46,9 @@ mod imp {
                     )));
                 }
                 return Ok(if attempt == 0 {
-                    DeliveryOutcome::SatisfiedNoDelivery
+                    DeliveryOutcome::Satisfied
                 } else {
-                    DeliveryOutcome::DeliveredVerified
+                    DeliveryOutcome::Delivered(DeliveryObservation::Verified)
                 });
             };
             let parent = crate::actions::scroll_read::element(element, "AXParent", deadline)
@@ -175,7 +173,7 @@ mod imp {
         let local_end = Instant::now() + Duration::from_millis(800);
         loop {
             if visible_through_ancestors(element, deadline).map_err(after_delivery)? {
-                return Ok(DeliveryOutcome::DeliveredVerified);
+                return Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified));
             }
             if deadline.is_expired() {
                 return Err(after_delivery(deadline.timeout_error().with_details(

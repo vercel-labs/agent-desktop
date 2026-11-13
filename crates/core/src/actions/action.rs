@@ -28,7 +28,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub fn headed_requirement(&self) -> crate::HeadedRequirement {
+    pub fn headed_focus(&self) -> crate::HeadedFocus {
         match self {
             Self::Click
             | Self::DoubleClick
@@ -36,7 +36,7 @@ impl Action {
             | Self::TripleClick
             | Self::Scroll(_, _)
             | Self::Hover
-            | Self::Drag(_) => crate::HeadedRequirement::FocusedWindowAndCursor,
+            | Self::Drag(_) => crate::HeadedFocus::WindowAndCursor,
             Self::SetValue(_)
             | Self::SetFocus
             | Self::Expand
@@ -50,7 +50,7 @@ impl Action {
             | Self::KeyDown(_)
             | Self::KeyUp(_)
             | Self::TypeText(_)
-            | Self::Clear => crate::HeadedRequirement::FocusedWindow,
+            | Self::Clear => crate::HeadedFocus::Window,
         }
     }
 

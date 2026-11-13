@@ -1,6 +1,6 @@
 use agent_desktop_core::{
     Action, ActionResult, AdapterError, ChainRung, Deadline, DeliveryObservation, DeliveryOutcome,
-    InteractionLease, NativeHandle,
+    InteractionLease, NativeHandle, StepMechanism,
 };
 
 use crate::actions::chain::run_semantic_chain;
@@ -66,6 +66,7 @@ pub(crate) fn scroll_with(
     let mut rungs = [ChainRung {
         label: SCROLL_LABEL,
         effects: &[],
+        mechanism: StepMechanism::SemanticApi,
         run: Box::new(run),
     }];
     run_semantic_chain(&Action::ScrollTo, &mut rungs, deadline, SUGGESTION)

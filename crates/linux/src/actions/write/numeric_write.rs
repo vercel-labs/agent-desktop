@@ -1,5 +1,6 @@
 use agent_desktop_core::{
     AdapterError, ChainRung, DeliveryObservation, DeliveryOutcome, DeliverySemantics, ErrorCode,
+    StepMechanism,
 };
 
 use super::mutation::WriteReply;
@@ -88,6 +89,7 @@ pub(crate) fn write_rungs(port: &dyn NumericPort, plan: Plan) -> Vec<ChainRung<'
     vec![ChainRung {
         label: VALUE_LABEL,
         effects: &[],
+        mechanism: StepMechanism::SemanticApi,
         run: Box::new(write),
     }]
 }

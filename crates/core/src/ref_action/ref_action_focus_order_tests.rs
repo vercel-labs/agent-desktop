@@ -141,29 +141,29 @@ impl ObservationOps for FocusAdapter {
 }
 
 impl ActionOps for FocusAdapter {
-    fn headed_requirement_for_ref(
+    fn headed_focus_for_ref(
         &self,
         _: &RefEntry,
         request: &ActionRequest,
         deadline: Deadline,
-    ) -> Result<crate::HeadedRequirement, AdapterError> {
-        self.headed_requirement(&NativeHandle::null(), request, deadline)
+    ) -> Result<Option<crate::HeadedFocus>, AdapterError> {
+        self.headed_focus(&NativeHandle::null(), request, deadline)
     }
 
-    fn headed_requirement(
+    fn headed_focus(
         &self,
         _: &NativeHandle,
         request: &ActionRequest,
         _: Deadline,
-    ) -> Result<crate::HeadedRequirement, AdapterError> {
+    ) -> Result<Option<crate::HeadedFocus>, AdapterError> {
         Ok(if self.application_menu && request.policy.is_headed() {
-            if self.pointer_menu.is_some() {
-                crate::HeadedRequirement::FocusedApplicationAndCursor
+            Some(if self.pointer_menu.is_some() {
+                crate::HeadedFocus::ApplicationAndCursor
             } else {
-                crate::HeadedRequirement::FocusedApplication
-            }
+                crate::HeadedFocus::Application
+            })
         } else {
-            request.headed_requirement()
+            request.headed_focus()
         })
     }
 

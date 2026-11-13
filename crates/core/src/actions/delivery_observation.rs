@@ -1,12 +1,9 @@
-/// What a rung read back after it delivered the action. Only the rung knows
-/// whether its read-back settled, so it decides between `NoEffect` and
-/// `Unverified`.
+/// What a rung read back after it delivered the action. Every one ends the
+/// chain: a send whose effect is not seen yet may still land.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliveryObservation {
     /// The expected effect is observed.
     Verified,
-    /// A settled read-back saw nothing change, so a later rung may try.
-    NoEffect,
     /// The read-back did not show the effect but cannot prove that nothing
     /// changed; another rung could act twice.
     Unverified,
@@ -29,7 +26,7 @@ impl DeliveryObservation {
     pub fn verified(self) -> Option<bool> {
         match self {
             Self::Verified => Some(true),
-            Self::NoEffect | Self::Unverified => Some(false),
+            Self::Unverified => Some(false),
             Self::Unread => None,
         }
     }

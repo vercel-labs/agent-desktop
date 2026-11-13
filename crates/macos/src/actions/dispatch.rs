@@ -7,31 +7,29 @@ use agent_desktop_core::{
 mod imp {
     use super::*;
     use crate::actions::{
-        chain::chain_defs,
-        chain::{ChainContext, ChainDef, execute_chain},
+        chain::chain_run::run_chain,
+        chain::{ChainContext, chain_defs},
         toggle_state,
     };
     use crate::tree::AXElement;
+
+    const DISCLOSURE_SUGGESTION: &str = "Target a control with a readable expandable state.";
+    const MULTI_CLICK_SUGGESTION: &str = "Use a headed physical double-click or triple-click; the semantic routes cannot repeat a click.";
 
     pub(crate) fn perform_action(
         el: &AXElement,
         request: &ActionRequest,
         deadline: Deadline,
     ) -> Result<ActionResult, AdapterError> {
-        let budget = ChainContext {
+        let ctx = ChainContext {
             dynamic_value: None,
             verified_point: request.verified_point(),
             deadline,
+            policy: request.policy,
         };
         crate::tree::properties::attributes::set_messaging_timeout(el, deadline)?;
-        budget.ensure_budget()?;
+        deadline.ensure_remaining()?;
         let action = &request.action;
-        crate::actions::background_effect::refuse_disturbing_action(
-            el,
-            action,
-            request.policy,
-            deadline,
-        )?;
         let label = action.name();
         let mut steps = Vec::new();
         tracing::debug!("action: perform {label}");
@@ -40,26 +38,34 @@ mod imp {
                 let native_menu = crate::tree::native_menu::presses_like_a_menu(el, deadline)?
                     || (request.policy.is_headed()
                         && probe_click_role(el, deadline)?.as_deref() == Some("AXMenuBarItem"));
+                let suggestion = if native_menu {
+                    "Refresh the menu snapshot and target an item that supports AXPress."
+                } else {
+                    "Target an element that advertises Click or use an explicit point click."
+                };
                 steps.extend(run_chain(
                     el,
-                    chain_defs::click_chain(native_menu),
-                    None,
-                    request,
-                    deadline,
+                    &ctx,
+                    chain_defs::click_rungs(el, &ctx, native_menu),
+                    suggestion,
                 )?);
             }
 
             Action::DoubleClick => {
-                steps.extend(chain_defs::double_click(el, request, deadline)?);
+                steps.extend(run_chain(
+                    el,
+                    &ctx,
+                    chain_defs::multi_click_rungs(el, &ctx, 2),
+                    MULTI_CLICK_SUGGESTION,
+                )?);
             }
 
             Action::RightClick => {
                 steps.extend(run_chain(
                     el,
-                    &chain_defs::RIGHT_CLICK_CHAIN,
-                    None,
-                    request,
-                    deadline,
+                    &ctx,
+                    chain_defs::right_click_rungs(el, &ctx),
+                    "Try 'mouse-click --button right --xy X,Y'.",
                 )?);
             }
 
@@ -69,22 +75,24 @@ mod imp {
 
             Action::SetValue(val) => {
                 crate::actions::chain::chain_value_write::refuse_file_name_field(el, deadline)?;
+                let valued = ChainContext {
+                    dynamic_value: Some(val.as_str()),
+                    ..ctx
+                };
                 steps.extend(run_chain(
                     el,
-                    &chain_defs::SET_VALUE_CHAIN,
-                    Some(val),
-                    request,
-                    deadline,
+                    &valued,
+                    chain_defs::set_value_rungs(el, &valued),
+                    "Target an element with a settable value or native increment/decrement actions.",
                 )?);
             }
 
             Action::SetFocus => {
                 steps.extend(run_chain(
                     el,
-                    &chain_defs::FOCUS_CHAIN,
-                    None,
-                    request,
-                    deadline,
+                    &ctx,
+                    chain_defs::focus_rungs(el, &ctx),
+                    "Target an element whose AXFocused attribute is settable.",
                 )?);
             }
 
@@ -112,20 +120,18 @@ mod imp {
             Action::Expand => {
                 steps.extend(run_chain(
                     el,
-                    &chain_defs::EXPAND_CHAIN,
-                    None,
-                    request,
-                    deadline,
+                    &ctx,
+                    chain_defs::expand_rungs(el, &ctx),
+                    DISCLOSURE_SUGGESTION,
                 )?);
             }
 
             Action::Collapse => {
                 steps.extend(run_chain(
                     el,
-                    &chain_defs::COLLAPSE_CHAIN,
-                    None,
-                    request,
-                    deadline,
+                    &ctx,
+                    chain_defs::collapse_rungs(el, &ctx),
+                    DISCLOSURE_SUGGESTION,
                 )?);
             }
 
@@ -177,27 +183,34 @@ mod imp {
             }
 
             Action::TripleClick => {
-                steps.extend(chain_defs::triple_click(el, request, deadline)?);
+                steps.extend(run_chain(
+                    el,
+                    &ctx,
+                    chain_defs::multi_click_rungs(el, &ctx, 3),
+                    MULTI_CLICK_SUGGESTION,
+                )?);
             }
 
             Action::ScrollTo => {
                 steps.extend(run_chain(
                     el,
-                    &chain_defs::SCROLL_TO_CHAIN,
-                    None,
-                    request,
-                    deadline,
+                    &ctx,
+                    chain_defs::scroll_to_rungs(el, &ctx),
+                    "Target an element that advertises AXScrollToVisible.",
                 )?);
             }
 
             Action::Clear => {
                 crate::actions::chain::chain_value_write::refuse_file_name_field(el, deadline)?;
+                let cleared = ChainContext {
+                    dynamic_value: Some(""),
+                    ..ctx
+                };
                 steps.extend(run_chain(
                     el,
-                    &chain_defs::CLEAR_CHAIN,
-                    Some(""),
-                    request,
-                    deadline,
+                    &cleared,
+                    chain_defs::clear_rungs(el, &cleared),
+                    "Target an editable control or allow the verified keyboard fallback.",
                 )?);
             }
 
@@ -214,25 +227,6 @@ mod imp {
         }
 
         Ok(ActionResult::from_execution(action, steps))
-    }
-
-    fn run_chain(
-        element: &AXElement,
-        definition: &ChainDef,
-        dynamic_value: Option<&str>,
-        request: &ActionRequest,
-        deadline: Deadline,
-    ) -> Result<Vec<ActionStep>, AdapterError> {
-        execute_chain(
-            element,
-            definition,
-            &ChainContext {
-                dynamic_value,
-                verified_point: request.verified_point(),
-                deadline,
-            },
-            request.policy,
-        )
     }
 
     fn probe_click_role(

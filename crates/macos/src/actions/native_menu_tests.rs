@@ -2,8 +2,8 @@ use super::*;
 use agent_desktop_core::ErrorCode;
 
 #[test]
-fn headed_requirements_share_provenance_and_preserve_pointer_checks_for_gestures() {
-    use agent_desktop_core::{Action, ActionRequest, HeadedRequirement};
+fn headed_focus_shares_provenance_and_preserve_pointer_checks_for_gestures() {
+    use agent_desktop_core::{Action, ActionRequest, HeadedFocus};
     for action in [
         Action::Click,
         Action::RightClick,
@@ -11,32 +11,32 @@ fn headed_requirements_share_provenance_and_preserve_pointer_checks_for_gestures
         Action::TripleClick,
     ] {
         let request = ActionRequest::headed(action.clone());
-        let native = headed_requirement(&request, || Ok(true)).unwrap();
+        let native = headed_focus(&request, || Ok(true)).unwrap().unwrap();
         assert_eq!(
             native,
             if matches!(action, Action::Click) {
-                HeadedRequirement::FocusedApplication
+                HeadedFocus::Application
             } else {
-                HeadedRequirement::FocusedApplicationAndCursor
+                HeadedFocus::ApplicationAndCursor
             }
         );
-        assert_eq!(native.requires_cursor(), !matches!(action, Action::Click));
+        assert_eq!(native.uses_cursor(), !matches!(action, Action::Click));
         assert_eq!(
-            headed_requirement(&request, || Ok(false)).unwrap(),
-            HeadedRequirement::FocusedWindowAndCursor
+            headed_focus(&request, || Ok(false)).unwrap(),
+            Some(HeadedFocus::WindowAndCursor)
         );
-        let error = headed_requirement(&request, || {
+        let error = headed_focus(&request, || {
             Err(AdapterError::stale_ref_because("identity changed"))
         })
         .unwrap_err();
         assert_eq!(error.code, ErrorCode::StaleRef);
         let headless = ActionRequest::headless(action);
         assert_eq!(
-            headed_requirement(&headless, || panic!(
+            headed_focus(&headless, || panic!(
                 "headless requirement must not resolve"
             ))
             .unwrap(),
-            HeadedRequirement::None
+            None
         );
     }
 }
@@ -45,7 +45,7 @@ fn headed_requirements_share_provenance_and_preserve_pointer_checks_for_gestures
 fn non_pointer_headed_actions_do_not_probe_menu_ancestry() {
     let request = agent_desktop_core::ActionRequest::headed(agent_desktop_core::Action::SetFocus);
     assert_eq!(
-        headed_requirement(&request, || panic!("not a menu gesture")).unwrap(),
-        agent_desktop_core::HeadedRequirement::FocusedWindow
+        headed_focus(&request, || panic!("not a menu gesture")).unwrap(),
+        Some(agent_desktop_core::HeadedFocus::Window)
     );
 }

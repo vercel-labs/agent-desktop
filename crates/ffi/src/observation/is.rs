@@ -3,7 +3,7 @@ use crate::convert::string::required_adapter_string;
 use crate::error::{AdResult, set_last_error};
 use crate::ffi_try::trap_panic;
 use crate::types::{AdExactWindowInfo, AdFindQuery};
-use agent_desktop_core::{ObservationRoot, resolve_query};
+use agent_desktop_core::{ObservationRoot, incomplete_locator_error, resolve_query};
 use std::os::raw::c_char;
 
 enum SupportedProperty {
@@ -123,9 +123,7 @@ unsafe fn is_in_window(
         }
     } else {
         if !resolution.meta.selection_complete {
-            set_last_error(&agent_desktop_core::AdapterError::timeout(
-                "Locator traversal could not prove the selected result",
-            ));
+            set_last_error(&incomplete_locator_error(&resolution));
             return AdResult::ErrTimeout;
         }
         let Some(selected) = resolution.matches.into_iter().next() else {

@@ -189,7 +189,11 @@ fn incomplete_read_error(attribute: &str, reason: &str, error: i32) -> AdapterEr
         ErrorCode::AppUnresponsive,
         format!("Strict element resolution could not read {attribute}: {reason}"),
     )
-    .with_suggestion("Retry after the target application finishes updating its accessibility tree")
+    .with_suggestion(
+        "Retry after the target application finishes updating its accessibility tree. \
+         A large window can need more time than the budget allows, so retry the \
+         same command with a larger --timeout-ms.",
+    )
     .with_details(serde_json::json!({
         "kind": "resolution_ax_read",
         "attribute": attribute,

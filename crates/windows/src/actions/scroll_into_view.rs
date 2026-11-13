@@ -63,16 +63,6 @@ mod imp {
         pub(crate) outcome: DeliveryOutcome,
     }
 
-    /// The scroll core asks for during an action's actionability wait. The
-    /// adapter contract carries no interaction policy, so it runs only the
-    /// routes with no foreground effect.
-    pub fn scroll_into_view_impl(
-        handle: &NativeHandle,
-        lease: &InteractionLease,
-    ) -> Result<(), AdapterError> {
-        scroll_into_view_outcome(handle, lease, InteractionPolicy::headless()).map(|_| ())
-    }
-
     pub(crate) fn scroll_into_view_outcome(
         handle: &NativeHandle,
         lease: &InteractionLease,
@@ -367,13 +357,6 @@ mod imp {
         pub(crate) outcome: DeliveryOutcome,
     }
 
-    pub fn scroll_into_view_impl(
-        _handle: &NativeHandle,
-        _lease: &InteractionLease,
-    ) -> Result<(), AdapterError> {
-        Err(AdapterError::not_supported("scroll_into_view"))
-    }
-
     pub(crate) fn scroll_into_view_outcome(
         _handle: &NativeHandle,
         _lease: &InteractionLease,
@@ -383,7 +366,7 @@ mod imp {
     }
 }
 
-pub(crate) use imp::{scroll_into_view_impl, scroll_into_view_outcome};
+pub(crate) use imp::scroll_into_view_outcome;
 
 #[cfg(all(test, target_os = "windows"))]
 pub(crate) use crate::actions::scroll_ladder::{VisibilitySample, visibility_verified};

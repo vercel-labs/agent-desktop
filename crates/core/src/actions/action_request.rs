@@ -16,12 +16,9 @@ pub struct ActionRequest {
 }
 
 impl ActionRequest {
-    pub fn headed_requirement(&self) -> crate::HeadedRequirement {
-        if self.policy.is_headed() {
-            self.action.headed_requirement()
-        } else {
-            crate::HeadedRequirement::None
-        }
+    /// What the action focuses before delivery, when the policy is headed.
+    pub fn headed_focus(&self) -> Option<crate::HeadedFocus> {
+        self.policy.is_headed().then(|| self.action.headed_focus())
     }
 
     pub fn headless(action: Action) -> Self {
@@ -97,18 +94,15 @@ mod tests {
     }
 
     #[test]
-    fn headed_requirement_is_inert_until_the_caller_selects_headed_mode() {
+    fn headed_focus_is_inert_until_the_caller_selects_headed_mode() {
+        assert_eq!(ActionRequest::headless(Action::Click).headed_focus(), None);
         assert_eq!(
-            ActionRequest::headless(Action::Click).headed_requirement(),
-            crate::HeadedRequirement::None
+            ActionRequest::headed(Action::Click).headed_focus(),
+            Some(crate::HeadedFocus::WindowAndCursor)
         );
         assert_eq!(
-            ActionRequest::headed(Action::Click).headed_requirement(),
-            crate::HeadedRequirement::FocusedWindowAndCursor
-        );
-        assert_eq!(
-            ActionRequest::headed(Action::TypeText("text".into())).headed_requirement(),
-            crate::HeadedRequirement::FocusedWindow
+            ActionRequest::headed(Action::TypeText("text".into())).headed_focus(),
+            Some(crate::HeadedFocus::Window)
         );
     }
 
