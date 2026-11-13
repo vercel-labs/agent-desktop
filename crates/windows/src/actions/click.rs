@@ -26,7 +26,7 @@ mod imp {
         UIAElement, VERIFY_TIMEOUT,
     };
     use crate::actions::chain::{
-        INVOKE_LABEL, LEGACY_LABEL, after_delivery, invoke_available, invoke_pattern_delivered,
+        INVOKE_LABEL, LEGACY_LABEL, invoke_available, invoke_pattern_delivered,
         legacy_default_action, legacy_default_action_available, legacy_select, offered, poll_until,
         rung,
     };
@@ -47,8 +47,7 @@ mod imp {
             }
             let selected = poll_until(deadline, VERIFY_TIMEOUT, || {
                 read_one(element, TreeProperty::SelectionItemIsSelected).flag() == Some(true)
-            })
-            .map_err(after_delivery)?;
+            });
             Ok(DeliveryOutcome::from_delivery(true, selected))
         };
         let mut press = || {

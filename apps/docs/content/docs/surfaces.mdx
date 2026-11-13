@@ -88,7 +88,7 @@ To reach one item, `find --surface` is cheaper than a dump:
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "find",
   "data": {
@@ -137,7 +137,7 @@ agent-desktop list-surfaces --app gtk3-widget-factory
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "list-surfaces",
   "data": {
@@ -161,4 +161,4 @@ agent-desktop --headed open-system-surface --surface action-center
 agent-desktop snapshot --surface action-center -i --compact
 ```
 
-It takes the foreground, so on Windows and Linux headless mode refuses it with `POLICY_DENIED`; pass `--headed` (see [Headed mode](/desktop/guides/headed-mode)). An already-present surface returns without being raised again. A kind the OS does not expose returns `INVALID_ARGS`, and the suggestion or `platform_detail` names the kinds to use instead. On macOS, `dock` and `menu-bar-extras` are always on screen, so the command returns them at once, headless, with no `--headed`; open Control Center or Notification Center by clicking its `menu-bar-extras` item. Which kinds open on Windows and Linux is on their platform pages.
+It takes the foreground, so on Windows and Linux headless mode refuses it with `POLICY_DENIED`; pass `--headed` (see [Headed mode](/desktop/guides/headed-mode)). An already-present surface returns without being raised again; `data.disposition` is `not_delivered` (`retry: "safe"`) then, and `delivered_verified` when the surface was raised and observed presented — always `not_delivered` on macOS, whose surfaces are always presented. A kind the OS does not expose returns `INVALID_ARGS`, and the suggestion or `platform_detail` names the kinds to use instead. On macOS, `dock` and `menu-bar-extras` are always on screen, so the command returns them at once, headless, with no `--headed`; open Control Center or Notification Center by clicking its `menu-bar-extras` item. Which kinds open on Windows and Linux is on their platform pages.

@@ -40,7 +40,7 @@ agent-desktop --headed hover --xy 640,400
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "hover",
   "data": {
@@ -114,7 +114,7 @@ agent-desktop --headed mouse-click --xy 500,300 [--button left|right|middle] [--
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "mouse-click",
   "data": {
@@ -140,7 +140,7 @@ Reserved name for pressing and holding a button. It never sends input.
 agent-desktop --headed mouse-down --xy 500,300 [--button NAME] [--modifiers NAME]...
 ```
 
-The first failing check decides the error: a bad argument is `INVALID_ARGS`; headless is `POLICY_DENIED` (`not_delivered`); Linux Wayland is `ACTION_NOT_SUPPORTED` with cause `wayland_session`; everywhere else, `--headed` ends in `ACTION_NOT_SUPPORTED`, `mouse-down is unavailable in stateless mode`, with a disposition of `unknown` and no event sent. Use [`mouse-click`](#mouse-click) or [`drag`](#drag).
+The first failing check decides the error: a bad argument is `INVALID_ARGS`; headless is `POLICY_DENIED` (`not_delivered`); Linux Wayland is `ACTION_NOT_SUPPORTED` with cause `wayland_session`; everywhere else, `--headed` ends in `ACTION_NOT_SUPPORTED`, `mouse-down is unavailable in stateless mode`, with a disposition of `not_delivered` and no event sent. Use [`mouse-click`](#mouse-click) or [`drag`](#drag).
 
 ## mouse-up
 
@@ -172,7 +172,7 @@ agent-desktop --headed mouse-wheel --x 700 --y 400 --dy -2
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "mouse-wheel",
   "data": {

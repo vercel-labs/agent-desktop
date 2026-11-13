@@ -4,7 +4,7 @@ Every command returns structured JSON:
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "click",
   "data": {
@@ -18,7 +18,7 @@ Errors include machine-readable codes and recovery hints:
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": false,
   "command": "click",
   "error": {
@@ -77,6 +77,9 @@ carry it on their result. `delivery` is one of `unknown`, `not_delivered`,
 `delivery_uncertain`, `delivered_unverified` or `delivered_verified`. `retry`
 is one of `unknown`, `safe` or `unsafe`, and it follows from `delivery`:
 `not_delivered` is `safe`, and every other non-`unknown` value is `unsafe`.
+No result pairs `delivered_verified` with `retry: "safe"`: even a batch whose
+verified work sits beside never-dispatched failures re-reads a fresh listing
+on a re-run, so its retry stays `unsafe`.
 
 `unknown` means the command established nothing about delivery. A failure of a
 mutating command that carries no delivery evidence, such as a `TIMEOUT` on an
@@ -174,6 +177,17 @@ When a ref action returns `delivery_uncertain` with a post-action wait selector,
 | `timed_out` | The wait budget expired without observing the expected state, including when transient read errors persisted through the last poll. `last_observation_error` may hold the last error. |
 | `identity_unavailable` | The ref has no usable process generation, so observation was skipped. |
 
+## Version 2.7 migration
+
+`launch`, `open-system-surface`, `focus-window`, `dismiss-notification` and `dismiss-all-notifications` now carry `data.disposition` on success, and an incomplete-locator `TIMEOUT` names its cause. Every key is additive; every other key keeps its value. A `launch` payload written before the field existed has no `disposition`; readers must treat its absence as `unknown`, not as a delivery claim.
+
+- `launch` reports `not_delivered` (`retry: "safe"`) when it attached to a running application and dispatched nothing — no `--activate`, or an `--activate` whose target was already active and needed no request. With `--activate` it reports `delivered_verified` only when the platform read back the target as the frontmost application afterwards, and `delivered_unverified` (`retry: "unsafe"`) otherwise. A fresh launch reports `delivered_verified` when the adapter read back the process it started, and `delivered_unverified` when it did not — including a spawned process that never appeared on the platform's accessibility bus.
+- `open-system-surface` reports `not_delivered` when the surface was already presented and the adapter raised nothing, and `delivered_verified` when it raised the surface and then observed it presented. On macOS the surfaces are always presented, so the command always reports `not_delivered`.
+- `focus-window` reports `delivered_verified`: it returns `Ok` only after the OS reports the window focused on two consecutive reads.
+- `dismiss-notification` reports `delivered_verified`: the adapter returns `Ok` only after re-reading that the entry is gone from the surface.
+- `dismiss-all-notifications` derives `data.disposition` from each entry's own delivery evidence, not from counts: `not_delivered` (`retry: "safe"`) when nothing was found or every failure happened before anything was sent; `delivered_unverified` (`retry: "unsafe"`) when any entry's dispatch started; and `delivered_verified` (`retry: "unsafe"`) when every captured entry was dismissed or the remaining failures were all never dispatched — the `failures` list then names what a re-run still has to touch, and the retry stays unsafe because a re-run captures a fresh listing. An entry that vanished before its turn counts as dismissed.
+- A `TIMEOUT` from `find` and the other locator commands whose search could not prove its result carries `details.cause`: `deadline` (the search ran out of time; `details.retryable` is `true`), `unreadable_elements` (some native reads failed, so part of the tree is unknown; `details.retryable` is `false` for search kinds and `true` for selected-match hydration unless a traversal limit was hit), or `traversal_limit` (a fixed traversal limit was hit; `details.retryable` is `false`). When retrying cannot help, narrow the query with `--role` or `--name`, or run `snapshot`, which returns the readable part of the tree with `complete: false`.
+
 ## Find result shape
 
 `find` match objects report the element's actual accessibility `name`. Elements
@@ -215,7 +229,7 @@ After the core resolver chooses the element, the platform adapter lands it, and 
 | `ACTION_NOT_SUPPORTED` | The target does not expose the requested action |
 | `APP_UNRESPONSIVE` | The matching application stopped responding |
 | `PLATFORM_NOT_SUPPORTED` | Adapter method not implemented on this platform |
-| `TIMEOUT` | Wait condition expired, or a live identity read stayed incomplete until the deadline. A locator that could not prove its result carries `details.kind: "locator_incomplete"`; see below |
+| `TIMEOUT` | Wait condition expired, or a live identity read stayed incomplete until the deadline. Incomplete locator errors carry a `details.cause`; see below |
 | `INVALID_ARGS` | Invalid argument values |
 | `WINDOW_NOT_FOUND` | The requested window does not exist, including a `screenshot --window-id` that matches no window; the disposition is `not_delivered` |
 | `NOTIFICATION_NOT_FOUND` | The notification ID was not found |
@@ -223,16 +237,45 @@ After the core resolver chooses the element, the platform adapter lands it, and 
 
 ### Locator incomplete
 
-`find` and the other locator commands return `TIMEOUT` with `details.kind: "locator_incomplete"` when the search could not prove its result. `details.cause` says why:
+`find` and the other locator commands return `TIMEOUT` when the search could not prove its result. These `details.kind` values carry `details.cause`: `locator_incomplete`, `locator_budget_limit`, `locator_transient_incomplete`, `locator_selected_query_incomplete`, `locator_selected_query_budget_limit`, and `locator_selected_evidence_incomplete`. `details.cause` says why:
 
 | `details.cause` | Meaning | `details.retryable` |
 |------|---------|------|
 | `deadline` | The search ran out of time. Retry with a larger `--timeout-ms`. | `true` |
-| `unreadable_elements` | The search finished in time, but some native reads failed, so part of the tree is unknown. More time does not help. | `false` |
+| `unreadable_elements` | The search finished in time, but some native reads failed, so part of the tree is unknown. | `false` for search kinds (`locator_incomplete`, `locator_budget_limit`); `true` for selected-match hydration (`locator_selected_query_incomplete`, `locator_selected_evidence_incomplete`) unless a traversal limit was hit |
 | `traversal_limit` | A fixed traversal limit (node, edge, child, text or depth) was hit. More time does not help. | `false` |
 
-For the last two, narrow the query with `--role` or `--name`, or run `snapshot`, which returns the readable part of the tree with `complete: false`. `details.observed_matches` and `details.query_stats` carry the evidence. The disposition is `not_delivered`.
+When `details.retryable` is `false`, narrow the query with `--role` or `--name`, or run `snapshot`, which returns the readable part of the tree with `complete: false`. When `details.cause` is `unreadable_elements` on selected-match hydration without a traversal limit, run the command again. An exhausted operation deadline takes precedence over read failures, which take precedence over traversal limits. An incomplete result with no recorded cause is `unreadable_elements`. `details.query_stats` and the kind's additional fields carry the evidence. The disposition is `not_delivered`. A selector wait that expires preserves the locator's `kind` and `cause` in `details.last_error` under its `wait_timeout` error.
 
 ## Exit codes
 
 `0` success, `1` structured error (JSON on stdout), `2` command-line parse error (the envelope is still printed, with `INVALID_ARGS`). A parse error's `error.suggestion` carries clap's `tip:` lines and the command's `Usage:` line when clap printed them, then, when the command is known, a pointer to `agent-desktop <command> --help`.
+
+## Planned 2.0 vocabulary
+
+The 2.7 envelope keeps every current name. 2.0 is a future breaking release that will use one name per concept.
+
+| concept | names in 2.7 (per command) | one name in 2.0 |
+| --- | --- | --- |
+| Application name | `name` in list-apps and close-app `target`; `app_name` in window and notification records; `app` in launch, snapshot, wait events and details, and the close-app request echo | `app` on app-owned records; `name` on the app record itself |
+| Application metadata | `bundle_id`, `presentation` in list-apps; absent from launch, windows, notifications, and events | No rename specified |
+| Process identity | Flat `pid`, `process_instance` in list-apps, list-windows, and launch; `pid` alone in wait events and list-surfaces; `target.process.{pid,instance}` in close-app and window operations; `process_identity.{pid,process_instance}` in post-action observation; neither in snapshot data | Flat `pid`, `process_instance`; omit an unknown instance |
+| Window identity | `id`, `title` in window records, operation targets, and snapshot; `window_id`, `title` in wait events; `source_window_id` in post-action observation; snapshot includes only `id`, `title` | Record `id`, `title`; reference `window_id`; full window record in snapshot |
+| Window container | `window` in launch, snapshot, wait --window, and open-system-surface; `focused` object in focus-window | `window` |
+| Focus state | `is_focused` in window records; `focused` element token; `result` in is focused; `focused` boolean in hover and drag | Window `focused`; element token `focused`; hover and drag `window_focused` |
+| Element state | `states` tokens in snapshot and find; get --property states returns tokens in `value`; ref-action `post_state` has `states` plus `enabled`, `hidden`, `offscreen` booleans | `states` tokens, including `enabled` when evidenced |
+| Predicate answer | `property`, `result`, `applicable` in is; wait --element `observed` uses `exists`, `enabled`, `visible`, `actionable`, or `matched` with value evidence | No common name specified |
+| Element ref | `ref_id` in snapshot and find; `ref` in get, is, wait, and trace events | `ref_id`, qualified |
+| Element name | `name` in snapshot and find; get --property title reads the element name | `name`; keep `title` as an alias for one minor release |
+| Absent value | Find emits null `ref_id`, null `value`, and empty `states`; status emits null `snapshot_id`, `ref_count`, `session_id`; wait --text emits null `ref`, `role`; snapshot omits absent node fields and empty arrays | Omit absent fields and empty arrays |
+| List wrapper | `{apps}` in list-apps; bare arrays in list-windows and list-displays; `{pid,surfaces}` in list-surfaces; `{count,notifications}` in list-notifications; `{sessions}` in session list | Named arrays: `apps`, `windows`, `displays`, `surfaces`, `notifications`, `sessions`; each wrapper has `complete`; surfaces also has `pid`, `process_instance` |
+| Counts | `count` in list-notifications, find --count, wait --text, and mouse-click; `total_matches` in find; `ref_count` in snapshot and status; `dismissed_count`, `failed_count` in dismiss-all-notifications; `event_count`, `total_events`, `returned_events` in trace export | `count` for a sibling array's length; find --count `total_matches`; wait --text `match_count`; mouse-click `click_count`; drop `event_count` |
+| Partial results | Conditional `complete:false`, `skipped` in list-apps; `complete`, conditional `truncated`, `nodes_observed` in snapshot; `truncated` in find and trace; no flag in list-windows | Always `complete`; `truncated` when cut |
+| Timing | `elapsed_ms` in conditional waits, snapshot --wait-for, and batch; requested `waited_ms` in wait MS; `lease_hold_ms` in ref-action details; `created_at`, `ended_at` in session output | Measured `elapsed_ms` for every wait; session output `created_at_ms`, `ended_at_ms`; stored timestamps keep their names |
+| Wait success | `found` in menu, window, text, element, and event waits; `matched`, `condition` in notification waits; `matched_selector`, `gone`, `target_absent` for selector absence; snapshot fields for selector presence and --wait-for | `found` plus `condition`; keep `matched_selector` |
+| Event spelling | Input focus-changed emits `focus_changed_window`; other wait event kinds use underscores; event surfaces use `action_center`, while open-system-surface uses `action-center` | `focus_changed`; kebab-case surface names |
+| Kind key | `type` in list-surfaces, ref-action surface records, and clipboard-get; `kind` in operation targets, events, and details; `surface` in surface events and open-system-surface | `kind` for records and clipboard; `surface` for surface identity |
+| Delivery disposition | `data.disposition` in ref actions, press, pointer, drag, clipboard writes, app and window mutations, and notification mutations, including launch, focus-window, open-system-surface, and both dismiss commands; under `data.after_action` after --wait-for | `disposition` with `delivery`, `retry`; no rename |
+| Display and image scale | `scale` in list-displays; `scale_factor`, `format` in screenshot; clipboard-get image has neither | `scale_factor`; clipboard image also has `format` |
+| OS, version, architecture | `os` in version; `platform` in status; crate `data.version` in both versus envelope `version: "2.7"`; architecture `target` in version versus operation-report `target` object | `os`; architecture `arch`; version and operation-target names stay distinct by scope |
+| Tracing state | `tracing` boolean in status; `trace` as `on` or `off` in session start and list | No rename: writer attachment and session setting are different concepts |

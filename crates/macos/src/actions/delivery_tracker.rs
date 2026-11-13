@@ -14,6 +14,21 @@ impl DeliveryTracker {
         self.delivered_units = self.delivered_units.saturating_add(1);
     }
 
+    /// An AX action outcome proves non-delivery only when nothing was sent:
+    /// `Ok(false)` means the action was unadvertised or reported unsupported,
+    /// and a `not_delivered` error means the perform call was refused or
+    /// provably could not act. Every other outcome — success, an uncertain AX
+    /// error, a post-dispatch timeout — means the action was dispatched.
+    pub(crate) fn mark_ax_attempt(&mut self, outcome: &Result<bool, AdapterError>) {
+        let dispatched = match outcome {
+            Ok(delivered) => *delivered,
+            Err(error) => error.disposition != DeliverySemantics::not_delivered(),
+        };
+        if dispatched {
+            self.mark_delivered();
+        }
+    }
+
     pub(crate) fn delivered_units(self) -> usize {
         self.delivered_units
     }
@@ -69,6 +84,30 @@ mod tests {
                 annotated.disposition.retry(),
                 agent_desktop_core::RetryDisposition::Unsafe
             );
+        }
+    }
+
+    #[test]
+    fn ax_attempt_marks_delivery_for_every_dispatched_outcome() {
+        for outcome in [
+            Ok(true),
+            Err(AdapterError::internal("uncertain")
+                .with_disposition(DeliverySemantics::uncertain())),
+            Err(AdapterError::internal("post-dispatch timeout")
+                .with_disposition(DeliverySemantics::delivered_unverified())),
+        ] {
+            let mut tracker = DeliveryTracker::default();
+            tracker.mark_ax_attempt(&outcome);
+            assert_eq!(tracker.delivered_units(), 1);
+        }
+        for outcome in [
+            Ok(false),
+            Err(AdapterError::internal("refused")
+                .with_disposition(DeliverySemantics::not_delivered())),
+        ] {
+            let mut tracker = DeliveryTracker::default();
+            tracker.mark_ax_attempt(&outcome);
+            assert_eq!(tracker.delivered_units(), 0);
         }
     }
 

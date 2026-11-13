@@ -50,7 +50,10 @@ pub fn execute(
     let lease = adapter.acquire_interaction_lease(deadline)?;
     let focused = crate::system::window_focus::focus_and_confirm(adapter, &window, &lease)?;
     debug_assert_eq!(focused.id, window_id);
-    Ok(json!({ "focused": focused }))
+    Ok(json!({
+        "disposition": crate::DeliverySemantics::delivered_verified(),
+        "focused": focused,
+    }))
 }
 
 #[cfg(test)]

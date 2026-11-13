@@ -34,3 +34,26 @@ fn an_executable_deleted_while_it_runs_keeps_its_name() {
     assert_eq!(app_name(&replaced), "gnome-calculator");
     assert_eq!(app_name(&facts("x", Some(" (deleted)"))), "x");
 }
+
+#[test]
+fn aliases_of_identity_reads_the_desktop_names_an_executable_answers_to() {
+    let index = AliasIndex::build(
+        &[(
+            "owned".to_owned(),
+            "[Desktop Entry]\nType=Application\nName=Owned App\nExec=/bin/sleep owned.py\n"
+                .to_owned(),
+        )],
+        &[],
+    );
+    let sleep = std::fs::canonicalize("/bin/sleep").expect("sleep");
+    let identity = |script: &str| ExecutableIdentity {
+        executable: sleep.clone(),
+        argv: Some(vec!["/bin/sleep".into(), script.into()]),
+    };
+    assert_eq!(
+        aliases_of_identity(&index, Some(&identity("owned.py"))),
+        ["Owned App", "owned"]
+    );
+    assert!(aliases_of_identity(&index, Some(&identity("other.py"))).is_empty());
+    assert!(aliases_of_identity(&index, None).is_empty());
+}

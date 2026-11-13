@@ -163,9 +163,9 @@ pub(crate) fn deliver(
             let opened = reread(connection, target, deadline)
                 .ok()
                 .and_then(|after| {
-                    menu_resolve::find(&after, target)
-                        .ok()
-                        .map(|entry| !entry.children.is_empty())
+                    menu_resolve::find(&after, target).ok().map(|after_entry| {
+                        !after_entry.children.is_empty() && after_entry.children != entry.children
+                    })
                 })
                 .unwrap_or(false);
             Ok(result_of(if opened {

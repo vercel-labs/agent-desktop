@@ -63,8 +63,8 @@ mod imp {
         ExpandKind, InteractionPolicy, UIAElement, VERIFY_TIMEOUT,
     };
     use crate::actions::chain::{
-        ALREADY_LABEL, LEGACY_LABEL, after_delivery, legacy_default_action,
-        legacy_default_action_available, offered, poll_until, rung,
+        ALREADY_LABEL, LEGACY_LABEL, legacy_default_action, legacy_default_action_available,
+        offered, poll_until, rung,
     };
     use crate::actions::mutation::{classify_success, classify_write};
     use crate::tree::properties::property_ids::TreeProperty;
@@ -129,8 +129,7 @@ mod imp {
         }
         let verified = poll_until(deadline, VERIFY_TIMEOUT, || {
             read_expand_state(element).is_some_and(|state| state.is_target(want_expanded))
-        })
-        .map_err(after_delivery)?;
+        });
         Ok(DeliveryOutcome::from_delivery(true, verified))
     }
 

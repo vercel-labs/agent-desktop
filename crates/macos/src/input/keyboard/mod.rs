@@ -37,7 +37,8 @@ pub(crate) fn reject_standalone_key_state(
     }))
     .with_suggestion(
         "Use the atomic 'press' command; spanning key holds require a daemon-owned session that can release keys after disconnect",
-    ))
+    )
+    .unsent())
 }
 
 #[cfg(target_os = "macos")]
@@ -77,5 +78,9 @@ mod tests {
 
         assert_eq!(error.code, ErrorCode::ActionNotSupported);
         assert_eq!(error.details.unwrap()["raw_input_emitted"], false);
+        assert_eq!(
+            error.disposition,
+            agent_desktop_core::DeliverySemantics::not_delivered()
+        );
     }
 }

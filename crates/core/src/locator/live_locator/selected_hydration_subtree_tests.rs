@@ -16,6 +16,8 @@ enum Mode {
     WitnessRemoved,
     ForbiddenAdded,
     NegativeIncomplete,
+    NegativeBudget,
+    NegativeDeadline,
     PositiveIncompleteSuffix,
 }
 
@@ -89,23 +91,51 @@ fn forbidden_descendant_added_between_phases_is_rejected() {
 
 #[test]
 fn incomplete_negative_absence_proof_fails_closed() {
-    let adapter = adapter(Mode::NegativeIncomplete);
-    let error = resolve_query(
-        &adapter,
-        &query(Mode::NegativeIncomplete),
-        ObservationRoot::Window(&window()),
-        &request(),
-    )
-    .err()
-    .expect("incomplete has-not evidence must never prove absence");
-    let error = adapter_error(error);
+    for (mode, kind, cause, retryable, suggestion_needle, attempts) in [
+        (
+            Mode::NegativeIncomplete,
+            "locator_selected_query_incomplete",
+            "unreadable_elements",
+            true,
+            "Run the command again",
+            2,
+        ),
+        (
+            Mode::NegativeBudget,
+            "locator_selected_query_budget_limit",
+            "traversal_limit",
+            false,
+            "More time will not help",
+            1,
+        ),
+        (
+            Mode::NegativeDeadline,
+            "locator_selected_query_incomplete",
+            "deadline",
+            true,
+            "larger --timeout-ms",
+            2,
+        ),
+    ] {
+        let adapter = adapter(mode);
+        let error = resolve_query(
+            &adapter,
+            &query(mode),
+            ObservationRoot::Window(&window()),
+            &request(),
+        )
+        .err()
+        .expect("incomplete has-not evidence must never prove absence");
+        let error = adapter_error(error);
 
-    assert_eq!(error.code.as_str(), "TIMEOUT");
-    assert_eq!(
-        error.details.as_ref().unwrap()["kind"],
-        "locator_selected_query_incomplete"
-    );
-    assert_attempts(&adapter, 2);
+        assert_eq!(error.code.as_str(), "TIMEOUT");
+        let details = error.details.as_ref().unwrap();
+        assert_eq!(details["kind"], kind);
+        assert_eq!(details["cause"], cause);
+        assert_eq!(details["retryable"], retryable);
+        assert!(error.suggestion.unwrap().contains(suggestion_needle));
+        assert_attempts(&adapter, attempts);
+    }
 }
 
 #[test]
@@ -162,7 +192,10 @@ fn initial_tree(mode: Mode) -> ObservedTree {
     let child = match mode {
         Mode::TextWitnessRemoved => text_evidence("needle"),
         Mode::WitnessRemoved | Mode::PositiveIncompleteSuffix => role_evidence("button"),
-        Mode::ForbiddenAdded | Mode::NegativeIncomplete => role_evidence("link"),
+        Mode::ForbiddenAdded
+        | Mode::NegativeIncomplete
+        | Mode::NegativeBudget
+        | Mode::NegativeDeadline => role_evidence("link"),
     };
     super::test_support::tree(
         vec![
@@ -179,7 +212,9 @@ fn selected_tree(root: ObservationRoot<'_>, mode: Mode) -> ObservedTree {
         Mode::TextWitnessRemoved => vec![text_evidence("other")],
         Mode::WitnessRemoved => vec![role_evidence("link")],
         Mode::ForbiddenAdded => vec![role_evidence("button")],
-        Mode::NegativeIncomplete => vec![role_evidence("link")],
+        Mode::NegativeIncomplete | Mode::NegativeBudget | Mode::NegativeDeadline => {
+            vec![role_evidence("link")]
+        }
         Mode::PositiveIncompleteSuffix => {
             vec![role_evidence("button"), role_evidence("group")]
         }
@@ -203,7 +238,10 @@ fn selected_tree(root: ObservationRoot<'_>, mode: Mode) -> ObservedTree {
     }
     let incomplete = matches!(
         mode,
-        Mode::NegativeIncomplete | Mode::PositiveIncompleteSuffix
+        Mode::NegativeIncomplete
+            | Mode::NegativeBudget
+            | Mode::NegativeDeadline
+            | Mode::PositiveIncompleteSuffix
     );
     if incomplete {
         nodes[0].completeness.subtree_complete = false;
@@ -211,6 +249,12 @@ fn selected_tree(root: ObservationRoot<'_>, mode: Mode) -> ObservedTree {
         nodes[last].completeness.subtree_complete = false;
     }
     let mut tree = super::test_support::tree(nodes, vec![0], !incomplete);
+    if matches!(mode, Mode::NegativeBudget) {
+        tree.stats.traversal.limits.node_hits = 1;
+    }
+    if matches!(mode, Mode::NegativeDeadline) {
+        tree.stats.reads.health.deadline_exhausted = 1;
+    }
     tree.source = ObservationSource::from_root(&root, crate::SnapshotSurface::Window);
     tree
 }
@@ -266,7 +310,10 @@ fn query(mode: Mode) -> LocatorQuery {
         Mode::WitnessRemoved | Mode::PositiveIncompleteSuffix => {
             query.containment = containment(true)
         }
-        Mode::ForbiddenAdded | Mode::NegativeIncomplete => query.containment = containment(false),
+        Mode::ForbiddenAdded
+        | Mode::NegativeIncomplete
+        | Mode::NegativeBudget
+        | Mode::NegativeDeadline => query.containment = containment(false),
     }
     query
 }

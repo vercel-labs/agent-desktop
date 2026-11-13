@@ -16,10 +16,11 @@ agent-desktop launch "Obsidian" --cdp
 The process running and the app showing a window are separate facts:
 
 ```json
-{ "app": "TextEdit", "pid": 611, "window": { "id": "w-110407", "title": "Open", "visible": true } }
+{ "app": "TextEdit", "pid": 611, "disposition": { "delivery": "delivered_verified", "retry": "unsafe" }, "window": { "id": "w-110407", "title": "Open", "visible": true } }
 ```
 
 - `window` is present when the app has exactly one window it can name. It is omitted when the app has none or when it has several and none is focused. `window.bounds` is omitted while the window server has not set them yet; it is never `0x0`. The absence of `window` is not a failure. `launch` still returns `ok: true`; run `list-windows --app` for every window.
+- `disposition` reports what the launch proved: `not_delivered` when it attached to a running app and sent nothing — no `--activate`, or an `--activate` whose target was already active (`retry: "safe"`) — `delivered_verified` when the new process instance was read back or `--activate` was confirmed frontmost, and `delivered_unverified` otherwise — including a spawned process that never reached the accessibility bus.
 - A document-based app may open its first window only when brought forward. Use `--activate`: it asks the app to present a window and waits for it up to `--timeout` (default 30000). This brings the app forward, so it needs `--headed`; headless, `--activate` returns `POLICY_DENIED` and nothing is launched. Or trigger the window yourself and use `wait --event window-opened`.
 - A process that exits before it shows a window returns `APP_UNRESPONSIVE`.
 - Windowless and menu-bar-only apps report no `window`. Use `list-apps` and read `presentation`.
@@ -83,7 +84,7 @@ agent-desktop minimize --app "TextEdit"   # maximize, restore likewise
 
 - `list-windows` returns `{ id, title, app_name, pid, bounds, is_focused, accessible }`. Use a `w-<id>` with `--window-id` when an app has several windows.
 - `accessible: false` means semantic commands cannot reach that window. Targeting it returns `ACTION_NOT_SUPPORTED` with `kind: "window_without_accessibility_element"`. It still accepts screenshots and coordinate input. Choose another window. Wait polling treats this error as transient. In particular, `--wait-for-gone` does not count it as absence; it keeps polling until the window disappears from the inventory or the wait times out.
-- `focus-window` needs at least one identifier and `--headed`, because it raises the window and takes key focus. Headless, it returns `POLICY_DENIED` before any window is read. It confirms the OS reports that window as focused. Otherwise it returns `ACTION_FAILED`.
+- `focus-window` needs at least one identifier and `--headed`, because it raises the window and takes key focus. Headless, it returns `POLICY_DENIED` before any window is read. It confirms the OS reports that window as focused and reports `disposition: delivered_verified`. Otherwise it returns `ACTION_FAILED`.
 - `restore` undoes a minimize and returns the window to its earlier placement. It does not promise to un-maximize.
 
 ## Notifications
@@ -95,7 +96,7 @@ Commands: `list-notifications`, `dismiss-notification`, `dismiss-all-notificatio
 - Every mutation needs `--headed`. A single-notification mutation also needs a fingerprint from the same listing: `--expected-app` or `--expected-title`. Notifications reorder between listings. When the row at the index no longer matches, the call returns `NOTIFICATION_NOT_FOUND` and presses nothing. Without a fingerprint, `INVALID_ARGS`.
 - `list-notifications` returns `{ index, app_name, title, body, actions }`, with 1-based indexes. `--app`, `--text`, `--limit` filter.
 - `notification-action INDEX "Reply"` clicks a named button. An action the entry lacks returns `ACTION_NOT_SUPPORTED` and changes nothing.
-- `dismiss-all-notifications` returns `{ dismissed_count, failures, failed_count }`. A failure to close the surface afterward is not reported as an error.
+- `dismiss-notification` returns the removed entry as `data.dismissed` with `disposition: delivered_verified`. `dismiss-all-notifications` returns `{ dismissed_count, failures, failed_count }`; its `disposition` comes from each entry's own delivery: `not_delivered` (`retry: safe`) when nothing was found or every failure was never dispatched, `delivered_verified` (`retry: unsafe`) when every entry was dismissed, `delivered_unverified` (`retry: unsafe`) when any entry's dispatch started, and `delivered_verified` (`retry: unsafe`) for a partial clear whose failures were all never dispatched — a re-run captures a fresh listing, so it stays unsafe even though `failures` names what remains. An entry that vanishes before its turn counts as dismissed. A failure to close the surface afterward is not reported as an error.
 - `wait --notification` detects a new entry against a baseline taken at wait start. Transient errors retry within `--timeout`. On macOS and Windows, a headless wait sees only an already-open surface.
 
 ## Clipboard

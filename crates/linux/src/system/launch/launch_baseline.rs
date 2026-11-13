@@ -4,15 +4,25 @@ use agent_desktop_core::{AdapterError, Deadline, ProcessIdentity};
 
 use super::Running;
 use crate::system::SharedBus;
+use crate::system::app::app_alias::current_index;
+use crate::system::app::app_name::aliases_of_identity;
 use crate::system::process::executable_identity::ExecutableIdentity;
 use crate::system::registry::registry_app::RegistryApp;
 use crate::system::registry::registry_frames::RootRead;
 use crate::system::registry::{Registry, read_registry_for};
 use crate::system::signal::signal_inventory::{Pass, run_pass, skipped_selected};
 
+/// A same-executable application that was running before the spawn: its
+/// process, the window ids it had, and the desktop names it answers to.
+pub(super) struct Resident {
+    pub(super) owner: Running,
+    pub(super) windows: HashSet<String>,
+    pub(super) aliases: Vec<String>,
+}
+
 pub(super) struct Baseline {
     pub(super) processes: HashSet<ProcessIdentity>,
-    pub(super) residents: Vec<(Running, HashSet<String>)>,
+    pub(super) residents: Vec<Resident>,
 }
 
 pub(super) fn same_executable(identity: Option<&ExecutableIdentity>, owner: &Running) -> bool {
@@ -31,9 +41,11 @@ pub(super) fn prepare(
         .iter()
         .filter(|owner| same_executable(identity.as_ref(), owner))
         .filter_map(|owner| {
-            capture(bus, owner, deadline)
-                .ok()
-                .map(|windows| (owner.clone(), windows))
+            capture(bus, owner, deadline).ok().map(|windows| Resident {
+                owner: owner.clone(),
+                windows,
+                aliases: aliases_of_identity(&current_index(), owner.executable.as_ref()),
+            })
         })
         .collect();
     Baseline {

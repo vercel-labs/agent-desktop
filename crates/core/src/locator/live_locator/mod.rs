@@ -115,6 +115,8 @@ mod selected_hydration_churn_tests;
 #[cfg(test)]
 mod selected_hydration_contract_tests;
 #[cfg(test)]
+mod selected_hydration_retry_tests;
+#[cfg(test)]
 mod selected_hydration_subtree_tests;
 #[cfg(test)]
 mod selected_hydration_tests;

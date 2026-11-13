@@ -348,3 +348,39 @@ fn a_program_missing_from_path_is_not_found() {
         .expect("not found");
     assert_eq!(error.code, ErrorCode::AppNotFound);
 }
+
+#[test]
+fn a_plan_carries_the_desktop_names_its_launch_answers_to() {
+    let fixture = fixture(&[], &["tool"]);
+    let tool = fixture.search.path_dirs[0].join("tool");
+    std::fs::write(
+        fixture.search.data_dirs[0].join("org.example.Files.desktop"),
+        format!(
+            "[Desktop Entry]\nType=Application\nName=Files\nExec={}\n",
+            tool.display()
+        ),
+    )
+    .expect("entry");
+    let index = AliasCache::new().index(&fixture.search.data_dirs);
+    let plan = resolve("org.example.Files", &[], &fixture.search, &index).expect("plan");
+    assert!(plan.aliases.iter().any(|alias| alias == "Files"));
+    assert!(
+        plan.aliases
+            .iter()
+            .any(|alias| alias == "org.example.Files")
+    );
+}
+
+#[test]
+fn a_plan_for_an_unrelated_invocation_carries_no_desktop_names() {
+    let fixture = fixture(&[], &[]);
+    std::fs::write(
+        fixture.search.data_dirs[0].join("one.desktop"),
+        "[Desktop Entry]\nType=Application\nName=App One\nExec=/usr/bin/python3 /opt/one.py\n",
+    )
+    .expect("entry");
+    let index = AliasCache::new().index(&fixture.search.data_dirs);
+    let arguments = vec!["-c".to_owned(), "pass".to_owned()];
+    let plan = resolve("/usr/bin/python3", &arguments, &fixture.search, &index).expect("plan");
+    assert!(plan.aliases.is_empty());
+}

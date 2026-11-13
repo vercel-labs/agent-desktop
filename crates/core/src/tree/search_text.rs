@@ -1,4 +1,7 @@
-pub(crate) fn normalize(value: &str) -> String {
+/// The one comparison form for names: bidirectional controls dropped, runs of
+/// whitespace collapsed to one space with the ends trimmed, and every
+/// character lowercased by Unicode rules.
+pub fn normalize(value: &str) -> String {
     let mut normalized = String::with_capacity(value.len());
     let mut pending_space = false;
     for character in value.chars() {

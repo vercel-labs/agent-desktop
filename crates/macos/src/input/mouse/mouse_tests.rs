@@ -10,6 +10,10 @@ fn standalone_mouse_state_is_rejected_without_emission() {
         agent_desktop_core::ErrorCode::ActionNotSupported
     );
     assert_eq!(error.details.unwrap()["raw_input_emitted"], false);
+    assert_eq!(
+        error.disposition,
+        agent_desktop_core::DeliverySemantics::not_delivered()
+    );
 }
 
 #[test]

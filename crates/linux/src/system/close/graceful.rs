@@ -104,9 +104,15 @@ fn request_close(world: &impl World, request: &Request<'_>) -> Result<bool, Adap
         };
         return unless_gone(world, refused);
     }
-    let standing = Standing::of(world, windows);
+    let standing = match Standing::of(world, windows) {
+        Ok(standing) => standing,
+        Err(error) => return unless_gone(world, error.unsent()),
+    };
     if standing.has_dialog() {
         return Err(refusal::dialog_pending(request, &standing, false));
+    }
+    if standing.dialogs_unknown() {
+        return Err(refusal::dialogs_unknown(request));
     }
     let ids: Vec<u32> = standing.windows.iter().map(|window| window.id).collect();
     fan_out(world, request, &ids)
@@ -206,6 +212,9 @@ pub(super) fn close(world: &impl World, request: &Request<'_>) -> Result<bool, A
     ))
 }
 
+#[cfg(test)]
+#[path = "dialog_tests.rs"]
+mod dialog_tests;
 #[cfg(test)]
 #[path = "graceful_tests.rs"]
 mod tests;

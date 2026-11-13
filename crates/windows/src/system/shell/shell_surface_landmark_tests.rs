@@ -35,8 +35,7 @@ fn a_found_element_and_a_raced_subtree_are_the_two_absence_shaped_answers() {
 
 /// The flattened classification read every search fault as absence, and a
 /// close built on that answer skipped the dismissal on a presented surface.
-/// Each fault here must surface instead, narrowed onto the read paths'
-/// closed code set.
+/// Each fault here must surface instead, with the code its source gave it.
 #[test]
 fn a_search_that_could_not_run_surfaces_instead_of_reading_the_surface_closed() {
     for error in [Error::new(ERR_TIMEOUT, "test"), hresult(UIA_E_TIMEOUT)] {
@@ -47,7 +46,7 @@ fn a_search_that_could_not_run_surfaces_instead_of_reading_the_surface_closed() 
                 surfaced.code,
                 ErrorCode::Timeout | ErrorCode::AppUnresponsive
             ),
-            "the fault surfaces inside the permitted read-path set, got {:?}",
+            "a timed-out search surfaces as the timeout it is, got {:?}",
             surfaced.code
         );
     }

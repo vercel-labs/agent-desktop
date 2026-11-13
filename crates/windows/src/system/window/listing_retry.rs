@@ -1,4 +1,4 @@
-use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
+use agent_desktop_core::{AdapterError, Deadline};
 
 /// How many times a walk over the live window set is re-attempted after it
 /// catches its own transient identity race, before that race is accepted as
@@ -36,17 +36,6 @@ pub(crate) fn retry_transient_window_race<T>(
         }
     }
     Err(last_race_error.unwrap_or_else(|| deadline.timeout_error()))
-}
-
-/// Narrows any failure raised on this feature set's read paths onto the
-/// closed set core's poll loop retries: `TIMEOUT` passes through unchanged,
-/// everything else becomes `APP_UNRESPONSIVE`, the one "could not read the
-/// desktop right now" code every caller on this path accepts.
-pub(crate) fn narrow_to_permitted_codes(mut error: AdapterError) -> AdapterError {
-    if error.code != ErrorCode::Timeout {
-        error.code = ErrorCode::AppUnresponsive;
-    }
-    error
 }
 
 #[cfg(test)]

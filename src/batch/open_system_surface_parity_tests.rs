@@ -11,7 +11,7 @@ use crate::cli_args::Surface;
 use crate::test_noop_ops::NoopAdapter;
 use agent_desktop_core::{
     AdapterError, Deadline, ErrorCode, InteractionLease, InteractionPolicy, PermissionReport,
-    SnapshotSurface, SystemOps, WindowInfo,
+    SnapshotSurface, SurfaceOpening, SystemOps, WindowInfo,
 };
 use std::sync::Mutex;
 
@@ -36,9 +36,9 @@ impl SystemOps for SurfaceAdapter {
         surface: SnapshotSurface,
         policy: InteractionPolicy,
         _lease: &InteractionLease,
-    ) -> Result<WindowInfo, AdapterError> {
+    ) -> Result<SurfaceOpening, AdapterError> {
         self.opens.lock().unwrap().push((surface, policy));
-        Ok(WindowInfo {
+        Ok(SurfaceOpening::Raised(WindowInfo {
             id: "w-77".into(),
             title: "Action center".into(),
             app: "ShellExperienceHost.exe".into(),
@@ -46,7 +46,7 @@ impl SystemOps for SurfaceAdapter {
             process_instance: None,
             bounds: None,
             state: Default::default(),
-        })
+        }))
     }
 }
 
@@ -91,6 +91,10 @@ fn batch_and_cli_produce_identical_envelopes_for_the_same_open() {
     );
     assert_eq!(cli_data["surface"], "action-center");
     assert_eq!(cli_data["window"]["id"], "w-77");
+    assert_eq!(
+        cli_data["disposition"],
+        serde_json::json!({ "delivery": "delivered_verified", "retry": "unsafe" })
+    );
 
     let opens = adapter.opens.lock().unwrap();
     assert_eq!(opens.len(), 2);

@@ -1,1 +1,1 @@
-[{"dismissed_count":1},{"dismissed_count":1,"failed_count":1,"failures":["Mail: no close action"]}]
+[{"dismissed_count":1,"disposition":{"delivery":"delivered_verified","retry":"unsafe"}},{"dismissed_count":1,"disposition":{"delivery":"delivered_verified","retry":"unsafe"},"failed_count":1,"failures":["Mail: no close action"]}]

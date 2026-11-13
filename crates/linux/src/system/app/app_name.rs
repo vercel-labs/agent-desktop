@@ -1,4 +1,5 @@
 use super::app_alias::{AliasIndex, current_index};
+use crate::system::process::executable_identity::ExecutableIdentity;
 use crate::system::process::process_facts::ProcessFacts;
 
 fn non_blank(text: Option<&str>) -> Option<&str> {
@@ -49,7 +50,18 @@ pub(crate) fn desktop_id(facts: &ProcessFacts) -> Option<String> {
 /// As [`aliases_of`] over an index the caller already holds, for a caller that
 /// asks about many processes.
 pub(crate) fn aliases_in(index: &AliasIndex, facts: &ProcessFacts) -> Vec<String> {
-    let Some(actual) = facts.executable.as_ref() else {
+    aliases_of_identity(index, facts.executable.as_ref())
+}
+
+/// The desktop entry names and ids that name this executable identity, read
+/// the way [`aliases_of`] reads them for a running process. A launch request
+/// carries the same evidence, so its resolved aliases compare like a
+/// resident's.
+pub(crate) fn aliases_of_identity(
+    index: &AliasIndex,
+    identity: Option<&ExecutableIdentity>,
+) -> Vec<String> {
+    let Some(actual) = identity else {
         return Vec::new();
     };
     let mut aliases = index.names_for(actual);

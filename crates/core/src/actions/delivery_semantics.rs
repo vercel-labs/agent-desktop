@@ -33,6 +33,25 @@ impl DeliverySemantics {
         Self::DeliveredVerified
     }
 
+    /// Folds the per-entry outcomes of one batch command into a single
+    /// disposition. A failure whose dispatch may have started makes the whole
+    /// batch delivered-unverified; verified dismissals beside only
+    /// never-dispatched failures stay verified. The retry is unsafe even then,
+    /// because a re-run captures a fresh listing and could dismiss entries
+    /// that arrived after this run.
+    pub fn merged(dismissed: usize, failures: &[Self]) -> Self {
+        if failures
+            .iter()
+            .any(|failure| *failure != Self::not_delivered())
+        {
+            return Self::delivered_unverified();
+        }
+        if dismissed == 0 {
+            return Self::not_delivered();
+        }
+        Self::delivered_verified()
+    }
+
     pub const fn delivery(self) -> DeliveryDisposition {
         match self {
             Self::Unknown => DeliveryDisposition::Unknown,

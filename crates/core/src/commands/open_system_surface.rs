@@ -21,6 +21,10 @@ pub struct OpenSystemSurfaceArgs {
 /// carrying neither the build nor the alternative, and would make the
 /// adapter's own informative refusal unreachable.
 ///
+/// `disposition` says what the open did: `not_delivered` when the surface was
+/// already presented and the adapter raised nothing, `delivered_verified` when
+/// it raised the surface and then observed it presented.
+///
 /// The interaction policy travels explicitly because the floor that refuses
 /// a caller whose policy forbids the foreground to move is enforced by the
 /// adapter, before the surface is raised; the lease is taken here, the same
@@ -33,11 +37,12 @@ pub fn execute(
     let deadline = crate::Deadline::standard()?;
     let policy = context.physical_input_policy();
     let lease = adapter.acquire_interaction_lease(deadline)?;
-    let window = adapter.open_system_surface(args.surface, policy, &lease)?;
+    let opening = adapter.open_system_surface(args.surface, policy, &lease)?;
     let mut data = json!({ "surface": args.surface.as_str() });
-    if !window.is_process_owner() {
-        data["window"] = json!(window);
+    if !opening.window().is_process_owner() {
+        data["window"] = json!(opening.window());
     }
+    data["disposition"] = serde_json::to_value(opening.disposition())?;
     Ok(data)
 }
 

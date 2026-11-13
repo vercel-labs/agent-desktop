@@ -13,6 +13,20 @@ use std::path::{Path, PathBuf};
 mod live;
 
 #[test]
+fn attaching_dispatches_nothing_so_it_reports_not_delivered() {
+    let result = launch_result("notepad.exe", ProcessId::new(7), "t".into(), None, ATTACHED);
+
+    assert_eq!(result.disposition, DeliverySemantics::not_delivered());
+}
+
+#[test]
+fn a_created_process_with_a_read_back_token_reports_delivered_verified() {
+    let result = launch_result("notepad.exe", ProcessId::new(7), "t".into(), None, SPAWNED);
+
+    assert_eq!(result.disposition, DeliverySemantics::delivered_verified());
+}
+
+#[test]
 fn zero_wait_never_polls_after_first_observation() {
     assert!(!should_poll_after_first_observation(0));
     assert!(should_poll_after_first_observation(1));

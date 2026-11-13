@@ -33,27 +33,15 @@ pub(super) fn entry_gone(target: &NotificationInfo, current: &[NotificationInfo]
     matching_count(current, target) == 0
 }
 
-/// The captured set's members an ignored clear would leave behind.
-///
-/// Only membership in the set captured before the clear counts as a failure:
-/// entries outside it arrived after the clear was invoked and are new
-/// arrivals, not survivors. This is the distinction an emptiness check cannot
-/// make - a re-read showing N entries is either an ignored clear or a cleared
-/// list with N re-posted entries, and only the captured set tells them apart.
-pub(super) fn survivor_failures(
-    captured: &[NotificationInfo],
-    current: &[NotificationInfo],
-) -> Vec<String> {
-    captured
-        .iter()
-        .filter(|member| !entry_gone(member, current))
-        .map(|member| {
-            format!(
-                "#{}: notification from the captured set is still present",
-                member.index
-            )
-        })
-        .collect()
+/// The failure one captured member still present after the clear reports
+/// when no invoke error was recorded for it: the clear reached the shell, so
+/// the entry's survival is delivered-but-unverified, never not-delivered.
+pub(super) fn survivor_failure() -> AdapterError {
+    AdapterError::new(
+        ErrorCode::ActionFailed,
+        "notification from the captured set is still present",
+    )
+    .with_disposition(DeliverySemantics::delivered_unverified())
 }
 
 /// Whether the entry an action targeted is gone or no longer carries the
