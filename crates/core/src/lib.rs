@@ -111,9 +111,10 @@ pub use sandbox::provider_script_request::ProviderScriptRequest;
 pub use session::interaction_lease::InteractionLease;
 #[cfg(unix)]
 pub use session::interaction_lease::{
-    INTERACTION_LEASE_FD_ENV, acquire_unix_interaction_lease,
+    INTERACTION_LEASE_FD_ENV, acquire_unix_interaction_lease, acquire_unix_interaction_lease_for,
     adopt_inherited_unix_interaction_lease,
 };
+pub use session::lease_scope::InteractionLeaseScope;
 pub use session::process_lease_guard::ProcessLeaseGuard;
 pub use session::session_affinity::SessionAffinity;
 pub use snapshot::snapshot_owner::SnapshotOwner;
