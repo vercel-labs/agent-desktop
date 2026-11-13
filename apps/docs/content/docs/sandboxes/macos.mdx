@@ -82,7 +82,7 @@ agent-desktop sandbox start work --window --set title="Review build"
 
 The window's title is the sandbox name unless you pass `--set title=<text>`. Closing the window shuts the VM down. A sandbox that is already running headless must be stopped before it can open a window.
 
-`start` answers `running` only once the guest answers over SSH. Until then it answers `working`; repeat `sandbox status` before `sandbox exec`.
+`start` answers `running` only once the guest answers over SSH. Until then it answers `working`; repeat `sandbox status` before `sandbox exec`. The VM host runs in its own session, so a started sandbox keeps running after the command that started it exits, including when the caller that launched it is later terminated.
 
 ## Limits
 

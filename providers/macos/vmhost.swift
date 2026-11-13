@@ -776,6 +776,18 @@ struct IpCommand {
     }
 }
 
+/// Leaves the caller's POSIX session for work that outlives the command that started it, so a launcher that
+/// exits or is killed does not take a running sandbox host down with it.
+enum CallerSession {
+    static func leave() {
+        guard setsid() == -1 else { return }
+        let code = errno
+        guard code != EPERM else { return }
+        let reason = String(cString: strerror(code))
+        FileHandle.standardError.write(Data("vmhost: could not leave the caller's session: \(reason)\n".utf8))
+    }
+}
+
 enum VMHost {
     static func run(_ arguments: [String]) -> Int32 {
         do {
@@ -783,8 +795,10 @@ enum VMHost {
             let rest = Array(arguments.dropFirst())
             switch command {
             case "install":
+                CallerSession.leave()
                 try InstallCommand.execute(rest)
             case "run":
+                CallerSession.leave()
                 try RunCommand.execute(rest)
             case "clone":
                 try CloneCommand.execute(rest)
