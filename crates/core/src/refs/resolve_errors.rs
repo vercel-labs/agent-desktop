@@ -99,6 +99,7 @@ mod tests;
 pub fn element_token_stale(entry: &RefEntry, reason: &str, depth: Option<usize>) -> AdapterError {
     let mut details = json!({
         "kind": "retained_object_stale",
+        "retryable": false,
         "reason": reason,
         "pid": entry.process.pid,
     });
