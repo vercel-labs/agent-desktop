@@ -66,10 +66,13 @@ fake hdiutil <<'FAKE'
 [ "${FAKE_HDIUTIL:-ok}" = ok ] || exit 1
 case ${1:-} in
   attach)
-    mkdir -p "$FAKE_VOLUME/private/etc/ssh"
-    : > "$FAKE_VOLUME/private/etc/ssh/ssh_host_ed25519_key"
-    : > "$FAKE_VOLUME/private/etc/ssh/ssh_host_ed25519_key.pub"
-    printf '/dev/disk99\tFAKE\t%s\n' "$FAKE_VOLUME"
+    if [ ! -e "$FAKE_VOLUME" ]; then
+      mkdir -p "$FAKE_VOLUME/private/etc/ssh"
+      : > "$FAKE_VOLUME/private/etc/ssh/ssh_host_ed25519_key"
+      : > "$FAKE_VOLUME/private/etc/ssh/ssh_host_ed25519_key.pub"
+    fi
+    mkdir -p "$FAKE_VOLUME.preboot"
+    printf '/dev/disk99s1\tFAKE\t%s\n/dev/disk99s2\tFAKE\t%s\n' "$FAKE_VOLUME.preboot" "$FAKE_VOLUME"
     ;;
   detach) printf 'hdiutil %s\n' "$*" >> "$FAKE_LOG" ;;
   info) printf 'image-path      : %s\n/dev/disk99\n' "$AD_SANDBOX_DIR/vm/Disk.img" ;;
@@ -124,6 +127,15 @@ fake ssh <<'FAKE'
 printf 'ssh %s\n' "$*" >> "$FAKE_LOG"
 for remote do :; done
 [ "${FAKE_SSH:-ok}" != unreachable ] || exit 255
+[ "${FAKE_SSH:-ok}" != no-binary ] || exit 3
+if [ -n "${FAKE_PROBE_FLOOD:-}" ]; then
+  case $remote in
+    *permissions*|*'shasum -a 1'*)
+      head -c 33554432 /dev/zero | tr '\0' 'x' && : > "$FAKE_PROBE_FLOOD"
+      exit
+      ;;
+  esac
+fi
 case $remote in
   *permissions*) printf '{"data":{"accessibility":{"state":"%s"}}}\n' "${FAKE_ACCESSIBILITY:-granted}" ;;
   *'shasum -a 1'*) printf '%s  file\n' "${FAKE_GUEST_SHA:-stale}" ;;
@@ -235,10 +247,28 @@ grep -q "vmhost run $tmp/sandboxes/demo/vm\$" "$FAKE_LOG" || fail 'a set-up sand
 grep -q '^192.0.2.2 ' "$tmp/sandboxes/demo/known_hosts" || fail 'start did not pin the sandbox host key'
 grep -q -- '-o StrictHostKeyChecking=yes' "$FAKE_LOG" || fail 'a pinned sandbox did not verify the host key it pinned'
 grep -q 'hdiutil detach /dev/disk99' "$FAKE_LOG" || fail 'the guest disk stayed mounted after the host key was written'
+grep -q '^private key' "$FAKE_VOLUME/private/etc/ssh/ssh_host_ed25519_key" && grep -q '^public key' "$FAKE_VOLUME/private/etc/ssh/ssh_host_ed25519_key.pub" || fail 'the new host key did not reach the guest disk'
 put demo stopped
 provider demo FAKE_HDIUTIL=broken start demo
 expect 'a guest disk that cannot be opened' 1 code ACTION_FAILED
 [ ! -f "$tmp/sandboxes/demo/vm/vmhost.pid" ] || fail 'a sandbox without its own host key was booted'
+
+for link in private private/etc private/etc/ssh private/etc/ssh/ssh_host_ed25519_key private/etc/ssh/ssh_host_ed25519_key.pub; do
+  rm -rf "$FAKE_VOLUME" "$tmp/host"
+  mkdir -p "$FAKE_VOLUME/private/etc/ssh" "$tmp/host"
+  printf 'host file\n' > "$FAKE_VOLUME/private/etc/ssh/ssh_host_ed25519_key"
+  printf 'host file\n' > "$FAKE_VOLUME/private/etc/ssh/ssh_host_ed25519_key.pub"
+  mv "$FAKE_VOLUME/$link" "$tmp/host/target"
+  ln -s "$tmp/host/target" "$FAKE_VOLUME/$link"
+  put demo stopped
+  : > "$FAKE_LOG"
+  provider demo start demo
+  expect "a guest disk whose $link is a link to the host" 1 code ACTION_FAILED
+  [ -z "$(find "$tmp/host" -type f -exec grep -L '^host file$' {} +)" ] || fail "a host file behind the guest link $link was overwritten"
+  [ ! -f "$tmp/sandboxes/demo/vm/vmhost.pid" ] || fail "a sandbox whose $link is a link to the host was booted"
+  grep -q 'hdiutil detach /dev/disk99' "$FAKE_LOG" || fail "the guest disk stayed mounted after the link at $link was refused"
+done
+rm -rf "$FAKE_VOLUME" "$tmp/host"
 put demo stopped
 provider demo AD_SET_WINDOW=on 'AD_SET_TITLE=Review build' start demo
 vm_pid=$(cat "$tmp/sandboxes/demo/vm/vmhost.pid")
@@ -270,6 +300,9 @@ expect 'accessibility not granted' 0 state needs_setup
 : > "$tmp/sandboxes/demo/setup_done"
 provider demo FAKE_SSH=unreachable status demo
 expect 'a guest that does not answer yet' 0 state working
+provider demo FAKE_SSH=no-binary status demo
+expect 'a guest without agent-desktop' 0 state needs_setup
+field message | grep -q 'agent-desktop is not installed in the guest' || fail 'the probe lost the exit status that reports a missing guest binary'
 
 : > "$FAKE_LOG"
 provider demo exec demo -- type "two words" 'it'"'"'s $HOME `id`' '' --
@@ -289,6 +322,14 @@ provider demo FAKE_GUEST_NOISE=300000 FAKE_GUEST_EXIT=7 exec demo -- version
 [ "$(wc -c < "$tmp/err")" -le 65536 ] || fail 'guest stderr reached the host unbounded'
 provider demo FAKE_SSH=unreachable exec demo -- version
 expect 'exec with no Remote Login' 125 code ACTION_FAILED
+provider demo "FAKE_PROBE_FLOOD=$tmp/flooded" status demo
+expect 'status with a guest that floods its reply' 0 state needs_setup
+[ ! -e "$tmp/flooded" ] || fail 'a status probe accepted the whole guest reply'
+: > "$tmp/sandboxes/demo/setup_done"
+provider demo "FAKE_PROBE_FLOOD=$tmp/flooded" exec demo -- version
+[ "$status" = 0 ] || fail "exec with a guest that floods its reply exited $status"
+[ "$(cat "$tmp/out")" = '[version]' ] || fail 'a guest that floods its reply lost the exec output'
+[ ! -e "$tmp/flooded" ] || fail 'an exec probe accepted the whole guest reply'
 
 # create: every bad combination of settings is refused before anything is touched.
 refuse() {

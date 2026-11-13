@@ -581,6 +581,25 @@ guest_transport() {
     "$@"
 }
 
+PROBE_REPLY_LIMIT=65536
+
+# The guest decides how much a probe prints, so the host reads at most PROBE_REPLY_LIMIT bytes of the reply and
+# closes the pipe on the rest. Returns the ssh exit status.
+guest_probe() {
+  {
+    reply_status=$(
+      {
+        {
+          probe_ssh_status=0
+          guest_transport ssh "$@" 2>/dev/null 3>&- 4>&- || probe_ssh_status=$?
+          printf '%s\n' "$probe_ssh_status" >&3
+        } | head -c "$PROBE_REPLY_LIMIT" >&4
+      } 3>&1
+    )
+  } 4>&1
+  return "${reply_status:-255}"
+}
+
 detach_guest_disk() {
   disk=$1
   for dev in $(hdiutil info 2>/dev/null | awk -v img="$disk" '$1 == "image-path" { path = $0; sub(/^[^:]*:[[:space:]]*/, "", path); found = (path == img) } found && $1 ~ /^\/dev\/disk/ { print $1 }'); do
@@ -588,17 +607,47 @@ detach_guest_disk() {
   done
 }
 
-guest_ssh_dir() {
-  attach=$1
-  mounts=$2
-  printf '%s\n' "$attach" | awk -F '\t' '$3 ~ /^\// { print $3 }' > "$mounts"
-  while IFS= read -r mount_point; do
-    if [ -f "$mount_point/private/etc/ssh/ssh_host_ed25519_key" ]; then
-      printf '%s\n' "$mount_point"
-      return 0
-    fi
-  done < "$mounts"
-  return 1
+# The guest chooses every path on its disk, so the keys are written only through directories and files that are
+# opened without following a symlink and that sit on the mounted volume. Exits 2 when the host key is not on it.
+write_guest_host_key() {
+  perl -e '
+    BEGIN { $SIG{__DIE__} = sub { exit 1 } }
+    use strict;
+    use Fcntl qw(:mode O_WRONLY O_CREAT O_NOFOLLOW O_NONBLOCK);
+    my ($volume_root, @sources) = @ARGV;
+    my @contents;
+    for my $source (@sources) {
+      open(my $in, "<", $source) or exit 1;
+      my $bytes = do { local $/; <$in> };
+      defined $bytes or exit 1;
+      push @contents, $bytes;
+    }
+    chdir $volume_root or exit 1;
+    my @root = stat "." or exit 1;
+    my $volume = $root[0];
+    for my $part (qw(private etc ssh)) {
+      my @seen = lstat $part or exit($!{ENOENT} ? 2 : 1);
+      $seen[0] == $volume or exit 2;
+      S_ISDIR($seen[2]) or exit 1;
+      chdir $part or exit 1;
+      my @entered = stat "." or exit 1;
+      $entered[0] == $seen[0] && $entered[1] == $seen[1] or exit 1;
+    }
+    my @writes;
+    for my $target (["ssh_host_ed25519_key", 0], ["ssh_host_ed25519_key.pub", O_CREAT]) {
+      my ($name, $create) = @$target;
+      sysopen(my $out, $name, O_WRONLY | O_NOFOLLOW | O_NONBLOCK | $create, 0644) or exit($!{ENOENT} ? 2 : 1);
+      my @held = stat $out or exit 1;
+      S_ISREG($held[2]) && $held[0] == $volume or exit 1;
+      push @writes, [$out, shift @contents];
+    }
+    for my $write (@writes) {
+      my ($out, $bytes) = @$write;
+      truncate($out, 0) or exit 1;
+      (syswrite($out, $bytes) // -1) == length($bytes) or exit 1;
+      close($out) or exit 1;
+    }
+  ' "$1" "$2" "$3"
 }
 
 rotate_host_key() {
@@ -616,18 +665,18 @@ rotate_host_key() {
     rm -rf "$tmp"
     return 1
   fi
-  if ! dir=$(guest_ssh_dir "$attach" "$tmp/mounts"); then
-    detach_guest_disk "$disk"
-    rm -rf "$tmp"
-    return 2
-  fi
-  if ! cat "$tmp/key" > "$dir/private/etc/ssh/ssh_host_ed25519_key" || \
-    ! cat "$tmp/key.pub" > "$dir/private/etc/ssh/ssh_host_ed25519_key.pub"; then
-    detach_guest_disk "$disk"
-    rm -rf "$tmp"
-    return 1
-  fi
+  printf '%s\n' "$attach" | awk -F '\t' '$3 ~ /^\// { print $3 }' > "$tmp/mounts"
+  write_status=2
+  while IFS= read -r mount_point; do
+    write_status=0
+    write_guest_host_key "$mount_point" "$tmp/key" "$tmp/key.pub" || write_status=$?
+    [ "$write_status" -eq 2 ] || break
+  done < "$tmp/mounts"
   detach_guest_disk "$disk"
+  if [ "$write_status" -ne 0 ]; then
+    rm -rf "$tmp"
+    return "$write_status"
+  fi
   if ! cp "$tmp/key.pub" "$pub"; then
     rm -rf "$tmp"
     return 1
@@ -713,7 +762,7 @@ check_guest_setup() {
   fi
   target=$user@$ip
   probe_status=0
-  permissions=$(guest_transport ssh "$target" 'if [ ! -x ~/.local/bin/agent-desktop ]; then exit 3; fi; ~/.local/bin/agent-desktop permissions' 2>/dev/null) || probe_status=$?
+  permissions=$(guest_probe "$target" 'if [ ! -x ~/.local/bin/agent-desktop ]; then exit 3; fi; ~/.local/bin/agent-desktop permissions') || probe_status=$?
   if [ "$probe_status" -eq 255 ]; then
     guest_not_answering "$name" "$user"
     return 0
@@ -941,11 +990,11 @@ do_exec() {
   host_helper_hash=$(printf '%s\n' "$host_helper_hash_line" | awk '{ print tolower($1) }')
   target=$user@$ip
   probe_status=0
-  guest_hash_line=$(guest_transport ssh "$target" 'shasum -a 1 ~/.local/bin/agent-desktop' 2>/dev/null) || probe_status=$?
+  guest_hash_line=$(guest_probe "$target" 'shasum -a 1 ~/.local/bin/agent-desktop') || probe_status=$?
   if [ "$probe_status" -eq 255 ]; then remote_login_failure "$name"; fi
   guest_hash=$(printf '%s\n' "$guest_hash_line" | awk '{ print tolower($1) }')
   probe_status=0
-  guest_helper_hash_line=$(guest_transport ssh "$target" "shasum -a 1 ~/.local/bin/$HELPER_NAME" 2>/dev/null) || probe_status=$?
+  guest_helper_hash_line=$(guest_probe "$target" "shasum -a 1 ~/.local/bin/$HELPER_NAME") || probe_status=$?
   if [ "$probe_status" -eq 255 ]; then remote_login_failure "$name"; fi
   guest_helper_hash=$(printf '%s\n' "$guest_helper_hash_line" | awk '{ print tolower($1) }')
   if ! sync_guest_file "$target" "$AD_BINARY" agent-desktop "$host_hash" "$guest_hash"; then
