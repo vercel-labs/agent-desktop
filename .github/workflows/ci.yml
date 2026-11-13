@@ -261,6 +261,9 @@ jobs:
           rustup show
           rustup component add clippy
 
+      - name: Enforce no application names in runtime source
+        run: scripts/check-no-app-names.sh
+
       - name: Install AT-SPI bus and virtual display
         run: |
           sudo apt-get update
@@ -395,6 +398,10 @@ jobs:
 
       - name: Install Rust toolchain
         run: rustup show
+
+      - name: Enforce no application names in runtime source
+        shell: bash
+        run: scripts/check-no-app-names.sh
 
       # Core resolves its home directory from HOME, then USERPROFILE (crates/core/src/refs/mod.rs), so the lane points both at a throwaway directory.
       - name: Isolate HOME for the whole lane

@@ -82,43 +82,13 @@ fn dismiss_all_impl(
     let filter = build_filter(app_filter);
     let entries = super::list::list_entries(&filter, pid, deadline)?;
 
-    let mut dismissed = Vec::new();
-    let mut failures = Vec::new();
-
-    for original in entries.iter().rev() {
-        let current_entries = super::list::list_entries(&filter, pid, deadline)?;
-        match dismiss_turn(original, &current_entries, |current, matching_before| {
+    super::dismiss_all::dismiss_captured(
+        &entries,
+        || super::list::list_entries(&filter, pid, deadline),
+        |current, matching_before| {
             dismiss_entry(current, policy, &filter, matching_before, pid, deadline)
-        }) {
-            Ok(()) => dismissed.push(original.info.clone()),
-            Err(message) => failures.push(message),
-        }
-    }
-
-    Ok((dismissed, failures))
-}
-
-/// Runs one captured entry's turn against a fresh listing. An entry the
-/// listing no longer holds already satisfies the dismissal, so it counts as
-/// dismissed without an attempt; a held entry is attempted, and its failure
-/// is reported against the captured index.
-#[cfg(target_os = "macos")]
-fn dismiss_turn(
-    original: &super::list::NotificationEntry,
-    current_entries: &[super::list::NotificationEntry],
-    attempt: impl FnOnce(&super::list::NotificationEntry, usize) -> Result<(), AdapterError>,
-) -> Result<(), AdapterError> {
-    let Some(current) = current_entries
-        .iter()
-        .find(|entry| super::dismiss_verify::matches(original, entry))
-    else {
-        return Ok(());
-    };
-    let matching_before = super::dismiss_verify::matching_count(current_entries, current);
-    attempt(current, matching_before).map_err(|mut error| {
-        error.message = format!("#{}: {}", original.info.index, error.message);
-        error
-    })
+        },
+    )
 }
 
 #[cfg(target_os = "macos")]

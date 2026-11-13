@@ -7,25 +7,30 @@
 //! absent (the Settings "Country or region" combo, probe 2026-11-07), and it
 //! decides only by the patterns the element exposes. Every call here is a
 //! control pattern call, so the caller runs it only where the policy allows a
-//! foreground effect. `Realize` returns before the item is usable, so the item
-//! is looked up again after it and waited for until it is on screen; the
-//! reference from before `Realize` is never selected.
+//! foreground effect. When the item carries `VirtualizedItemPattern`, `Realize`
+//! returns before the item is usable, so it is looked up again after `Realize`
+//! and waited for until it is on screen; the reference from before `Realize` is
+//! never selected. An item without `VirtualizedItemPattern` is already built
+//! and is used directly after waiting for it to appear on screen.
 
-use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
+use agent_desktop_core::{AdapterError, Deadline, DeliverySemantics, ErrorCode};
 
 use crate::actions::chain::after_delivery;
 use crate::actions::mutation::classify_mutation;
 use crate::tree::automation::{UiaFailure, uia_failure_error};
 use crate::tree::element::UIAElement;
 
-/// Whether the container route runs: nothing was found by walking the tree and
-/// the policy allows a pattern call that may activate the window.
-pub(crate) fn container_route_applies(already_found: bool, allow_focus_steal: bool) -> bool {
-    !already_found && allow_focus_steal
-}
-
 const REALIZE_OPERATION: &str = "Realize";
 const REALIZE_LABEL: &str = "VirtualizedItemPattern.Realize";
+
+/// Whether the item had to be built before it could be used.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Realization {
+    /// The lookup returned a built item; nothing was sent to the application.
+    AlreadyBuilt,
+    /// `Realize` was sent, so every later failure is a delivered request with an unverified outcome.
+    Sent,
+}
 
 /// The second-item uniqueness lookup's answer for the select: `Ok` carries
 /// the element a second `FindItemByProperty` found, and only `Ok(None)` —
@@ -72,6 +77,28 @@ fn lookup_verdict<T>(found: Result<T, UiaFailure>) -> Result<Option<T>, UiaFailu
     }
 }
 
+/// A lookup that failed returns its own error, never absence. After a
+/// `Realize` was sent it is a delivered mutation with an unverified outcome,
+/// and so is a lookup that then finds no usable item.
+fn lookup_answer<T>(
+    lookup: Result<Option<T>, UiaFailure>,
+    realization: Realization,
+) -> Result<Option<T>, AdapterError> {
+    if realization == Realization::Sent && matches!(lookup, Ok(None)) {
+        return Err(after_delivery(AdapterError::new(
+            ErrorCode::ElementNotFound,
+            "The item was realized but no selectable item answers the lookup after it",
+        )));
+    }
+    lookup.map_err(|failure| {
+        let error = uia_failure_error(failure, "look up the requested item");
+        match realization {
+            Realization::Sent => after_delivery(error),
+            Realization::AlreadyBuilt => error.with_disposition(DeliverySemantics::not_delivered()),
+        }
+    })
+}
+
 /// The dispatched `Realize` call's verdict: `Ok` continues to the relookup
 /// that verifies the realized item; `Err` is a delivered mutation whose
 /// outcome is unverified — never an absent item and never a silent continue.
@@ -92,7 +119,8 @@ fn realize_verdict(outcome: Result<(), UiaFailure>) -> Result<(), AdapterError> 
 #[cfg(target_os = "windows")]
 mod imp {
     use super::{
-        AdapterError, Deadline, UIAElement, accept_unique_lookup, lookup_verdict, realize_verdict,
+        AdapterError, Deadline, Realization, UIAElement, accept_unique_lookup, lookup_answer,
+        lookup_verdict, realize_verdict,
     };
     use crate::actions::chain::poll_until;
     use crate::actions::select_search::{accept_selection_match, selection_item_available};
@@ -130,7 +158,9 @@ mod imp {
             return Ok(None);
         };
         let name = Variant::from(value);
-        let Some(first) = find_after(&pattern, None, &name).ok().flatten() else {
+        let Some(first) =
+            lookup_answer(find_after(&pattern, None, &name), Realization::AlreadyBuilt)?
+        else {
             return Ok(None);
         };
         let first = UIAElement::from(uiautomation::UIElement::from(first));
@@ -143,28 +173,39 @@ mod imp {
             }
         }
         deadline.ensure_remaining()?;
-        if let Ok(virtualized) = unsafe {
+        let virtualized = unsafe {
             first
                 .0
                 .as_ref()
                 .GetCurrentPatternAs::<IUIAutomationVirtualizedItemPattern>(
                     UIA_VirtualizedItemPatternId,
                 )
-        } {
-            realize_verdict(
-                unsafe { virtualized.Realize() }
-                    .map_err(|error| failure_of(&uiautomation::Error::from(error))),
-            )?;
-        }
-        let item = find_after(&pattern, None, &name)
-            .ok()
-            .flatten()
-            .map(|again| UIAElement::from(uiautomation::UIElement::from(again)))
-            .unwrap_or(first);
+        };
+        let (item, realization) = match virtualized {
+            Ok(virtualized) => {
+                realize_verdict(
+                    unsafe { virtualized.Realize() }
+                        .map_err(|error| failure_of(&uiautomation::Error::from(error))),
+                )?;
+                let Some(again) =
+                    lookup_answer(find_after(&pattern, None, &name), Realization::Sent)?
+                else {
+                    return Ok(None);
+                };
+                (
+                    UIAElement::from(uiautomation::UIElement::from(again)),
+                    Realization::Sent,
+                )
+            }
+            Err(_) => (first, Realization::AlreadyBuilt),
+        };
         wait_until_on_screen(deadline, || {
             read_one(&item, TreeProperty::IsOffscreen).flag() == Some(false)
         })?;
-        Ok(selection_item_available(&item).then_some(item))
+        if selection_item_available(&item) {
+            return Ok(Some(item));
+        }
+        lookup_answer(Ok(None), realization)
     }
 
     pub(crate) fn wait_until_on_screen(
@@ -206,18 +247,12 @@ pub(crate) use imp::realize_named_item;
 
 #[cfg(test)]
 mod tests {
-    use super::{accept_unique_lookup, container_route_applies, lookup_verdict, realize_verdict};
+    use super::{
+        Realization, accept_unique_lookup, lookup_answer, lookup_verdict, realize_verdict,
+    };
     use crate::system::runtime::hresult::{E_FAIL, UIA_E_ELEMENTNOTAVAILABLE, UIA_E_TIMEOUT};
     use crate::tree::automation::{ERR_NONE, ERR_NOTFOUND, ERR_TIMEOUT, UiaFailure};
     use agent_desktop_core::{DeliverySemantics, ErrorCode, RetryDisposition};
-
-    #[test]
-    fn the_container_route_runs_only_headed_and_only_when_the_walk_found_nothing() {
-        assert!(container_route_applies(false, true));
-        assert!(!container_route_applies(true, true));
-        assert!(!container_route_applies(false, false));
-        assert!(!container_route_applies(true, false));
-    }
 
     #[test]
     fn a_failed_uniqueness_lookup_refuses_before_any_selection() {
@@ -274,6 +309,65 @@ mod tests {
             assert_eq!(error.disposition, DeliverySemantics::not_delivered());
             assert_eq!(error.disposition.retry(), RetryDisposition::Safe);
         }
+    }
+
+    #[test]
+    fn a_failed_first_lookup_is_its_own_error_and_never_absence() {
+        assert!(
+            lookup_answer(Ok(Some(3)), Realization::AlreadyBuilt)
+                .expect("found")
+                .is_some()
+        );
+        assert!(
+            lookup_answer::<()>(Ok(None), Realization::AlreadyBuilt)
+                .expect("none")
+                .is_none()
+        );
+        let error = lookup_answer::<()>(
+            Err(UiaFailure::Hresult(UIA_E_TIMEOUT)),
+            Realization::AlreadyBuilt,
+        )
+        .expect_err("failed lookup");
+        assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+    }
+
+    #[test]
+    fn a_relookup_after_realize_never_falls_back_to_the_item_from_before() {
+        assert_eq!(
+            lookup_answer(Ok(Some(3)), Realization::Sent).expect("found"),
+            Some(3)
+        );
+        let empty = lookup_answer::<()>(Ok(None), Realization::Sent).expect_err("realize was sent");
+        assert_eq!(empty.code, ErrorCode::ElementNotFound);
+        assert_eq!(empty.disposition, DeliverySemantics::delivered_unverified());
+        assert_eq!(empty.disposition.retry(), RetryDisposition::Unsafe);
+        let error = lookup_answer::<()>(Err(UiaFailure::Hresult(UIA_E_TIMEOUT)), Realization::Sent)
+            .expect_err("failed relookup");
+        assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
+        let unsent = lookup_answer::<()>(
+            Err(UiaFailure::Hresult(UIA_E_TIMEOUT)),
+            Realization::AlreadyBuilt,
+        )
+        .expect_err("failed relookup");
+        assert_eq!(unsent.disposition, DeliverySemantics::not_delivered());
+    }
+
+    #[test]
+    fn an_item_the_lookup_returned_already_built_is_used_without_a_second_lookup_state() {
+        assert_eq!(
+            lookup_answer::<()>(Ok(None), Realization::AlreadyBuilt).expect("absent"),
+            None
+        );
+        assert_eq!(
+            lookup_answer(Ok(Some(3)), Realization::AlreadyBuilt).expect("present"),
+            Some(3)
+        );
+        let error = lookup_answer::<()>(
+            Err(UiaFailure::Hresult(UIA_E_ELEMENTNOTAVAILABLE)),
+            Realization::AlreadyBuilt,
+        )
+        .expect_err("not delivered");
+        assert_eq!(error.disposition, DeliverySemantics::not_delivered());
     }
 
     #[test]

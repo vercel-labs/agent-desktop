@@ -180,6 +180,7 @@ When a ref action returns `delivery_uncertain` with a post-action wait selector,
 ## Version 2.7 migration
 
 - Headed-mode refusal suggestions require an explicit user request for headed operation; agents must not add `--headed` to recover from a headless failure.
+- A key press no longer grants itself focus permission. `press` without `--app` or `--window-id` takes key focus, so the default headless policy refuses it with `POLICY_DENIED` before anything is sent, and `details.effect` is `focus_steal`. Scope the press with `--app` or `--window-id`, or add `--headed` when the user asked for headed operation. In the C library, `ad_execute_by_ref` and `ad_execute_by_ref_timeout` with `AD_ACTION_KIND_PRESS_KEY` and `AD_POLICY_KIND_HEADLESS` return `AD_RESULT_ERR_POLICY_DENIED` when the element does not advertise a native key press; pass `AD_POLICY_KIND_FOCUS_FALLBACK` or `AD_POLICY_KIND_HEADED` to allow the focus fallback.
 - Private-file privacy errors keep their code and add `details.path` and a fix: Unix permissions (`chmod 700` for a directory) or Windows permissions limited to this user, SYSTEM and Administrators, or a new `AGENT_DESKTOP_HOME`.
 - `status` adds `data.state_root_privacy`: `{ "ok": true }` or `{ "ok": false, "error": { ... } }` from the same private-directory check; failed checks leave snapshot rows null.
 
