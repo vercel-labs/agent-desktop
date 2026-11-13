@@ -615,7 +615,6 @@ struct RunCommand {
             PidFile.clear(at: bundle.startedFile)
             ControlSocket.remove(from: bundle)
         }
-        signal(SIGPIPE, SIG_IGN)
         let listener = try ControlSocket.listen(in: bundle)
         try boot(bundle: bundle, configuration: configuration, showWindow: showWindow, listener: listener)
     }
@@ -978,7 +977,6 @@ struct GuestCommand {
     static func exec(_ arguments: [String]) throws {
         guard arguments.count >= 2 else { throw Usage.execArguments }
         let bundle = Bundle(arguments[0])
-        signal(SIGPIPE, SIG_IGN)
         guard let call = GuestCall(bundle, operation: "exec", build: arguments[1], arguments: Array(arguments.dropFirst(2))) else {
             fail("The guest agent in sandbox \(bundle.sandboxName) is not answering.", bundle)
         }
@@ -1022,6 +1020,7 @@ enum CallerSession {
 
 enum VMHost {
     static func run(_ arguments: [String]) -> Int32 {
+        signal(SIGPIPE, SIG_IGN)
         do {
             guard let command = arguments.first else { throw Usage.noCommand }
             let rest = Array(arguments.dropFirst())

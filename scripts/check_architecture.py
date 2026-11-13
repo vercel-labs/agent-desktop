@@ -111,6 +111,7 @@ PROVIDERS_SOCKET = re.compile(r"(?<![A-Za-z0-9_])(?:socket\s*\(|listen\s*\(|bind
 PROVIDERS_SOCKET_ALLOWLIST = {
     "providers/macos/vmhost.swift": "the machine's socket device, and a socket file in the sandbox for its owner",
     "providers/macos/guestagent.swift": "the machine's socket device inside the guest, for the host alone",
+    "providers/macos/test-guest-channel.sh": "a socket file standing in for the machine's socket device in tests",
 }
 
 

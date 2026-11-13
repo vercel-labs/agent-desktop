@@ -26,3 +26,8 @@ fn assert_suite_passes(script: &str) {
 fn macos_provider_suite_passes() {
     assert_suite_passes("providers/macos/test-provider.sh");
 }
+
+#[test]
+fn macos_guest_channel_suite_passes() {
+    assert_suite_passes("providers/macos/test-guest-channel.sh");
+}

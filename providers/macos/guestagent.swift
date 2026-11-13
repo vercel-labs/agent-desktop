@@ -17,9 +17,9 @@ enum Wire {
 }
 
 enum GuestPaths {
-    static let share = "/Volumes/My Shared Files"
+    static var share: String { Transport.share }
     static let binaries = ["agent-desktop", "agent-desktop-macos-helper"]
-    static var bin: String { NSHomeDirectory() + "/.local/bin" }
+    static var bin: String { Transport.home + "/.local/bin" }
     static var command: String { bin + "/agent-desktop" }
     static var installedBuild: String { bin + "/.agent-desktop-build-id" }
 }
@@ -155,7 +155,7 @@ enum Command {
         let errors = Pipe()
         process.executableURL = URL(fileURLWithPath: GuestPaths.command)
         process.arguments = request.args ?? []
-        process.currentDirectoryURL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        process.currentDirectoryURL = URL(fileURLWithPath: Transport.home, isDirectory: true)
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = output
         process.standardError = errors
@@ -225,6 +225,70 @@ enum Permissions {
     }
 }
 
+/// Where the agent listens and what it reads from its surroundings. A build with GUEST_AGENT_TEST serves a
+/// socket file and takes its paths and peer address from the environment, so tests run the protocol without a
+/// virtual machine. A release build contains none of that.
+enum Transport {
+#if GUEST_AGENT_TEST
+    static let environment = ProcessInfo.processInfo.environment
+    static var share: String { environment["GUEST_TEST_SHARE"] ?? "" }
+    static var home: String { environment["GUEST_TEST_HOME"] ?? "" }
+
+    static func requestPermissions() {}
+
+    static func peer(of descriptor: Int32) -> SocketAddress? {
+        SocketAddress(address: UInt32(environment["GUEST_TEST_PEER"] ?? "") ?? Wire.hostAddress)
+    }
+
+    static func listen() -> Int32? {
+        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard descriptor >= 0, let path = environment["GUEST_TEST_SOCKET"] else { return nil }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: path.utf8) }
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bound == 0, Darwin.listen(descriptor, 16) == 0 else { return nil }
+        return descriptor
+    }
+#else
+    static let share = "/Volumes/My Shared Files"
+    static var home: String { NSHomeDirectory() }
+
+    static func requestPermissions() {
+        Permissions.request()
+    }
+
+    static func peer(of descriptor: Int32) -> SocketAddress? {
+        var address = SocketAddress()
+        var size = socklen_t(MemoryLayout<SocketAddress>.size)
+        let status = withUnsafeMutablePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getpeername(descriptor, $0, &size) }
+        }
+        return status == 0 ? address : nil
+    }
+
+    static func listen() -> Int32? {
+        let descriptor = socket(AF_VSOCK, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { return nil }
+        var address = SocketAddress(port: Wire.port, address: Wire.anyAddress)
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(descriptor, $0, socklen_t(MemoryLayout<SocketAddress>.size))
+            }
+        }
+        guard bound == 0, Darwin.listen(descriptor, 16) == 0 else {
+            close(descriptor)
+            return nil
+        }
+        return descriptor
+    }
+#endif
+}
+
 enum Agent {
     static func serve(_ channel: Channel) {
         defer { channel.close() }
@@ -247,30 +311,10 @@ enum Agent {
         }
     }
 
-    static func listen() -> Int32? {
-        let descriptor = socket(AF_VSOCK, SOCK_STREAM, 0)
-        guard descriptor >= 0 else { return nil }
-        var address = SocketAddress(port: Wire.port, address: Wire.anyAddress)
-        let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(descriptor, $0, socklen_t(MemoryLayout<SocketAddress>.size))
-            }
-        }
-        guard bound == 0, Darwin.listen(descriptor, 16) == 0 else {
-            close(descriptor)
-            return nil
-        }
-        return descriptor
-    }
-
     /// Only the host that runs this virtual machine may give the agent work.
-    static func peerIsHost(_ descriptor: Int32) -> Bool {
-        var address = SocketAddress()
-        var size = socklen_t(MemoryLayout<SocketAddress>.size)
-        let status = withUnsafeMutablePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getpeername(descriptor, $0, &size) }
-        }
-        return status == 0 && address.family == sa_family_t(AF_VSOCK) && address.address == Wire.hostAddress
+    static func isHost(_ peer: SocketAddress?) -> Bool {
+        guard let peer else { return false }
+        return peer.family == sa_family_t(AF_VSOCK) && peer.address == Wire.hostAddress
     }
 
     static func run() -> Int32 {
@@ -278,18 +322,18 @@ enum Agent {
             return AXIsProcessTrusted() ? 0 : 1
         }
         signal(SIGPIPE, SIG_IGN)
-        guard let listener = listen() else {
+        guard let listener = Transport.listen() else {
             FileHandle.standardError.write(Data("agent-desktop-guest: the virtual machine socket is not available: \(String(cString: strerror(errno)))\n".utf8))
             return 1
         }
-        Permissions.request()
+        Transport.requestPermissions()
         while true {
             let descriptor = accept(listener, nil, nil)
             if descriptor < 0 {
                 if errno == EINTR { continue }
                 return 1
             }
-            guard peerIsHost(descriptor) else {
+            guard isHost(Transport.peer(of: descriptor)) else {
                 close(descriptor)
                 continue
             }
