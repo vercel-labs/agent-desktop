@@ -1,4 +1,10 @@
-use super::{AXElement, properties::element::element_for_pid, surface_read};
+use super::{
+    AXElement,
+    menu_lineage::Lineage,
+    popup_menu::{MenuTreeReader, PopupContainer, inspect_node},
+    properties::element::element_for_pid,
+    surface_read,
+};
 use agent_desktop_core::{AdapterError, ErrorCode, SnapshotSurface};
 use std::time::Instant;
 
@@ -177,20 +183,54 @@ fn context_menu_from_app(
         }
     }
     if let Some(focused) = surface_read::element(&app, "AXFocusedUIElement", deadline)?
-        && let Some(menu) = find_menu_descendant(focused, "app/focused-element".into(), deadline)?
+        && let Some(menu) =
+            find_menu_descendant(focused, "app/focused-element".into(), deadline, None)?
     {
         return Ok(Some(menu));
     }
+    let mut popup_container = None;
     for (index, child) in surface_read::elements(&app, "AXChildren", deadline)?
         .into_iter()
         .enumerate()
     {
-        if let Some(menu) = find_menu_descendant(child, format!("app/children/{index}"), deadline)?
-        {
+        if let Some(menu) = find_menu_descendant(
+            child,
+            format!("app/children/{index}"),
+            deadline,
+            Some(&mut popup_container),
+        )? {
             return Ok(Some(menu));
         }
     }
-    Ok(None)
+    Ok(popup_container)
+}
+
+#[cfg(target_os = "macos")]
+struct AxMenuReader {
+    deadline: Instant,
+}
+
+#[cfg(target_os = "macos")]
+impl MenuTreeReader<AXElement> for AxMenuReader {
+    fn string(
+        &mut self,
+        element: &AXElement,
+        attribute: &str,
+    ) -> Result<Option<String>, AdapterError> {
+        surface_read::string(element, attribute, self.deadline)
+    }
+
+    fn boolean(
+        &mut self,
+        element: &AXElement,
+        attribute: &str,
+    ) -> Result<Option<bool>, AdapterError> {
+        surface_read::boolean(element, attribute, self.deadline)
+    }
+
+    fn children(&mut self, element: &AXElement) -> Result<Vec<AXElement>, AdapterError> {
+        surface_read::elements(element, "AXChildren", self.deadline)
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -198,25 +238,19 @@ fn find_menu_descendant(
     root: AXElement,
     source: String,
     deadline: Instant,
+    mut popup_container: Option<&mut PopupContainer<AXElement>>,
 ) -> Result<Option<(String, AXElement)>, AdapterError> {
-    find_menu_descendant_with(root, source, deadline, |element| {
-        let role = surface_read::string(element, "AXRole", deadline)?;
-        if role.as_deref() == Some("AXMenuBar") {
-            return Ok((false, Vec::new()));
-        }
-        if role.as_deref() == Some("AXMenu")
-            && surface_read::boolean(element, "AXVisible", deadline)? != Some(false)
-        {
-            return Ok((true, Vec::new()));
-        }
-        Ok((
-            false,
-            surface_read::elements(element, "AXChildren", deadline)?,
-        ))
-    })
+    let mut reader = AxMenuReader { deadline };
+    let found = find_menu_descendant_with(
+        Lineage::root(root, source.clone()),
+        source,
+        deadline,
+        |node| inspect_node(node, &mut reader, popup_container.as_deref_mut()),
+    )?;
+    Ok(found.map(|(path, node)| (path, node.element.clone())))
 }
 
-fn find_menu_descendant_with<T>(
+pub(super) fn find_menu_descendant_with<T>(
     root: T,
     source: String,
     deadline: Instant,

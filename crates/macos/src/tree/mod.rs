@@ -8,8 +8,10 @@ pub(crate) mod element_dedupe;
 pub(crate) mod element_name;
 pub(crate) mod hit_test;
 pub(crate) mod locator_deadline;
+mod menu_lineage;
 pub(crate) mod native_menu;
 pub(crate) mod observation_usage;
+mod popup_menu;
 pub(crate) mod properties;
 pub(crate) mod query;
 #[cfg(target_os = "macos")]
