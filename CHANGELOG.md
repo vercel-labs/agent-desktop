@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/vercel-labs/agent-desktop/compare/v1.3.0...v1.3.1) (2026-11-13)
+
+### Bug Fixes
+
+* Keep a started `macos` sandbox running after the command that started it exits, including when the caller that launched it is later terminated. The VM host now runs in its own session. ([#672](https://github.com/vercel-labs/agent-desktop/pull/672))
+* On Linux, update rustix to 1.1.6 for RUSTSEC-2026-0486. agent-desktop does not call the affected functions. ([#670](https://github.com/vercel-labs/agent-desktop/pull/670))
+
 ## [1.3.0](https://github.com/vercel-labs/agent-desktop/compare/v1.2.0...v1.3.0) (2026-11-11)
 
 ### ⚠ BREAKING CHANGES
