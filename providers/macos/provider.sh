@@ -629,7 +629,7 @@ check_guest_setup() {
 spawn_vmhost() {
   mode=$1
   if [ ! -x "$VMHOST" ] || ! command -v nohup >/dev/null 2>&1 || \
-    ! : >> "$VM_DIR/vmhost.log" || ! rm -f "$VM_DIR/vmhost.started" "$VM_DIR/ssh_refused"; then
+    ! : >> "$VM_DIR/vmhost.log" || ! rm -f "$VM_DIR/vmhost.started"; then
     return 1
   fi
   if [ "$mode" = window ]; then

@@ -85,7 +85,7 @@ fn a_failed_create_leaves_no_record_unless_the_provider_left_files() {
     }
 
     let home = HomeGuard::new();
-    let adapter = ScriptedAdapter::new().leaving("id_ed25519");
+    let adapter = ScriptedAdapter::new().leaving("Disk.img");
 
     execute(create_action(), &adapter).expect_err("the provider create fails");
 

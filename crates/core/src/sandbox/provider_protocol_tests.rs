@@ -144,7 +144,7 @@ fn exec_failures_report_the_sandbox_error_and_unknown_delivery() {
     let no_status = ProviderScriptOutput {
         status: None,
         stdout: Vec::new(),
-        stderr_tail: "ssh died".to_owned(),
+        stderr_tail: "the provider died".to_owned(),
     };
     let error = adapter(exec_outcome("macos", &no_status).unwrap_err());
     assert_eq!(error.code, ErrorCode::ActionFailed);
