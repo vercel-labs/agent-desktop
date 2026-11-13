@@ -135,7 +135,7 @@ fn private_writes_and_locks_reject_group_accessible_parent() {
         .err()
         .unwrap();
     let payload = crate::ErrorPayload::from_app_error(&crate::AppError::Adapter(error));
-    assert_eq!(payload.code, "INTERNAL");
+    assert_eq!(payload.code, "PERM_DENIED");
     assert_eq!(
         payload.details.unwrap()["path"],
         directory.to_str().unwrap()

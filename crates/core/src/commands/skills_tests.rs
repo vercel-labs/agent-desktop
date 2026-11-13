@@ -194,7 +194,7 @@ fn platform_state_root_refusals_include_a_repair_in_the_same_row() {
                 .lines()
                 .find(|line| line.contains(message))
                 .unwrap_or_else(|| panic!("missing state-root error: {message}"));
-            assert!(row.starts_with("| `INTERNAL`:"), "{row}");
+            assert!(row.starts_with("| `PERM_DENIED`:"), "{row}");
             for fix in &fixes {
                 assert!(row.contains(fix), "{message} must include {fix}");
             }
