@@ -558,7 +558,8 @@ create_clone() {
     emit_fail ACTION_FAILED "The VM for sandbox $name could not be cloned: $clone_reply" "Run agent-desktop sandbox rm $name, fix the cause, then create it again."
     return 1
   fi
-  if ! copy_guest_share "$VM_DIR" || { [ ! -e "$source/id_ed25519" ] && ! : > "$AD_SANDBOX_DIR/setup_done"; }; then
+  if ! copy_guest_share "$VM_DIR" || \
+    { [ -f "$source/vm/agent.pub" ] && { ! cp "$source/vm/agent.pub" "$VM_DIR/agent.pub" || ! : > "$AD_SANDBOX_DIR/setup_done"; }; }; then
     emit_fail ACTION_FAILED "The guest files could not be copied into sandbox $name." "Run agent-desktop sandbox rm $name, then create it again."
     return 1
   fi
@@ -605,19 +606,35 @@ vmhost_missing() {
   emit_fail ACTION_FAILED "The macOS VM host is not installed." "Run agent-desktop sandbox install macos."
 }
 
+# Setup is complete when the guest agent reports Accessibility. Its key is recorded with it; from then on the VM
+# host sends work only to a process that proves that key, because any guest account can listen on the agent's port.
+record_setup() {
+  if [ ! -f "$VM_DIR/agent.pub" ]; then
+    agent_key=$(printf '%s\n' "$1" | sed -n 's/.*"key":"\([0-9a-f]\{64\}\)".*/\1/p')
+    [ -n "$agent_key" ] && printf '%s\n' "$agent_key" > "$VM_DIR/agent.pub" || return 1
+  fi
+  [ -f "$AD_SANDBOX_DIR/setup_done" ] || printf '' > "$AD_SANDBOX_DIR/setup_done"
+}
+
 check_guest_setup() {
   name=$1
   if [ ! -x "$VMHOST" ]; then
     vmhost_missing
     return 1
   fi
-  if ! guest_state=$("$VMHOST" status "$VM_DIR" 2>/dev/null); then
+  guest_status=0
+  guest_state=$("$VMHOST" status "$VM_DIR" 2>/dev/null) || guest_status=$?
+  if [ "$guest_status" -eq 4 ]; then
+    emit_ok needs_setup "The process answering in sandbox $name is not the guest agent that was set up, so nothing is sent to it. Stop the sandbox, start it with --window, and check which account is logged in. $GUEST_STEPS" "agent-desktop sandbox status $name"
+    return 0
+  fi
+  if [ "$guest_status" -ne 0 ]; then
     guest_not_answering "$name"
     return 0
   fi
   case $guest_state in
     *'"accessibility":true'*)
-      if [ ! -f "$AD_SANDBOX_DIR/setup_done" ] && ! printf '' > "$AD_SANDBOX_DIR/setup_done"; then
+      if ! record_setup "$guest_state"; then
         emit_fail ACTION_FAILED "The setup record for sandbox $name could not be saved." "Run agent-desktop sandbox status $name again after checking directory permissions."
         return 1
       fi

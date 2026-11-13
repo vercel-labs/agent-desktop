@@ -73,6 +73,12 @@ if ! launchctl $start; then
   exit 1
 fi
 
+sleep 2
+if ! launchctl print "$domain/$label" 2>/dev/null | grep -q 'state = running'; then
+  echo "The guest agent did not stay running. Another process may hold its port; see $HOME/Library/Logs/$name.log." >&2
+  exit 1
+fi
+
 echo "One step is left: when macOS asks, open System Settings > Privacy & Security > Accessibility and switch on $name."
 echo "For screenshots, switch it on under Screen & System Audio Recording too."
 if ! defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser >/dev/null 2>&1; then

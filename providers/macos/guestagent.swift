@@ -1,4 +1,5 @@
 import ApplicationServices
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -14,6 +15,8 @@ enum Wire {
     static let stderr: UInt8 = 2
     static let exit: UInt8 = 3
     static let failure: UInt8 = 4
+    static let nonceSize = 32
+    static let proofContext = Data("agent-desktop-guest-v1".utf8)
 }
 
 enum GuestPaths {
@@ -89,6 +92,10 @@ final class Channel: @unchecked Sendable {
             if got < 0 && errno == EINTR { continue }
             if got <= 0 { return }
         }
+    }
+
+    func prove(_ proof: Data) -> Bool {
+        lock.withLock { write(proof) }
     }
 
     func hangUp() {
@@ -289,9 +296,38 @@ enum Transport {
 #endif
 }
 
+/// Any account in the guest can listen on the agent's port. The agent signs the host's nonce with a key that
+/// only its own account can read, and the host sends work only to the key it recorded when setup completed.
+enum Identity {
+    static let key: Curve25519.Signing.PrivateKey? = load()
+
+    static func proof(for nonce: Data) -> Data? {
+        guard let key, let signature = try? key.signature(for: Wire.proofContext + nonce) else { return nil }
+        return key.publicKey.rawRepresentation + signature
+    }
+
+    private static func load() -> Curve25519.Signing.PrivateKey? {
+        let directory = Transport.home + "/Library/Application Support/agent-desktop-guest"
+        let path = directory + "/key"
+        let files = FileManager.default
+        if let stored = files.contents(atPath: path) {
+            return try? Curve25519.Signing.PrivateKey(rawRepresentation: stored)
+        }
+        let key = Curve25519.Signing.PrivateKey()
+        do {
+            try files.createDirectory(atPath: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        } catch {
+            return nil
+        }
+        let saved = files.createFile(atPath: path, contents: key.rawRepresentation, attributes: [.posixPermissions: 0o600])
+        return saved ? key : nil
+    }
+}
+
 enum Agent {
     static func serve(_ channel: Channel) {
         defer { channel.close() }
+        guard let nonce = channel.read(Wire.nonceSize), let proof = Identity.proof(for: nonce), channel.prove(proof) else { return }
         guard let header = channel.read(4) else { return }
         let length = header.reduce(0) { ($0 << 8) | Int($1) }
         guard length > 0, length <= Wire.requestLimit, let body = channel.read(length),
@@ -322,6 +358,10 @@ enum Agent {
             return AXIsProcessTrusted() ? 0 : 1
         }
         signal(SIGPIPE, SIG_IGN)
+        guard Identity.key != nil else {
+            FileHandle.standardError.write(Data("agent-desktop-guest: the agent's key cannot be read or created\n".utf8))
+            return 1
+        }
         guard let listener = Transport.listen() else {
             FileHandle.standardError.write(Data("agent-desktop-guest: the virtual machine socket is not available: \(String(cString: strerror(errno)))\n".utf8))
             return 1

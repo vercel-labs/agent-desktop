@@ -47,7 +47,7 @@ agent-desktop sandbox start work --window --set title="Review build"
 
 ## When status answers needs_setup
 
-The guest agent is not answering, or Accessibility is off for it. Open the sandbox in a window and repeat the three guest steps:
+The guest agent is not answering, Accessibility is off for it, or another process answered in its place. A guest that is only slow to start answers `running` on a later `status`. Otherwise open the sandbox in a window and repeat the three guest steps:
 
 ```bash
 agent-desktop sandbox stop base
@@ -60,6 +60,7 @@ A sandbox set up by agent-desktop 1.3.0 needs this once, after `agent-desktop sa
 
 - `guest-setup.sh` installs a guest agent, `agent-desktop-guest.app`, in the guest's `~/Applications`. It starts with each login. It runs one program, the guest's `agent-desktop`, with the arguments `sandbox exec` passes. It does not run a shell.
 - The host talks to the agent through the virtual machine's own socket device. The guest's network is not involved, and only the process that runs the VM can open that connection.
+- The agent holds a key that only its guest account can read. The host records the public half when setup completes and sends commands only to a process that proves that key, so another account in the guest cannot answer in the agent's place.
 - The guest mounts `sandboxes/<name>/vm/share/` read-only. Before each command the guest agent installs the host's agent-desktop build from it, so the guest always runs your build.
 
 ## What this isolates

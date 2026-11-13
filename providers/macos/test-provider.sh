@@ -69,8 +69,9 @@ case $1 in
     ;;
   status)
     case ${FAKE_GUEST:-granted} in
-      granted) printf '{"accessibility":true,"agent":1,"ok":true}\n' ;;
-      denied) printf '{"accessibility":false,"agent":1,"ok":true}\n' ;;
+      granted) printf '{"accessibility":true,"agent":1,"key":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ok":true}\n' ;;
+      denied) printf '{"accessibility":false,"agent":1,"key":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ok":true}\n' ;;
+      impostor) exit 4 ;;
       silent)
         printf '{"message":"The guest agent is not answering.","ok":false,"suggestion":"Run it again."}\n'
         exit 3
@@ -163,7 +164,7 @@ put() {
   FAKE_JOB_ALIVE=0
   FAKE_VM_DIR=$dir/vm
   for file in Disk.img AuxiliaryStorage HardwareModel MachineIdentifier config.json \
-    share/guest-setup.sh share/agent-desktop install.done; do
+    share/guest-setup.sh share/agent-desktop install.done agent.pub; do
     : > "$dir/vm/$file"
   done
   : > "$dir/setup_done"
@@ -263,10 +264,13 @@ expect 'a sandbox that is not set up starts in a window' 0 state needs_setup
 grep -q "vmhost run $tmp/sandboxes/demo/vm --window" "$FAKE_LOG" || fail 'setup did not open a window'
 
 put demo running
-rm "$tmp/sandboxes/demo/setup_done"
+rm "$tmp/sandboxes/demo/setup_done" "$tmp/sandboxes/demo/vm/agent.pub"
 provider demo status demo
 expect 'status records a finished setup' 0 state running
-[ -f "$tmp/sandboxes/demo/setup_done" ] || fail 'status did not record the finished setup'
+[ -f "$tmp/sandboxes/demo/setup_done" ] && [ "$(cat "$tmp/sandboxes/demo/vm/agent.pub")" = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ] || fail 'status did not record the finished setup and the guest agent key'
+provider demo FAKE_GUEST=impostor status demo
+expect 'a process that is not the recorded guest agent' 0 state needs_setup
+[ -f "$tmp/sandboxes/demo/setup_done" ] || fail 'an impostor in the guest cost the sandbox its setup record'
 provider demo FAKE_GUEST=denied status demo
 expect 'accessibility not granted' 0 state needs_setup
 [ "$(field next)" = 'agent-desktop sandbox stop demo' ] && [ ! -f "$tmp/sandboxes/demo/setup_done" ] || fail 'a headless sandbox that lost its setup was not sent back to a window'
@@ -399,10 +403,11 @@ rm -rf "$tmp/sandboxes/new"
 provider new AD_SET_FROM=base create new
 expect 'cloning a stopped, set-up sandbox' 0 state stopped
 [ -f "$tmp/sandboxes/new/setup_done" ] || fail 'the clone has no setup record'
+[ -f "$tmp/sandboxes/new/vm/agent.pub" ] || fail 'the clone has no recorded guest agent key'
 rm -rf "$tmp/sandboxes/old"
-: > "$tmp/sandboxes/base/id_ed25519"
+rm "$tmp/sandboxes/base/vm/agent.pub"
 provider old AD_SET_FROM=base create old
-[ "$status" = 0 ] && [ ! -e "$tmp/sandboxes/old/setup_done" ] || fail 'a clone of a sandbox still set up over SSH was recorded as set up'
+[ "$status" = 0 ] && [ ! -e "$tmp/sandboxes/old/setup_done" ] || fail 'a clone of a sandbox with no recorded guest agent key was recorded as set up'
 [ -n "$(ls "$tmp/sandboxes/new/vm/share/builds" 2>/dev/null)" ] && [ -f "$tmp/sandboxes/new/vm/share/agent-desktop-guest.app/Contents/MacOS/agent-desktop-guest" ] || fail 'the clone has no guest agent or host build in its shared folder'
 for leftover in id_ed25519 known_hosts guest_user; do
   [ ! -e "$tmp/sandboxes/new/$leftover" ] || fail "the clone holds the leftover $leftover"

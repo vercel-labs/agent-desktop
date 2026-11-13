@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Darwin
 import Foundation
 @preconcurrency import Virtualization
@@ -27,6 +28,7 @@ struct Bundle {
     var lockFile: URL { root.appendingPathComponent("vmhost.lock") }
     var installLog: URL { root.appendingPathComponent("install.log") }
     var controlSocket: String { "vmhost.sock" }
+    var agentKey: URL { root.appendingPathComponent("agent.pub") }
 }
 
 struct VMConfig: Codable {
@@ -755,6 +757,10 @@ enum GuestWire {
     static let stderr: UInt8 = 2
     static let exit: UInt8 = 3
     static let failure: UInt8 = 4
+    static let nonceSize = 32
+    static let keySize = 32
+    static let signatureSize = 64
+    static let proofContext = Data("agent-desktop-guest-v1".utf8)
 }
 
 /// The socket file in the bundle through which one sandbox command reaches the process that owns the machine.
@@ -917,23 +923,48 @@ enum Bytes {
     }
 }
 
-/// One request to the guest agent and the frames it answers with. The guest decides what it sends, so every
-/// frame is at most `GuestWire.frameLimit` bytes and nothing is held beyond the frame being copied.
+enum GuestCallFailure: Error {
+    case silent
+    case impostor
+    case unrecorded
+}
+
+/// One request to the guest agent and the frames it answers with. Any guest account can listen on the agent's
+/// port, so the agent first signs a fresh nonce with the key recorded for this sandbox at setup, and the request
+/// is sent only to a process that proves it. The guest decides what it sends back, so every frame is at most
+/// `GuestWire.frameLimit` bytes and nothing is held beyond the frame being copied.
 struct GuestCall {
     let descriptor: Int32
+    let key: String
 
-    init?(_ bundle: Bundle, operation: String, build: String = "", arguments: [String] = [], timeout: Int = 0) {
-        guard let descriptor = ControlSocket.connect(in: bundle) else { return nil }
-        self.descriptor = descriptor
+    static func open(_ bundle: Bundle, request: [String: Any], timeout: Int = 0, needsRecordedKey: Bool) -> Result<GuestCall, GuestCallFailure> {
+        guard let descriptor = ControlSocket.connect(in: bundle) else { return .failure(.silent) }
+        func refuse(_ failure: GuestCallFailure) -> Result<GuestCall, GuestCallFailure> {
+            close(descriptor)
+            return .failure(failure)
+        }
         if timeout > 0 {
             var limit = timeval(tv_sec: timeout, tv_usec: 0)
             setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
         }
-        guard let body = try? JSONSerialization.data(withJSONObject: ["op": operation, "build": build, "args": arguments]) else { return nil }
-        var request = Data()
-        withUnsafeBytes(of: UInt32(body.count).bigEndian) { request.append(contentsOf: $0) }
-        request.append(body)
-        guard Bytes.write(request, to: descriptor) else { return nil }
+        var generator = SystemRandomNumberGenerator()
+        let nonce = Data((0..<GuestWire.nonceSize).map { _ in UInt8.random(in: .min ... .max, using: &generator) })
+        guard Bytes.write(nonce, to: descriptor),
+              let proof = Bytes.read(GuestWire.keySize + GuestWire.signatureSize, from: descriptor),
+              let agent = try? Curve25519.Signing.PublicKey(rawRepresentation: proof.prefix(GuestWire.keySize)),
+              agent.isValidSignature(proof.suffix(GuestWire.signatureSize), for: GuestWire.proofContext + nonce) else {
+            return refuse(.silent)
+        }
+        let key = proof.prefix(GuestWire.keySize).map { String(format: "%02x", $0) }.joined()
+        let recorded = (try? String(contentsOf: bundle.agentKey, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let recorded, recorded != key { return refuse(.impostor) }
+        if recorded == nil && needsRecordedKey { return refuse(.unrecorded) }
+        guard let body = try? JSONSerialization.data(withJSONObject: request) else { return refuse(.silent) }
+        var message = Data()
+        withUnsafeBytes(of: UInt32(body.count).bigEndian) { message.append(contentsOf: $0) }
+        message.append(body)
+        guard Bytes.write(message, to: descriptor) else { return refuse(.silent) }
+        return .success(GuestCall(descriptor: descriptor, key: key))
     }
 
     func frame() -> (kind: UInt8, payload: Data)? {
@@ -948,14 +979,24 @@ struct GuestCall {
 
 struct GuestCommand {
     static let silentStatus: Int32 = 3
+    static let impostorStatus: Int32 = 4
     static let providerFailureStatus: Int32 = 125
+
+    static func impostor(_ bundle: Bundle) -> String {
+        "The process answering in sandbox \(bundle.sandboxName) is not the guest agent that was set up, so nothing was sent to it."
+    }
 
     static func status(_ arguments: [String]) throws {
         guard arguments.count == 1 else { throw Usage.statusArguments }
         let bundle = Bundle(arguments[0])
-        let silent = VMError(message: "The guest agent in sandbox \(bundle.sandboxName) is not answering.",
-                             suggestion: "Run `agent-desktop sandbox status \(bundle.sandboxName)` again in a few seconds.")
-        guard let call = GuestCall(bundle, operation: "status", timeout: 5) else { Output.fail(silent, status: silentStatus) }
+        let again = "Run `agent-desktop sandbox status \(bundle.sandboxName)` again in a few seconds."
+        let silent = VMError(message: "The guest agent in sandbox \(bundle.sandboxName) is not answering.", suggestion: again)
+        let call: GuestCall
+        switch GuestCall.open(bundle, request: ["op": "status"], timeout: 5, needsRecordedKey: false) {
+        case let .success(opened): call = opened
+        case .failure(.impostor): Output.fail(VMError(message: impostor(bundle), suggestion: again), status: impostorStatus)
+        case .failure: Output.fail(silent, status: silentStatus)
+        }
         var reply = Data()
         while let frame = call.frame() {
             if frame.kind == GuestWire.stdout {
@@ -965,7 +1006,7 @@ struct GuestCommand {
                 guard let state = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
                       let accessibility = state["accessibility"] as? Bool,
                       let agent = state["agent"] as? Int else { break }
-                Output.succeed(["ok": true, "accessibility": accessibility, "agent": agent])
+                Output.succeed(["ok": true, "accessibility": accessibility, "agent": agent, "key": call.key])
                 return
             } else {
                 break
@@ -977,8 +1018,13 @@ struct GuestCommand {
     static func exec(_ arguments: [String]) throws {
         guard arguments.count >= 2 else { throw Usage.execArguments }
         let bundle = Bundle(arguments[0])
-        guard let call = GuestCall(bundle, operation: "exec", build: arguments[1], arguments: Array(arguments.dropFirst(2))) else {
-            fail("The guest agent in sandbox \(bundle.sandboxName) is not answering.", bundle)
+        let request: [String: Any] = ["op": "exec", "build": arguments[1], "args": Array(arguments.dropFirst(2))]
+        let call: GuestCall
+        switch GuestCall.open(bundle, request: request, needsRecordedKey: true) {
+        case let .success(opened): call = opened
+        case .failure(.impostor): fail(impostor(bundle), bundle)
+        case .failure(.unrecorded): fail("Sandbox \(bundle.sandboxName) has no recorded guest agent key.", bundle)
+        case .failure(.silent): fail("The guest agent in sandbox \(bundle.sandboxName) is not answering.", bundle)
         }
         while let frame = call.frame() {
             switch frame.kind {
