@@ -59,6 +59,14 @@ impl ObservationOps for MacOSAdapter {
         crate::tree::resolve::retained::tokens_available()
     }
 
+    fn validate_saved_ref_context(
+        &self,
+        entry: &RefEntry,
+        _observed_token: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        crate::tree::resolve::retained::refuse_untagged_token(entry)
+    }
+
     fn resolve_locator_anchor(
         &self,
         entry: &RefEntry,

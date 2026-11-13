@@ -10,7 +10,7 @@ use crate::{
     refs::refs_store::RefStore,
 };
 
-pub(super) const TOKEN: &str = "axtok1:run";
+pub(super) const TOKEN: &str = "token:axtok1:run";
 
 /// Rewrites what the whole-window walk returns, so a test can make that one
 /// read come back cut short, fail, or depend on the request it was sent.

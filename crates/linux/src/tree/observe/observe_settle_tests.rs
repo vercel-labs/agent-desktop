@@ -90,6 +90,7 @@ fn observe_limited(limits: &WalkLimits, ms: u64, pause_ms: u64) -> (usize, bool)
         ObservationRoot::Window(&window),
         &request(ms),
         SettleHost {
+            guid: "",
             walker: &mut walker,
             place: &mut |_| Ok(()),
             is_web_process: &|_| Ok(true),
@@ -128,6 +129,7 @@ fn observe(web: bool, document: bool, ms: u64, curve: &[Result<usize, AdapterErr
         ObservationRoot::Window(&window),
         &request(ms),
         SettleHost {
+            guid: "",
             walker: &mut walker,
             place: &mut |_| Ok(()),
             is_web_process: &|_| Ok(web),
@@ -163,6 +165,7 @@ fn observe_element(web: bool, curve: &[Result<usize, AdapterError>]) -> usize {
         },
         &request(60_000),
         SettleHost {
+            guid: "",
             walker: &mut walker,
             place: &mut |_| Ok(()),
             is_web_process: &|_| Ok(web),
@@ -248,6 +251,7 @@ fn a_poll_that_finds_the_window_gone_is_window_not_found() {
         ObservationRoot::Window(&window),
         &request(60_000),
         SettleHost {
+            guid: "",
             walker: &mut walker,
             place: &mut |_| Ok(()),
             is_web_process: &|_| Ok(true),
@@ -297,6 +301,7 @@ fn a_shallow_web_walk_cut_at_the_requested_depth_settles() {
         ObservationRoot::Window(&window),
         &request(60_000),
         SettleHost {
+            guid: "",
             walker: &mut walker,
             place: &mut |_| Ok(()),
             is_web_process: &|_| Ok(true),
@@ -339,6 +344,7 @@ fn an_identity_only_read_of_a_web_window_walks_once_without_waiting() {
         ObservationRoot::Window(&window),
         &identity_only,
         SettleHost {
+            guid: "",
             walker: &mut walker,
             place: &mut |_| Ok(()),
             is_web_process: &|_| panic!("an identity-only read does not ask what the process is"),

@@ -91,3 +91,43 @@ pub(crate) fn absent(entry: &RefEntry) -> AdapterError {
 #[cfg(test)]
 #[path = "resolve_errors_tests.rs"]
 mod tests;
+
+/// The answer for an element token that no longer names the element it was
+/// taken from. `reason` names the check that failed; `depth` locates a broken
+/// ancestor link where the adapter checks one. No search ran, so the ref
+/// cannot have landed on a look-alike.
+pub fn element_token_stale(entry: &RefEntry, reason: &str, depth: Option<usize>) -> AdapterError {
+    let mut details = json!({
+        "kind": "retained_object_stale",
+        "retryable": false,
+        "reason": reason,
+        "pid": entry.process.pid,
+    });
+    if let Some(depth) = depth {
+        details["depth"] = depth.into();
+    }
+    AdapterError::stale_ref_because(
+        "The saved element no longer exists where its snapshot found it, or no longer matches",
+    )
+    .with_details(details)
+}
+
+/// The answer for a ref handed to a resolver that re-identifies elements only
+/// through the element token captured with them, when the ref carries none.
+/// Nothing is searched for it.
+pub fn element_token_required(entry: &RefEntry) -> AdapterError {
+    AdapterError::new(
+        ErrorCode::StaleRef,
+        "This saved ref is re-identified only through the element token captured with it, \
+         and it carries none",
+    )
+    .with_suggestion(
+        "Run 'snapshot' to take a ref that carries an element token, then retry with the new ref",
+    )
+    .with_disposition(crate::DeliverySemantics::not_delivered())
+    .with_details(json!({
+        "kind": "element_token_required",
+        "retryable": false,
+        "role": entry.identity.role,
+    }))
+}

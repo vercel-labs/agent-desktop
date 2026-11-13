@@ -152,9 +152,13 @@ impl Scene {
                     .collect();
                 panic!("no {roles:?} {name:?} among {summary:?}")
             });
-        self.adapter
-            .resolve_element_strict(entry, deadline(10_000))
-            .expect("the entry resolves")
+        agent_desktop_core::refs::resolve_saved_ref::resolve_saved_ref(
+            &self.adapter,
+            entry,
+            deadline(10_000),
+            None,
+        )
+        .expect("the entry resolves")
     }
 
     pub(in crate::tree) fn lease(&self) -> InteractionLease {

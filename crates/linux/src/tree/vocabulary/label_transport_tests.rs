@@ -103,6 +103,7 @@ fn label_text_transport_failures_preserve_name_uncertainty() {
             &read,
             false,
             &crate::tree::WalkLimits::default(),
+            "",
         );
         assert_eq!(
             projected.name.is_unknown(),

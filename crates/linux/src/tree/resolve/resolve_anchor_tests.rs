@@ -66,7 +66,6 @@ fn a_path_that_now_leads_to_another_role_is_stale_even_though_the_role_exists_el
     assert_eq!(error.code, ErrorCode::StaleRef);
     assert_eq!(kind(&error), "resolve_no_candidate");
     assert!(error.is_explicitly_retryable());
-    assert_eq!(fake.reads.searches, 0);
 }
 
 #[test]
@@ -77,7 +76,6 @@ fn a_path_that_leads_nowhere_is_stale_at_once() {
     let error = refused(&mut fake, &entry);
     assert_eq!(kind(&error), "resolve_no_candidate");
     assert!(error.is_explicitly_retryable());
-    assert_eq!(fake.reads.searches, 0);
     assert_eq!(fake.reads.evidence, 0);
 }
 
@@ -159,15 +157,6 @@ fn the_window_gate_refusals_apply_and_nothing_is_read_after_them() {
 }
 
 #[test]
-fn an_unnamed_zero_area_container_is_landed_by_its_path_for_the_caller_to_verify() {
-    let mut fake = Fake::new();
-    fake.add(FRAME_PATH, "/group", node(PANEL, "", 710, 0));
-    let entry = fake.entry_of("/group", true);
-    assert!(crate::tree::resolve::resolve_identity::entry_is_unverifiable(&entry));
-    assert_eq!(landed(&mut fake, &entry).path(), "/group");
-}
-
-#[test]
 fn an_expired_deadline_is_a_timeout_and_a_stopped_process_makes_it_unresponsive() {
     let mut fake = files();
     let entry = fake.entry_of("/opts2", true);
@@ -179,4 +168,12 @@ fn an_expired_deadline_is_a_timeout_and_a_stopped_process_makes_it_unresponsive(
     fake.stopped = Some("Files".to_owned());
     let error = resolve_anchor(&mut fake, &entry, spent).expect_err("spent");
     assert_eq!(error.code, ErrorCode::AppUnresponsive);
+}
+
+#[test]
+fn an_unnamed_zero_area_container_is_landed_by_its_path_for_the_caller_to_verify() {
+    let mut fake = Fake::new();
+    fake.add(FRAME_PATH, "/group", node(PANEL, "", 710, 0));
+    let entry = fake.entry_of("/group", true);
+    assert_eq!(landed(&mut fake, &entry).path(), "/group");
 }

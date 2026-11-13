@@ -106,7 +106,7 @@ impl ObservationOps for Sidebar {
         _: &ObservationRequest,
     ) -> Result<ObservedTree, AdapterError> {
         let scene = self.scene.lock().unwrap();
-        let evidence = evidence_for(&scene.0, &scene.0.node.element);
+        let evidence = evidence_for(&scene.0, &scene.0.node.element, "");
         ObservedTree::from_roots(
             vec![ObservedSubtree::new(evidence, Vec::new(), true, None)],
             ObservationSource::from_root(&root, root.surface()),
@@ -117,7 +117,7 @@ impl ObservationOps for Sidebar {
 
     fn get_live_element(&self, _: &NativeHandle, _: Deadline) -> Result<LiveElement, AdapterError> {
         let scene = self.scene.lock().unwrap();
-        let evidence = evidence_for(&scene.0, &scene.0.node.element);
+        let evidence = evidence_for(&scene.0, &scene.0.node.element, "");
         live_element(&scene.0, &evidence, &scene.1, false)
     }
 
