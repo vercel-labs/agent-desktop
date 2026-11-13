@@ -1,7 +1,7 @@
 use agent_desktop_core::{LocatorField, Role};
 
 use super::{resolve_role, role_of};
-use crate::tree::live::test_support::{attributes, words};
+use crate::tree::test_support::helpers::{attributes, words};
 use crate::tree::vocabulary::state_bits::{EDITABLE, FOCUSABLE, HAS_POPUP, READ_ONLY, SENSITIVE};
 use crate::tree::{Field, NodeTraits};
 

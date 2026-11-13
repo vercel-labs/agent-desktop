@@ -2,7 +2,7 @@ use super::{
     focus_lost_before_delivery, press_key_from_gate, press_key_global, type_text_from_gate,
 };
 use crate::input::keyboard_send_fake_sink as key_sink;
-use crate::system::fixture::test_time::deadline;
+use crate::system::test_support::test_time::deadline;
 use agent_desktop_core::{
     ActionStepOutcome, DeliveryDisposition, ErrorCode, KeyCombo, StepMechanism,
 };

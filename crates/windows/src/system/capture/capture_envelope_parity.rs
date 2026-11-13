@@ -12,7 +12,3 @@ mod tests;
 #[cfg(all(test, target_os = "windows"))]
 #[path = "capture_routing_parity_tests.rs"]
 mod routing;
-
-#[cfg(all(test, target_os = "windows"))]
-#[path = "capture_live_breadth_tests.rs"]
-mod live;

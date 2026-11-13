@@ -11,10 +11,10 @@ use crate::actions::physical_target::tests::fake::FakeWorld;
 use crate::input::physical::target_pointer::{ClickSpec, click_steps};
 use crate::system::x11::window::window_x11_state::WindowX11State;
 use crate::tree::element::ancestry::Ancestry;
-use crate::tree::live::test_support::{read_of, ref_entry, words};
 use crate::tree::live_read::live_project::{live_element, pointer_rect};
 use crate::tree::observe::node_evidence::evidence_for;
 use crate::tree::placement::Placement;
+use crate::tree::test_support::helpers::{read_of, ref_entry, words};
 use crate::tree::vocabulary::state_bits::{ENABLED, SHOWING, VISIBLE};
 use crate::tree::{AtspiElement, Extents, Field, ObservedRead};
 

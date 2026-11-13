@@ -2,8 +2,7 @@
 //! `live_element` rather than the predicate directly so that a hardcoded
 //! `states_complete` cannot keep these cases green.
 //!
-//! Split from `live_read_tests.rs`, which sits near the per-file line cap:
-//! the predicate is a pure function of the read set and the resolved role, so
+//! The predicate is a pure function of the read set and the resolved role, so
 //! these cases build `LiveRead` values by hand, need no UI Automation client,
 //! and run on every target.
 

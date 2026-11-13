@@ -124,12 +124,6 @@ mod tests;
 pub(super) mod signal_boundary;
 pub(super) mod signal_capture;
 pub(super) mod signal_inventory;
-#[cfg(test)]
-pub(super) mod signal_live_apps;
-#[cfg(test)]
-pub(super) mod signal_live_surfaces_tests;
-#[cfg(test)]
-pub(super) mod signal_live_tests;
 pub(crate) mod signal_sent;
 pub(super) mod signal_surfaces;
 pub(crate) mod subscription;

@@ -5,12 +5,10 @@ using System.Windows.Forms;
 namespace AgentDeskFixtureApp
 {
     /// <summary>
-    /// Approach item 11 and KTD9: the occlusion class is designed fresh
-    /// rather than mirrored from the macOS fixture, which has no occlusion
-    /// element at all. The Windows precedent is this crate's own
-    /// <c>tree/fixture/fixture_overlay.rs</c>, whose overlay is named so a hit-test
-    /// assertion can prove which window intercepted; this reproduces that
-    /// shape as a real top-most <see cref="Form"/> named
+    /// The occlusion class is designed fresh rather than mirrored from the
+    /// macOS fixture, which has no occlusion element at all. The overlay is
+    /// named so a hit-test assertion can prove which window intercepted; it
+    /// is a real top-most <see cref="Form"/> named
     /// <c>fixture-overlay</c>, opened and closed by two buttons so the
     /// harness can drive it through the CLI rather than from in-process
     /// test code.

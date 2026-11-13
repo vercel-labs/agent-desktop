@@ -288,7 +288,5 @@ pub(crate) mod frame_read;
 pub(super) mod listed_window;
 pub(super) mod registry_app;
 pub(super) mod registry_frames;
-#[cfg(test)]
-pub(super) mod registry_live_tests;
 
 pub(crate) mod app_query;

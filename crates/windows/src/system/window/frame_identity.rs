@@ -90,7 +90,3 @@ fn wide(value: &str) -> Vec<u16> {
 #[cfg(test)]
 #[path = "frame_identity_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "frame_identity_settings_tests.rs"]
-mod settings_tests;

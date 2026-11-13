@@ -196,17 +196,6 @@ fn host_window_handle(
     Ok(None)
 }
 
-/// Exposes the host-window climb to the live lane, which is the only place a
-/// real element with a zero leaf handle exists. A faulted climb surfaces as
-/// `Err` here too, so the lane cannot read it as a missing window.
-#[cfg(test)]
-pub(crate) fn host_window_handle_for_test(
-    element: &UIAElement,
-    deadline: Deadline,
-) -> Result<Option<crate::system::window::window_enum::WindowHandle>, AdapterError> {
-    host_window_handle(element, deadline)
-}
-
 #[cfg(test)]
 #[path = "physical_target_tests.rs"]
 mod tests;

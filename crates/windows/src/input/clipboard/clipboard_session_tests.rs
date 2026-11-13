@@ -3,10 +3,9 @@ use super::{
     close_clipboard_raw, open_clipboard_raw, owner_hwnd,
 };
 use crate::input::clipboard::clipboard_guard::MoveableMemory;
+use crate::input::clipboard::clipboard_test_lock;
 use crate::system::window::window_ops::list_windows_live;
-use crate::tree::fixture::fixture_clipboard::{ContendingClipboardHolder, clipboard_test_lock};
-use agent_desktop_core::{Deadline, ErrorCode, WindowFilter};
-use std::time::{Duration, Instant};
+use agent_desktop_core::{Deadline, WindowFilter};
 use windows_sys::Win32::Foundation::GlobalFree;
 use windows_sys::Win32::System::DataExchange::{
     EmptyClipboard, GetClipboardOwner, SetClipboardData,
@@ -69,28 +68,4 @@ fn write_open_uses_hidden_owner_while_null_owner_leaves_ownership_unset() {
         .expect("SetClipboardData through the hidden owner must succeed");
     assert_eq!(unsafe { GetClipboardOwner() }, owner);
     drop(session);
-}
-
-#[test]
-fn contention_exhaustion_is_timeout_within_deadline_budget() {
-    let _lock = clipboard_test_lock();
-    let mut holder = ContendingClipboardHolder::spawn().expect("holder");
-    let deadline = Deadline::after(500).expect("short deadline");
-    let started = Instant::now();
-    let error = match ClipboardSession::open_for_read(deadline) {
-        Ok(_) => panic!("must time out under contention"),
-        Err(error) => error,
-    };
-    let elapsed = started.elapsed();
-    assert_eq!(error.code, ErrorCode::Timeout);
-    assert!(
-        elapsed < Duration::from_millis(500),
-        "contention retry must stay inside the deadline, elapsed={elapsed:?}"
-    );
-    let detail = error.platform_detail.unwrap_or_default();
-    assert!(
-        detail.contains("GetOpenClipboardWindow"),
-        "contention envelope must name GetOpenClipboardWindow"
-    );
-    holder.release().expect("release");
 }

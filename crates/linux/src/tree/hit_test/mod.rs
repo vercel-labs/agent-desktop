@@ -215,7 +215,3 @@ pub(crate) fn pointer_hit_test(
 #[cfg(test)]
 #[path = "hit_test_tests.rs"]
 pub(crate) mod tests;
-
-#[cfg(test)]
-#[path = "shell_click_receiver_live_tests.rs"]
-mod shell_click_live_tests;

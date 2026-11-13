@@ -4,7 +4,7 @@ use agent_desktop_core::{AdapterError, Deadline};
 
 use super::walker::walk_levels;
 use super::wrapper::classify;
-use crate::tree::live::test_support::read_of;
+use crate::tree::test_support::helpers::read_of;
 use crate::tree::vocabulary::role_numbers::{PANEL, PUSH_BUTTON};
 use crate::tree::{Expansion, ObservedRead, Walk, WalkLimits, WalkedNode};
 

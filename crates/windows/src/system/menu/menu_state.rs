@@ -312,7 +312,3 @@ fn probe_step(error: &uiautomation::Error, context: &str) -> Result<bool, Adapte
 #[cfg(test)]
 #[path = "menu_state_tests.rs"]
 mod tests;
-
-#[cfg(all(test, target_os = "windows"))]
-#[path = "menu_state_chromium_tests.rs"]
-mod chromium_tests;

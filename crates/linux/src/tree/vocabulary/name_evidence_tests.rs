@@ -1,7 +1,7 @@
 use agent_desktop_core::LocatorField;
 
 use super::name_fields as resolve_names;
-use crate::tree::live::test_support::attributes;
+use crate::tree::test_support::helpers::attributes;
 use crate::tree::vocabulary::placeholder::read_placeholder;
 use crate::tree::vocabulary::role_numbers::{APPLICATION, ENTRY, PUSH_BUTTON, TEXT};
 use crate::tree::{Field, LabelOutcome, NodeProperties};

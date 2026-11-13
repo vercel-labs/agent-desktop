@@ -109,7 +109,8 @@ fn a_desktop_name_another_executable_also_uses_stays_an_alias() {
 fn an_in_place_desktop_edit_invalidates_the_previous_executable_alias() {
     use std::sync::Arc;
     use std::time::{Duration, SystemTime};
-    let dir = std::env::temp_dir().join(crate::tree::live::live_launch::nonce("alias-cache"));
+    let dir =
+        std::env::temp_dir().join(crate::tree::test_support::live_launch::nonce("alias-cache"));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("owned.desktop");
     let command = "/bin/sleep 30";
@@ -230,7 +231,9 @@ fn an_option_that_carries_a_payload_is_compared_like_an_argument() {
 
 #[test]
 fn an_interpreter_running_the_entry_script_is_named_by_it() {
-    let dir = std::env::temp_dir().join(crate::tree::live::live_launch::nonce("alias-script"));
+    let dir = std::env::temp_dir().join(crate::tree::test_support::live_launch::nonce(
+        "alias-script",
+    ));
     std::fs::create_dir_all(&dir).unwrap();
     let script = dir.join("updater");
     std::fs::write(&script, "#!/bin/sleep\n").unwrap();

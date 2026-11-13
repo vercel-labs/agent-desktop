@@ -1,5 +1,5 @@
 use super::{ToggleGoal, ToggleKind, drive_toggle};
-use crate::system::fixture::test_time::deadline;
+use crate::system::test_support::test_time::deadline;
 use agent_desktop_core::DeliveryOutcome;
 use agent_desktop_core::{AdapterError, DeliverySemantics, ErrorCode};
 use std::cell::Cell;

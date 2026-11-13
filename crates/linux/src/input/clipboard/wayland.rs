@@ -232,7 +232,3 @@ impl Wayland<'_> {
 #[cfg(test)]
 #[path = "wayland_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "wayland_live_tests.rs"]
-mod live_tests;

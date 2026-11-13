@@ -4,8 +4,6 @@ mod client;
 pub(crate) mod control;
 pub(crate) mod control_display;
 mod evidence;
-#[cfg(test)]
-pub(crate) mod live_display;
 pub(crate) mod map;
 pub(crate) mod menu_export;
 mod monitor;

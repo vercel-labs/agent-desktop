@@ -103,10 +103,6 @@ fn ensure_window_is_pumping(_handle: super::window_enum::WindowHandle) -> Result
 }
 
 fn activation_target_is_strictly_higher(pid: agent_desktop_core::ProcessId) -> bool {
-    #[cfg(all(test, target_os = "windows"))]
-    if force_strictly_higher::is_active() {
-        return true;
-    }
     integrity_is_strictly_higher(current_process_integrity_rid(), process_integrity_rid(pid))
 }
 
@@ -143,8 +139,6 @@ fn raise_with_budget(
                 .ensure_remaining()
                 .map_err(after_foreground_write_attempted)?;
         }
-        #[cfg(test)]
-        attempt_probe::begin_attempt(attempt);
         bring_to_foreground(handle, evidence)?;
         if is_owned_foreground(handle, evidence) {
             return Ok(());
@@ -197,10 +191,6 @@ pub(crate) fn is_owned_foreground(
     handle: super::window_enum::WindowHandle,
     evidence: &WindowIdentityEvidence<'_>,
 ) -> bool {
-    #[cfg(all(test, target_os = "windows"))]
-    if never_foreground::is_active() {
-        return false;
-    }
     #[cfg(target_os = "windows")]
     {
         is_foreground_window(handle) && evidence.owns_handle_now().unwrap_or(false)
@@ -230,8 +220,6 @@ fn restore_if_iconic(
                 "ShowWindowAsync failed while restoring target",
             )));
         }
-        #[cfg(test)]
-        restore_probe::record();
     }
     Ok(())
 }
@@ -281,10 +269,6 @@ fn bring_to_foreground(
 }
 
 fn owned_for_write(evidence: &WindowIdentityEvidence<'_>) -> Result<bool, AdapterError> {
-    #[cfg(all(test, target_os = "windows"))]
-    if force_unowned_from_attempt::blocks(attempt_probe::current()) {
-        return Ok(false);
-    }
     evidence.owns_handle_now()
 }
 
@@ -311,16 +295,6 @@ fn recycled_before_foreground() -> AdapterError {
     .with_details(serde_json::json!({ "physical_delivery_started": false }))
     .with_disposition(DeliverySemantics::not_delivered())
 }
-
-#[cfg(all(test, target_os = "windows"))]
-#[path = "window_activate_hooks.rs"]
-mod hooks;
-
-#[cfg(all(test, target_os = "windows"))]
-use hooks::{
-    attempt_probe, force_strictly_higher, force_unowned_from_attempt, never_foreground,
-    restore_probe,
-};
 
 #[cfg(test)]
 #[path = "window_activate_policy_tests.rs"]

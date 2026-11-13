@@ -12,46 +12,6 @@ fn assert_class_a_envelope(error: &AdapterError, code: ErrorCode, expected: Deli
     assert_disposition_wire(error, expected);
 }
 
-/// Targets a `HostedFixture` this test alone owns, never this process's own
-/// pid: the graceful close arm broadcasts `WM_CLOSE` to every top-level
-/// window the target pid owns, and the test runner's own pid also owns
-/// other tests' in-process `LocalFixture` windows running in parallel, so
-/// targeting it here would destroy them. A fixture host that swallows
-/// `WM_CLOSE` never closes, so the deadline genuinely expires.
-///
-/// macOS pins the identical pair for the identical condition - a deadline
-/// that expires waiting for exit after termination was already requested -
-/// in `crates/macos/src/system/app/app_ops.rs`'s `wait_for_exit`.
-#[test]
-fn shared_timeout_after_close_delivery_pins_the_windows_envelope() {
-    #[cfg(target_os = "windows")]
-    {
-        crate::tree::fixture::bootstrap();
-        let fixture = crate::tree::fixture::HostedFixture::spawn_swallowing_wm_close()
-            .expect("swallowing fixture");
-        let pid = ProcessId::from(fixture.process_id());
-        let token = crate::system::process_identity::token_for_pid(pid)
-            .expect("token")
-            .expect("live");
-        let app = AppInfo {
-            aliases: Vec::new(),
-            name: "fixture-host".into(),
-            pid,
-            bundle_id: None,
-            process_instance: Some(token),
-            presentation: None,
-        };
-        let error = close_app_impl(&app, false, Deadline::after(200).expect("deadline"))
-            .expect_err("timeout");
-        assert_class_a_envelope(
-            &error,
-            ErrorCode::Timeout,
-            DeliverySemantics::delivered_unverified(),
-        );
-        assert_eq!(error_wire(&error)["disposition"]["retry"], "unsafe");
-    }
-}
-
 /// `budget_exhausted(false)` is Windows' own focus-steal-retry-budget
 /// exhaustion; macOS's activation path carries no equivalent budget to
 /// exhaust, so no macOS call site pins this exact pair. The pair still

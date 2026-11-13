@@ -1,6 +1,6 @@
 use super::active_of;
 use crate::tree::Field;
-use crate::tree::live::test_support::words;
+use crate::tree::test_support::helpers::words;
 
 #[test]
 fn a_state_set_with_the_active_bit_is_active() {

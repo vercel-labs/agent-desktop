@@ -16,12 +16,6 @@ use super::{FrameFacts, X11State, start};
 /// handful of pipelined round trips, 2 to 4 ms in `L27-3`.
 pub(super) const READ_BUDGET: Duration = Duration::from_millis(1_500);
 
-/// The deadline of a read with no caller to share one with.
-#[cfg(test)]
-pub(super) fn standard_deadline() -> Option<Deadline> {
-    Deadline::from_duration(READ_BUDGET).ok()
-}
-
 /// The budget of one read: the read budget, cut to what the caller has left.
 pub(super) fn capped(caller: Deadline) -> Option<Deadline> {
     Deadline::from_duration(READ_BUDGET.min(caller.remaining())).ok()

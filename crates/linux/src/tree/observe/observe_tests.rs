@@ -5,7 +5,7 @@ use agent_desktop_core::{
 
 use super::{SettleHost, observe_with, refuse_stopped};
 use crate::system::window::window_id;
-use crate::tree::live::test_support::{read_of, words};
+use crate::tree::test_support::helpers::{read_of, words};
 use crate::tree::vocabulary::role_numbers::PUSH_BUTTON;
 use crate::tree::walk::walker::walk_levels;
 use crate::tree::walk::wrapper::classify;
@@ -272,7 +272,7 @@ fn a_request_deeper_than_the_raw_limit_is_rejected_before_any_walk() {
 }
 
 fn element_entry() -> agent_desktop_core::RefEntry {
-    let mut entry = crate::tree::live::test_support::ref_entry("button");
+    let mut entry = crate::tree::test_support::helpers::ref_entry("button");
     entry.process.pid = agent_desktop_core::ProcessId::new(77);
     entry.process.process_instance = Some("i".into());
     entry
@@ -327,8 +327,8 @@ fn a_window_root_never_seeds_the_walk_inside_a_web_document() {
 }
 
 fn handle_below_a_web_document() -> AtspiElement {
-    use crate::tree::live::test_support::read_of;
     use crate::tree::resolve::path_descent::level_of;
+    use crate::tree::test_support::helpers::read_of;
     use crate::tree::vocabulary::role_numbers::DOCUMENT_WEB;
 
     let mut frame = AtspiElement::new(":1.7", "/frame", 77);

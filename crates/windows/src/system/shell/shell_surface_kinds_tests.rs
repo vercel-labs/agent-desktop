@@ -9,7 +9,7 @@ use agent_desktop_core::ErrorCode;
 use crate::system::shell::shell_surface::build_number;
 use crate::system::shell::shell_surface_open::{open_row, open_surface};
 
-use crate::system::fixture::test_time::{deadline, headed};
+use crate::system::test_support::test_time::{deadline, headed};
 
 #[test]
 fn quick_settings_refusal_names_build_and_capability_holder() {

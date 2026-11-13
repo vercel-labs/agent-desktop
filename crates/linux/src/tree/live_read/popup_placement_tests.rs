@@ -1,8 +1,8 @@
 use super::*;
 use crate::tree::Field;
-use crate::tree::live::test_support::{read_of, words};
 use crate::tree::live_read::live_project::live_state;
 use crate::tree::observe::node_evidence::evidence_for;
+use crate::tree::test_support::helpers::{read_of, words};
 use crate::tree::vocabulary::role_numbers::PUSH_BUTTON;
 
 fn rect(x: i32, y: i32, width: i32, height: i32) -> Extents {

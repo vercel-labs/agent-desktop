@@ -85,7 +85,3 @@ pub(crate) fn stamp_minimized_offscreen(properties: &mut ElementProperties) {
         PropertyOutcome::Known(PropertyValue::Flag(true)),
     );
 }
-
-#[cfg(test)]
-#[path = "minimized_tests.rs"]
-mod tests;

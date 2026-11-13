@@ -1,5 +1,5 @@
 use super::is_sheet;
-use crate::tree::live::test_support::{read_of, words};
+use crate::tree::test_support::helpers::{read_of, words};
 use crate::tree::{Field, RawNode};
 
 const MODAL: u32 = 16;

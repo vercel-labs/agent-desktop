@@ -3,7 +3,7 @@ use agent_desktop_core::{Action, LocatorField};
 use super::{capabilities, capability_of, click_verbs, verbs_for};
 use crate::tree::Field;
 use crate::tree::RawNode;
-use crate::tree::live::test_support::read_of;
+use crate::tree::test_support::helpers::read_of;
 use crate::tree::vocabulary::role_numbers::{CHECK_BOX, LIST_ITEM};
 use crate::tree::vocabulary::role_numbers::{MENU_ITEM, PUSH_BUTTON};
 use crate::tree::vocabulary::state_bits::{CHECKABLE, SELECTABLE};

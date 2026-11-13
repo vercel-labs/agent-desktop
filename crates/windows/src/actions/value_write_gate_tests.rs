@@ -1,23 +1,9 @@
 use super::LEGACY_VALUE_LABEL;
 use super::imp::gated_value_compare;
-use crate::actions::dispatch::execute_action_impl;
-use crate::system::fixture::test_time::deadline;
-use crate::tree::automation::automation_client;
-use crate::tree::element::UIAElement;
-use crate::tree::fixture::fixture_window;
-use crate::tree::fixture::{CONTENT_MARKER, LocalFixture, ensure_test_apartment};
 use crate::tree::properties::property_outcome::{PropertyOutcome, PropertyValue};
 use agent_desktop_core::DeliveryOutcome;
-use agent_desktop_core::{
-    Action, ActionRequest, ActionStepOutcome, AdapterError, DeliveryDisposition, InteractionLease,
-    NativeHandle,
-};
+use agent_desktop_core::{Action, DeliveryDisposition};
 use std::cell::Cell;
-use uiautomation::types::Handle;
-
-fn lease() -> InteractionLease {
-    InteractionLease::guarded(deadline(5_000), ()).expect("lease")
-}
 
 fn known_flag(value: bool) -> PropertyOutcome {
     PropertyOutcome::Known(PropertyValue::Flag(value))
@@ -138,82 +124,4 @@ fn a_planted_get_value_outside_the_gate_is_caught() {
         offences, 1,
         "MUST-CATCH: planted get_value outside the gate must fail the scan"
     );
-}
-
-fn control_handle(hwnd: *mut std::ffi::c_void) -> Result<NativeHandle, AdapterError> {
-    let client = automation_client()?;
-    let element = client
-        .element_from_handle(Handle::from(hwnd as isize))
-        .map_err(|error| {
-            crate::tree::automation::uia_error(&error, "resolve the fixture control")
-        })?;
-    Ok(UIAElement::from(element).into_native_handle())
-}
-
-#[test]
-fn live_fixture_set_value_round_trips_when_value_pattern_exists() {
-    ensure_test_apartment();
-    let fixture = LocalFixture::create().expect("fixture");
-    let edit = find_content_edit(fixture.handle());
-    assert!(
-        !edit.is_null(),
-        "fixture must contain an edit control with content marker"
-    );
-    let handle = match control_handle(edit) {
-        Ok(handle) => handle,
-        Err(error) => {
-            panic!("control_handle must resolve the fixture edit control: {error}")
-        }
-    };
-    let payload = "zzlivevaluezz";
-    let result = execute_action_impl(
-        &handle,
-        ActionRequest::headless(Action::SetValue(payload.into())),
-        &lease(),
-    )
-    .expect("SetValue on the fixture EDIT, which exposes a value provider, must be delivered");
-    assert!(
-        result.steps.iter().any(|step| {
-            matches!(step.outcome, ActionStepOutcome::Succeeded)
-                && step.verified == Some(true)
-                && step.label() == LEGACY_VALUE_LABEL
-        }),
-        "expected a verified headless Legacy SetValue step: {:?}",
-        result.steps
-    );
-    assert_eq!(window_text(edit), payload);
-}
-
-fn find_content_edit(parent: isize) -> *mut std::ffi::c_void {
-    use windows_sys::Win32::UI::WindowsAndMessaging::FindWindowExW;
-    let class = fixture_window::wide("EDIT");
-    let mut after = std::ptr::null_mut();
-    loop {
-        let candidate = unsafe {
-            FindWindowExW(
-                parent as *mut std::ffi::c_void,
-                after,
-                class.as_ptr(),
-                std::ptr::null(),
-            )
-        };
-        if candidate.is_null() {
-            return std::ptr::null_mut();
-        }
-        if window_text(candidate).contains(CONTENT_MARKER) {
-            return candidate;
-        }
-        after = candidate;
-    }
-}
-
-fn window_text(hwnd: *mut std::ffi::c_void) -> String {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowTextLengthW, GetWindowTextW};
-    let len = unsafe { GetWindowTextLengthW(hwnd) };
-    if len <= 0 {
-        return String::new();
-    }
-    let mut buf = vec![0u16; (len + 1) as usize];
-    let written = unsafe { GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
-    String::from_utf16_lossy(&buf[..written as usize])
 }

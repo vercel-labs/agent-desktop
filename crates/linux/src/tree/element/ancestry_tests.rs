@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::{Ancestry, child, of_root};
-use crate::tree::live::test_support::read_of;
+use crate::tree::test_support::helpers::read_of;
 use crate::tree::walk::walker_expand::child_elements;
 use crate::tree::{AtspiElement, Field};
 

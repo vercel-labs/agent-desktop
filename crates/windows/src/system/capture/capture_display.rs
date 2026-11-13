@@ -194,7 +194,7 @@ pub(in crate::system) mod fail_after_alloc {
     }
 
     pub(super) fn with<R>(run: impl FnOnce() -> R) -> R {
-        crate::system::fixture::test_support::with_flag(&ACTIVE, true, run)
+        crate::system::test_support::helpers::with_flag(&ACTIVE, true, run)
     }
 }
 

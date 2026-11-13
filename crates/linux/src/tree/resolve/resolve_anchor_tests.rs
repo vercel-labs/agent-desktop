@@ -1,9 +1,9 @@
 use agent_desktop_core::{AdapterError, ErrorCode};
 
 use super::*;
-use crate::tree::live::test_support::attributes;
 use crate::tree::resolve::resolve_errors::{app_exited, is_incomplete, window_replaced};
 use crate::tree::resolve::resolve_fake::{BUS, FRAME_PATH, Fake, WINDOW_PID, deadline, node};
+use crate::tree::test_support::helpers::attributes;
 use crate::tree::vocabulary::role_numbers::{DOCUMENT_WEB, PANEL, PUSH_BUTTON};
 
 fn files() -> Fake {

@@ -1,5 +1,5 @@
 use super::{legacy_refusal_is_absent, offered, rung};
-use crate::system::fixture::test_time::deadline;
+use crate::system::test_support::test_time::deadline;
 use agent_desktop_core::{
     ActionStepOutcome, AdapterError, DeliveryObservation, DeliveryOutcome, DeliverySemantics,
     ErrorCode, InteractionPolicy, execute_chain,

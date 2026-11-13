@@ -151,13 +151,5 @@ fn anchor_descent_verdict(failure: UiaFailure) -> DescentVerdict {
 }
 
 #[cfg(all(test, target_os = "windows"))]
-#[path = "resolve_anchor_selector_wait_tests.rs"]
-mod selector_wait_tests;
-
-#[cfg(all(test, target_os = "windows"))]
-#[path = "resolve_anchor_count_agreement_tests.rs"]
-mod count_agreement_tests;
-
-#[cfg(all(test, target_os = "windows"))]
 #[path = "resolve_anchor_tests.rs"]
 mod windows_only;

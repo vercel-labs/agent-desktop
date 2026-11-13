@@ -3,7 +3,7 @@ use super::{
     direction_after_visibility_miss, direction_for_visibility, ladder_judged_for,
 };
 use crate::actions::scroll_into_view::{VisibilitySample, visibility_verified};
-use crate::system::fixture::test_time::deadline;
+use crate::system::test_support::test_time::deadline;
 use agent_desktop_core::{
     AdapterError, Deadline, DeliveryDisposition, DeliveryObservation, DeliveryOutcome,
     DeliverySemantics, Direction, ErrorCode, Rect,

@@ -282,7 +282,3 @@ mod window_tests;
 #[cfg(test)]
 #[path = "target_scroll_tests.rs"]
 mod scroll_tests;
-
-#[cfg(test)]
-#[path = "shell_click_live_tests.rs"]
-mod shell_live_tests;

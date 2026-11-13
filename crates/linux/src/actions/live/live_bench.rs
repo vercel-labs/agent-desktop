@@ -8,7 +8,7 @@ use zbus::zvariant::OwnedValue;
 
 use crate::LinuxAdapter;
 use crate::system::{PROPERTIES_INTERFACE, window::window_id, within};
-use crate::tree::live::live_launch::{Launched, nonce};
+use crate::tree::test_support::live_launch::{Launched, nonce};
 use crate::tree::{AtspiElement, list_children, read_node};
 
 use super::live_bench_env::qt_environment;

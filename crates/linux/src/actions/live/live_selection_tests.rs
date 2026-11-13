@@ -1,7 +1,7 @@
 use agent_desktop_core::{Action, Deadline, DeliverySemantics, ObservationOps};
 
 use super::live_bench::Bench;
-use crate::tree::live::live_launch::{Launched, nonce};
+use crate::tree::test_support::live_launch::{Launched, nonce};
 
 const APP: &str = r#"
 import json, pathlib, sys

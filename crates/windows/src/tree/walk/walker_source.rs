@@ -201,13 +201,6 @@ mod imp {
                 None => Ok(root.clone()),
             }
         }
-
-        /// Whether the root this source walks carries Chromium provenance; the
-        /// wrapper-depth skip only fires when this is true.
-        #[cfg(test)]
-        pub(crate) fn chromium_provenance(&self) -> bool {
-            self.chromium_provenance
-        }
     }
 
     impl TreeSource for UiaTreeSource {

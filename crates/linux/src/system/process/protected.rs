@@ -296,7 +296,3 @@ pub(crate) fn is_protected(
 #[cfg(test)]
 #[path = "protected_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "protected_live_tests.rs"]
-mod live_tests;
