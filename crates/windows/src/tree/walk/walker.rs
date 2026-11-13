@@ -82,6 +82,19 @@ pub trait TreeSource {
     /// ends the list; anything else is a genuine fault.
     fn next_sibling(&self, node: &Self::Node) -> Result<Self::Node, UiaFailure>;
 
+    /// All of `node`'s children in one read, when the source can bound that
+    /// read by `deadline`. `None` leaves the node to `first_child` and
+    /// `next_sibling`, which the walk checks against its sibling cap and
+    /// deadline at every step.
+    fn children_at_once(
+        &self,
+        _node: &Self::Node,
+        _properties: &crate::tree::properties::ElementProperties,
+        _deadline: Deadline,
+    ) -> Option<Vec<Self::Node>> {
+        None
+    }
+
     fn identity(&self, node: &Self::Node) -> NodeKey;
 
     /// Compares two elements when neither carries a runtime id.

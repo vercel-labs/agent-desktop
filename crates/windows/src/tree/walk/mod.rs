@@ -1,4 +1,6 @@
 pub(crate) mod cache;
+#[cfg(target_os = "windows")]
+pub(crate) mod child_batch;
 pub mod walker;
 pub(crate) mod walker_enumerate;
 #[cfg(test)]

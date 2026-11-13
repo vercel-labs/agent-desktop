@@ -163,7 +163,16 @@ impl<'a, S: TreeSource> TreeWalk<'a, S> {
         } else {
             self.budget.deadline
         };
-        let read = self.read_children(node, raw_depth, read_deadline);
+        let batched = if boundary_candidate {
+            None
+        } else {
+            self.source
+                .children_at_once(node, &properties, self.budget.deadline)
+        };
+        let read = match batched {
+            Some(elements) => self.capped_read(elements),
+            None => self.read_children(node, raw_depth, read_deadline),
+        };
         let truncated_by_raw_depth =
             raw_depth >= self.budget.max_raw_depth && !read.elements.is_empty();
         let at_boundary =
@@ -248,6 +257,17 @@ impl<'a, S: TreeSource> TreeWalk<'a, S> {
                 self.record(failure, EnumerationAxis::FirstChild, raw_depth, 0);
                 complete = false;
             }
+        }
+        ChildRead { elements, complete }
+    }
+
+    /// Children read in one call obey the same sibling cap as the loop above:
+    /// a longer list is cut at the cap and the subtree reported incomplete.
+    fn capped_read(&mut self, mut elements: Vec<S::Node>) -> ChildRead<S::Node> {
+        let complete = elements.len() <= self.budget.max_siblings;
+        if !complete {
+            elements.truncate(self.budget.max_siblings);
+            self.stats.traversal.limits.child_hits += 1;
         }
         ChildRead { elements, complete }
     }
@@ -364,3 +384,7 @@ fn retained_edge_certainty(prefix_certain: &mut bool, retained: bool) -> bool {
     *prefix_certain &= retained;
     edge_certain
 }
+
+#[cfg(test)]
+#[path = "walker_batch_tests.rs"]
+mod batch_tests;

@@ -153,6 +153,26 @@ mod imp {
         Ok(request)
     }
 
+    /// The request that reads all of a node's children in the raw view with the
+    /// same properties, in one round trip per parent instead of one per child.
+    pub fn build_children_cache_request(
+        client: &UIAutomation,
+    ) -> Result<UICacheRequest, AdapterError> {
+        let request = build_walk_cache_request(client)?;
+        request
+            .set_tree_scope(TreeScope::Children)
+            .map_err(|error| {
+                uia_failure_error(failure_of(&error), "set the children cache scope")
+            })?;
+        let raw_view = client
+            .create_true_condition()
+            .map_err(|error| uia_failure_error(failure_of(&error), "create the raw view filter"))?;
+        request
+            .set_tree_filter(raw_view)
+            .map_err(|error| uia_failure_error(failure_of(&error), "set the cache tree filter"))?;
+        Ok(request)
+    }
+
     /// Reads the root's `ProviderDescription` and its own process id, and
     /// picks the policy.
     ///
@@ -176,7 +196,7 @@ mod imp {
 }
 
 #[cfg(target_os = "windows")]
-pub use imp::{build_walk_cache_request, policy_for_root};
+pub use imp::{build_children_cache_request, build_walk_cache_request, policy_for_root};
 
 #[cfg(test)]
 #[path = "cache_tests.rs"]
