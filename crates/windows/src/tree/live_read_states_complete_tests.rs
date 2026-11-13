@@ -176,6 +176,31 @@ fn a_toggleable_role_reports_completeness_only_when_toggle_state_was_read() {
     ));
 }
 
+/// A radio button's UI Automation contract is `SelectionItem`, not `Toggle`:
+/// demanding a `ToggleState` it never exposes held the visibility gate at
+/// unknown and every action on a browser or WinForms radio timed out.
+#[test]
+fn a_radio_button_observes_its_state_through_selection_item() {
+    assert!(complete(
+        "radiobutton",
+        vec![
+            absent(TreeProperty::ExpandCollapseAvailable),
+            flag(TreeProperty::ToggleAvailable, false),
+            flag(TreeProperty::SelectionItemAvailable, true),
+            flag(TreeProperty::SelectionItemIsSelected, false),
+        ],
+    ));
+    assert!(!complete(
+        "radiobutton",
+        vec![
+            absent(TreeProperty::ExpandCollapseAvailable),
+            flag(TreeProperty::ToggleAvailable, false),
+            flag(TreeProperty::SelectionItemAvailable, true),
+            unknown(TreeProperty::SelectionItemIsSelected),
+        ],
+    ));
+}
+
 #[test]
 fn a_role_that_is_neither_toggleable_nor_expandable_is_complete() {
     assert!(complete(
