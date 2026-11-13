@@ -277,7 +277,9 @@ put demo running
 touch -t 202001010000 "$tmp/sandboxes/demo/vm/vmhost.started"
 provider demo FAKE_GUEST=silent status demo
 expect 'a guest agent silent for two minutes' 0 state needs_setup
-[ ! -f "$tmp/sandboxes/demo/setup_done" ] || fail 'a guest agent that has been silent for two minutes kept its setup record'
+[ -f "$tmp/sandboxes/demo/setup_done" ] || fail 'a guest that was only slow to answer lost its setup record'
+provider demo status demo
+expect 'a slow guest that answers after two minutes' 0 state running
 
 put demo running
 : > "$FAKE_LOG"
@@ -397,6 +399,10 @@ rm -rf "$tmp/sandboxes/new"
 provider new AD_SET_FROM=base create new
 expect 'cloning a stopped, set-up sandbox' 0 state stopped
 [ -f "$tmp/sandboxes/new/setup_done" ] || fail 'the clone has no setup record'
+rm -rf "$tmp/sandboxes/old"
+: > "$tmp/sandboxes/base/id_ed25519"
+provider old AD_SET_FROM=base create old
+[ "$status" = 0 ] && [ ! -e "$tmp/sandboxes/old/setup_done" ] || fail 'a clone of a sandbox still set up over SSH was recorded as set up'
 [ -n "$(ls "$tmp/sandboxes/new/vm/share/builds" 2>/dev/null)" ] && [ -f "$tmp/sandboxes/new/vm/share/agent-desktop-guest.app/Contents/MacOS/agent-desktop-guest" ] || fail 'the clone has no guest agent or host build in its shared folder'
 for leftover in id_ed25519 known_hosts guest_user; do
   [ ! -e "$tmp/sandboxes/new/$leftover" ] || fail "the clone holds the leftover $leftover"

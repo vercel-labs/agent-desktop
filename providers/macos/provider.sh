@@ -585,7 +585,8 @@ setup_window() {
   needs_setup "Sandbox $1 is open in a setup window. $GUEST_STEPS" "$1"
 }
 
-# The guest agent starts with the guest's login, so a set-up guest that stays silent has lost the agent or the login.
+# The guest agent starts with the guest's login. Silence may be a slow start as well as a lost agent, so it never
+# drops the setup record: a guest that answers later is running again without anyone touching it.
 guest_not_answering() {
   if [ ! -f "$AD_SANDBOX_DIR/setup_done" ]; then
     needs_setup "The guest agent in sandbox $1 is not answering. $GUEST_STEPS" "$1"
@@ -594,7 +595,7 @@ guest_not_answering() {
   started=$(file_mtime "$VM_DIR/vmhost.started")
   case $started in ''|*[!0-9]*) started=0 ;; esac
   if [ "$started" -gt 0 ] && [ $(( $(date +%s) - started )) -ge 120 ]; then
-    needs_setup "Sandbox $1 has run for over two minutes and its guest agent is not answering. $GUEST_STEPS" "$1"
+    emit_ok needs_setup "Sandbox $1 has run for over two minutes and its guest agent is not answering. A guest that is still starting answers later, so check again. If it stays silent, stop the sandbox and start it with --window. $GUEST_STEPS" "agent-desktop sandbox status $1"
   else
     emit_ok working "Sandbox $1 is running and the guest is still starting." "agent-desktop sandbox status $1"
   fi
