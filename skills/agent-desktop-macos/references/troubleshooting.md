@@ -102,3 +102,13 @@ The dismiss chain runs in order: the `AXDismiss` and `AXRemoveFromParent` action
 **Cause.** The guest agent, `agent-desktop-guest`, is not running in the guest, or Accessibility is off for it. The agent starts with each login to the guest account, so the guest needs automatic login.
 
 **Fix.** Run `agent-desktop sandbox stop <name>`, then `agent-desktop sandbox start <name> --window`, and in the guest turn on automatic login, run `sh "/Volumes/My Shared Files/guest-setup.sh"` in Terminal, and switch on **agent-desktop-guest** in System Settings > Privacy & Security > Accessibility. Then check `status` on the host. A sandbox set up by agent-desktop 1.3.0 needs this once.
+
+## Clipboard rejected
+
+**Symptom.** `clipboard-get`, `clipboard-set` or `clipboard-clear` returns `ACTION_NOT_SUPPORTED` with `details.kind: clipboard_helper_invalid` and a `platform_detail`.
+
+**Cause.** The macOS clipboard runs through the packaged helper `agent-desktop-macos-helper`, and the CLI checks the helper's filesystem identity before it launches it. It rejects a symlinked helper, a helper you do not own or that is group or world writable, and any parent directory another principal can write to. `platform_detail` names the rule that failed.
+
+**Fix.** Name a helper that satisfies every rule with `AGENT_DESKTOP_MACOS_HELPER_PATH`, set to an absolute path inside a directory tree only you or root can write. The variable chooses the path and does not relax the check, so that path must pass it either way. A package manager that installs into a group-writable prefix needs the helper placed outside that prefix.
+
+When no such location exists, use the system clipboard and the app's own paste shortcut: `printf '%s' "text" | pbcopy`, then `agent-desktop press cmd+v`. Read it back with `pbpaste`.

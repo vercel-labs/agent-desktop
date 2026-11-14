@@ -61,6 +61,8 @@ Ref actions are headless by default. Under `--headed`, `click`, `right-click`, `
   </tbody>
 </table>
 
+A clipboard command needs the packaged helper `agent-desktop-macos-helper`, and the CLI checks that helper's filesystem identity before it launches it. The helper must be a regular file rather than a symlink, owned by you, with no group or world write, and reached through directories that only you or root can write. `AGENT_DESKTOP_MACOS_HELPER_PATH` names an absolute path when the helper does not sit beside the executable. A layout that fails a rule returns `ACTION_NOT_SUPPORTED` with `details.kind: clipboard_helper_invalid`. A package manager that keeps its binaries behind symlinks, or in a group-writable prefix, fails this check, so use the system clipboard with the app's own paste shortcut instead. The macOS skill's troubleshooting reference gives the full rule list.
+
 Judge delivery by observation. AX return codes do not prove an effect: an app can return success from an action that does nothing, so re-read with `get`, `is`, or a snapshot.
 
 ## App naming
