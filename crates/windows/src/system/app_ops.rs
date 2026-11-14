@@ -36,6 +36,9 @@ pub(crate) fn is_protected_process(identifier: &str) -> bool {
 #[derive(Debug, Clone)]
 pub(crate) struct ProcessRow {
     pub(crate) pid: ProcessId,
+    /// Parent recorded in the same ToolHelp snapshot. `None` means the
+    /// process has no live parent in the snapshot (or the OS reports 0).
+    pub(crate) parent_pid: Option<ProcessId>,
     pub(crate) name: String,
 }
 
@@ -66,6 +69,8 @@ pub(crate) fn process_snapshot() -> Result<Vec<ProcessRow>, AdapterError> {
     while ok != 0 {
         rows.push(ProcessRow {
             pid: ProcessId::from(entry.th32ProcessID),
+            parent_pid: (entry.th32ParentProcessID != 0)
+                .then(|| ProcessId::from(entry.th32ParentProcessID)),
             name: process_identity::wide_buffer_to_string(&entry.szExeFile),
         });
         ok = unsafe { Process32NextW(snapshot, &mut entry) };
