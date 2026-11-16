@@ -2,8 +2,8 @@ use agent_desktop_core::{
     ActionResult, AdapterError, Deadline, DismissAllNotificationsRequest,
     DismissNotificationRequest, ImageBuffer, InteractionLease, NotificationActionRequest,
     NotificationFilter, NotificationInfo, OperationReport, PermissionReport, ProcessIdentity,
-    ScreenshotTarget, SignalBaseline, SignalFilter, SnapshotSurface, SystemOps, WindowInfo,
-    WindowOp,
+    ProviderScriptOutput, ProviderScriptRequest, ScreenshotTarget, SignalBaseline, SignalFilter,
+    SnapshotSurface, SystemOps, WindowInfo, WindowOp,
 };
 
 use crate::adapter::MacOSAdapter;
@@ -84,6 +84,22 @@ impl SystemOps for MacOSAdapter {
         crate::system::focus::focus_window_impl(win, lease.deadline())
     }
 
+    fn resolve_ref_focus_window(
+        &self,
+        entry: &agent_desktop_core::RefEntry,
+        deadline: Deadline,
+    ) -> Result<WindowInfo, AdapterError> {
+        crate::system::ref_focus_window::resolve(self, entry, deadline)
+    }
+
+    fn focus_app(
+        &self,
+        process: ProcessIdentity,
+        lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        crate::system::focus::focus_process(&process, lease.deadline())
+    }
+
     fn launch_app(
         &self,
         id: &str,
@@ -108,6 +124,13 @@ impl SystemOps for MacOSAdapter {
         deadline: Deadline,
     ) -> Result<agent_desktop_core::system::process_state::ProcessState, AdapterError> {
         crate::system::process::process_state::process_state_impl(process, deadline)
+    }
+
+    fn run_provider_script(
+        &self,
+        request: &ProviderScriptRequest,
+    ) -> Result<ProviderScriptOutput, AdapterError> {
+        crate::system::process::provider_script::run_provider_script(request)
     }
 
     fn supported_surfaces(&self) -> Vec<SnapshotSurface> {

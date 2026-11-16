@@ -10,7 +10,7 @@ Each entry is a symptom, its cause, and the fix. Read `error.code`, `error.sugge
 
 **Fix.** Follow "First contact" in the macOS skill: `permissions --guide`, turn on the launching app (and the `agent-desktop` binary if it is listed on its own) in System Settings > Privacy & Security > Accessibility or Screen Recording, then run `agent-desktop permissions` to confirm `granted`. The launching app does not need a restart.
 
-The guide offers the app bundle of the nearest process above agent-desktop. Under a tmux server or an SSH session, no such app exists, so the guide offers the `agent-desktop` binary. In that case, add the terminal app that started tmux by hand. macOS 27 and later name the Accessibility list Device Control and Data Access.
+The guide offers the app that macOS charges the permission to, which is the app that started agent-desktop's process tree. Under tmux, that is the app that started the tmux server, which can differ from the terminal you attach from. Under an SSH session, no such app exists, so the guide offers the `agent-desktop` binary. macOS 27 and later name the Accessibility list Device Control and Data Access.
 
 For Automation, open Privacy & Security > Automation and allow the launching app to control System Events.
 
@@ -94,3 +94,11 @@ The dismiss chain runs in order: the `AXDismiss` and `AXRemoveFromParent` action
 **Cause.** The shortcut used `ctrl` where macOS uses `cmd`, or the keys went to the wrong app.
 
 **Fix.** Use `cmd+...`. To send keys to one app without focusing it, use `press cmd+s --app "App"`.
+
+## Sandbox answers needs_setup
+
+**Symptom.** `agent-desktop sandbox status <name>` answers `needs_setup` for a sandbox that worked before.
+
+**Cause.** The guest agent, `agent-desktop-guest`, is not running in the guest, or Accessibility is off for it. The agent starts with each login to the guest account, so the guest needs automatic login.
+
+**Fix.** Run `agent-desktop sandbox stop <name>`, then `agent-desktop sandbox start <name> --window`, and in the guest turn on automatic login, run `sh "/Volumes/My Shared Files/guest-setup.sh"` in Terminal, and switch on **agent-desktop-guest** in System Settings > Privacy & Security > Accessibility. Then check `status` on the host. A sandbox set up by agent-desktop 1.3.0 needs this once.

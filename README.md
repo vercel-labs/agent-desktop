@@ -21,8 +21,12 @@ agent-desktop status                # platform, permissions, supported surfaces
 agent-desktop permissions --guide   # macOS: walks you through the Accessibility grant
 ```
 
-- **Windows:** no grant for apps at your terminal's integrity level.
-- **Linux:** run in the user's graphical session with `at-spi2-core`.
+Bun, Yarn and pnpm can install the same package. It includes native binaries and platform helpers for x64 and ARM64.
+For direct execution without a JavaScript launcher, download the matching native archive from
+[GitHub Releases](https://github.com/vercel-labs/agent-desktop/releases) and keep its helper beside the executable.
+
+On macOS and Linux, Homebrew also works: `brew install agent-desktop`. There is no official Scoop package yet.
+The repository no longer maintains a custom Homebrew tap or Scoop bucket.
 
 Release archives and building from source are covered in [Installation](https://agent-browser.dev/desktop/installation).
 
@@ -57,10 +61,21 @@ Each command prints one JSON envelope. A trimmed snapshot:
 }
 ```
 
-- Refs carry their snapshot id. A bare `@e8` fails with `INVALID_ARGS`.
-- If the UI changed, an action returns `STALE_REF` or `AMBIGUOUS_TARGET`. Take a new snapshot and use its refs.
-- Actions are headless by default: no pointer movement, no focus change. Pass `--headed` for physical input.
-- In PowerShell, quote every ref (`'@s8f3k2p9:e8'`), because a bare `@token` is the splatting operator.
+- **Refs belong to their snapshot.** A bare `@e8` is rejected with `INVALID_ARGS`. When the UI changes, an action
+  returns `STALE_REF` or `AMBIGUOUS_TARGET`: take a new snapshot and use its refs.
+- **Several windows** give `AMBIGUOUS_TARGET`; `snapshot` lists the candidate window ids in `error.details`. Pass one
+  with `--window-id`.
+- **Dense apps:** map first with `snapshot --skeleton --app Slack -i --compact`, then drill into one region with
+  `snapshot --root @s8f3k2p9:e3 -i --compact`.
+- **Headless by default.** Ref actions use the accessibility API without moving the pointer or taking focus. The global
+  `--headed` flag allows physical input.
+- **Post-action waits** observe the ref's original process. Window-owned refs stay pinned to their original window,
+  including refs captured from a sheet, alert, popover, focused view, or Linux menu. macOS application menus keep
+  their application-owned surface and need no document window. The wait reads the whole pinned window, so overlay
+  selectors share its scope. [Wait scope and results](https://agent-browser.dev/desktop/configuration#post-action-wait-flags)
+  describe the selector limits.
+- `type`, `set-value`, and `clipboard-set` accept `--stdin` for piped text, keeping it out of process arguments. Run secret steps as separate commands; batch JSON text appears in process arguments.
+- **PowerShell.** Quote every ref (`'@s8f3k2p9:e8'`), because a bare `@token` is the splatting operator.
 
 The full walkthrough is in the [quick start](https://agent-browser.dev/desktop/quick-start).
 
@@ -98,9 +113,19 @@ Use `agent-desktop` to see and operate desktop apps. Before the first use, run
 
 Retry a failed command only when `error.disposition.retry` is `safe`. See [JSON output](https://agent-browser.dev/desktop/json-output) for the envelope, error codes, and exit codes.
 
+### MCP
+
+`agent-desktop mcp` serves every command as an MCP tool over stdio. A tool is named after its command (`desktop_snapshot`, `desktop_click`, `desktop_session_start`), takes that command's arguments, and returns its JSON envelope:
+
+```json
+{ "mcpServers": { "agent-desktop": { "command": "agent-desktop", "args": ["mcp"] } } }
+```
+
+Global flags given to `mcp`, such as `--session`, `--headed` or `--trace`, apply to every call except `sandbox exec`, whose guest command takes its own flags.
+
 ## Commands
 
-agent-desktop has 60 command names, 56 operational commands. The other four (`key-down`, `key-up`, `mouse-down`, `mouse-up`) refuse to run until a daemon can release a held key or button. [Commands](https://agent-browser.dev/desktop/commands) documents each one.
+agent-desktop has 61 command names, 57 operational commands. The other four (`key-down`, `key-up`, `mouse-down`, `mouse-up`) refuse to run until a daemon can release a held key or button. [Commands](https://agent-browser.dev/desktop/commands) documents each one.
 
 | Group | Commands |
 |---|---|
@@ -112,6 +137,7 @@ agent-desktop has 60 command names, 56 operational commands. The other four (`ke
 | Clipboard | `clipboard-get`, `clipboard-set`, `clipboard-clear` |
 | Wait | `wait` |
 | Sessions | `session`, `trace`, `cursor-overlay` |
+| Sandboxes | `sandbox` |
 | System | `status`, `permissions`, `version`, `batch`, `skills` |
 
 ## Platform support
