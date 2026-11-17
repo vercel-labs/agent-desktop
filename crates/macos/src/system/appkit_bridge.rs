@@ -96,6 +96,10 @@ pub(crate) fn ensure_cocoa_multithreaded() -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 pub(crate) fn workspace_snapshot_json() -> Result<Vec<u8>, AdapterError> {
+    #[cfg(test)]
+    if let Some(bytes) = crate::system::app::workspace_apps::lookup_tests::workspace_snapshot() {
+        return Ok(bytes);
+    }
     copy_workspace_snapshot_json(0)
 }
 

@@ -72,7 +72,10 @@ fn matching_apps(filter: &SignalFilter, deadline: Instant) -> Result<Vec<AppInfo
             let inventory = crate::system::app::app_inventory::list_apps_inventory_until(deadline)?;
             let apps = filter_apps(filter, inventory.apps);
             if apps.is_empty() {
-                crate::system::app::workspace_apps::require_complete(&inventory.skipped)?;
+                crate::system::app::workspace_apps::require_complete(
+                    &inventory.skipped,
+                    crate::system::app::workspace_apps::Wanted::Any,
+                )?;
             }
             Ok(apps)
         });

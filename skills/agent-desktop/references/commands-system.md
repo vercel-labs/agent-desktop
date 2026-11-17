@@ -68,6 +68,8 @@ Success is reported only after the process is seen gone: `{ "method": "graceful"
 
 Lists running GUI apps as `{ name, pid, bundle_id, presentation }`. `--app` filters by name substring. `presentation` is `foreground` (ordinary windows), `background` (no Dock entry, such as menu-bar items and hotkey overlays), or omitted (helper processes). Apps with no UI are excluded.
 
+When the platform could not read every process, the result adds `complete: false` and `skipped`: treat a missing app as unknown, not absent. On macOS a `skipped` record with `field: "pid"` is an app record with no process. It carries `terminated` and, where AppKit still knows them, `name`, `bundle_id`, `executable` and `launch_time`.
+
 ## Windows (OS windows)
 
 ```bash

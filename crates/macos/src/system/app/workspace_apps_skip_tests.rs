@@ -133,6 +133,7 @@ fn skipped_records_preserve_matching_apps_and_retry_missing_names() {
     let apps = crate::system::app::app_inventory::scoped_apps_from_sources(
         capture("Finder"),
         Ok(Vec::new()),
+        Wanted::from("Finder"),
     )
     .unwrap();
     assert_eq!(apps[0].name, "Finder");
@@ -147,6 +148,7 @@ fn skipped_records_preserve_matching_apps_and_retry_missing_names() {
             crate::system::app::app_inventory::scoped_apps_from_sources(
                 capture("Missing"),
                 Ok(Vec::new()),
+                Wanted::from("Missing"),
             )
         },
     )
@@ -185,7 +187,7 @@ fn workspace_identity_aliases_do_not_make_missing_apps_retryable() {
     )
     .unwrap();
     assert_eq!(inventory.apps.len(), 1);
-    require_complete(&inventory.skipped).unwrap();
+    require_complete(&inventory.skipped, Wanted::Any).unwrap();
     let owners = window_owner_snapshot_from_json(&bytes, deadline()).unwrap();
     owners.require_match("Missing").unwrap();
     assert_eq!(owners.frontmost().unwrap().pid, 10);
@@ -214,7 +216,10 @@ fn conflicting_workspace_records_remain_incomplete() {
             |_| Ok(Some("instance-10".into())),
         )
         .unwrap();
-        assert!(require_complete(&inventory.skipped).is_err(), "{field}");
+        assert!(
+            require_complete(&inventory.skipped, Wanted::Any).is_err(),
+            "{field}"
+        );
     }
 }
 
@@ -246,7 +251,7 @@ fn complete_inventory_skips_an_app_whose_process_is_gone() {
             .collect::<Vec<_>>(),
         [10, 12]
     );
-    require_complete(&inventory.skipped).unwrap();
+    require_complete(&inventory.skipped, Wanted::Any).unwrap();
 }
 
 #[test]
@@ -277,5 +282,5 @@ fn scoped_lookup_skips_a_gone_duplicate_of_a_live_app() {
             .collect::<Vec<_>>(),
         [10]
     );
-    require_complete(&inventory.skipped).unwrap();
+    require_complete(&inventory.skipped, Wanted::Any).unwrap();
 }

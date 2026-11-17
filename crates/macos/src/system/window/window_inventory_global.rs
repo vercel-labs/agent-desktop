@@ -195,6 +195,13 @@ pub(in crate::system) fn validate_scoped_snapshot_pair<S: OwnerSnapshotView>(
 
 pub(in crate::system) fn stabilize_global_with(
     deadline: Instant,
+    capture: impl FnMut() -> Result<Vec<WindowInfo>, AdapterError>,
+) -> Result<Vec<WindowInfo>, AdapterError> {
+    crate::system::app::workspace_apps::inventory_operation(|| stabilize_global(deadline, capture))
+}
+
+fn stabilize_global(
+    deadline: Instant,
     mut capture: impl FnMut() -> Result<Vec<WindowInfo>, AdapterError>,
 ) -> Result<Vec<WindowInfo>, AdapterError> {
     let mut attempts = 0_u64;

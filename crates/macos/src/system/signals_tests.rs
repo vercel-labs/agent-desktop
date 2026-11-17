@@ -128,3 +128,24 @@ fn baseline_capture_rejects_an_expired_deadline() {
 
     assert_eq!(error.code.as_str(), "TIMEOUT");
 }
+
+/// A signal filter by app looks the app up through the scoped inventory, so a
+/// live record without the alias it compares keeps the lookup waiting.
+#[test]
+fn an_app_filter_waits_for_a_record_without_the_alias_it_compares() {
+    use crate::system::app::workspace_apps::lookup_tests::{
+        ABSENT, assert_app_lookup_waited_for, incomplete_identities, install_phantom, phantom,
+        shortly, soon,
+    };
+    let filter = |app: &str| SignalFilter {
+        app: Some(app.into()),
+        process: None,
+    };
+    for (record, text) in incomplete_identities() {
+        let _snapshot = install_phantom(&record);
+        let error = matching_apps(&filter(text), shortly()).unwrap_err();
+        assert_app_lookup_waited_for(&error, &record);
+    }
+    let _snapshot = install_phantom(&phantom());
+    assert!(matching_apps(&filter(ABSENT), soon()).unwrap().is_empty());
+}

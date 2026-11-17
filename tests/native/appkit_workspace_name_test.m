@@ -15,6 +15,7 @@ static void require(bool condition, const char *message) {
 @property(nonatomic) pid_t testPID;
 @property(nonatomic) NSApplicationActivationPolicy testPolicy;
 @property(nonatomic, copy) NSDate *testLaunchDate;
+@property(nonatomic) BOOL testTerminated;
 @end
 
 @implementation InventoryTestApplication
@@ -24,6 +25,7 @@ static void require(bool condition, const char *message) {
 - (pid_t)processIdentifier { return self.testPID; }
 - (NSApplicationActivationPolicy)activationPolicy { return self.testPolicy; }
 - (NSDate *)launchDate { return self.testLaunchDate; }
+- (BOOL)isTerminated { return self.testTerminated; }
 @end
 
 static NSArray *testApplications;
@@ -112,6 +114,35 @@ int main(void) {
             require([skipped[0][@"field"] isEqualToString:fields[index]], "skip field");
             require([skipped[0][@"pid"] isEqual:pids[index]], "skip pid");
         }
+        InventoryTestApplication *phantom = application(@"Preview",
+            @"/System/Applications/Preview.app/Contents/MacOS/Preview", @"com.apple.Preview", -1);
+        testApplications = @[valid, phantom];
+        NSDictionary *phantomSnapshot = snapshot();
+        require([phantomSnapshot[@"applications"] count] == 1, "processless record stays out of applications");
+        NSDictionary *phantomRecord = phantomSnapshot[@"skipped"][0];
+        require([phantomRecord[@"field"] isEqualToString:@"pid"], "processless field");
+        require([phantomRecord[@"pid"] intValue] == -1, "processless pid");
+        require([phantomRecord[@"index"] intValue] == 1, "processless index");
+        require(CFGetTypeID((__bridge CFTypeRef)phantomRecord[@"terminated"]) == CFBooleanGetTypeID(),
+            "terminated is a JSON boolean");
+        require(![phantomRecord[@"terminated"] boolValue], "live processless record");
+        require([phantomRecord[@"name"] isEqualToString:@"Preview"], "processless name");
+        require([phantomRecord[@"bundle_id"] isEqualToString:@"com.apple.Preview"], "processless bundle id");
+        require([phantomRecord[@"executable"] isEqualToString:@"Preview"], "processless executable");
+        require([phantomRecord[@"launch_time"] doubleValue] == 100.0, "processless launch time");
+        InventoryTestApplication *gone = application(nil, nil, nil, -1);
+        gone.testTerminated = YES;
+        gone.testLaunchDate = nil;
+        testApplications = @[valid, gone];
+        NSDictionary *goneRecord = snapshot()[@"skipped"][0];
+        require([goneRecord[@"terminated"] boolValue], "terminated processless record");
+        require(goneRecord.count == 4, "an anonymous record carries only pid, field, index and terminated");
+        phantom.testName = oversized;
+        phantom.testBundle = oversized;
+        testApplications = @[valid, phantom];
+        NSDictionary *boundedRecord = snapshot()[@"skipped"][0];
+        require(boundedRecord[@"name"] == nil && boundedRecord[@"bundle_id"] == nil, "oversized identity is left out");
+        require([boundedRecord[@"executable"] isEqualToString:@"Preview"], "bounded identity is kept");
         testApplications = @[valid, valid, application(@"Conflicting", nil, nil, 10)];
         NSDictionary *duplicates = snapshot();
         NSArray *duplicateRecords = duplicates[@"applications"];
