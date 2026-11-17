@@ -5,7 +5,11 @@
 //! checks the file's size and modification time, the way the macOS renderer
 //! re-checks its image, so a replaced PNG is decoded again and one that failed
 //! to decode is retried once it changes. It is drawn at the style's size, with
-//! its hotspot on the pose point, the way the macOS renderer draws it.
+//! its hotspot on the pose point, the way the macOS renderer draws it. Its size
+//! is in points: a PNG that records its pixel density is drawn at the size that
+//! density gives it, so artwork exported at 2x or 4x is not drawn 2 or 4 times
+//! too large, and the hotspot, given in image points, lands on the same spot of
+//! the artwork on both platforms.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -16,9 +20,14 @@ use agent_desktop_core::{CursorImage, Point, Rect};
 
 use super::raster::{Surface, SurfaceMapping};
 
+/// Points per inch: a PNG without a recorded density is one pixel per point.
+const POINTS_PER_INCH: f64 = 72.0;
+const METERS_PER_INCH: f64 = 0.0254;
+
 pub(crate) struct DecodedImage {
     width: u32,
     height: u32,
+    points: (f64, f64),
     pixels: Vec<u32>,
 }
 
@@ -67,8 +76,25 @@ pub(crate) fn image_rect(
     Rect {
         x: tip.x - hotspot.x * scale,
         y: tip.y - hotspot.y * scale,
-        width: f64::from(decoded.width) * scale,
-        height: f64::from(decoded.height) * scale,
+        width: decoded.points.0 * scale,
+        height: decoded.points.1 * scale,
+    }
+}
+
+/// The image's size in points, from the density its `pHYs` chunk records. A
+/// PNG with no density, or one in an unspecified unit, is one pixel per point.
+fn size_in_points(width: u32, height: u32, density: Option<png::PixelDimensions>) -> (f64, f64) {
+    let points = |pixels: u32, per_meter: u32| {
+        let per_inch = f64::from(per_meter) * METERS_PER_INCH;
+        f64::from(pixels) * POINTS_PER_INCH / per_inch
+    };
+    match density {
+        Some(png::PixelDimensions {
+            xppu,
+            yppu,
+            unit: png::Unit::Meter,
+        }) if xppu > 0 && yppu > 0 => (points(width, xppu), points(height, yppu)),
+        _ => (f64::from(width), f64::from(height)),
     }
 }
 
@@ -132,6 +158,7 @@ fn decode(path: &str) -> Option<DecodedImage> {
     let mut decoder = Decoder::new(std::io::BufReader::new(file));
     decoder.set_transformations(Transformations::EXPAND | Transformations::STRIP_16);
     let mut reader = decoder.read_info().ok()?;
+    let density = reader.info().pixel_dims;
     let mut frame = vec![0; reader.output_buffer_size()?];
     let info = reader.next_frame(&mut frame).ok()?;
     let channels = match info.color_type {
@@ -148,6 +175,7 @@ fn decode(path: &str) -> Option<DecodedImage> {
     Some(DecodedImage {
         width: info.width,
         height: info.height,
+        points: size_in_points(info.width, info.height, density),
         pixels,
     })
 }
