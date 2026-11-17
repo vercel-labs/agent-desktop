@@ -1,4 +1,6 @@
-use agent_desktop_core::{ActionStep, AdapterError, DeliverySemantics, ErrorCode};
+use agent_desktop_core::{ActionStep, AdapterError, Deadline, DeliverySemantics, ErrorCode};
+
+use crate::tree::AXElement;
 
 use super::{CheckTarget, after_delivery, value_write_step};
 
@@ -29,4 +31,19 @@ pub(super) fn uncheck_unsupported() -> AdapterError {
         "A radio button cannot be unchecked directly. Select a sibling radio button in the same group instead.",
     )
     .with_disposition(DeliverySemantics::not_delivered())
+}
+
+/// Reports whether check/uncheck may write `AXValue` on an element with this subrole.
+///
+/// A tab button (`AXRadioButton` with subrole `AXTabButton`) is selected, not checked.
+/// Chromium-based browsers report `AXValue` as settable on a web `role="tab"` element,
+/// and writing it crashes the browser, so check/uncheck presses tab buttons instead.
+pub(super) fn value_write_allowed(subrole: Option<&str>) -> bool {
+    subrole != Some("AXTabButton")
+}
+
+/// Reads the element's `AXSubrole`.
+pub(super) fn subrole(el: &AXElement, deadline: Deadline) -> Result<Option<String>, AdapterError> {
+    let instant = crate::tree::locator_deadline::from_operation(deadline)?;
+    crate::tree::resolve::resolve_ax_read::read_string(el, "AXSubrole", instant)
 }
