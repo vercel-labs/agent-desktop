@@ -82,6 +82,7 @@ agent-desktop minimize --app "TextEdit"   # maximize, restore likewise
 - `accessible: false` means semantic commands cannot reach that window. Targeting it returns `ACTION_NOT_SUPPORTED` with `kind: "window_without_accessibility_element"`. It still accepts screenshots and coordinate input. Choose another window. Wait polling treats this error as transient. In particular, `--wait-for-gone` does not count it as absence; it keeps polling until the window disappears from the inventory or the wait times out.
 - `focus-window` needs at least one identifier. It confirms the OS reports that window as focused. Otherwise it returns `ACTION_FAILED`.
 - `restore` undoes a minimize and returns the window to its earlier placement. It does not promise to un-maximize.
+- `resize-window` `--width` and `--height` are points on macOS and pixels on Windows and Linux. A verified report names that unit in `details.units`: `points`, `px`, or `pixels`.
 
 ## Notifications
 

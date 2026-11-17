@@ -1,4 +1,5 @@
 use super::*;
+use clap::CommandFactory;
 
 /// Chromium switches all start with `--`, and `--arg` passthrough exists
 /// specifically to forward them; clap rejects a hyphen-leading value on a
@@ -96,6 +97,13 @@ fn wait_args_batch_json_rejects_unknown_field_across_three_flattened_groups() {
     .unwrap_err();
 
     assert!(err.to_string().contains("totally_bogus"));
+}
+
+#[test]
+fn resize_window_help_names_platform_size_units() {
+    let help = ResizeWindowCliArgs::command().render_help().to_string();
+    assert!(help.contains("New window width in points on macOS, pixels on Windows and Linux"));
+    assert!(help.contains("New window height in points on macOS, pixels on Windows and Linux"));
 }
 
 #[test]
