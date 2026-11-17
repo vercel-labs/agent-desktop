@@ -209,6 +209,14 @@ mod imp {
         read_one(element, TreeProperty::ExpandCollapseAvailable).flag() == Some(true)
     }
 
+    pub(crate) fn expand_state_if_available(element: &UIAElement) -> Option<ExpandKind> {
+        if expand_collapse_available(element) {
+            read_expand_state(element)
+        } else {
+            None
+        }
+    }
+
     fn read_expand_state(element: &UIAElement) -> Option<ExpandKind> {
         read_one(element, TreeProperty::ExpandCollapseState)
             .number()
@@ -294,6 +302,9 @@ mod imp {
 }
 
 pub(crate) use imp::{collapse_steps, expand_steps};
+
+#[cfg(target_os = "windows")]
+pub(crate) use imp::expand_state_if_available;
 
 #[cfg(all(test, target_os = "windows"))]
 pub(crate) use imp::disclosure_judged_for;
