@@ -52,7 +52,7 @@ Ref actions are semantic UIA calls headless and under `--headed`, except the one
 
 ## Surfaces
 
-`supported_surfaces` lists `window`, `focused`, `sheet` (a Chromium modal), `menu`, and the shell kinds `start-menu`, `taskbar`, `system-tray`, `system-tray-overflow`, and `action-center`. There is no `menubar` surface. `snapshot --surface KIND` reads a shell surface without `--app` and without `--headed`; a closed one returns `WINDOW_NOT_FOUND` with a suggestion that names `open-system-surface`. The `menu` detector covers classic Win32, WPF, and Chromium or Electron menus, but not WinUI 3 or MSIX hosts, so read "no menu" as "not detected" there. See [Surfaces](/desktop/surfaces).
+`supported_surfaces` lists `window`, `focused`, `sheet` (a Chromium modal), `menu`, and the shell kinds `start-menu`, `taskbar`, `system-tray`, `system-tray-overflow`, and `action-center`. There is no `menubar` surface. `open-system-surface --surface action-center` raises the notification center with Win+A before Windows 11 and with Win+N from Windows 11 (build 22000), where Win+A opens Quick Settings instead. `snapshot --surface KIND` reads a shell surface without `--app` and without `--headed`; a closed one returns `WINDOW_NOT_FOUND` with a suggestion that names `open-system-surface`. The `menu` detector covers classic Win32, WPF, and Chromium or Electron menus, but not WinUI 3 or MSIX hosts, so read "no menu" as "not detected" there. See [Surfaces](/desktop/surfaces).
 
 ## Use PowerShell
 
