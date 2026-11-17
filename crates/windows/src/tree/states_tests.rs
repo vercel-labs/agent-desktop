@@ -231,3 +231,42 @@ fn legacy_state_haspopup_bit_alongside_an_unrelated_bit_emits_haspopup() {
     assert!(states.contains(&state::HASPOPUP.to_string()));
     assert!(!states.contains(&state::BUSY.to_string()));
 }
+
+/// A radio button has no `ToggleState`: its checked state is
+/// `SelectionItem.IsSelected`, which also reads as `selected`. Without
+/// `checked`, `check` on a radio could not verify the click it made.
+#[test]
+fn a_selected_radio_button_without_toggle_state_is_checked() {
+    let selected = resolved(
+        vec![
+            flag(TreeProperty::ToggleAvailable, false),
+            flag(TreeProperty::SelectionItemAvailable, true),
+            flag(TreeProperty::SelectionItemIsSelected, true),
+        ],
+        "radiobutton",
+    );
+    assert!(selected.contains(&state::CHECKED.to_string()));
+    assert!(selected.contains(&state::SELECTED.to_string()));
+
+    let cleared = resolved(
+        vec![
+            flag(TreeProperty::ToggleAvailable, false),
+            flag(TreeProperty::SelectionItemAvailable, true),
+            flag(TreeProperty::SelectionItemIsSelected, false),
+        ],
+        "radiobutton",
+    );
+    assert!(!cleared.contains(&state::CHECKED.to_string()));
+
+    let list_item = resolved(
+        vec![
+            flag(TreeProperty::SelectionItemAvailable, true),
+            flag(TreeProperty::SelectionItemIsSelected, true),
+        ],
+        "listitem",
+    );
+    assert!(
+        !list_item.contains(&state::CHECKED.to_string()),
+        "a selected list item is selected, not checked"
+    );
+}
