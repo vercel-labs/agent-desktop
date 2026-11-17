@@ -178,7 +178,9 @@ AgentDesktopBytesResult agent_desktop_copy_workspace_snapshot_json(uint8_t front
                 }
                 int32_t pid = app.processIdentifier;
                 if (pid <= 0) {
-                    [skipped addObject:@{@"pid": @(pid), @"field": @"pid", @"index": @(index)}];
+                    if (!app.terminated) {
+                        [skipped addObject:@{@"pid": @(pid), @"field": @"pid", @"index": @(index)}];
+                    }
                     continue;
                 }
                 NSApplicationActivationPolicy policy = app.activationPolicy;
