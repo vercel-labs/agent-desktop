@@ -102,3 +102,19 @@ The dismiss chain runs in order: the `AXDismiss` and `AXRemoveFromParent` action
 **Cause.** The guest agent, `agent-desktop-guest`, is not running in the guest, or Accessibility is off for it. The agent starts with each login to the guest account, so the guest needs automatic login.
 
 **Fix.** Run `agent-desktop sandbox stop <name>`, then `agent-desktop sandbox start <name> --window`, and in the guest turn on automatic login, run `sh "/Volumes/My Shared Files/guest-setup.sh"` in Terminal, and switch on **agent-desktop-guest** in System Settings > Privacy & Security > Accessibility. Then check `status` on the host. A sandbox set up by agent-desktop 1.3.0 needs this once.
+
+## First physical click does nothing
+
+**Symptom.** A headed `mouse-click --xy` on a window that is not the key window only brings the window forward (a tooltip may appear, no action happens). The second click works.
+
+**Cause.** The first click was consumed by window activation. Raw coordinates never focus an app, so a non-key window gets the activating click instead of the click you meant.
+
+**Fix.** Activate the window first (`launch --activate`, or `focus-window --window-id`), then click. Ref-based `--headed` actions focus their exact window before delivery and do not need this; only raw `--xy` clicks do.
+
+## Bounds disagree with the screenshot (Chromium)
+
+**Symptom.** `get @ref --property bounds` returns coordinates, usually the y, that do not match where the element is in a screenshot.
+
+**Cause.** Chromium can desync accessibility bounds from the painted layout.
+
+**Fix.** Before a physical click, cross-check the target against a screenshot (`click @ref --debug --screenshot file.html` embeds an exact window capture in the JSON). Prefer a ref-based action or a CDP client over derived coordinates; use derived coordinates only when no other path exists.

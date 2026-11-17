@@ -140,3 +140,5 @@ Raises an OS shell surface. On Windows and Linux it returns the window it presen
 ## Chromium and Electron apps
 
 The accessibility path is the default. It is the only path for an app that is already running and for native menus, dialogs and windows. For the web contents of an app you can launch fresh, `launch --cdp` plus a CDP client is faster than a skeleton walk. See `commands-system.md`.
+
+A missing element is a different case from a dense tree. When the rest of the app's tree looks healthy but the one control you need is not in it (custom-rendered buttons and icons are common in Electron), the accessibility path cannot reach it at all: CDP is not faster, it is the only semantic path for that control. In that case, if you can launch the app fresh, use `launch --cdp`; if you cannot, physical input at `--xy` is the last resort, and its coordinates must be verified against a screenshot before delivery.
