@@ -18,6 +18,44 @@ fn a_non_timeout_native_failure_is_remapped_to_app_unresponsive() {
 }
 
 #[test]
+fn remap_native_failure_preserves_platform_detail_suggestion_and_diagnostic_details() {
+    let native = AdapterError::internal("EnumWindows failed to enumerate top-level windows")
+        .with_platform_detail("Win32 error: 0; station: WinSta0; desktop: exebox-123")
+        .with_details(serde_json::json!({
+            "win32_error": 0,
+            "window_station": "WinSta0",
+            "desktop": "exebox-123"
+        }))
+        .with_suggestion("Run agent-desktop in the interactive user desktop session");
+
+    let mapped = remap_native_failure(native);
+
+    assert_eq!(mapped.code, ErrorCode::AppUnresponsive);
+    assert_eq!(
+        mapped.platform_detail.as_deref(),
+        Some("Win32 error: 0; station: WinSta0; desktop: exebox-123")
+    );
+    assert_eq!(
+        mapped.suggestion.as_deref(),
+        Some("Run agent-desktop in the interactive user desktop session")
+    );
+    let details = mapped.details.as_ref().expect("details attached");
+    assert_eq!(
+        details.get("kind").and_then(|k| k.as_str()),
+        Some("native_enumeration_failure")
+    );
+    assert_eq!(details.get("win32_error").and_then(|e| e.as_u64()), Some(0));
+    assert_eq!(
+        details.get("window_station").and_then(|s| s.as_str()),
+        Some("WinSta0")
+    );
+    assert_eq!(
+        details.get("desktop").and_then(|d| d.as_str()),
+        Some("exebox-123")
+    );
+}
+
+#[test]
 fn a_timeout_native_failure_passes_through_unchanged() {
     let timeout = AdapterError::timeout("Operation exceeded its deadline");
     let mapped = remap_native_failure(timeout);
