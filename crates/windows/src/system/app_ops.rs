@@ -45,35 +45,62 @@ pub(crate) struct ProcessRow {
 /// Snapshots every running process's image name from the ToolHelp table.
 #[cfg(target_os = "windows")]
 pub(crate) fn process_snapshot() -> Result<Vec<ProcessRow>, AdapterError> {
-    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_BAD_LENGTH, ERROR_NO_MORE_FILES, GetLastError, INVALID_HANDLE_VALUE,
+    };
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
         TH32CS_SNAPPROCESS,
     };
 
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
-    if snapshot == INVALID_HANDLE_VALUE {
-        return Err(AdapterError::internal(
-            "CreateToolhelp32Snapshot failed to enumerate processes",
-        ));
+    const MAX_ATTEMPTS: u32 = 5;
+    let mut last_error = 0u32;
+    for _attempt in 0..MAX_ATTEMPTS {
+        let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+        if snapshot == INVALID_HANDLE_VALUE {
+            last_error = unsafe { GetLastError() };
+            continue;
+        }
+        let mut entry = PROCESSENTRY32W {
+            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+            ..Default::default()
+        };
+        let mut ok = unsafe { Process32FirstW(snapshot, &mut entry) };
+        if ok == 0 {
+            last_error = unsafe { GetLastError() };
+            unsafe { CloseHandle(snapshot) };
+            if last_error != ERROR_BAD_LENGTH {
+                return Err(AdapterError::internal(format!(
+                    "Process32FirstW failed to start the process enumeration (Win32 error {last_error})"
+                )));
+            }
+            continue;
+        }
+        let mut rows = Vec::new();
+        let mut walk_failed = false;
+        loop {
+            rows.push(ProcessRow {
+                pid: ProcessId::from(entry.th32ProcessID),
+                name: process_identity::wide_buffer_to_string(&entry.szExeFile),
+            });
+            ok = unsafe { Process32NextW(snapshot, &mut entry) };
+            if ok == 0 {
+                let error = unsafe { GetLastError() };
+                if error != ERROR_NO_MORE_FILES {
+                    walk_failed = true;
+                    last_error = error;
+                }
+                break;
+            }
+        }
+        unsafe { CloseHandle(snapshot) };
+        if !walk_failed {
+            return Ok(rows);
+        }
     }
-    let mut rows = Vec::new();
-    let mut entry = PROCESSENTRY32W {
-        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
-        ..Default::default()
-    };
-    let mut ok = unsafe { Process32FirstW(snapshot, &mut entry) };
-    while ok != 0 {
-        rows.push(ProcessRow {
-            pid: ProcessId::from(entry.th32ProcessID),
-            name: process_identity::wide_buffer_to_string(&entry.szExeFile),
-        });
-        ok = unsafe { Process32NextW(snapshot, &mut entry) };
-    }
-    unsafe {
-        windows_sys::Win32::Foundation::CloseHandle(snapshot);
-    }
-    Ok(rows)
+    Err(AdapterError::internal(format!(
+        "CreateToolhelp32Snapshot kept failing across {MAX_ATTEMPTS} attempts (last Win32 error {last_error})"
+    )))
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -158,16 +185,13 @@ pub(crate) fn list_apps_live(deadline: Deadline) -> Result<Vec<AppInfo>, Adapter
             continue;
         }
         let Some(row) = snapshot_by_pid.get(&u32::from(pid)) else {
-            return Err(AdapterError::internal(
-                "a window-owning process is absent from the process snapshot",
-            ));
+            continue;
         };
         if let Some(window_token) = token.as_deref() {
             let fresh = process_identity::token_for_pid(pid).ok().flatten();
-            if fresh.as_deref() != Some(window_token) {
-                return Err(AdapterError::internal(
-                    "window and process identities disagree for an app",
-                ));
+            match fresh.as_deref() {
+                Some(fresh) if fresh == window_token => {}
+                _ => continue,
             }
         }
         apps.push(AppInfo {
