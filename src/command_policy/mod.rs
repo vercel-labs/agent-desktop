@@ -26,6 +26,7 @@ pub(crate) fn policy_for(cmd: &Commands) -> PermissionNeed {
         Commands::ClipboardGet(_) | Commands::ClipboardSet(_) | Commands::ClipboardClear => None,
         Commands::Batch(_) => None,
 
+        Commands::Wait(args) if args.mode.ms.is_some() => None,
         Commands::Snapshot(_)
         | Commands::Find(_)
         | Commands::ListSurfaces(_)
