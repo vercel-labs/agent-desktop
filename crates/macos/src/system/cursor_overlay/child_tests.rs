@@ -138,13 +138,53 @@ fn presented(session: &str, instruction: CursorOverlayInstruction) -> CursorOver
 }
 
 #[test]
-fn hide_clears_the_remembered_landing_for_the_next_travel() {
-    let mut remembered = state(Some(Point { x: 100.0, y: 100.0 }));
+fn hide_after_a_drag_clears_the_remembered_landing_for_the_next_travel() {
+    let mut remembered = OverlayState {
+        at: Some(Point { x: 100.0, y: 100.0 }),
+        dragging: true,
+        ..OverlayState::default()
+    };
     let control = CursorOverlayControl::hide("run-failed-drag".into());
 
     apply_landing_memory(&control, &mut remembered, None);
 
     assert_eq!(remembered.at, None);
+    assert!(!remembered.dragging);
+}
+
+#[test]
+fn hide_around_a_headed_command_keeps_the_remembered_landing() {
+    let previous = Point { x: 100.0, y: 100.0 };
+    let mut remembered = state(Some(previous.clone()));
+    let hide = CursorOverlayControl::hide("run-headed".into());
+
+    apply_landing_memory(&hide, &mut remembered, None);
+    assert_eq!(remembered.at, Some(previous.clone()));
+
+    let next = Point { x: 800.0, y: 300.0 };
+    let frames = motion_frames(
+        &remembered,
+        &instruction(next.clone(), false),
+        &screen(),
+        120,
+    );
+    assert_eq!(frames.first().map(|pose| &pose.point), Some(&previous));
+    assert_eq!(frames.last().map(|pose| &pose.point), Some(&next));
+}
+
+#[test]
+fn travel_and_effect_phases_end_the_drag() {
+    let mut remembered = OverlayState {
+        dragging: true,
+        ..OverlayState::default()
+    };
+    let travel = instruction(Point { x: 10.0, y: 10.0 }, false);
+    apply_landing_memory(
+        &presented("run", travel.clone()),
+        &mut remembered,
+        Some(&travel),
+    );
+    assert!(!remembered.dragging);
 }
 
 #[test]
