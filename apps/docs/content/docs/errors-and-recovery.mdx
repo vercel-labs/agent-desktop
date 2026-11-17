@@ -1,7 +1,7 @@
 ---
 title: Errors and recovery
 navTitle: Errors and recovery
-description: The error object, all 16 error codes, delivery and retry dispositions, recovery strategies, and when it is safe to retry.
+description: The error object, every error code, delivery and retry dispositions, recovery strategies, and when it is safe to retry.
 ---
 
 A failed command prints an envelope with `ok: false` and exits `1` (or `2` for a parse error). Branch on `error.code` and `error.disposition`, never on `message` or `suggestion`, whose wording can change. Before you retry or substitute an action, read `error.disposition.retry`.
@@ -32,7 +32,7 @@ A failed command prints an envelope with `ok: false` and exits `1` (or `2` for a
     <tr><th>Field</th><th>Present</th><th>Meaning</th></tr>
   </thead>
   <tbody>
-    <tr><td><code>code</code></td><td>always</td><td>One of the 16 codes below.</td></tr>
+    <tr><td><code>code</code></td><td>always</td><td>One of the codes below.</td></tr>
     <tr><td><code>message</code></td><td>always</td><td>Human-readable text. Not a stable interface.</td></tr>
     <tr><td><code>disposition</code></td><td>always</td><td>What the failure says about delivery and retry. See <a href="#disposition">Disposition</a>.</td></tr>
     <tr><td><code>suggestion</code></td><td>when set</td><td>A hint for a person or an agent. Check any command it names before you run it.</td></tr>
