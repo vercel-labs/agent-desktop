@@ -61,6 +61,21 @@ fn lock_released_within(path: &Path, limit: Duration) -> bool {
 }
 
 #[test]
+fn the_guide_resolves_npm_executable_symlinks_for_tcc_permissions() {
+    let directory = std::env::temp_dir().join(format!(
+        "agent-desktop-guide-exe-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let actual = directory.join("agent-desktop-native");
+    let npm = directory.join("agent-desktop");
+    std::fs::write(&actual, b"executable").unwrap();
+    std::os::unix::fs::symlink(&actual, &npm).unwrap();
+    assert_eq!(guide_executable(&npm), actual.canonicalize().unwrap());
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn the_guide_offers_the_outermost_app_bundle_of_the_launching_process() {
     let rex = Path::new(
         "/Users/me/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex",
