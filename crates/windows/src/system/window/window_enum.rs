@@ -88,13 +88,52 @@ pub(crate) fn enumerate_top_level(
         keep_going
     });
     let parameter = (&mut boxed as *mut Box<dyn FnMut(EnumeratedWindow) -> bool>) as isize;
-    let succeeded = unsafe { EnumWindows(Some(callback), parameter) };
+    let mut succeeded = unsafe { EnumWindows(Some(callback), parameter) };
+    if succeeded == 0 && !stopped_early.get() {
+        // Sandboxed environments (such as OpenAI Codex, Antigravity, or CI runners)
+        // often spawn subshells on an isolated virtual desktop (e.g. `exebox-*`).
+        // Attempt recovery by attaching the calling thread to the interactive "Default" desktop.
+        if try_attach_default_desktop() {
+            succeeded = unsafe { EnumWindows(Some(callback), parameter) };
+        }
+    }
     if succeeded == 0 && !stopped_early.get() {
         return Err(AdapterError::internal(
             "EnumWindows failed to enumerate top-level windows",
         ));
     }
     Ok(())
+}
+
+/// Attempts to attach the calling thread to the interactive "Default" desktop.
+///
+/// When executed within a sandboxed subshell or isolated service (such as in
+/// AI agent runners or virtual sandbox desktops), the thread may start attached
+/// to a private desktop without top-level user windows. Switching to the
+/// interactive "Default" desktop allows `EnumWindows` to succeed and observe
+/// live application windows (resolves issue #562).
+#[cfg(target_os = "windows")]
+fn try_attach_default_desktop() -> bool {
+    use windows_sys::Win32::System::StationsAndDesktops::{
+        DESKTOP_ENUMERATE, DESKTOP_READOBJECTS, OpenDesktopW, SetThreadDesktop,
+    };
+
+    let default_name: [u16; 8] = [
+        'D' as u16, 'e' as u16, 'f' as u16, 'a' as u16, 'u' as u16, 'l' as u16, 't' as u16, 0,
+    ];
+    unsafe {
+        let hdesk = OpenDesktopW(
+            default_name.as_ptr(),
+            0,
+            0,
+            DESKTOP_READOBJECTS | DESKTOP_ENUMERATE,
+        );
+        if !hdesk.is_null() {
+            let result = SetThreadDesktop(hdesk);
+            return result != 0;
+        }
+    }
+    false
 }
 
 #[cfg(not(target_os = "windows"))]
