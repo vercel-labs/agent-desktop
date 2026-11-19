@@ -59,9 +59,16 @@ pub(crate) fn toolkit_of(bus: &SharedBus, element: &AtspiElement, deadline: Dead
 }
 
 /// Whether the application of `element` reports screen positions that are
-/// global.
+/// global. A native Wayland window the GNOME Shell extension places never
+/// does, whatever its toolkit claims: its client cannot know where it sits.
 pub(crate) fn global_position(bus: &SharedBus, element: &AtspiElement, deadline: Deadline) -> bool {
     reports_global_position(&toolkit_of(bus, element, deadline))
+        && shell_origin(bus, element, deadline).is_none()
+}
+
+fn shell_origin(bus: &SharedBus, element: &AtspiElement, deadline: Deadline) -> Option<(i32, i32)> {
+    let connection = bus.get(deadline).ok()?;
+    crate::tree::placement::shell_space::frame_origin(connection.inner(), element, deadline)
 }
 
 /// The frame's iconified bit, title and screen extents. A missing or unreadable
@@ -149,6 +156,9 @@ fn place(bus: &SharedBus, element: &AtspiElement, deadline: Deadline) -> Placeme
         return placed;
     };
     placed.frame_iconified = read.iconified;
+    if let Some(origin) = shell_origin(bus, element, deadline) {
+        return placed.placed_by_shell(origin);
+    }
     if element.is_menu_target()
         && matches!(
             read.role,

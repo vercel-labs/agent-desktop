@@ -1,0 +1,7 @@
+{
+  "uuid": "agent-desktop@agent-browser.dev",
+  "name": "agent-desktop",
+  "description": "Lets the agent-desktop CLI read window positions in a GNOME Wayland session.",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "url": "https://github.com/vercel-labs/agent-desktop"
+}

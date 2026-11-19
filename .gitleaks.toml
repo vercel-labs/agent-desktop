@@ -56,6 +56,7 @@ regexes = [
   '''^user@[0-9]+\.service$''',
   '''^ubuntu-appindicators@ubuntu\.com$''',
   '''^ubuntu-dock@ubuntu\.com$''',
+  '''^agent-desktop@agent-browser\.dev(\.shell-extension\.zip)?$''',
 ]
 
 [[rules.allowlists]]
