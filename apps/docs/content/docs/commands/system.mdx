@@ -161,7 +161,7 @@ agent-desktop --session "$AGENT_DESKTOP_SESSION" cursor-overlay disable
 }
 ```
 
-`rendered: false` means the setting was saved but nothing was drawn, as on Linux Wayland. With `--agent-id`, `enable` saves the style as that agent's profile. `disable` stops every cursor in the session; if teardown cannot be confirmed, the setting is still saved and the error's disposition is `delivery_uncertain`. How headed actions and the overlay interact is in [Headed mode](/desktop/guides/headed-mode#see-where-actions-land).
+`rendered: false` means the setting was saved but nothing was drawn, as on Linux Wayland without the agent-desktop GNOME Shell extension. With `--agent-id`, `enable` saves the style as that agent's profile. `disable` stops every cursor in the session; if teardown cannot be confirmed, the setting is still saved and the error's disposition is `delivery_uncertain`. How headed actions and the overlay interact is in [Headed mode](/desktop/guides/headed-mode#see-where-actions-land).
 
 ## trace
 
