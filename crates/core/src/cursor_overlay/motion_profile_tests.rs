@@ -106,6 +106,7 @@ fn ranges_and_budget_are_enforced_at_the_boundaries() {
     let accepted = [
         profile(|p| p.set_travel_ms(30, 30)),
         profile(|p| p.set_travel_ms(400, 700)),
+        profile(|p| p.set_travel_ms(1_000, 2_800)),
         profile(|p| {
             p.set_travel_ms(90, 400);
             p.set_dwell_ms(300);
@@ -122,13 +123,13 @@ fn ranges_and_budget_are_enforced_at_the_boundaries() {
     let rejected = [
         (profile(|p| p.set_travel_ms(29, 320)), "--travel-ms"),
         (profile(|p| p.set_travel_ms(321, 320)), "--travel-ms"),
-        (profile(|p| p.set_travel_ms(90, 701)), "700 ms"),
+        (profile(|p| p.set_travel_ms(90, 2_801)), "2800 ms"),
         (
             profile(|p| {
-                p.set_travel_ms(90, 401);
+                p.set_travel_ms(90, 2_501);
                 p.set_dwell_ms(300);
             }),
-            "700 ms",
+            "2800 ms",
         ),
         (profile(|p| p.set_dwell_ms(301)), "--dwell-ms"),
         (profile(|p| p.set_bow(-0.1)), "--bow"),
@@ -312,4 +313,14 @@ fn an_unvalidated_profile_falls_back_to_the_default_motion() {
             );
         }
     }
+}
+
+#[test]
+fn arrival_timeout_covers_travel_and_dwell_and_never_drops_below_the_floor() {
+    assert_eq!(CursorMotionProfile::default().arrival_timeout_ms(), 900);
+    let slow = profile(|p| {
+        p.set_travel_ms(1_000, 1_200);
+        p.set_dwell_ms(120);
+    });
+    assert_eq!(slow.arrival_timeout_ms(), 1_520);
 }

@@ -8,19 +8,25 @@ const DISPATCH_RESERVE_MS: u64 = 100;
 
 pub(crate) fn travel_scope(
     lease: &crate::InteractionLease,
+    arrival_ms: u64,
 ) -> Option<crate::wait::deadline::DeadlineScope> {
-    travel_scope_within(lease.deadline())
+    travel_scope_within(lease.deadline(), arrival_ms)
 }
 
-fn travel_scope_within(deadline: crate::Deadline) -> Option<crate::wait::deadline::DeadlineScope> {
-    if deadline.remaining_ms()
-        <= crate::CURSOR_ARRIVAL_TIMEOUT_MS.saturating_add(DISPATCH_RESERVE_MS)
-    {
+fn travel_scope_within(
+    deadline: crate::Deadline,
+    arrival_ms: u64,
+) -> Option<crate::wait::deadline::DeadlineScope> {
+    if deadline.remaining_ms() <= arrival_ms.saturating_add(DISPATCH_RESERVE_MS) {
         return None;
     }
-    Some(crate::wait::deadline::enter_scope(Some(deadline.capped(
-        std::time::Duration::from_millis(crate::CURSOR_ARRIVAL_TIMEOUT_MS),
-    ))))
+    Some(crate::wait::deadline::enter_scope(Some(
+        deadline.capped(std::time::Duration::from_millis(arrival_ms)),
+    )))
+}
+
+fn arrival_ms(context: &CommandContext) -> u64 {
+    context.cursor_overlay().motion().arrival_timeout_ms()
 }
 
 /// Moves the drawn cursor toward an action's target before the interaction
@@ -59,7 +65,7 @@ fn travel_within(
     deadline: crate::Deadline,
     pointer: bool,
 ) -> bool {
-    let Some(_scope) = travel_scope_within(deadline) else {
+    let Some(_scope) = travel_scope_within(deadline, arrival_ms(context)) else {
         return false;
     };
     let instruction =
@@ -150,7 +156,9 @@ pub(crate) fn submit_drag(
     destination: Point,
     lease: &crate::InteractionLease,
 ) -> bool {
-    let Some(_scope) = travel_scope(lease) else {
+    // The drag-start frame lands where the cursor already is, so it needs only the arrival floor,
+    // not the travel-sized budget, which a long glide before it may already have spent.
+    let Some(_scope) = travel_scope(lease, crate::CURSOR_ARRIVAL_TIMEOUT_MS) else {
         return false;
     };
     let instruction =

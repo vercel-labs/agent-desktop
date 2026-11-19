@@ -24,7 +24,7 @@ pub(crate) fn update(control: &CursorOverlayControl) -> Result<(), AdapterError>
         return Ok(());
     }
     let budget = if matches!(control, CursorOverlayControl::Present { .. }) {
-        CURSOR_ARRIVAL_TIMEOUT_MS
+        arrival_ms(control)
     } else {
         4_000
     };
@@ -48,6 +48,14 @@ pub(crate) fn update(control: &CursorOverlayControl) -> Result<(), AdapterError>
         return Ok(());
     }
     spawn(&socket, control, deadline)
+}
+
+fn arrival_ms(control: &CursorOverlayControl) -> u64 {
+    control
+        .motion()
+        .map_or(CURSOR_ARRIVAL_TIMEOUT_MS, |motion| {
+            motion.arrival_timeout_ms()
+        })
 }
 
 fn broadcast(control: &CursorOverlayControl) -> Result<(), AdapterError> {
@@ -240,7 +248,7 @@ fn send_until(
             "Timed out stopping macOS cursor overlays",
         ));
     } else if travels {
-        remaining.min(Duration::from_millis(CURSOR_ARRIVAL_TIMEOUT_MS))
+        remaining.min(Duration::from_millis(arrival_ms(control)))
     } else {
         remaining
     };

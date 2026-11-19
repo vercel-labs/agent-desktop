@@ -140,7 +140,7 @@ fn invalid_profile_motion_falls_back_to_session_config() {
     let path = agent_profile_path(&session.id, "a").unwrap();
     write_private_file(
         &path,
-        br#"{"enabled":true,"motion":{"travel_min_ms":90,"travel_max_ms":650,"dwell_ms":200}}"#,
+        br#"{"enabled":true,"motion":{"travel_min_ms":90,"travel_max_ms":2700,"dwell_ms":200}}"#,
     )
     .unwrap();
     assert_eq!(

@@ -369,8 +369,8 @@ fn travel_scope_decides_arrival_scope_at_the_budget_boundary() {
     let starved = lease_with_timeout_ms(CURSOR_ARRIVAL_TIMEOUT_MS + dispatch_reserve_ms);
     let healthy = lease_with_timeout_ms(5_000);
 
-    assert!(super::submit::travel_scope(&starved).is_none());
-    assert!(super::submit::travel_scope(&healthy).is_some());
+    assert!(super::submit::travel_scope(&starved, CURSOR_ARRIVAL_TIMEOUT_MS).is_none());
+    assert!(super::submit::travel_scope(&healthy, CURSOR_ARRIVAL_TIMEOUT_MS).is_some());
 }
 
 #[test]

@@ -105,6 +105,8 @@ fn sweeps_retired_generations(control: &CursorOverlayControl) -> bool {
 fn budget_for(control: &CursorOverlayControl) -> Duration {
     if control.is_disable() {
         TEARDOWN_BUDGET
+    } else if let Some(motion) = control.motion() {
+        ENABLE_BUDGET.max(Duration::from_millis(motion.arrival_timeout_ms()))
     } else {
         ENABLE_BUDGET
     }

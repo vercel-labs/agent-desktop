@@ -1,10 +1,14 @@
-/// How long a platform renderer may take to report that the cursor reached its
-/// destination before the action dispatches anyway.
+/// The shortest time a platform renderer gets to report that the cursor reached
+/// its destination before the action dispatches anyway. A motion profile with
+/// longer travel gets longer; see `CursorMotionProfile::arrival_timeout_ms`.
 pub const CURSOR_ARRIVAL_TIMEOUT_MS: u64 = 900;
 
-/// The largest cursor travel plus dwell that still leaves room for the socket
-/// round trip and frame pacing inside the arrival timeout.
-pub const CURSOR_MOTION_BUDGET_MS: u64 = CURSOR_ARRIVAL_TIMEOUT_MS - 200;
+/// The room an arrival timeout leaves past travel plus dwell for the socket
+/// round trip and frame pacing.
+pub const CURSOR_ARRIVAL_MARGIN_MS: u64 = 200;
+
+/// The largest cursor travel plus dwell a motion profile may ask for.
+pub const CURSOR_MOTION_BUDGET_MS: u64 = 2_800;
 
 /// How long the overlay stays visible with no instruction before it rests.
 pub const CURSOR_IDLE_REST_MS: u64 = 6_000;
