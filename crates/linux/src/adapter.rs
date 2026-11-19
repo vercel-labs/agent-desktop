@@ -2,11 +2,14 @@ use agent_desktop_core::{
     AccessibilityNode, ActionOps, ActionRequest, ActionResult, AdapterError, AppInfo, AppInventory,
     ClipboardContent, ClipboardFormat, Deadline, DragParams, ElementState, HitTestResult, InputOps,
     InteractionLease, KeyCombo, LiveElement, MouseEvent, NativeHandle, ObservationOps,
-    ObservationRequest, ObservationRoot, ObservedTree, OperationReport, Point, ProcessIdentity,
-    Rect, RefEntry, SnapshotSurface, SurfaceInfo, TreeOptions, WindowFilter, WindowInfo,
+    ObservationRequest, ObservationRoot, ObservedTree, OperationReport, Point, ProcessId,
+    ProcessIdentity, Rect, RefEntry, SnapshotSurface, SurfaceInfo, TreeOptions, WindowFilter,
+    WindowInfo,
 };
 
+use crate::input::physical::target_pointer;
 use crate::system::SharedBus;
+use crate::tree::live_read::pointer_refusal::pointer_position_refusal;
 
 pub struct LinuxAdapter {
     bus: SharedBus,
@@ -164,11 +167,7 @@ impl ObservationOps for LinuxAdapter {
         if crate::system::tray::target_of(handle).is_some() {
             return None;
         }
-        crate::tree::live_read::pointer_refusal::pointer_position_refusal(
-            self.bus(),
-            handle,
-            deadline,
-        )
+        pointer_position_refusal(self.bus(), handle, deadline)
     }
 
     fn get_text_selection(
@@ -177,6 +176,22 @@ impl ObservationOps for LinuxAdapter {
         deadline: Deadline,
     ) -> Result<Option<std::ops::Range<usize>>, AdapterError> {
         crate::tree::capabilities::text_selection::read_selection(self.bus(), handle, deadline)
+    }
+
+    fn get_insertion_caret(
+        &self,
+        handle: &NativeHandle,
+        deadline: Deadline,
+    ) -> Result<Option<Rect>, AdapterError> {
+        crate::tree::get_insertion_caret(self.bus(), handle, deadline)
+    }
+
+    fn get_focused_insertion_caret(
+        &self,
+        process: Option<ProcessId>,
+        deadline: Deadline,
+    ) -> Result<Option<Rect>, AdapterError> {
+        crate::tree::get_focused_insertion_caret(self.bus(), process, deadline)
     }
 
     fn hit_test(
@@ -197,12 +212,7 @@ impl ObservationOps for LinuxAdapter {
         point: Point,
         deadline: Deadline,
     ) -> Result<(), AdapterError> {
-        crate::input::physical::target_pointer::confirm_receiver(
-            self.bus(),
-            handle,
-            &point,
-            deadline,
-        )
+        target_pointer::confirm_receiver(self.bus(), handle, &point, deadline)
     }
 
     fn list_windows(

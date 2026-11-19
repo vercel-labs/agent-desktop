@@ -38,7 +38,8 @@ agent-desktop screenshot /tmp/everything.png
   matches this window") with `candidates` and the suggestion to give the windows
   distinct titles.
 - The tool hides its own cursor overlays during capture and restores them; they
-  neither block the screenshot nor appear in its pixels.
+  neither block the screenshot nor appear in its pixels. On GNOME Wayland the
+  agent-desktop extension hides them the same way.
 - A display-server or caller-deadline timeout stays `TIMEOUT`, including when
   capturing a covered window. It does not prove coverage or advise focus.
 - Resource, connection and visibility failures keep their own errors. Only a
@@ -46,7 +47,7 @@ agent-desktop screenshot /tmp/everything.png
 
 ## `screenshot` on Wayland
 
-Wayland has no window position and no per-window capture. The portal's
+Wayland has no per-window capture. The portal's
 `Screenshot` captures the desktop; the CLI returns the primary display by
 default, cropping the image on a multi-monitor desktop. `--screen N` selects
 another monitor.

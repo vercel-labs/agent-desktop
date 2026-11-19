@@ -22,7 +22,7 @@ fn enabled(read: &ObservedRead) -> Option<bool> {
         .map(|words| !StateBits::new(words).is_disabled())
 }
 
-fn secure(evidence: &LocatorEvidence) -> bool {
+pub(crate) fn secure(evidence: &LocatorEvidence) -> bool {
     evidence
         .states
         .known()

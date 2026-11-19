@@ -1,4 +1,5 @@
 //! A session-scoped X11 overlay retained by the server between adapter calls.
+//! On Wayland the GNOME Shell extension draws the overlay instead.
 use x11rb::connection::Connection;
 use x11rb::protocol::shape::{ConnectionExt as _, SK};
 use x11rb::protocol::xproto::*;
@@ -37,8 +38,9 @@ pub(crate) fn update(control: &CursorOverlayControl) -> Result<(), AdapterError>
     let display = match crate::system::display::display_server::require(deadline)? {
         crate::system::display::route::Route::X11(display) => display,
         crate::system::display::route::Route::Wayland => {
-            return Err(AdapterError::not_supported("cursor overlay on Wayland")
-                .with_details(serde_json::json!({"rendered": false, "cause": "wayland_session"})));
+            return crate::system::shell::extension::extension_cursor::update_cursor(
+                control, deadline,
+            );
         }
     };
     let root = agent_desktop_core::session::agent_desktop_dir().map_err(error)?;

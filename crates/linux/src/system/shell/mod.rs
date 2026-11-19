@@ -12,6 +12,7 @@ use crate::tree::AtspiElement;
 pub(crate) mod container;
 pub(crate) mod deliver;
 pub(crate) mod detect;
+pub(crate) mod extension;
 pub(crate) mod hit;
 pub(crate) mod identity;
 pub(crate) mod kinds;

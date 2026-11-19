@@ -2,7 +2,7 @@ use agent_desktop_core::Rect;
 
 /// Screen-space extents as the toolkit reports them. Zero and negative
 /// values are reported values, not errors.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 pub(crate) struct Extents {
     pub(crate) x: i32,
     pub(crate) y: i32,
