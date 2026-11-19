@@ -13,7 +13,7 @@ use crate::tree::properties::absence::gone_error;
 use crate::tree::properties::liveness::Liveness;
 use crate::tree::properties::node_read::call;
 
-const TEXT_INTERFACE: &str = "org.a11y.atspi.Text";
+pub(super) const TEXT_INTERFACE: &str = "org.a11y.atspi.Text";
 const MAX_TEXT_CHARACTERS: usize = 64 * 1024;
 
 /// The caret and the selections of a text node, in code points.
@@ -68,13 +68,13 @@ fn caret_and_selection<S: TextSource>(
     Ok(source.selections()?.map(|selections| (caret, selections)))
 }
 
-struct BusText<'a> {
-    connection: &'a Connection,
-    element: &'a AtspiElement,
-    deadline: Deadline,
+pub(super) struct BusText<'a> {
+    pub(super) connection: &'a Connection,
+    pub(super) element: &'a AtspiElement,
+    pub(super) deadline: Deadline,
 }
 
-fn settle<T>(outcome: Result<T, zbus::Error>) -> Result<Option<T>, AdapterError> {
+pub(super) fn settle<T>(outcome: Result<T, zbus::Error>) -> Result<Option<T>, AdapterError> {
     match outcome {
         Ok(value) => Ok(Some(value)),
         Err(error) => match gone_error(&error, Liveness::Alive) {
@@ -100,13 +100,13 @@ impl BusText<'_> {
         within(self.deadline, read).and_then(settle)
     }
 
-    fn integer(&self, name: &'static str) -> Result<Option<i32>, AdapterError> {
+    pub(super) fn integer(&self, name: &'static str) -> Result<Option<i32>, AdapterError> {
         Ok(self
             .property(name)?
             .and_then(|value| value.downcast_ref::<i32>().ok()))
     }
 
-    fn call_text<T>(
+    pub(super) fn call_text<T>(
         &self,
         method: &'static str,
         body: impl Serialize + DynamicType,

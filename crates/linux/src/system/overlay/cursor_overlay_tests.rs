@@ -2,6 +2,7 @@ use agent_desktop_core::{CursorOverlayConfig, CursorOverlayInstruction, Point, S
 use x11rb::connection::Connection;
 use x11rb::protocol::shape::{ConnectionExt as _, SK};
 use x11rb::protocol::xproto::*;
+use x11rb::wrapper::ConnectionExt as _;
 
 use super::*;
 use crate::system::x11::capture::xwd_oracle::xwd_pixel;
@@ -25,7 +26,7 @@ fn a_wayland_cursor_refusal_is_explicit_without_x11_fallback() {
         );
         let details = error.details.expect("explicit overlay state");
         assert_eq!(details["rendered"], false);
-        assert_eq!(details["cause"], "wayland_session");
+        assert_eq!(details["cause"], "shell_extension_absent");
         return;
     }
     let path = std::env::current_dir()
@@ -37,6 +38,10 @@ fn a_wayland_cursor_refusal_is_explicit_without_x11_fallback() {
         .args(["--exact", FILTER, "--nocapture"])
         .env(CHILD, "1")
         .env("WAYLAND_DISPLAY", &path)
+        .env(
+            "DBUS_SESSION_BUS_ADDRESS",
+            format!("unix:path={}.bus", path.display()),
+        )
         .output()
         .unwrap();
     drop(listener);
@@ -203,4 +208,82 @@ fn live_wayland_cursor_refusal_reports_unrendered_without_an_x11_window() {
             assert!(id.is_none_or(|(session, _)| session != "wayland-live-proof"));
         }
     }
+}
+
+#[test]
+#[ignore = "needs a private X11 desktop; run through scripts/private-session.sh"]
+fn live_in_process_overlay_refuses_the_caret_and_leaves_renderer_windows_alone() {
+    std::env::var("AGENT_DESKTOP_PRIVATE_SESSION").expect("private desktop");
+    let (oracle, index) = x11rb::connect(None).expect("independent X11 connection");
+    let screen = &oracle.setup().roots[index];
+    let root = screen.root;
+    let intern = |name: &[u8]| {
+        oracle
+            .intern_atom(false, name)
+            .unwrap()
+            .reply()
+            .unwrap()
+            .atom
+    };
+    let (owner, renderer) = (intern(OWNER), intern(RENDERER));
+    let window = oracle.generate_id().unwrap();
+    oracle
+        .create_window(
+            screen.root_depth,
+            window,
+            root,
+            10,
+            10,
+            4,
+            4,
+            0,
+            WindowClass::INPUT_OUTPUT,
+            screen.root_visual,
+            &CreateWindowAux::new().override_redirect(1),
+        )
+        .unwrap();
+    oracle
+        .change_property8(
+            PropMode::REPLACE,
+            window,
+            owner,
+            AtomEnum::STRING,
+            br#"["renderer-proof",null]"#,
+        )
+        .unwrap();
+    oracle
+        .change_property32(
+            PropMode::REPLACE,
+            window,
+            renderer,
+            AtomEnum::CARDINAL,
+            &[1],
+        )
+        .unwrap();
+    oracle.map_window(window).unwrap();
+    oracle.get_input_focus().unwrap().reply().unwrap();
+    crate::LinuxAdapter::new()
+        .list_displays(Deadline::after(4_000).unwrap())
+        .unwrap();
+    let config = CursorOverlayConfig::enabled(None, 8).expect("enabled config");
+    let caret = CursorOverlayInstruction::new(Point { x: 40., y: 40. }, &config, false)
+        .unwrap()
+        .with_phase(CursorPhase::Caret);
+    let refused = update(&CursorOverlayControl::present(
+        "renderer-proof".into(),
+        caret,
+    ))
+    .expect_err("the in-process overlay draws no caret");
+    assert_eq!(
+        refused.code,
+        agent_desktop_core::ErrorCode::PlatformNotSupported
+    );
+    update(&CursorOverlayControl::disable("renderer-proof".into())).expect("teardown");
+    let attributes = oracle.get_window_attributes(window).unwrap().reply();
+    assert!(
+        attributes.is_ok_and(|attributes| attributes.map_state == MapState::VIEWABLE),
+        "a window the renderer draws is the renderer's to remove"
+    );
+    oracle.destroy_window(window).unwrap();
+    oracle.flush().unwrap();
 }

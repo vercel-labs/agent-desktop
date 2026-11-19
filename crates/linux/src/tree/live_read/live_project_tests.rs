@@ -3,6 +3,7 @@ use agent_desktop_core::{ErrorCode, LocatorEvidence, Rect, tree::state};
 use super::*;
 use crate::tree::live::test_support::{read_of, words};
 use crate::tree::observe::node_evidence::evidence_for;
+use crate::tree::placement::shell_place::ShellPlace;
 use crate::tree::vocabulary::role_numbers::{PASSWORD_TEXT, PUSH_BUTTON, SLIDER};
 use crate::tree::vocabulary::state_bits::{ENABLED, READ_ONLY, SENSITIVE, SHOWING, VISIBLE};
 use crate::tree::{AtspiElement, Extents, Field, element::ancestry};
@@ -242,6 +243,20 @@ fn a_shown_node_of_a_mapped_wayland_frame_is_on_screen_and_not_hidden_with_no_re
             .iter()
             .any(|token| token == state::OFFSCREEN)
     );
+}
+
+#[test]
+fn a_shown_node_keeps_the_mapped_wayland_claim_when_the_shell_places_its_window() {
+    let read = with_states(
+        read_of(PUSH_BUTTON, "b", &[]),
+        &[VISIBLE, SHOWING, SENSITIVE],
+    );
+    let projected = state_in(
+        &read,
+        &wayland_placement().placed_by_shell(ShellPlace::Native((311, 187))),
+    );
+    assert_eq!(projected.offscreen, Some(false));
+    assert_eq!(projected.hidden, Some(false));
 }
 
 #[test]

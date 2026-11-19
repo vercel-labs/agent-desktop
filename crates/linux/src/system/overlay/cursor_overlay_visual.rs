@@ -20,7 +20,10 @@ fn short(data: &[u8], offset: usize) -> Result<u16, AdapterError> {
         .ok_or_else(|| error("Truncated RENDER picture formats"))
 }
 
-pub(super) fn argb_visual(connection: &RustConnection, screen: usize) -> Result<u32, AdapterError> {
+pub(in crate::system::overlay) fn argb_visual(
+    connection: &RustConnection,
+    screen: usize,
+) -> Result<u32, AdapterError> {
     let extension = connection
         .extension_information("RENDER")
         .map_err(error)?

@@ -365,6 +365,9 @@ pub(crate) fn get_element_bounds(
     )
 }
 
+pub(crate) mod caret_route;
+pub(crate) mod focused_node;
+pub(crate) mod live_caret;
 pub(crate) mod live_offscreen;
 pub(crate) mod live_project;
 pub(crate) mod pointer_refusal;

@@ -37,6 +37,10 @@ impl SystemOps for LinuxAdapter {
         )))
     }
 
+    fn run_cursor_overlay_child(&self) -> Option<Result<(), AdapterError>> {
+        crate::system::overlay::renderer::child::entry_from_env()
+    }
+
     fn update_cursor_overlay(
         &self,
         control: &agent_desktop_core::CursorOverlayControl,
