@@ -49,7 +49,7 @@ Observation and semantic actions need no helper tool.
 | Wait | `wait` | Works for ms, `--element`, `--window`, `--text`, `--menu`, `--menu-closed`, `--event`. Menu waits share the menu-surface detector; `--notification` waits for a new notification on GNOME |
 | Notifications | `list-notifications`, `dismiss-notification`, `dismiss-all-notifications`, `notification-action` | GNOME Shell only; list headless, mutations `--headed` on X11, and `dismiss-notification` and `notification-action` also need `--expected-app` or `--expected-title`. Fields are read from the shell's widget layout, verified on GNOME Shell 46.0 only, and each mutation is proven by its effect. Wayland refuses the shell pointer before input. A notification owner that is not the shell or its own helper returns `PLATFORM_NOT_SUPPORTED`. See the shell reference |
 | Shell surfaces | `open-system-surface` | Only `system-tray` and `action-center` can work. `system-tray` needs a StatusNotifierWatcher (else it refuses with `watcher: absent`); `action-center` needs proven role ancestry. `quick-settings` refuses with `shell_container_unproven`, `taskbar` always refuses, and `start-menu` and `system-tray-overflow` are not supported, though `--help` lists them. See the shell reference |
-| Cursor overlay | `cursor-overlay` | Requires an active session; see Cursor overlay below. X11 enable returns `data.rendered: true`; Wayland saves the setting with `data.rendered: false` |
+| Cursor overlay | `cursor-overlay` | Requires an active session; see Cursor overlay below. X11 enable returns `data.rendered: true`. GNOME Wayland draws it only with the agent-desktop GNOME Shell extension; without it, enable saves the setting with `data.rendered: false` |
 | System | `status`, `permissions`, `version`, `batch`, `skills`, `session`, `trace` | Works |
 
 ## First Contact
@@ -153,12 +153,57 @@ agent-desktop session end "$session_id"
 ```
 
 Without a session, `cursor-overlay enable` and `disable` return `INVALID_ARGS`.
-On X11, enable returns `data.rendered: true`; on Wayland it saves the setting
-and returns `data.rendered: false` without drawing an overlay.
+On X11, enable returns `data.rendered: true`. On GNOME Wayland it returns
+`data.rendered: true` only while the agent-desktop GNOME Shell extension is
+enabled; otherwise it saves the setting, returns `data.rendered: false` and
+draws nothing.
 
 `session start --cursor --multi-agent` returns `data.rendered: false`, because
-nothing is drawn until an agent acts. On X11 each agent id then gets its own
-cursor; on Wayland none is drawn.
+nothing is drawn until an agent acts. Each agent id then gets its own cursor on
+X11, and on GNOME Wayland with the extension.
+
+### GNOME Wayland extension
+
+A Wayland client cannot draw above other windows or read where they sit. The
+`agent-desktop@agent-browser.dev` extension runs inside GNOME Shell and does
+both. With it enabled:
+
+- `cursor-overlay` draws what macOS and Windows draw: the cursor travels along
+  the same path to each target, then the click ripple and element outline play,
+  with the label and any `--image` or `--pointer-image`. With GNOME animations
+  turned off, the cursor jumps to each target and the ripple and outline are
+  skipped.
+- After `type` or `set-value`, the overlay draws the typing caret in a native
+  Wayland or Xwayland window, and a `press` that moves the insertion point
+  moves it, as on macOS and Windows. GTK 4 entries report no character
+  positions, so they keep the element outline and get no caret. No caret is
+  drawn in an X11 session or without the extension.
+- `snapshot --include-bounds`, `get` and `list-windows` report screen positions
+  for native Wayland and Xwayland windows. Without it, a GTK 4 node has no
+  bounds, GTK 3, Qt and Chromium bounds are relative to their own window, and
+  Xwayland bounds are X11 coordinates, which a fractional monitor scale
+  multiplies (by 2 at 125%).
+- `screenshot` hides the cursors while it captures.
+
+Install it from the source of the agent-desktop release you run, then log out
+and back in. GNOME Shell loads a newly installed extension only at login:
+
+```bash
+git clone --depth 1 --branch "v$(agent-desktop --version | cut -d' ' -f2)" https://github.com/vercel-labs/agent-desktop
+gnome-extensions pack --force agent-desktop/crates/linux/gnome-shell-extension/agent-desktop@agent-browser.dev
+gnome-extensions install --force agent-desktop@agent-browser.dev.shell-extension.zip
+```
+
+After you log back in, enable it:
+
+```bash
+gnome-extensions enable agent-desktop@agent-browser.dev
+```
+
+A CLI and an extension from different releases may speak different protocol
+versions. Then the overlay stays `rendered: false` and positions stay as they
+are without the extension; install the extension from the matching release.
+Pointer commands stay refused on Wayland with or without it.
 
 ## What differs on Linux
 
