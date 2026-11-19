@@ -249,6 +249,7 @@ fn render(
             &[CursorPose::still(from.clone())],
             fps,
             instruction,
+            true,
             reduce_motion,
             &screen,
         )?;
@@ -259,13 +260,9 @@ fn render(
         bridge::end_drag(instruction.destination(), instruction.drag_from().is_some());
     }
     let (screen, fps, reduce_motion) = bridge::screen_at(instruction.destination())?;
-    let shown = if state.style.highlight() {
-        instruction.clone()
-    } else {
-        instruction.clone().with_target(None)
-    };
-    let frames = frames_for(state, &shown, &screen, fps, reduce_motion);
-    bridge::run(&frames, fps, &shown, reduce_motion, &screen)
+    let frames = frames_for(state, instruction, &screen, fps, reduce_motion);
+    let highlight = state.style.highlight();
+    bridge::run(&frames, fps, instruction, highlight, reduce_motion, &screen)
 }
 
 fn frames_for(
