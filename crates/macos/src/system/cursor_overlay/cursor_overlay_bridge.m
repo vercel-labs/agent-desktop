@@ -383,6 +383,25 @@ static void ADHighlightTarget(const AgentDesktopCursorRenderConfig *config, doub
                     config->highlightSeconds);
 }
 
+/// Picks the next frame from wall-clock time, so drawing and pumping each frame cannot stretch a
+/// motion past its planned duration. It sleeps until that frame is due and skips frames that are
+/// already late, but never skips the final one.
+static size_t ADNextFrame(size_t index, size_t count, CFTimeInterval start, double frameSeconds) {
+    double elapsed = CACurrentMediaTime() - start;
+    size_t due = frameSeconds > 0.0 ? (size_t)(elapsed / frameSeconds) + 1 : index + 1;
+    if (due <= index) {
+        due = index + 1;
+    }
+    if (due >= count) {
+        due = count - 1;
+    }
+    double wait = start + (double)due * frameSeconds - CACurrentMediaTime();
+    if (wait > 0.0) {
+        [NSThread sleepForTimeInterval:wait];
+    }
+    return due;
+}
+
 bool agent_desktop_cursor_overlay_run(const AgentDesktopCursorFrame *frames,
                                       size_t frameCount,
                                       const AgentDesktopCursorRenderConfig *config) {
@@ -447,7 +466,8 @@ bool agent_desktop_cursor_overlay_run(const AgentDesktopCursorFrame *frames,
             }
             bool highlighted = (config->flags & ADHighlightCue) == 0 || reduceMotion;
 
-            for (size_t index = 0; index < movementFrameCount; index += 1) {
+            CFTimeInterval movementStart = CACurrentMediaTime();
+            for (size_t index = 0; index < movementFrameCount;) {
                 ADMoveCursor(&frames[index], mainHeight);
                 if (arrowWhenClear && !ADPointerTargetContains(frames[index].x, frames[index].y)) {
                     ADPointerImageSelect(ADCursorWindow, ADPointer, false);
@@ -465,9 +485,10 @@ bool agent_desktop_cursor_overlay_run(const AgentDesktopCursorFrame *frames,
                         bubbleFrame.origin.y - frames[index].y + last->y)];
                 }
                 ADPump(app);
-                if (index + 1 < movementFrameCount) {
-                    [NSThread sleepForTimeInterval:config->frameSeconds];
+                if (index + 1 >= movementFrameCount) {
+                    break;
                 }
+                index = ADNextFrame(index, movementFrameCount, movementStart, config->frameSeconds);
             }
             if (playsRipple) {
                 ADRipplePlay(ADRipple);
