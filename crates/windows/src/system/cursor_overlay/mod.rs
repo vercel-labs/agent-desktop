@@ -25,7 +25,6 @@ pub(crate) mod fade;
 pub(crate) mod framing;
 pub(crate) mod geometry;
 pub(crate) mod image_identity;
-pub(crate) mod label;
 pub(crate) mod monitors;
 #[cfg(target_os = "windows")]
 pub(crate) mod parked_flush;

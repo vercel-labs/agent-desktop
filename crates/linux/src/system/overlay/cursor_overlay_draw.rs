@@ -7,7 +7,7 @@ use x11rb::protocol::xproto::*;
 use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as _;
 
-use super::error;
+use super::{checked, error, replied};
 
 pub(super) struct Overlay {
     pub(super) connection: RustConnection,
@@ -36,14 +36,15 @@ impl Overlay {
                 AdapterError::not_supported("X11 cursor overlay needs an ARGB visual")
             })?;
         let colormap = connection.generate_id().map_err(error)?;
-        connection
-            .create_colormap(ColormapAlloc::NONE, colormap, screen.root, visual.visual_id)
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
+        checked(connection.create_colormap(
+            ColormapAlloc::NONE,
+            colormap,
+            screen.root,
+            visual.visual_id,
+        ))?;
         let window = connection.generate_id().map_err(error)?;
-        connection
-            .create_window(
+        checked(
+            connection.create_window(
                 32,
                 window,
                 screen.root,
@@ -59,39 +60,25 @@ impl Overlay {
                     .border_pixel(0)
                     .background_pixel(0)
                     .override_redirect(1),
-            )
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
-        connection
-            .change_property8(
-                PropMode::REPLACE,
-                window,
-                AtomEnum::WM_NAME,
-                AtomEnum::STRING,
-                b"agent-desktop cursor overlay",
-            )
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
-        connection
-            .shape_rectangles(
-                SO::SET,
-                SK::INPUT,
-                ClipOrdering::UNSORTED,
-                window,
-                0,
-                0,
-                &[],
-            )
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
-        let pointer = connection
-            .query_pointer(screen.root)
-            .map_err(error)?
-            .reply()
-            .map_err(error)?;
+            ),
+        )?;
+        checked(connection.change_property8(
+            PropMode::REPLACE,
+            window,
+            AtomEnum::WM_NAME,
+            AtomEnum::STRING,
+            b"agent-desktop cursor overlay",
+        ))?;
+        checked(connection.shape_rectangles(
+            SO::SET,
+            SK::INPUT,
+            ClipOrdering::UNSORTED,
+            window,
+            0,
+            0,
+            &[],
+        ))?;
+        let pointer = replied(connection.query_pointer(screen.root))?;
         Ok(Self {
             connection,
             window,
@@ -105,11 +92,7 @@ impl Overlay {
     pub(super) fn update(&mut self, control: &CursorOverlayControl) -> Result<(), AdapterError> {
         let connection = &self.connection;
         if control.is_hide() {
-            connection
-                .unmap_window(self.window)
-                .map_err(error)?
-                .check()
-                .map_err(error)?;
+            checked(connection.unmap_window(self.window))?;
             return Ok(());
         }
         if let Some(instruction) = control.instruction() {
@@ -118,27 +101,17 @@ impl Overlay {
         if let Some(style) = control.style() {
             self.paint(style)?;
         }
-        connection
-            .configure_window(
+        checked(
+            connection.configure_window(
                 self.window,
                 &ConfigureWindowAux::new()
                     .x(self.point.x.round() as i32)
                     .y(self.point.y.round() as i32)
                     .stack_mode(StackMode::ABOVE),
-            )
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
-        connection
-            .map_window(self.window)
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
-        connection
-            .get_input_focus()
-            .map_err(error)?
-            .reply()
-            .map_err(error)?;
+            ),
+        )?;
+        checked(connection.map_window(self.window))?;
+        replied(connection.get_input_focus())?;
         Ok(())
     }
 
@@ -151,31 +124,19 @@ impl Overlay {
         let width = (24.0 * scale).ceil() as u16;
         let height = (32.0 * scale).ceil() as u16;
         let pixmap = connection.generate_id().map_err(error)?;
-        connection
-            .create_pixmap(32, pixmap, self.window, width, height)
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
+        checked(connection.create_pixmap(32, pixmap, self.window, width, height))?;
         let gc = connection.generate_id().map_err(error)?;
-        connection
-            .create_gc(gc, pixmap, &CreateGCAux::new().foreground(0))
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
-        connection
-            .poly_fill_rectangle(
-                pixmap,
-                gc,
-                &[Rectangle {
-                    x: 0,
-                    y: 0,
-                    width,
-                    height,
-                }],
-            )
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
+        checked(connection.create_gc(gc, pixmap, &CreateGCAux::new().foreground(0)))?;
+        checked(connection.poly_fill_rectangle(
+            pixmap,
+            gc,
+            &[Rectangle {
+                x: 0,
+                y: 0,
+                width,
+                height,
+            }],
+        ))?;
         let polygon: Vec<Point> = [
             (0., 0.),
             (0., 24.),
@@ -200,100 +161,59 @@ impl Overlay {
         connection
             .change_gc(gc, &ChangeGCAux::new().foreground(color(style.fill_rgb())))
             .map_err(error)?;
-        connection
-            .fill_poly(
-                pixmap,
-                gc,
-                PolyShape::NONCONVEX,
-                CoordMode::ORIGIN,
-                &polygon,
-            )
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
+        checked(connection.fill_poly(
+            pixmap,
+            gc,
+            PolyShape::NONCONVEX,
+            CoordMode::ORIGIN,
+            &polygon,
+        ))?;
         let mut outline = polygon.clone();
         outline.push(polygon[0]);
         connection
             .change_gc(gc, &ChangeGCAux::new().foreground(color(style.rim_rgb())))
             .map_err(error)?;
-        connection
-            .poly_line(CoordMode::ORIGIN, pixmap, gc, &outline)
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
-        connection
-            .configure_window(
+        checked(connection.poly_line(CoordMode::ORIGIN, pixmap, gc, &outline))?;
+        checked(
+            connection.configure_window(
                 self.window,
                 &ConfigureWindowAux::new()
                     .width(u32::from(width))
                     .height(u32::from(height)),
-            )
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
-        connection
-            .change_window_attributes(
-                self.window,
-                &ChangeWindowAttributesAux::new().background_pixmap(pixmap),
-            )
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
-        connection
-            .shape_rectangles(
-                SO::SET,
-                SK::BOUNDING,
-                ClipOrdering::UNSORTED,
-                self.window,
-                0,
-                0,
-                &silhouette(&polygon, height),
-            )
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
-        connection
-            .clear_area(false, self.window, 0, 0, 0, 0)
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
-        connection
-            .free_gc(gc)
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
-        connection
-            .free_pixmap(pixmap)
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
+            ),
+        )?;
+        checked(connection.change_window_attributes(
+            self.window,
+            &ChangeWindowAttributesAux::new().background_pixmap(pixmap),
+        ))?;
+        checked(connection.shape_rectangles(
+            SO::SET,
+            SK::BOUNDING,
+            ClipOrdering::UNSORTED,
+            self.window,
+            0,
+            0,
+            &silhouette(&polygon, height),
+        ))?;
+        checked(connection.clear_area(false, self.window, 0, 0, 0, 0))?;
+        checked(connection.free_gc(gc))?;
+        checked(connection.free_pixmap(pixmap))?;
         Ok(())
     }
 
     pub(super) fn retain(self, owner: &[u8]) -> Result<(), AdapterError> {
-        let atom = self
-            .connection
-            .intern_atom(false, super::OWNER)
-            .map_err(error)?
-            .reply()
-            .map_err(error)?
-            .atom;
-        self.connection
-            .change_property8(
-                PropMode::REPLACE,
-                self.window,
-                atom,
-                AtomEnum::STRING,
-                owner,
-            )
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
-        self.connection
-            .set_close_down_mode(CloseDown::RETAIN_PERMANENT)
-            .map_err(error)?
-            .check()
-            .map_err(error)?;
+        let atom = replied(self.connection.intern_atom(false, super::OWNER))?.atom;
+        checked(self.connection.change_property8(
+            PropMode::REPLACE,
+            self.window,
+            atom,
+            AtomEnum::STRING,
+            owner,
+        ))?;
+        checked(
+            self.connection
+                .set_close_down_mode(CloseDown::RETAIN_PERMANENT),
+        )?;
         Ok(())
     }
 }

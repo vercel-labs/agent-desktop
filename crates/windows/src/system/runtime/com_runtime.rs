@@ -1,21 +1,13 @@
 use crate::system::runtime::dpi;
+use crate::system::runtime::hresult::{RPC_E_CHANGED_MODE, S_FALSE, S_OK, com_hresult_detail};
+use crate::system::runtime::mta_usage::{classify_mta_usage_hresult, co_increment_mta_usage};
 use agent_desktop_core::{AdapterError, ErrorCode};
 use std::sync::OnceLock;
 
-const S_OK_HRESULT: i32 = 0;
-const S_FALSE_HRESULT: i32 = 1;
-const RPC_E_CHANGED_MODE_HRESULT: i32 = 0x8001_0106_u32 as i32;
-const CO_E_NOT_INITIALIZED_HRESULT: i32 = 0x8004_01F0_u32 as i32;
 const APTTYPE_MTA_VALUE: i32 = 1;
 
 #[cfg(target_os = "windows")]
-const _: () = {
-    assert!(S_OK_HRESULT == windows_sys::Win32::Foundation::S_OK);
-    assert!(S_FALSE_HRESULT == windows_sys::Win32::Foundation::S_FALSE);
-    assert!(RPC_E_CHANGED_MODE_HRESULT == windows_sys::Win32::Foundation::RPC_E_CHANGED_MODE);
-    assert!(CO_E_NOT_INITIALIZED_HRESULT == windows_sys::Win32::Foundation::CO_E_NOTINITIALIZED);
-    assert!(APTTYPE_MTA_VALUE == windows_sys::Win32::System::Com::APTTYPE_MTA);
-};
+const _: () = assert!(APTTYPE_MTA_VALUE == windows_sys::Win32::System::Com::APTTYPE_MTA);
 
 type RetainedMtaCookieAddress = usize;
 
@@ -111,7 +103,7 @@ fn initialize_owned_process_apartment() -> Result<ComApartment, AdapterError> {
 fn initialize_hosted_library_apartment() -> Result<RetainedMtaCookieAddress, AdapterError> {
     #[cfg(test)]
     native_call_probe::HOSTED_INITIALIZATIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let (hresult, cookie_address) = imp::co_increment_mta_usage();
+    let (hresult, cookie_address) = co_increment_mta_usage();
     classify_mta_usage_hresult(hresult).map_err(|failure| {
         com_bootstrap_failure(
             "Process-wide COM MTA usage could not be registered",
@@ -124,14 +116,10 @@ fn initialize_hosted_library_apartment() -> Result<RetainedMtaCookieAddress, Ada
 
 pub(crate) fn classify_co_initialize_hresult(hresult: i32) -> Result<ComApartment, i32> {
     match hresult {
-        S_OK_HRESULT | S_FALSE_HRESULT => Ok(ComApartment::OwnedMta),
-        RPC_E_CHANGED_MODE_HRESULT => Ok(ComApartment::BorrowedFromHostMode),
+        S_OK | S_FALSE => Ok(ComApartment::OwnedMta),
+        RPC_E_CHANGED_MODE => Ok(ComApartment::BorrowedFromHostMode),
         failure => Err(failure),
     }
-}
-
-pub(crate) fn classify_mta_usage_hresult(hresult: i32) -> Result<(), i32> {
-    if hresult >= 0 { Ok(()) } else { Err(hresult) }
 }
 
 pub(crate) fn apartment_probe_reports_mta(hresult: i32, apartment_type: i32) -> bool {
@@ -140,7 +128,7 @@ pub(crate) fn apartment_probe_reports_mta(hresult: i32, apartment_type: i32) -> 
 
 fn com_bootstrap_failure(message: &str, hresult: i32) -> AdapterError {
     AdapterError::new(ErrorCode::Internal, message)
-        .with_platform_detail(crate::system::permissions::com_hresult_detail(hresult))
+        .with_platform_detail(com_hresult_detail(hresult))
         .with_suggestion(
             "Verify the host process allows COM initialization, then rerun the command",
         )
@@ -149,18 +137,11 @@ fn com_bootstrap_failure(message: &str, hresult: i32) -> AdapterError {
 #[cfg(target_os = "windows")]
 mod imp {
     use windows_sys::Win32::System::Com::{
-        APTTYPE, APTTYPEQUALIFIER, CO_MTA_USAGE_COOKIE, COINIT_MULTITHREADED, CoGetApartmentType,
-        CoIncrementMTAUsage, CoInitializeEx,
+        APTTYPE, APTTYPEQUALIFIER, COINIT_MULTITHREADED, CoGetApartmentType, CoInitializeEx,
     };
 
     pub(super) fn co_initialize_multithreaded() -> i32 {
         unsafe { CoInitializeEx(std::ptr::null(), COINIT_MULTITHREADED as u32) }
-    }
-
-    pub(super) fn co_increment_mta_usage() -> (i32, usize) {
-        let mut cookie: CO_MTA_USAGE_COOKIE = std::ptr::null_mut();
-        let hresult = unsafe { CoIncrementMTAUsage(&mut cookie) };
-        (hresult, cookie.addr())
     }
 
     pub(super) fn current_thread_apartment_type() -> (i32, i32) {
@@ -174,15 +155,11 @@ mod imp {
 #[cfg(not(target_os = "windows"))]
 mod imp {
     pub(super) fn co_initialize_multithreaded() -> i32 {
-        super::S_OK_HRESULT
-    }
-
-    pub(super) fn co_increment_mta_usage() -> (i32, usize) {
-        (super::S_OK_HRESULT, 0)
+        super::S_OK
     }
 
     pub(super) fn current_thread_apartment_type() -> (i32, i32) {
-        (super::CO_E_NOT_INITIALIZED_HRESULT, 0)
+        (crate::system::runtime::hresult::CO_E_NOTINITIALIZED, 0)
     }
 }
 
@@ -197,6 +174,7 @@ mod native_call_probe {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::system::runtime::hresult::CO_E_NOTINITIALIZED;
     use std::sync::atomic::Ordering;
 
     const E_OUTOFMEMORY_HRESULT: i32 = 0x8007_000E_u32 as i32;
@@ -205,7 +183,7 @@ mod tests {
     #[test]
     fn s_ok_establishes_an_owned_mta() {
         assert_eq!(
-            classify_co_initialize_hresult(S_OK_HRESULT),
+            classify_co_initialize_hresult(S_OK),
             Ok(ComApartment::OwnedMta)
         );
     }
@@ -213,7 +191,7 @@ mod tests {
     #[test]
     fn s_false_means_the_thread_already_joined_and_stays_owned() {
         assert_eq!(
-            classify_co_initialize_hresult(S_FALSE_HRESULT),
+            classify_co_initialize_hresult(S_FALSE),
             Ok(ComApartment::OwnedMta)
         );
     }
@@ -221,7 +199,7 @@ mod tests {
     #[test]
     fn rpc_e_changed_mode_is_borrowed_success_not_failure() {
         assert_eq!(
-            classify_co_initialize_hresult(RPC_E_CHANGED_MODE_HRESULT),
+            classify_co_initialize_hresult(RPC_E_CHANGED_MODE),
             Ok(ComApartment::BorrowedFromHostMode)
         );
     }
@@ -236,15 +214,6 @@ mod tests {
     fn a_real_co_initialize_failure_stays_a_failure() {
         assert_eq!(
             classify_co_initialize_hresult(E_OUTOFMEMORY_HRESULT),
-            Err(E_OUTOFMEMORY_HRESULT)
-        );
-    }
-
-    #[test]
-    fn mta_usage_success_and_failure_split_on_hresult_sign() {
-        assert_eq!(classify_mta_usage_hresult(S_OK_HRESULT), Ok(()));
-        assert_eq!(
-            classify_mta_usage_hresult(E_OUTOFMEMORY_HRESULT),
             Err(E_OUTOFMEMORY_HRESULT)
         );
     }
@@ -271,15 +240,9 @@ mod tests {
 
     #[test]
     fn the_probe_requires_mta_membership_not_just_initialized_com() {
-        assert!(apartment_probe_reports_mta(S_OK_HRESULT, APTTYPE_MTA_VALUE));
-        assert!(!apartment_probe_reports_mta(
-            S_OK_HRESULT,
-            APTTYPE_STA_VALUE
-        ));
-        assert!(!apartment_probe_reports_mta(
-            CO_E_NOT_INITIALIZED_HRESULT,
-            0
-        ));
+        assert!(apartment_probe_reports_mta(S_OK, APTTYPE_MTA_VALUE));
+        assert!(!apartment_probe_reports_mta(S_OK, APTTYPE_STA_VALUE));
+        assert!(!apartment_probe_reports_mta(CO_E_NOTINITIALIZED, 0));
     }
 
     #[cfg(target_os = "windows")]
