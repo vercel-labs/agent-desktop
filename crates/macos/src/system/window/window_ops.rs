@@ -35,12 +35,7 @@ mod imp {
         el: &crate::tree::AXElement,
         deadline: Deadline,
     ) -> Result<(), AdapterError> {
-        let current = crate::tree::element_bounds::read_bounds_with_deadline(
-            el,
-            std::time::Instant::now()
-                .checked_add(deadline.remaining())
-                .ok_or_else(|| AdapterError::internal("Window deadline is out of range"))?,
-        )?;
+        let current = crate::tree::element_bounds::read_bounds_with_deadline(el, deadline)?;
         let work_area = crate::system::display_work_area::for_window(current, deadline)?;
         set_position(el, work_area.x, work_area.y, deadline)?;
         set_size(el, work_area.width, work_area.height, deadline).map_err(|error| {

@@ -1,7 +1,4 @@
-use agent_desktop_core::{AdapterError, Deadline, ErrorCode, NativeHandle, RefEntry};
-
-#[cfg(target_os = "windows")]
-use super::resolve::resolve_pacing::{FIRST_RETRY_PAUSE, next_retry_pause, sleep_before_retry};
+use agent_desktop_core::{AdapterError, Deadline, NativeHandle, RefEntry};
 
 #[cfg(target_os = "windows")]
 use super::element::UIAElement;
@@ -26,58 +23,6 @@ pub(crate) fn into_verified_handle(
         )
         .into_native_handle()
 }
-
-#[cfg(target_os = "windows")]
-pub(crate) fn retry_incomplete_until(
-    deadline: Deadline,
-    mut operation: impl FnMut() -> Result<NativeHandle, AdapterError>,
-) -> Result<NativeHandle, AdapterError> {
-    let mut last_incomplete: Option<AdapterError> = None;
-    let mut pause = FIRST_RETRY_PAUSE;
-    loop {
-        if deadline.is_expired() {
-            return Err(last_incomplete
-                .map(mark_deadline_elapsed)
-                .unwrap_or_else(|| deadline.timeout_error()));
-        }
-        match operation() {
-            Ok(value) => return Ok(value),
-            Err(error) if is_retryable_resolution_error(&error) => {
-                last_incomplete = Some(error);
-                sleep_before_retry(deadline, pause);
-                pause = next_retry_pause(pause);
-            }
-            Err(error) if error.code == ErrorCode::Timeout => {
-                return Err(match last_incomplete {
-                    Some(incomplete) => mark_deadline_elapsed(incomplete),
-                    None => error,
-                });
-            }
-            Err(error) => return Err(error),
-        }
-    }
-}
-
-/// Whether the adapter's own loop should retry an error: only an explicitly
-/// retryable, incomplete read. A provider's own `UIA_E_TIMEOUT` classifies
-/// `Timeout` and is one of those - it is a per-call transport timeout inside
-/// the operation's budget, not the budget running out. Deadline exhaustion
-/// carries no retryable stamp, so it still falls through to the caller. Mirrors macOS
-/// (`is_retryable_resolution_error` in `crates/macos/src/tree/resolve/mod.rs`); the granularity split between adapter-loop-settled
-/// and incomplete lives in the `complete`/`retryable` details every resolver
-/// error carries.
-#[cfg(target_os = "windows")]
-pub(crate) fn is_retryable_resolution_error(error: &AdapterError) -> bool {
-    error.is_transient_incomplete_read()
-}
-
-/// Stamps the final incomplete diagnosis with `deadline_elapsed` so the
-/// caller sees why the retries ran out, preserving the incomplete's own
-/// details rather than discarding them for a bare `TIMEOUT`. Core owns the
-/// payload (`agent_desktop_core::refs::resolve_errors::mark_deadline_elapsed`)
-/// so every platform stamps the same shape.
-#[cfg(target_os = "windows")]
-pub(crate) use agent_desktop_core::refs::resolve_errors::mark_deadline_elapsed;
 
 /// Reaches the stored window's root element from the ref's source window id.
 ///
@@ -159,7 +104,6 @@ fn verify_stored_failure_error(entry: &RefEntry, deadline: Deadline) -> AdapterE
 
 pub(crate) mod resolve_anchor;
 pub(crate) mod resolve_match;
-pub(crate) mod resolve_pacing;
 pub(crate) mod resolve_search;
 
 #[cfg(all(test, target_os = "windows"))]

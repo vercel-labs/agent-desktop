@@ -15,7 +15,7 @@ mod imp {
     pub(crate) fn copy_string_attr_result(
         el: &AXElement,
         attr: &str,
-        deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        deadline: agent_desktop_core::Deadline,
     ) -> Result<Option<String>, i32> {
         let mut usage = crate::tree::observation_usage::ObservationUsage::new(
             agent_desktop_core::ObservationBudget::default(),
@@ -30,7 +30,7 @@ mod imp {
     pub(crate) fn copy_string_attr_bounded_result(
         el: &AXElement,
         attr: &str,
-        deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        deadline: agent_desktop_core::Deadline,
         usage: &mut crate::tree::observation_usage::ObservationUsage,
     ) -> Result<Option<BoundedString>, i32> {
         let attribute = CFString::new(attr);
@@ -60,14 +60,14 @@ mod imp {
 
     pub(crate) fn copy_value_typed(
         el: &AXElement,
-        deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        deadline: agent_desktop_core::Deadline,
     ) -> Option<String> {
         copy_value_typed_result(el, deadline).ok().flatten()
     }
 
     pub(crate) fn copy_value_typed_result(
         el: &AXElement,
-        deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        deadline: agent_desktop_core::Deadline,
     ) -> Result<Option<String>, i32> {
         let mut usage = crate::tree::observation_usage::ObservationUsage::new(
             agent_desktop_core::ObservationBudget::default(),
@@ -81,7 +81,7 @@ mod imp {
 
     pub(crate) fn copy_value_typed_bounded_result(
         el: &AXElement,
-        deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        deadline: agent_desktop_core::Deadline,
         usage: &mut crate::tree::observation_usage::ObservationUsage,
     ) -> Result<Option<BoundedString>, i32> {
         let attribute = CFString::new(kAXValueAttribute);
@@ -149,7 +149,7 @@ mod imp {
     pub(crate) fn copy_string_attr_result(
         _el: &AXElement,
         _attr: &str,
-        _deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        _deadline: agent_desktop_core::Deadline,
     ) -> Result<Option<String>, i32> {
         Ok(None)
     }
@@ -157,7 +157,7 @@ mod imp {
     pub(crate) fn copy_string_attr_bounded_result(
         _el: &AXElement,
         _attr: &str,
-        _deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        _deadline: agent_desktop_core::Deadline,
         _usage: &mut crate::tree::observation_usage::ObservationUsage,
     ) -> Result<Option<BoundedString>, i32> {
         Ok(None)
@@ -165,21 +165,21 @@ mod imp {
 
     pub(crate) fn copy_value_typed(
         _el: &AXElement,
-        _deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        _deadline: agent_desktop_core::Deadline,
     ) -> Option<String> {
         None
     }
 
     pub(crate) fn copy_value_typed_result(
         _el: &AXElement,
-        _deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        _deadline: agent_desktop_core::Deadline,
     ) -> Result<Option<String>, i32> {
         Ok(None)
     }
 
     pub(crate) fn copy_value_typed_bounded_result(
         _el: &AXElement,
-        _deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        _deadline: agent_desktop_core::Deadline,
         _usage: &mut crate::tree::observation_usage::ObservationUsage,
     ) -> Result<Option<BoundedString>, i32> {
         Ok(None)

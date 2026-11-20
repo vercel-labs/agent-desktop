@@ -1,4 +1,4 @@
-use agent_desktop_core::AdapterError;
+use agent_desktop_core::{AdapterError, Deadline};
 
 #[cfg(target_os = "macos")]
 mod imp {
@@ -16,7 +16,7 @@ mod imp {
     pub(crate) fn perform_observed_action(
         el: &AXElement,
         name: &str,
-        deadline: agent_desktop_core::Deadline,
+        deadline: Deadline,
     ) -> Result<crate::actions::chain::chain_delivery::DeliveryOutcome, AdapterError> {
         use crate::actions::activation_effect;
         use crate::actions::chain::chain_delivery::DeliveryOutcome;
@@ -63,13 +63,11 @@ mod imp {
     pub(crate) fn advertises_action(
         el: &AXElement,
         name: &str,
-        deadline: agent_desktop_core::Deadline,
+        deadline: Deadline,
     ) -> Option<bool> {
         let mut usage = crate::tree::observation_usage::ObservationUsage::with_defaults();
         let read = crate::tree::properties::capabilities::copy_action_names_with_status(
-            el,
-            std::time::Instant::now() + deadline.remaining(),
-            &mut usage,
+            el, deadline, &mut usage,
         );
         let absent = crate::tree::properties::ax_absence::is_absent_action_error;
         read.value
@@ -83,18 +81,14 @@ mod imp {
     use super::*;
     use crate::tree::AXElement;
 
-    pub fn advertises_action(
-        _el: &AXElement,
-        _name: &str,
-        _deadline: agent_desktop_core::Deadline,
-    ) -> Option<bool> {
+    pub fn advertises_action(_el: &AXElement, _name: &str, _deadline: Deadline) -> Option<bool> {
         None
     }
 
     pub fn perform_observed_action(
         _el: &AXElement,
         _name: &str,
-        _deadline: agent_desktop_core::Deadline,
+        _deadline: Deadline,
     ) -> Result<crate::actions::chain::chain_delivery::DeliveryOutcome, AdapterError> {
         Ok(crate::actions::chain::chain_delivery::DeliveryOutcome::NotDelivered)
     }

@@ -149,7 +149,7 @@ fn a_wrong_child_index_settles_stale_never_a_neighbour() {
     let entry = blank_entry_with_path(&fixture, vec![999]);
     let deadline = deadline();
     let attempts = std::cell::Cell::new(0);
-    let result = crate::tree::resolve::retry_incomplete_until(deadline, || {
+    let result = agent_desktop_core::refs::resolve_retry::retry_incomplete_until(deadline, || {
         attempts.set(attempts.get() + 1);
         resolve_locator_anchor_once(&entry, deadline)
     });

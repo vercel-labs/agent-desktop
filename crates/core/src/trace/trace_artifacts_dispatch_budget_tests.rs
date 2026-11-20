@@ -107,7 +107,6 @@ fn slow_pre_capture_preserves_dispatch_budget() {
             context: &context,
         },
         ActionRequest::headless(Action::Click).with_timeout_ms(Some(ACTION_BUDGET_MS)),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     );
 
     assert!(
@@ -161,7 +160,6 @@ fn contended_artifact_lock_preserves_dispatch_budget() {
             context: &context,
         },
         ActionRequest::headless(Action::Click).with_timeout_ms(Some(ACTION_BUDGET_MS)),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     );
 
     assert!(result.is_ok(), "artifact lock blocked dispatch: {result:?}");

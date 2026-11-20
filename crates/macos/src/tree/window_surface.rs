@@ -1,12 +1,11 @@
-use agent_desktop_core::{AdapterError, ErrorCode, SnapshotSurface, WindowInfo};
-use std::time::Instant;
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode, SnapshotSurface, WindowInfo};
 
 use super::AXElement;
 
 pub(crate) fn surface_for_window(
     window: &WindowInfo,
     surface: SnapshotSurface,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Option<AXElement>, AdapterError> {
     resolve_owned_surface(
         crate::system::window::window_resolve::window_element_for_info_with_deadline(
@@ -50,7 +49,7 @@ pub(super) fn surface_for_pid_with_window_number(
     pid: i32,
     surface: SnapshotSurface,
     expected_number: Option<i64>,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Option<AXElement>, AdapterError> {
     if expected_number.is_none() {
         return Ok(None);

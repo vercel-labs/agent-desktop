@@ -1,4 +1,4 @@
-use agent_desktop_core::{AdapterError, NativeHandle, RefEntry};
+use agent_desktop_core::{AdapterError, Deadline, NativeHandle, RefEntry};
 
 #[cfg(target_os = "macos")]
 use super::resolve_classify::identity_summary_for_message;
@@ -41,7 +41,7 @@ pub(in crate::tree) struct RetainedFacts<'a> {
 #[cfg(target_os = "macos")]
 pub(in crate::tree) fn resolve_saved_token(
     entry: &RefEntry,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<Option<NativeHandle>, AdapterError> {
     let Some(token) = entry.identity.retained_object.as_deref() else {
         return Ok(None);
@@ -61,7 +61,7 @@ pub(in crate::tree) fn resolve_saved_token(
 fn verify_token_element(
     entry: &RefEntry,
     element: &AXElement,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<(), AdapterError> {
     let pid = crate::tree::properties::ax_ipc::pid(element, deadline)
         .map_err(|error| token_read_error(entry, error))?;

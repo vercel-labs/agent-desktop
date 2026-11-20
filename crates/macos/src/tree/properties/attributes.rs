@@ -16,7 +16,7 @@ mod imp {
 
     pub fn set_messaging_timeout(
         el: &AXElement,
-        deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        deadline: agent_desktop_core::Deadline,
     ) -> Result<(), agent_desktop_core::AdapterError> {
         crate::tree::properties::ax_ipc::prepare(el, deadline).map(|_| ())
     }
@@ -24,7 +24,7 @@ mod imp {
     pub fn copy_bool_attr(
         el: &AXElement,
         attr: &str,
-        deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        deadline: agent_desktop_core::Deadline,
     ) -> Option<bool> {
         copy_bool_attr_result(el, attr, deadline).ok().flatten()
     }
@@ -32,7 +32,7 @@ mod imp {
     pub(crate) fn copy_bool_attr_result(
         el: &AXElement,
         attr: &str,
-        deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        deadline: agent_desktop_core::Deadline,
     ) -> Result<Option<bool>, i32> {
         let cf_attr = CFString::new(attr);
         let (err, value) = crate::tree::properties::ax_ipc::copy_attribute_value(
@@ -64,7 +64,7 @@ mod imp {
         el: &AXElement,
         attr: &str,
         max_values: usize,
-        deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        deadline: agent_desktop_core::Deadline,
     ) -> Result<Option<Vec<AXElement>>, i32> {
         if max_values == 0 {
             return Ok(Some(Vec::new()));
@@ -104,7 +104,7 @@ mod imp {
     pub(crate) fn copy_element_attr_result(
         el: &AXElement,
         attr: &str,
-        deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        deadline: agent_desktop_core::Deadline,
     ) -> Result<Option<AXElement>, i32> {
         let cf_attr = CFString::new(attr);
         let (err, value) = crate::tree::properties::ax_ipc::copy_attribute_value(
@@ -199,7 +199,7 @@ mod imp {
     pub fn copy_bool_attr(
         _el: &AXElement,
         _attr: &str,
-        _deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        _deadline: agent_desktop_core::Deadline,
     ) -> Option<bool> {
         None
     }
@@ -207,7 +207,7 @@ mod imp {
     pub(crate) fn copy_bool_attr_result(
         _el: &AXElement,
         _attr: &str,
-        _deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        _deadline: agent_desktop_core::Deadline,
     ) -> Result<Option<bool>, i32> {
         Ok(None)
     }
@@ -215,7 +215,7 @@ mod imp {
     pub(crate) fn copy_element_attr_result(
         _el: &AXElement,
         _attr: &str,
-        _deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        _deadline: agent_desktop_core::Deadline,
     ) -> Result<Option<AXElement>, i32> {
         Ok(None)
     }
@@ -224,14 +224,14 @@ mod imp {
         _el: &AXElement,
         _attr: &str,
         _max_values: usize,
-        _deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        _deadline: agent_desktop_core::Deadline,
     ) -> Result<Option<Vec<AXElement>>, i32> {
         Ok(None)
     }
 
     pub fn set_messaging_timeout(
         _el: &AXElement,
-        _deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        _deadline: agent_desktop_core::Deadline,
     ) -> Result<(), agent_desktop_core::AdapterError> {
         Ok(())
     }

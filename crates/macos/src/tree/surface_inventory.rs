@@ -1,17 +1,16 @@
 use crate::tree::{AXElement, properties::element::element_for_pid};
-use agent_desktop_core::{AdapterError, SurfaceInfo};
-use std::time::Instant;
+use agent_desktop_core::{AdapterError, Deadline, SurfaceInfo};
 
 pub(crate) fn list_surfaces_for_process(
     identity: crate::system::process::process_identity::ProcessIdentity,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Vec<SurfaceInfo>, AdapterError> {
     super::app_menu::observe(identity, deadline, || {
         list_surfaces_once(identity.pid(), deadline)
     })
 }
 
-fn list_surfaces_once(pid: i32, deadline: Instant) -> Result<Vec<SurfaceInfo>, AdapterError> {
+fn list_surfaces_once(pid: i32, deadline: Deadline) -> Result<Vec<SurfaceInfo>, AdapterError> {
     let app = element_for_pid(pid);
     list_surfaces_with(
         deadline,
@@ -33,7 +32,7 @@ fn list_surfaces_once(pid: i32, deadline: Instant) -> Result<Vec<SurfaceInfo>, A
 }
 
 fn list_surfaces_with(
-    deadline: Instant,
+    deadline: Deadline,
     window_surfaces: impl FnOnce() -> Result<Vec<SurfaceInfo>, AdapterError>,
     menu_surfaces: impl FnOnce() -> Result<Vec<SurfaceInfo>, AdapterError>,
 ) -> Result<Vec<SurfaceInfo>, AdapterError> {
@@ -48,7 +47,7 @@ fn push_menu_surface(
     menu: &AXElement,
     kind: &str,
     id: String,
-    deadline: Instant,
+    deadline: Deadline,
     surfaces: &mut Vec<SurfaceInfo>,
 ) -> Result<(), AdapterError> {
     let title = read_title(menu, deadline)?;
@@ -66,7 +65,7 @@ fn push_menu_surface(
 fn collect_window_surfaces(
     window: &AXElement,
     window_id: &str,
-    deadline: Instant,
+    deadline: Deadline,
     surfaces: &mut Vec<SurfaceInfo>,
 ) -> Result<(), AdapterError> {
     if let Some(kind) = surface_kind(window, deadline)? {
@@ -97,7 +96,7 @@ fn collect_window_surfaces(
 
 fn surface_kind(
     element: &AXElement,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Option<&'static str>, AdapterError> {
     let role = read_string(element, "AXRole", deadline)?;
     let subrole = read_string(element, "AXSubrole", deadline)?;
@@ -113,7 +112,7 @@ fn surface_kind(
     })
 }
 
-fn read_title(element: &AXElement, deadline: Instant) -> Result<Option<String>, AdapterError> {
+fn read_title(element: &AXElement, deadline: Deadline) -> Result<Option<String>, AdapterError> {
     match read_string(element, "AXTitle", deadline)? {
         Some(title) => Ok(Some(title)),
         None => read_string(element, "AXDescription", deadline),
@@ -123,7 +122,7 @@ fn read_title(element: &AXElement, deadline: Instant) -> Result<Option<String>, 
 fn read_string(
     element: &AXElement,
     attribute: &str,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Option<String>, AdapterError> {
     crate::tree::surface_read::string(element, attribute, deadline)
 }
@@ -131,7 +130,7 @@ fn read_string(
 fn read_array(
     element: &AXElement,
     attribute: &str,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Option<Vec<AXElement>>, AdapterError> {
     crate::tree::surface_read::elements(element, attribute, deadline).map(Some)
 }
@@ -139,12 +138,12 @@ fn read_array(
 fn read_element(
     element: &AXElement,
     attribute: &str,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Option<AXElement>, AdapterError> {
     crate::tree::surface_read::element(element, attribute, deadline)
 }
 
-fn ensure_before_deadline(deadline: Instant) -> Result<(), AdapterError> {
+fn ensure_before_deadline(deadline: Deadline) -> Result<(), AdapterError> {
     crate::tree::surface_read::ensure_before_deadline(deadline)
 }
 

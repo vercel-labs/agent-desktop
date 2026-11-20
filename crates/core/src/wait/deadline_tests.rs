@@ -163,3 +163,17 @@ fn dropping_the_clock_restores_real_time() {
     assert!(resumed >= before);
     assert!(resumed.saturating_duration_since(before) < Duration::from_secs(1800));
 }
+
+#[test]
+fn a_reserved_tail_survives_time_spent_before_the_work_starts() {
+    let clock = VirtualClock::freeze();
+    let deadline = Deadline::after(1_000).unwrap();
+    clock.advance(Duration::from_millis(300));
+    let work = deadline.reserving(Duration::from_millis(250));
+
+    clock.advance(Duration::from_millis(449));
+    assert!(!work.is_expired());
+    clock.advance(Duration::from_millis(1));
+    assert!(work.is_expired());
+    assert_eq!(deadline.remaining(), Duration::from_millis(250));
+}

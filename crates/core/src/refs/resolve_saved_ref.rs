@@ -31,6 +31,7 @@ pub fn resolve_saved_ref(
     deadline: Deadline,
     lease: Option<&crate::InteractionLease>,
 ) -> Result<NativeHandle, AdapterError> {
+    deadline.ensure_remaining()?;
     if element_token(entry).is_some() {
         return adapter.resolve_element_strict(entry, deadline);
     }
@@ -63,15 +64,9 @@ pub(crate) fn land_saved_ref(
     if element_token(entry).is_none()
         && entry.identity.unique_at_capture
         && let Ok(handle) = adapter.resolve_locator_anchor(entry, deadline)
+        && confirm_landed_element(adapter, entry, &handle, deadline).is_ok()
     {
-        let root = ObservationRoot::Element {
-            handle: &handle,
-            entry,
-            root_ref: None,
-        };
-        if confirm_landed(adapter, entry, root, deadline, None).is_ok() {
-            return Ok(handle);
-        }
+        return Ok(handle);
     }
     resolve_saved_ref(adapter, entry, deadline, None)
 }
@@ -239,13 +234,12 @@ pub(crate) fn observe_whole_window(
     base: &TreeOptions,
     window: &WindowInfo,
     deadline: Deadline,
-    lease: Option<&crate::InteractionLease>,
 ) -> Result<ObservedTree, AdapterError> {
     observe_window(
         adapter,
         &whole_window_request(base, deadline)?,
         window,
-        lease,
+        None,
     )
 }
 

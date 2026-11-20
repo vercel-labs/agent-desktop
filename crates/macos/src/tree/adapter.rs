@@ -72,25 +72,18 @@ impl ObservationOps for MacOSAdapter {
         filter: &WindowFilter,
         deadline: Deadline,
     ) -> Result<Vec<WindowInfo>, AdapterError> {
-        crate::system::app::app_inventory::list_windows_until(
-            filter,
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
+        crate::system::app::app_inventory::list_windows_until(filter, deadline)
     }
 
     fn list_apps(&self, deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        crate::system::app::app_inventory::list_apps_complete_until(
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
+        crate::system::app::app_inventory::list_apps_complete_until(deadline)
     }
 
     fn list_apps_inventory(
         &self,
         deadline: Deadline,
     ) -> Result<agent_desktop_core::AppInventory, AdapterError> {
-        crate::system::app::app_inventory::list_apps_inventory_until(
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
+        crate::system::app::app_inventory::list_apps_inventory_until(deadline)
     }
 
     fn list_apps_scoped(
@@ -99,11 +92,7 @@ impl ObservationOps for MacOSAdapter {
         bundle_id: Option<&str>,
         deadline: Deadline,
     ) -> Result<Vec<AppInfo>, AdapterError> {
-        crate::system::app::app_inventory::list_apps_scoped_until(
-            name,
-            bundle_id,
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
+        crate::system::app::app_inventory::list_apps_scoped_until(name, bundle_id, deadline)
     }
 
     fn resolve_shell_surface(
@@ -111,10 +100,7 @@ impl ObservationOps for MacOSAdapter {
         surface: agent_desktop_core::SnapshotSurface,
         deadline: Deadline,
     ) -> Result<WindowInfo, AdapterError> {
-        crate::tree::shell_surface::resolve_surface(
-            surface,
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
+        crate::tree::shell_surface::resolve_surface(surface, deadline)
     }
 
     fn list_surfaces(
@@ -123,10 +109,7 @@ impl ObservationOps for MacOSAdapter {
         deadline: Deadline,
     ) -> Result<Vec<SurfaceInfo>, AdapterError> {
         let identity = crate::system::process::process_identity::require_core(&process)?;
-        crate::tree::surface_inventory::list_surfaces_for_process(
-            identity,
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
+        crate::tree::surface_inventory::list_surfaces_for_process(identity, deadline)
     }
 
     fn hit_test(
@@ -250,10 +233,7 @@ impl ObservationOps for MacOSAdapter {
     ) -> Result<Option<Rect>, AdapterError> {
         #[cfg(target_os = "macos")]
         {
-            crate::tree::element_bounds::read_bounds_with_deadline(
-                ax_element(handle)?,
-                crate::tree::locator_deadline::from_operation(deadline)?,
-            )
+            crate::tree::element_bounds::read_bounds_with_deadline(ax_element(handle)?, deadline)
         }
         #[cfg(not(target_os = "macos"))]
         {

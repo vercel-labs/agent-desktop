@@ -52,7 +52,6 @@ fn auto_wait_retries_a_transiently_unresponsive_accessibility_service() {
             context: &CommandContext::default(),
         },
         ActionRequest::headless(Action::Click).with_timeout_ms(Some(5_000)),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .unwrap();
 
@@ -113,7 +112,6 @@ fn auto_wait_retries_a_live_read_timeout_in_the_dispatch_preflight() {
             context: &CommandContext::default(),
         },
         ActionRequest::headless(Action::Click).with_timeout_ms(Some(2_000)),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     );
 
     assert_eq!(result.unwrap().action, "click");

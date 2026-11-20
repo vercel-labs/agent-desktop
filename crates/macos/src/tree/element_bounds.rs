@@ -20,7 +20,7 @@ pub(crate) fn rect_from_parts(
 #[cfg(target_os = "macos")]
 pub(crate) fn read_bounds_with_deadline(
     element: &AXElement,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<Option<Rect>, agent_desktop_core::AdapterError> {
     let point = super::resolve::resolve_ax_read::read_point(element, "AXPosition", deadline)?;
     let size = super::resolve::resolve_ax_read::read_size(element, "AXSize", deadline)?;
@@ -32,7 +32,7 @@ pub(crate) fn read_bounds_with_deadline(
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn read_bounds_with_deadline(
     _element: &AXElement,
-    _deadline: std::time::Instant,
+    _deadline: Deadline,
 ) -> Result<Option<Rect>, agent_desktop_core::AdapterError> {
     Ok(None)
 }
@@ -52,10 +52,7 @@ pub(crate) fn owning_window_bounds(
     let Some(window) = window else {
         return Ok(None);
     };
-    crate::tree::element_bounds::read_bounds_with_deadline(
-        &window,
-        super::locator_deadline::from_operation(deadline)?,
-    )
+    crate::tree::element_bounds::read_bounds_with_deadline(&window, deadline)
 }
 
 pub(crate) fn clips_descendants(role: &str) -> bool {
@@ -104,7 +101,7 @@ pub(crate) fn ancestor_viewport(
     if viewport.is_none() {
         return Ok(None);
     }
-    let instant = super::locator_deadline::from_operation(deadline)?;
+    let instant = deadline;
     let mut current = super::surface_read::element(element, "AXParent", instant)?;
     for _ in 0..super::properties::element::ABSOLUTE_MAX_DEPTH {
         let Some(parent) = current else {

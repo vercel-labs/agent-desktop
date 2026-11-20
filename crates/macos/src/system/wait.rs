@@ -11,7 +11,7 @@ pub(crate) fn wait_for_menu(
 
     loop {
         let identity = crate::system::process::process_identity::require_core(&process)?;
-        let instant = crate::tree::locator_deadline::from_operation(deadline)?;
+        let instant = deadline;
         if is_menu_open(identity.pid(), instant)? == open {
             crate::system::process::process_identity::require_core(&process)?;
             return Ok(());

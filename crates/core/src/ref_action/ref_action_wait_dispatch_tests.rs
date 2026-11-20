@@ -111,7 +111,6 @@ fn click(adapter: &DispatchReadAdapter, timeout_ms: u64) -> Result<ActionResult,
             context: &CommandContext::default(),
         },
         request_with_timeout(timeout_ms),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
 }
 

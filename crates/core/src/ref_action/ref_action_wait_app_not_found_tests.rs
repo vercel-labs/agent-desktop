@@ -155,7 +155,6 @@ fn terminal_app_not_found_against_exited_process_carries_process_state_detail() 
             context: &CommandContext::default(),
         },
         ActionRequest::headless(Action::Click),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .unwrap_err();
 
@@ -236,7 +235,6 @@ fn terminal_app_not_found_against_unresponsive_process_surfaces_app_unresponsive
             context: &CommandContext::default(),
         },
         ActionRequest::headless(Action::Click),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .unwrap_err();
 
@@ -271,7 +269,6 @@ fn probe_call_count_is_independent_of_auto_wait_tick_count() {
             context: &CommandContext::default(),
         },
         request_with_timeout(5_000),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .unwrap_err();
 

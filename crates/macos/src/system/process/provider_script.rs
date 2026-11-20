@@ -1,7 +1,8 @@
-use agent_desktop_core::{AdapterError, ErrorCode, ProviderScriptOutput, ProviderScriptRequest};
+use agent_desktop_core::{
+    AdapterError, Deadline, ErrorCode, ProviderScriptOutput, ProviderScriptRequest,
+};
 use std::os::unix::process::ExitStatusExt;
 use std::process::{Command, Stdio};
-use std::time::Instant;
 
 use super::run_with_deadline;
 
@@ -12,9 +13,8 @@ const TIMEOUT_SUGGESTION: &str = "Run `agent-desktop sandbox status` to check th
 pub(crate) fn run_provider_script(
     request: &ProviderScriptRequest,
 ) -> Result<ProviderScriptOutput, AdapterError> {
-    let deadline = Instant::now().checked_add(request.timeout).ok_or_else(|| {
-        AdapterError::timeout(TIMEOUT_MESSAGE).with_suggestion(TIMEOUT_SUGGESTION)
-    })?;
+    let deadline = Deadline::from_duration(request.timeout)
+        .map_err(|_| AdapterError::timeout(TIMEOUT_MESSAGE).with_suggestion(TIMEOUT_SUGGESTION))?;
     let mut command = Command::new("/bin/sh");
     command.arg(&request.script).args(&request.args).env_clear();
     for key in PROVIDER_SCRIPT_INHERITED_ENV {

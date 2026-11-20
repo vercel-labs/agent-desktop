@@ -1,7 +1,7 @@
 use super::{
     NcSession, NcSessionOps, closed_center_policy_error, merge_session_result, nc_pid_from_output,
 };
-use agent_desktop_core::{AdapterError, ErrorCode, ProcessIdentity};
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode, ProcessIdentity};
 
 #[test]
 fn nc_pid_preserves_probe_errors() {
@@ -153,7 +153,7 @@ fn partial_open_failure_closes_center_and_restores_previous_app() {
 
     let result = NcSession::open_with(
         Some(previous.clone()),
-        agent_desktop_core::Deadline::after(0).unwrap(),
+        Deadline::after(0).unwrap(),
         NcSessionOps {
             open: |_| Ok(()),
             wait_until_ready: |_| Err(AdapterError::timeout("readiness failed")),

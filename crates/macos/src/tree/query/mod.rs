@@ -16,8 +16,8 @@ mod traversal;
 
 use crate::tree::AXElement;
 use agent_desktop_core::{
-    AdapterError, ErrorCode, ObservationRequest, ObservationRoot, ObservationSource, ObservedTree,
-    SnapshotSurface,
+    AdapterError, Deadline, ErrorCode, ObservationRequest, ObservationRoot, ObservationSource,
+    ObservedTree, SnapshotSurface,
 };
 use serde_json::json;
 
@@ -50,7 +50,7 @@ pub(crate) fn observe_tree(
     request: &ObservationRequest,
 ) -> Result<ObservedTree, AdapterError> {
     let request = (*request).validate()?;
-    let deadline = crate::tree::locator_deadline::from_operation(request.deadline)?;
+    let deadline = request.deadline;
     let process_owner_surface = matches!(
         request.surface,
         SnapshotSurface::Window | SnapshotSurface::MenuBarExtras
@@ -84,7 +84,7 @@ pub(crate) fn observe_tree(
 fn observe_tree_once(
     root: ObservationRoot<'_>,
     request: &ObservationRequest,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<ObservedTree, AdapterError> {
     let resolved = resolve_root(root, request, deadline)?;
     let (tree, renderer_ready, stats) =
@@ -128,7 +128,7 @@ fn renderer_activation_required(pid: i32, stats: agent_desktop_core::LocatorStat
 fn resolve_root(
     root: ObservationRoot<'_>,
     request: &ObservationRequest,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<ResolvedRoot, AdapterError> {
     let source = ObservationSource::from_root(&root, request.surface);
     match root {
@@ -232,7 +232,7 @@ fn verify_process(
 fn resolve_window_surface(
     window: &agent_desktop_core::WindowInfo,
     surface: SnapshotSurface,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<AXElement, AdapterError> {
     crate::tree::locator_deadline::remaining(deadline)?;
     let pid = crate::system::process::process_identity::to_pid_t(window.pid)?;
@@ -291,7 +291,7 @@ mod tests {
                 max_depth,
                 ..Default::default()
             },
-            agent_desktop_core::Deadline::after(1_000).expect("deadline"),
+            Deadline::after(1_000).expect("deadline"),
         )
     }
 
@@ -376,12 +376,9 @@ mod tests {
             },
             &ObservationRequest::snapshot(
                 &agent_desktop_core::TreeOptions::default(),
-                agent_desktop_core::Deadline::after(1_000).unwrap(),
+                Deadline::after(1_000).unwrap(),
             ),
-            crate::tree::locator_deadline::from_timeout(
-                std::time::Instant::now(),
-                std::time::Duration::from_secs(1),
-            ),
+            Deadline::after(1_000).unwrap(),
         )
         .err()
         .expect("null root must fail closed");

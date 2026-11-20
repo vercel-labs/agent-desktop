@@ -43,7 +43,7 @@ mod imp {
         element: &AXElement,
         deadline: Deadline,
     ) -> Result<DeliveryOutcome, AdapterError> {
-        let instant = crate::tree::locator_deadline::from_operation(deadline)?;
+        let instant = deadline;
         if crate::actions::select::container_select::element_activates_by_selection(
             element, deadline,
         ) && crate::tree::properties::selection_owner::selects_only_through_container(

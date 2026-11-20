@@ -9,10 +9,7 @@ pub(crate) fn wait_for_geometry(
     deadline: Deadline,
 ) -> Result<(), AdapterError> {
     wait_until(deadline, || {
-        let bounds = crate::tree::element_bounds::read_bounds_with_deadline(
-            element,
-            deadline_instant(deadline)?,
-        )?;
+        let bounds = crate::tree::element_bounds::read_bounds_with_deadline(element, deadline)?;
         Ok(bounds.is_some_and(|actual| geometry_matches(actual, expected, position)))
     })
 }
@@ -23,13 +20,7 @@ pub(crate) fn wait_for_minimized(
     deadline: Deadline,
 ) -> Result<(), AdapterError> {
     wait_until(deadline, || {
-        Ok(
-            crate::tree::surface_read::boolean(
-                element,
-                "AXMinimized",
-                deadline_instant(deadline)?,
-            )? == Some(expected),
-        )
+        Ok(crate::tree::surface_read::boolean(element, "AXMinimized", deadline)? == Some(expected))
     })
 }
 
@@ -65,12 +56,6 @@ fn geometry_matches(actual: Rect, expected: Rect, position: bool) -> bool {
     values
         .into_iter()
         .all(|(actual, expected)| (actual - expected).abs() <= TOLERANCE)
-}
-
-fn deadline_instant(deadline: Deadline) -> Result<std::time::Instant, AdapterError> {
-    std::time::Instant::now()
-        .checked_add(deadline.remaining())
-        .ok_or_else(|| AdapterError::internal("Window operation deadline is out of range"))
 }
 
 fn after_delivery(error: AdapterError) -> AdapterError {

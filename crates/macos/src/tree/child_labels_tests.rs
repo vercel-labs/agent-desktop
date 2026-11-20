@@ -1,5 +1,5 @@
 use super::*;
-use agent_desktop_core::ObservationBudget;
+use agent_desktop_core::{Deadline, ObservationBudget};
 
 fn usage(max_field_bytes: usize) -> crate::tree::observation_usage::ObservationUsage {
     crate::tree::observation_usage::ObservationUsage::new(ObservationBudget {
@@ -148,7 +148,7 @@ fn transient_child_label_error_degrades_name_to_unknown_and_incomplete() {
     let mut stats = agent_desktop_core::LocatorStats::default();
     let mut usage = usage(256);
     let children = [AXElement(std::ptr::null_mut())];
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(250);
+    let deadline = Deadline::after(250).unwrap();
 
     let (evidence, complete) = complete_name_evidence_with_deadline(
         &crate::tree::NodeAttrs::default(),

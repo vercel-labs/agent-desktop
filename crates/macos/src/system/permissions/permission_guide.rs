@@ -1,11 +1,11 @@
-use agent_desktop_core::AdapterError;
+use agent_desktop_core::{AdapterError, Deadline};
 use std::ffi::{CString, c_char};
 use std::fs::File;
 use std::os::fd::AsRawFd;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const STEPS_ENV: &str = "AGENT_DESKTOP_PERMISSION_GUIDE";
 const HOST_ENV: &str = "AGENT_DESKTOP_PERMISSION_GUIDE_HOST";
@@ -93,12 +93,14 @@ extern "C" fn granted(step: u8) -> bool {
     command
         .env_remove(STEPS_ENV)
         .env(PROBE_ENV, step.to_string());
-    crate::system::process::run_with_deadline(
-        &mut command,
-        "macOS permission guide probe",
-        Instant::now() + PROBE_TIMEOUT,
-    )
-    .is_ok_and(|output| output.status.success())
+    Deadline::from_duration(PROBE_TIMEOUT).is_ok_and(|deadline| {
+        crate::system::process::run_with_deadline(
+            &mut command,
+            "macOS permission guide probe",
+            deadline,
+        )
+        .is_ok_and(|output| output.status.success())
+    })
 }
 
 fn probe(step: &str) -> bool {

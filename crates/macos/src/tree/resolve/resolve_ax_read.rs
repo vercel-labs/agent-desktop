@@ -1,4 +1,4 @@
-use agent_desktop_core::{AdapterError, ErrorCode};
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
 
 use crate::tree::AXElement;
 
@@ -6,7 +6,7 @@ use crate::tree::AXElement;
 pub(crate) fn read_string_with_usage(
     element: &AXElement,
     attribute: &str,
-    deadline: std::time::Instant,
+    deadline: Deadline,
     usage: &mut crate::tree::observation_usage::ObservationUsage,
 ) -> Result<Option<String>, AdapterError> {
     let value = read_value(element, attribute, deadline, |value| {
@@ -33,7 +33,7 @@ pub(crate) fn read_string_with_usage(
 pub(crate) fn read_string(
     element: &AXElement,
     attribute: &str,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<Option<String>, AdapterError> {
     crate::tree::surface_read::string(element, attribute, deadline)
 }
@@ -41,7 +41,7 @@ pub(crate) fn read_string(
 pub(crate) fn read_array(
     element: &AXElement,
     attribute: &str,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<Option<Vec<AXElement>>, AdapterError> {
     crate::tree::surface_read::elements(element, attribute, deadline)
         .map(|elements| (!elements.is_empty()).then_some(elements))
@@ -51,7 +51,7 @@ pub(crate) fn read_array(
 pub(in crate::tree) fn read_element(
     element: &AXElement,
     attribute: &str,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<Option<AXElement>, AdapterError> {
     read_value(element, attribute, deadline, |value| {
         crate::tree::properties::ax_value::created_ax_element(value)
@@ -62,7 +62,7 @@ pub(in crate::tree) fn read_element(
 pub(in crate::tree) fn read_point(
     element: &AXElement,
     attribute: &str,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<Option<core_graphics::geometry::CGPoint>, AdapterError> {
     read_value(element, attribute, deadline, |value| {
         use accessibility_sys::{AXValueGetValue, kAXValueTypeCGPoint};
@@ -85,7 +85,7 @@ pub(in crate::tree) fn read_point(
 pub(in crate::tree) fn read_size(
     element: &AXElement,
     attribute: &str,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<Option<core_graphics::geometry::CGSize>, AdapterError> {
     read_value(element, attribute, deadline, |value| {
         use accessibility_sys::{AXValueGetValue, kAXValueTypeCGSize};
@@ -108,7 +108,7 @@ pub(in crate::tree) fn read_size(
 fn read_value<T>(
     element: &AXElement,
     attribute: &str,
-    deadline: std::time::Instant,
+    deadline: Deadline,
     decode: impl FnOnce(core_foundation::base::CFTypeRef) -> Option<T>,
 ) -> Result<Option<T>, AdapterError> {
     use core_foundation::{base::TCFType, string::CFString};
@@ -119,7 +119,7 @@ fn read_value<T>(
         attribute_name.as_concrete_TypeRef(),
         deadline,
     );
-    if std::time::Instant::now() >= deadline {
+    if deadline.is_expired() {
         release_if_present(value);
         return Err(
             AdapterError::timeout("Strict element resolution deadline exhausted").with_details(

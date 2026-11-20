@@ -1,5 +1,4 @@
-use agent_desktop_core::{AdapterError, WindowFilter, WindowInfo};
-use std::time::Instant;
+use agent_desktop_core::{AdapterError, Deadline, WindowFilter, WindowInfo};
 
 use crate::system::window::cg_window;
 
@@ -29,7 +28,7 @@ fn apps_from_window_records(
 
 pub(crate) fn list_windows_until(
     filter: &WindowFilter,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Vec<WindowInfo>, AdapterError> {
     let Some(app_filter) = filter.app.as_deref().filter(|name| !name.is_empty()) else {
         return crate::system::window::window_inventory_global::list_windows_until(
@@ -75,7 +74,7 @@ pub(crate) fn list_windows_until(
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn focused_window_until(deadline: Instant) -> Result<Option<WindowInfo>, AdapterError> {
+pub(crate) fn focused_window_until(deadline: Deadline) -> Result<Option<WindowInfo>, AdapterError> {
     let Some(pid) = focused_application_pid(deadline)? else {
         return Ok(None);
     };
@@ -96,7 +95,7 @@ pub(crate) fn focused_window_until(deadline: Instant) -> Result<Option<WindowInf
 }
 
 #[cfg(target_os = "macos")]
-fn focused_application_pid(deadline: Instant) -> Result<Option<i32>, AdapterError> {
+fn focused_application_pid(deadline: Deadline) -> Result<Option<i32>, AdapterError> {
     let system =
         crate::tree::AXElement(unsafe { accessibility_sys::AXUIElementCreateSystemWide() });
     crate::tree::surface_read::element(&system, "AXFocusedApplication", deadline)?
@@ -106,7 +105,9 @@ fn focused_application_pid(deadline: Instant) -> Result<Option<i32>, AdapterErro
 }
 
 #[cfg(not(target_os = "macos"))]
-pub(crate) fn focused_window_until(_deadline: Instant) -> Result<Option<WindowInfo>, AdapterError> {
+pub(crate) fn focused_window_until(
+    _deadline: Deadline,
+) -> Result<Option<WindowInfo>, AdapterError> {
     Err(AdapterError::not_supported("focused_window"))
 }
 
@@ -163,7 +164,7 @@ fn narrow_to_real_windows(windows: &mut Vec<WindowInfo>) {
 
 pub(crate) fn exact_window_for_pid_until(
     pid: i32,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<WindowInfo, AdapterError> {
     let records =
         cg_window::window_records_until(deadline, cg_window::WindowRecordScope::Pid(pid))?;

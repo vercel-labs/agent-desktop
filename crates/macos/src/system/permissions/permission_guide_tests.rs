@@ -1,4 +1,5 @@
 use super::*;
+use std::time::Instant;
 
 fn detached_sleep() -> i32 {
     let launched = Command::new("/bin/sh")

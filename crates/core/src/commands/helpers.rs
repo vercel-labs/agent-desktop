@@ -42,46 +42,26 @@ pub(crate) fn resolve_ref_with_context(
     adapter: &dyn PlatformAdapter,
     context: &CommandContext,
 ) -> Result<(RefEntry, crate::adapter::NativeHandle), AppError> {
-    resolve_ref_within_deadline(ref_id, crate::Deadline::standard()?, adapter, context)
-}
-
-/// Resolves a saved ref under the caller deadline and records resolution traces.
-fn resolve_ref_within_deadline(
-    ref_id: &str,
-    deadline: crate::Deadline,
-    adapter: &dyn PlatformAdapter,
-    context: &CommandContext,
-) -> Result<(RefEntry, crate::adapter::NativeHandle), AppError> {
     let entry = load_ref_entry(ref_id, context)?;
-    let handle =
-        resolve_handle_within_deadline(adapter, &entry, deadline, None).inspect_err(|err| {
-            let _ = context.trace_lazy("ref.resolve.error", || {
-                json!({
-                    "ref": ref_id,
-                    "code": err.code.as_str(),
-                    "message": err.message.clone(),
-                    "details": err.details.clone()
-                })
-            });
-        })?;
+    let handle = crate::refs::resolve_saved_ref::resolve_saved_ref(
+        adapter,
+        &entry,
+        crate::Deadline::standard()?,
+        None,
+    )
+    .inspect_err(|err| {
+        let _ = context.trace_lazy("ref.resolve.error", || {
+            json!({
+                "ref": ref_id,
+                "code": err.code.as_str(),
+                "message": err.message.clone(),
+                "details": err.details.clone()
+            })
+        });
+    })?;
     tracing::debug!("resolve: {} resolved successfully", ref_id);
     context.trace_lazy("ref.resolve.ok", || json!({ "ref": ref_id }))?;
     Ok((entry, handle))
-}
-
-/// Gives one-shot resolution its full caller budget; polling paths own their slices.
-/// `lease` is an interaction lease the caller already holds, so observation
-/// activation reuses it instead of queueing behind the same process's lock.
-pub(crate) fn resolve_handle_within_deadline(
-    adapter: &dyn PlatformAdapter,
-    entry: &RefEntry,
-    deadline: crate::Deadline,
-    lease: Option<&crate::InteractionLease>,
-) -> Result<crate::adapter::NativeHandle, crate::AdapterError> {
-    if deadline.is_expired() {
-        return Err(deadline.timeout_error());
-    }
-    crate::refs::resolve_saved_ref::resolve_saved_ref(adapter, entry, deadline, lease)
 }
 
 pub(crate) fn execute_ref_action_with_context(
@@ -90,28 +70,17 @@ pub(crate) fn execute_ref_action_with_context(
     request: ActionRequest,
     context: &CommandContext,
 ) -> Result<Value, AppError> {
-    execute_ref_action_dispatching(
-        args,
-        adapter,
-        request,
-        context,
-        crate::ref_action::ref_action_single::dispatch_resolved,
-    )
+    execute_ref_action_landing(args, adapter, request, context).map(|(value, _)| value)
 }
 
-/// Runs a ref action through `dispatch`, for a caller that keeps what the
-/// dispatch lands on.
-pub(crate) fn execute_ref_action_dispatching(
+/// Runs a ref action and returns the element it landed on beside its result,
+/// for a caller that keeps acting on that element.
+pub(crate) fn execute_ref_action_landing(
     args: RefArgs,
     adapter: &dyn PlatformAdapter,
     request: ActionRequest,
     context: &CommandContext,
-    dispatch: impl Fn(
-        crate::ref_action::ref_action_context::RefActionContext<'_>,
-        ActionRequest,
-        &crate::InteractionLease,
-    ) -> Result<crate::ActionResult, AppError>,
-) -> Result<Value, AppError> {
+) -> Result<(Value, crate::adapter::NativeHandle), AppError> {
     let request = request.with_timeout_ms(args.timeout_ms);
     validate_post_action_wait(context)?;
     if request.policy.is_headed() && request.action.headed_requirement().requires_cursor() {
@@ -126,9 +95,8 @@ pub(crate) fn execute_ref_action_dispatching(
             context,
         },
         request,
-        dispatch,
     );
-    let (result, lease, pre, deadline, lease_started) = match action_result {
+    let landing = match action_result {
         Ok(result) => result,
         Err(mut error) => {
             if error.disposition.delivery() == crate::DeliveryDisposition::DeliveryUncertain
@@ -140,11 +108,12 @@ pub(crate) fn execute_ref_action_dispatching(
             return Err(AppError::Adapter(error));
         }
     };
-    let value = serde_json::to_value(result).map_err(|error| {
+    let value = serde_json::to_value(landing.result).map_err(|error| {
         post_delivery_error(AppError::Json(error), json!({ "action": "delivered" }))
     })?;
-    let lease_hold_ms = u64::try_from(lease_started.elapsed().as_millis()).unwrap_or(u64::MAX);
-    drop(lease);
+    let lease_hold_ms =
+        u64::try_from(landing.lease_started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    drop(landing.lease);
     let mut outcome = apply_post_action_wait(value, Some(&entry), adapter, context);
     update_lease_hold_ms(&mut outcome, lease_hold_ms);
     crate::ref_action::finish_artifacts(
@@ -155,11 +124,11 @@ pub(crate) fn execute_ref_action_dispatching(
                 ref_id: &args.ref_id,
                 context,
             },
-            deadline,
+            landing.deadline,
         ),
-        &pre,
+        &landing.pre,
     );
-    outcome
+    outcome.map(|value| (value, landing.handle))
 }
 
 pub(crate) fn apply_post_action_wait(
@@ -309,7 +278,6 @@ pub(crate) fn execute_ref_action_result_with_context(
             context,
         },
         request,
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .map_err(AppError::Adapter)?;
     Ok((entry, result))
@@ -318,9 +286,9 @@ pub(crate) fn execute_ref_action_result_with_context(
 /// Shared owner of ref-entry loading and its `ref.resolve.start/entry/error`
 /// tracing, used by both the ref-action path
 /// ([`execute_ref_action_result_with_context`]) and, via
-/// [`resolve_ref_within_deadline`], the pointer/get/is resolve path, so a
+/// [`resolve_ref_with_context`], the pointer/get/is resolve path, so a
 /// stale ref emits identical telemetry regardless of caller.
-/// [`resolve_ref_within_deadline`] builds handle resolution and the
+/// [`resolve_ref_with_context`] builds handle resolution and the
 /// `ref.resolve.ok` event on top of the entry this returns.
 pub(crate) fn load_ref_entry(ref_id: &str, context: &CommandContext) -> Result<RefEntry, AppError> {
     let (resolved_snapshot_id, local_ref) = crate::refs::ref_token::resolve_ref_target(ref_id)?;

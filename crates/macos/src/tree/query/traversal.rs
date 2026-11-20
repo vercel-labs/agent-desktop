@@ -1,15 +1,16 @@
 use super::{arena::TraversalArena, child_read::ChildRead, node_read::read_node};
 use crate::tree::AXElement;
 use agent_desktop_core::{
-    AdapterError, ErrorCode, ObservationRequest, ObservationSource, ObservedSubtree, ObservedTree,
+    AdapterError, Deadline, ErrorCode, ObservationRequest, ObservationSource, ObservedSubtree,
+    ObservedTree,
 };
 use serde_json::json;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub(crate) struct LocatorTraversal {
     request: ObservationRequest,
     context: crate::tree::TreeBuildContext,
-    deadline: Instant,
+    deadline: Deadline,
     arena: TraversalArena,
     usage: crate::tree::observation_usage::ObservationUsage,
 }
@@ -18,7 +19,7 @@ impl LocatorTraversal {
     pub(crate) fn new(
         request: &ObservationRequest,
         context: crate::tree::TreeBuildContext,
-        deadline: Instant,
+        deadline: Deadline,
     ) -> Self {
         Self {
             request: *request,
@@ -215,10 +216,12 @@ impl LocatorTraversal {
     }
 
     fn remaining_budget(&self) -> Option<Duration> {
-        self.deadline
-            .checked_duration_since(Instant::now())
-            .map(|remaining| remaining.min(crate::tree::locator_deadline::MAX_IPC_SLICE))
-            .filter(|remaining| !remaining.is_zero())
+        Some(
+            self.deadline
+                .remaining()
+                .min(crate::tree::properties::ax_ipc::MAX_IPC_SLICE),
+        )
+        .filter(|remaining| !remaining.is_zero())
     }
 
     fn note_deadline_exhausted(&mut self) {
@@ -267,13 +270,13 @@ mod tests {
     fn omitted_child_cannot_leave_its_parent_subtree_complete() {
         let mut request = ObservationRequest::snapshot(
             &agent_desktop_core::TreeOptions::default(),
-            agent_desktop_core::Deadline::after(1_000).unwrap(),
+            Deadline::after(1_000).unwrap(),
         );
         request.budget.max_nodes = 1;
         let mut traversal = LocatorTraversal::new(
             &request,
             crate::tree::TreeBuildContext::empty(false),
-            Instant::now() + Duration::from_secs(1),
+            Deadline::after(1000).unwrap(),
         );
         assert!(traversal.usage.claim_node());
         traversal.arena.add_handles(1);
@@ -310,7 +313,7 @@ mod tests {
                 skeleton: true,
                 ..agent_desktop_core::TreeOptions::default()
             },
-            agent_desktop_core::Deadline::after(1_000).unwrap(),
+            Deadline::after(1_000).unwrap(),
         )
     }
 
@@ -332,7 +335,7 @@ mod tests {
     fn non_skeleton_snapshot_only_hydrates_a_selected_root_not_every_boundary() {
         let request = ObservationRequest::snapshot(
             &agent_desktop_core::TreeOptions::default(),
-            agent_desktop_core::Deadline::after(1_000).unwrap(),
+            Deadline::after(1_000).unwrap(),
         );
 
         assert_eq!(boundary_label_elements(request, 0), 0);

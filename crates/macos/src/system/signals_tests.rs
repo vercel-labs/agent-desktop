@@ -1,4 +1,5 @@
 use super::*;
+use agent_desktop_core::Deadline;
 
 #[test]
 fn supported_surfaces_are_only_the_implemented_macos_contract() {
@@ -110,7 +111,7 @@ fn surfaces_for_apps_is_empty_without_an_app_or_pid_filter() {
         process_instance: None,
         presentation: None,
     }];
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Deadline::after(5000).unwrap();
     let surfaces =
         surfaces_for_apps(&filter, &apps, deadline).expect("unscoped inventory succeeds");
     assert!(
@@ -121,7 +122,7 @@ fn surfaces_for_apps_is_empty_without_an_app_or_pid_filter() {
 
 #[test]
 fn baseline_capture_rejects_an_expired_deadline() {
-    let deadline = Instant::now() - Duration::from_millis(1);
+    let deadline = Deadline::after(0).unwrap();
 
     let error = capture_signal_baseline_impl(&SignalFilter::default(), deadline)
         .expect_err("an expired baseline capture must time out");

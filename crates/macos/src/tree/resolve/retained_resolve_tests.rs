@@ -3,8 +3,8 @@ use super::{
     token_mismatch,
 };
 use agent_desktop_core::{
-    ElementIdentifier, IdentifierKind, ProcessId, RefCapabilities, RefEntry, RefEntryIdentity,
-    RefGeometry, RefProcess, RefScope, RefSource, SnapshotSurface,
+    Deadline, ElementIdentifier, IdentifierKind, ProcessId, RefCapabilities, RefEntry,
+    RefEntryIdentity, RefGeometry, RefProcess, RefScope, RefSource, SnapshotSurface,
 };
 
 fn entry(role: &str) -> RefEntry {
@@ -142,7 +142,7 @@ fn token_mismatch_accepts_only_the_saved_element() {
 #[test]
 fn a_ref_without_a_token_keeps_the_attribute_path() {
     let stored = entry("button");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let deadline = Deadline::after(5000).unwrap();
 
     assert!(resolve_saved_token(&stored, deadline).unwrap().is_none());
 }

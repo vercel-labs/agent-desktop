@@ -28,7 +28,7 @@ impl SystemOps for BudgetAdapter {}
 fn single_attempt_resolution_receives_the_callers_budget_without_poll_slicing() {
     let adapter = BudgetAdapter::default();
     for timeout in [5_000, 100] {
-        resolve_handle_within_deadline(
+        crate::refs::resolve_saved_ref::resolve_saved_ref(
             &adapter,
             &entry(),
             crate::Deadline::detached_after(timeout).unwrap(),
@@ -50,7 +50,9 @@ fn expired_single_attempt_budget_never_calls_the_adapter() {
         1,
     )
     .unwrap();
-    let Err(error) = resolve_handle_within_deadline(&adapter, &entry(), deadline, None) else {
+    let Err(error) =
+        crate::refs::resolve_saved_ref::resolve_saved_ref(&adapter, &entry(), deadline, None)
+    else {
         panic!("expired resolution must fail");
     };
     assert_eq!(error.code, ErrorCode::Timeout);

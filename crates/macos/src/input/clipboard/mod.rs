@@ -1,4 +1,4 @@
-use agent_desktop_core::{AdapterError, ErrorCode};
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
 
 #[cfg(target_os = "macos")]
 #[path = "clipboard_runtime.rs"]
@@ -323,34 +323,34 @@ mod imp {
 mod imp {
     use super::*;
 
-    pub fn clear(_deadline: agent_desktop_core::Deadline) -> Result<(), AdapterError> {
+    pub fn clear(_deadline: Deadline) -> Result<(), AdapterError> {
         Err(AdapterError::not_supported("clipboard_clear"))
     }
 
     pub fn get_content(
         _format: agent_desktop_core::ClipboardFormat,
-        _deadline: agent_desktop_core::Deadline,
+        _deadline: Deadline,
     ) -> Result<Option<agent_desktop_core::ClipboardContent>, AdapterError> {
         Err(AdapterError::not_supported("get_clipboard_content"))
     }
 
     pub fn set_content(
         _content: &agent_desktop_core::ClipboardContent,
-        _deadline: agent_desktop_core::Deadline,
+        _deadline: Deadline,
     ) -> Result<(), AdapterError> {
         Err(AdapterError::not_supported("set_clipboard_content"))
     }
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn clear(deadline: agent_desktop_core::Deadline) -> Result<(), AdapterError> {
+pub(crate) fn clear(deadline: Deadline) -> Result<(), AdapterError> {
     clipboard_helper_client::clear(deadline)
 }
 
 #[cfg(target_os = "macos")]
 pub(crate) fn get_content(
     format: agent_desktop_core::ClipboardFormat,
-    deadline: agent_desktop_core::Deadline,
+    deadline: Deadline,
 ) -> Result<Option<agent_desktop_core::ClipboardContent>, AdapterError> {
     clipboard_helper_client::read(format, deadline)
 }
@@ -358,7 +358,7 @@ pub(crate) fn get_content(
 #[cfg(target_os = "macos")]
 pub(crate) fn set_content(
     content: &agent_desktop_core::ClipboardContent,
-    deadline: agent_desktop_core::Deadline,
+    deadline: Deadline,
 ) -> Result<(), AdapterError> {
     clipboard_helper_client::write(content, deadline)
 }

@@ -1,4 +1,5 @@
 use super::*;
+use agent_desktop_core::Deadline;
 use agent_desktop_core::system::process_state::ProcessState;
 use std::cell::Cell;
 
@@ -87,7 +88,7 @@ fn exited_child_process_is_classified_exited_with_no_code() {
             pid: agent_desktop_core::ProcessId::try_from(pid).unwrap(),
             instance,
         },
-        agent_desktop_core::Deadline::after(1_000).unwrap(),
+        Deadline::after(1_000).unwrap(),
     )
     .expect("process_state_impl should not error");
     assert_eq!(state, ProcessState::Exited { code: None });

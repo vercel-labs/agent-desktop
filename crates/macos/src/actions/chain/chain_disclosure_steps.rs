@@ -93,7 +93,7 @@ mod imp {
                     "verification": "expanded_state_not_observed",
                 })));
             }
-            if Instant::now() >= local_end {
+            if std::time::Instant::now() >= local_end {
                 return unobserved_delivery(current_state, expanded);
             }
             let pause = deadline.remaining_slice(Duration::from_millis(20))?;
@@ -121,7 +121,7 @@ mod imp {
         element: &AXElement,
         deadline: Deadline,
     ) -> Result<Option<bool>, AdapterError> {
-        let instant = crate::tree::locator_deadline::from_operation(deadline)?;
+        let instant = deadline;
         if let Some(value) = crate::tree::surface_read::boolean(element, "AXExpanded", instant)? {
             return Ok(Some(value));
         }

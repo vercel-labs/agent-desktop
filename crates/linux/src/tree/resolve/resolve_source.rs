@@ -151,14 +151,17 @@ impl Source for BusSource<'_> {
     }
 }
 
-/// Resolves a stored ref against the live accessibility tree. The element
-/// comes back as a native handle that carries the window frame and web
-/// context it was found under.
+/// Resolves a stored ref against the live accessibility tree, or against the
+/// tray or menu it was captured from. The element comes back as a native
+/// handle that carries the window frame and web context it was found under.
 pub(crate) fn resolve_element_strict(
     bus: &SharedBus,
     entry: &RefEntry,
     deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
+    if crate::system::tray::owns(entry) {
+        return crate::system::tray::resolve(entry, deadline);
+    }
     if entry.source.source_surface == SnapshotSurface::Menu {
         return resolve_menu(bus, entry, deadline);
     }
@@ -168,12 +171,16 @@ pub(crate) fn resolve_element_strict(
 
 /// Lands the element a locator match names by its stored path, gated by the
 /// window it was taken in. The handle carries the same ancestry a strict
-/// resolution gives, so the observation of the element seeds from it.
+/// resolution gives, so the observation of the element seeds from it. A tray
+/// or menu entry has no window path, so it resolves strictly instead.
 pub(crate) fn resolve_locator_anchor(
     bus: &SharedBus,
     entry: &RefEntry,
     deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
+    if crate::system::tray::owns(entry) || crate::tree::menu::menu_resolve::is_menu_entry(entry) {
+        return resolve_element_strict(bus, entry, deadline);
+    }
     let mut source = BusSource::open(bus, deadline)?;
     resolve_anchor(&mut source, entry, deadline).map(AtspiElement::into_native_handle)
 }

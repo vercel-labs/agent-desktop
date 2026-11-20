@@ -1,17 +1,16 @@
 use super::{AXElement, properties::element::element_for_pid, surface_read};
-use agent_desktop_core::{AdapterError, ErrorCode, SnapshotSurface};
-use std::time::Instant;
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode, SnapshotSurface};
 
 const MAX_SURFACE_NODES: usize = 2_048;
 
 pub(crate) fn observe<T>(
     identity: crate::system::process::process_identity::ProcessIdentity,
-    deadline: Instant,
+    deadline: Deadline,
     mut operation: impl FnMut() -> Result<T, AdapterError>,
 ) -> Result<T, AdapterError> {
     surface_read::ensure_before_deadline(deadline)?;
     let mut reacquired = false;
-    super::resolve::retry_incomplete_until(deadline, || {
+    agent_desktop_core::refs::resolve_retry::retry_incomplete_until(deadline, || {
         reacquire_once(deadline, &mut reacquired, || {
             require_generation(identity)?;
             let result = operation();
@@ -34,7 +33,7 @@ fn require_generation(
 }
 
 fn reacquire_once<T>(
-    deadline: Instant,
+    deadline: Deadline,
     reacquired: &mut bool,
     mut operation: impl FnMut() -> Result<T, AdapterError>,
 ) -> Result<T, AdapterError> {
@@ -74,7 +73,7 @@ fn invalidated(error: &AdapterError) -> bool {
 pub(crate) fn root_for_pid(
     pid: i32,
     surface: SnapshotSurface,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Option<AXElement>, AdapterError> {
     match surface {
         SnapshotSurface::Menubar => menubar_for_pid(pid, deadline),
@@ -92,7 +91,7 @@ pub(super) fn require_root<T>(
 }
 
 #[cfg(target_os = "macos")]
-fn menubar_for_pid(pid: i32, deadline: Instant) -> Result<Option<AXElement>, AdapterError> {
+fn menubar_for_pid(pid: i32, deadline: Deadline) -> Result<Option<AXElement>, AdapterError> {
     let app = element_for_pid(pid);
     let Some(menubar) = surface_read::element(&app, "AXMenuBar", deadline)? else {
         return Ok(None);
@@ -104,7 +103,7 @@ fn menubar_for_pid(pid: i32, deadline: Instant) -> Result<Option<AXElement>, Ada
 }
 
 #[cfg(target_os = "macos")]
-fn menu_element_for_pid(pid: i32, deadline: Instant) -> Result<Option<AXElement>, AdapterError> {
+fn menu_element_for_pid(pid: i32, deadline: Deadline) -> Result<Option<AXElement>, AdapterError> {
     Ok(open_menus_for_pid(pid, deadline)?
         .into_iter()
         .next()
@@ -113,7 +112,7 @@ fn menu_element_for_pid(pid: i32, deadline: Instant) -> Result<Option<AXElement>
 
 pub(crate) fn open_menus_for_pid(
     pid: i32,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Vec<(&'static str, String, AXElement)>, AdapterError> {
     let mut menus = Vec::new();
     if let Some(menubar) = menubar_for_pid(pid, deadline)? {
@@ -165,7 +164,7 @@ fn open_menubar_menus_with<T>(
 #[cfg(target_os = "macos")]
 fn context_menu_from_app(
     pid: i32,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Option<(String, AXElement)>, AdapterError> {
     let app = element_for_pid(pid);
     for (index, menu) in surface_read::elements(&app, "AXMenus", deadline)?
@@ -197,7 +196,7 @@ fn context_menu_from_app(
 fn find_menu_descendant(
     root: AXElement,
     source: String,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Option<(String, AXElement)>, AdapterError> {
     find_menu_descendant_with(root, source, deadline, |element| {
         let role = surface_read::string(element, "AXRole", deadline)?;
@@ -219,7 +218,7 @@ fn find_menu_descendant(
 fn find_menu_descendant_with<T>(
     root: T,
     source: String,
-    deadline: Instant,
+    deadline: Deadline,
     mut inspect: impl FnMut(&T) -> Result<(bool, Vec<T>), AdapterError>,
 ) -> Result<Option<(String, T)>, AdapterError> {
     let mut pending = std::collections::VecDeque::from([(source, root)]);
@@ -253,13 +252,13 @@ fn find_menu_descendant_with<T>(
 }
 
 #[cfg(target_os = "macos")]
-fn displayed_menu(element: &AXElement, deadline: Instant) -> Result<bool, AdapterError> {
+fn displayed_menu(element: &AXElement, deadline: Deadline) -> Result<bool, AdapterError> {
     Ok(has_role(element, "AXMenu", deadline)?
         && surface_read::boolean(element, "AXVisible", deadline)? != Some(false))
 }
 
 #[cfg(target_os = "macos")]
-fn has_role(element: &AXElement, expected: &str, deadline: Instant) -> Result<bool, AdapterError> {
+fn has_role(element: &AXElement, expected: &str, deadline: Deadline) -> Result<bool, AdapterError> {
     Ok(surface_read::string(element, "AXRole", deadline)?.as_deref() == Some(expected))
 }
 

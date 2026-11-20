@@ -2,7 +2,7 @@ use agent_desktop_core::{
     ActionResult, ActionStep, AdapterError, Deadline, DeliverySemantics, ErrorCode,
     InteractionPolicy, KeyCombo, ProcessIdentity, StepMechanism,
 };
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::tree::AXElement;
 
@@ -128,13 +128,13 @@ fn require_focused_element(
     policy: InteractionPolicy,
     deadline: Deadline,
 ) -> Result<AXElement, AdapterError> {
-    let local_deadline = local_deadline(deadline, Duration::from_millis(500))?;
+    let local_deadline = deadline.capped(Duration::from_millis(500));
     loop {
         if let Some(focused) = focused_element(app, deadline)? {
             return Ok(focused);
         }
         deadline.ensure_remaining()?;
-        if Instant::now() >= local_deadline {
+        if local_deadline.is_expired() {
             return Err(no_focused_element_error(policy));
         }
         let pause = deadline.remaining_slice(Duration::from_millis(5))?;
@@ -155,13 +155,6 @@ fn element_attribute(
         crate::tree::properties::attributes::copy_element_attr_result(element, attribute, deadline);
     deadline.ensure_remaining()?;
     result.map_err(|error| read_error(attribute, error))
-}
-
-fn local_deadline(deadline: Deadline, maximum: Duration) -> Result<Instant, AdapterError> {
-    let remaining = deadline.remaining_slice(maximum)?;
-    Instant::now()
-        .checked_add(remaining)
-        .ok_or_else(|| AdapterError::new(ErrorCode::InvalidArgs, "Deadline is out of range"))
 }
 
 fn read_error(attribute: &str, error: i32) -> AdapterError {

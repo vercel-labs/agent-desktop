@@ -217,9 +217,7 @@ fn whole_window(
     window: &WindowInfo,
     deadline: crate::Deadline,
 ) -> Result<ObservedTree, String> {
-    match crate::refs::resolve_saved_ref::observe_whole_window(
-        adapter, opts, window, deadline, None,
-    ) {
+    match crate::refs::resolve_saved_ref::observe_whole_window(adapter, opts, window, deadline) {
         Ok(whole) if whole.is_exhaustive() => Ok(whole),
         Ok(_) => Err("the whole-window read was cut short".to_owned()),
         Err(error) => Err(error.message),

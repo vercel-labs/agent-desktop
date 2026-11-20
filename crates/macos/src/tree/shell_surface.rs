@@ -2,8 +2,7 @@
 //! the process that presents them.
 
 use super::{AXElement, properties::element::element_for_pid, surface_read};
-use agent_desktop_core::{AdapterError, ErrorCode, SnapshotSurface, WindowInfo};
-use std::time::Instant;
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode, SnapshotSurface, WindowInfo};
 
 /// MenuBarAgent hosts the system status items on current macOS; Control Center
 /// and SystemUIServer hosted them on earlier releases.
@@ -16,7 +15,7 @@ const MENU_BAR_EXTRAS_HOSTS: [&str; 3] = [
 /// The system menu bar extras root in `pid`, or `None` when it presents none.
 pub(crate) fn extras_menu_bar(
     pid: i32,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Option<AXElement>, AdapterError> {
     surface_read::element(&element_for_pid(pid), "AXExtrasMenuBar", deadline)
 }
@@ -24,7 +23,7 @@ pub(crate) fn extras_menu_bar(
 /// Whether `element` is a status item: a child of its app's extras menu bar,
 /// which has no window and takes a click wherever the app is. A failed read
 /// answers false.
-pub(crate) fn is_status_item(element: &AXElement, deadline: Instant) -> bool {
+pub(crate) fn is_status_item(element: &AXElement, deadline: Deadline) -> bool {
     use super::properties::attributes::copy_element_attr_result;
     let parent = copy_element_attr_result(element, "AXParent", deadline);
     let pid = super::properties::ax_ipc::pid(element, deadline);
@@ -39,7 +38,7 @@ pub(crate) fn is_status_item(element: &AXElement, deadline: Instant) -> bool {
 
 pub(crate) fn resolve_surface(
     surface: SnapshotSurface,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<WindowInfo, AdapterError> {
     let hosts: &[&str] = match surface {
         SnapshotSurface::Dock => &["com.apple.dock"],

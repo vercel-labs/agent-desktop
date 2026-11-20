@@ -290,7 +290,6 @@ fn a_disabled_element_fails_closed_without_sampling_even_with_a_stale_hash() {
             context: &CommandContext::default(),
         },
         ActionRequest::headed(Action::DoubleClick).with_timeout_ms(Some(5_000)),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .err()
     .unwrap();
@@ -313,7 +312,6 @@ fn run_with_entry(
             context: &CommandContext::default(),
         },
         request.with_timeout_ms(Some(timeout_ms)),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .unwrap()
 }
@@ -331,7 +329,6 @@ fn lease_acquisition_receives_the_exact_original_deadline() {
         },
         ActionRequest::headless(Action::Click),
         deadline,
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .err()
     .unwrap();

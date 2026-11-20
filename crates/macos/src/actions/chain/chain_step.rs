@@ -1,4 +1,4 @@
-use agent_desktop_core::{AdapterError, MouseButton};
+use agent_desktop_core::{AdapterError, Deadline, MouseButton};
 
 use crate::actions::chain::chain_delivery::DeliveryOutcome;
 use crate::tree::AXElement;
@@ -16,7 +16,7 @@ pub(crate) enum ChainStep {
     FocusThenClearByKeyboard,
     CustomWithDeadline {
         label: &'static str,
-        func: fn(&AXElement, agent_desktop_core::Deadline) -> Result<DeliveryOutcome, AdapterError>,
+        func: fn(&AXElement, Deadline) -> Result<DeliveryOutcome, AdapterError>,
     },
     CGClick {
         button: MouseButton,

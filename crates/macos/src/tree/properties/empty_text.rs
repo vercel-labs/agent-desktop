@@ -6,7 +6,7 @@ pub(crate) fn eligible(role: Option<&str>, subrole: Option<&str>) -> bool {
 #[cfg(target_os = "macos")]
 pub(crate) fn read(
     element: &crate::tree::AXElement,
-    deadline: impl super::ax_ipc::AxDeadline,
+    deadline: agent_desktop_core::Deadline,
 ) -> Result<Option<String>, i32> {
     use core_foundation::{
         base::{CFType, TCFType},

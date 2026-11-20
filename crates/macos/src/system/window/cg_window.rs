@@ -1,6 +1,5 @@
-use agent_desktop_core::{AdapterError, ErrorCode, Rect, WindowInfo};
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode, Rect, WindowInfo};
 use core_foundation::{base::CFType, dictionary::CFDictionary, string::CFString};
-use std::time::Instant;
 
 pub(in crate::system) type WindowDictionary = CFDictionary<CFString, CFType>;
 
@@ -62,14 +61,14 @@ impl WindowRecordScope<'_> {
 }
 
 pub(crate) fn window_records_until(
-    deadline: Instant,
+    deadline: Deadline,
     scope: WindowRecordScope<'_>,
 ) -> Result<Vec<WindowRecord>, AdapterError> {
     stabilize_records_until(deadline, || capture_once(deadline, scope))
 }
 
 fn capture_once(
-    deadline: Instant,
+    deadline: Deadline,
     scope: WindowRecordScope<'_>,
 ) -> Result<Vec<WindowRecord>, AdapterError> {
     ensure_before_deadline(deadline)?;
@@ -80,7 +79,7 @@ fn capture_once(
 }
 
 fn stabilize_records_until(
-    deadline: Instant,
+    deadline: Deadline,
     mut capture: impl FnMut() -> Result<Vec<WindowRecord>, AdapterError>,
 ) -> Result<Vec<WindowRecord>, AdapterError> {
     let mut previous: Option<Vec<WindowRecord>> = None;
@@ -88,7 +87,7 @@ fn stabilize_records_until(
     let mut churn_events = 0_u64;
     let mut last_failure: Option<AdapterError> = None;
     loop {
-        if Instant::now() >= deadline {
+        if deadline.is_expired() {
             return Err(expired_deadline_error(
                 attempts,
                 churn_events,
@@ -113,7 +112,7 @@ fn stabilize_records_until(
             }
             Err(error) => return Err(error),
         }
-        let remaining = deadline.saturating_duration_since(Instant::now());
+        let remaining = deadline.remaining();
         if !remaining.is_zero() {
             std::thread::sleep(remaining.min(std::time::Duration::from_millis(5)));
         }
@@ -189,7 +188,7 @@ fn window_list_options() -> core_graphics::window::CGWindowListOption {
 
 pub(in crate::system) fn capture_process_instances(
     records: &mut [WindowRecord],
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<(), AdapterError> {
     capture_process_instances_with(records, deadline, |pid| {
         crate::system::process::process_identity::token_for_pid(pid)
@@ -198,7 +197,7 @@ pub(in crate::system) fn capture_process_instances(
 
 fn capture_process_instances_with(
     records: &mut [WindowRecord],
-    deadline: Instant,
+    deadline: Deadline,
     mut resolve: impl FnMut(i32) -> Result<Option<String>, AdapterError>,
 ) -> Result<(), AdapterError> {
     let mut instances = std::collections::HashMap::<i32, String>::new();
@@ -243,8 +242,8 @@ fn inventory_signature(records: &[WindowRecord]) -> Vec<InventorySignatureEntry<
     signature
 }
 
-pub(in crate::system) fn ensure_before_deadline(deadline: Instant) -> Result<(), AdapterError> {
-    if Instant::now() >= deadline {
+pub(in crate::system) fn ensure_before_deadline(deadline: Deadline) -> Result<(), AdapterError> {
+    if deadline.is_expired() {
         return Err(AdapterError::timeout(
             "CoreGraphics window inventory timed out",
         ));

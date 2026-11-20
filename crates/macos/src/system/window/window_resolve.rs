@@ -1,4 +1,4 @@
-use agent_desktop_core::{AdapterError, ErrorCode, WindowInfo};
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode, WindowInfo};
 
 use crate::system::window::cg_window::WindowRecord;
 use crate::tree::{AXElement, element_for_pid, properties::attributes::set_messaging_timeout};
@@ -13,19 +13,14 @@ pub(crate) struct WindowIdentityEvidence<'a> {
 
 pub(crate) fn window_element_for_info(
     win: &WindowInfo,
-    deadline: agent_desktop_core::Deadline,
+    deadline: Deadline,
 ) -> Result<AXElement, AdapterError> {
-    window_element_for_info_with_deadline(
-        win,
-        std::time::Instant::now()
-            .checked_add(deadline.remaining())
-            .ok_or_else(|| AdapterError::new(ErrorCode::InvalidArgs, "deadline is out of range"))?,
-    )
+    window_element_for_info_with_deadline(win, deadline)
 }
 
 pub(crate) fn window_element_for_info_with_deadline(
     win: &WindowInfo,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<AXElement, AdapterError> {
     if win.is_process_owner() && win.title.is_empty() {
         return Err(AdapterError::app_has_no_window(&win.app));
@@ -39,7 +34,7 @@ pub(crate) fn window_element_for_info_with_deadline(
 
 pub(crate) fn resolve_capture_window(
     win: &WindowInfo,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<WindowInfo, AdapterError> {
     let (_, record) = locate_verified_record_until(win, deadline)?;
     window_info_from_record(win, &record)
@@ -47,7 +42,7 @@ pub(crate) fn resolve_capture_window(
 
 pub(crate) fn resolve_window_strict(
     win: &WindowInfo,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<WindowInfo, AdapterError> {
     let (window_number, record) = locate_verified_record_until(win, deadline)?;
     let ax_state = crate::system::window::window_ax_state::read_until(record.pid, deadline)?;
@@ -62,7 +57,7 @@ pub(crate) fn resolve_window_strict(
 
 fn locate_verified_record_until(
     win: &WindowInfo,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<(i64, WindowRecord), AdapterError> {
     let window_number = parse_window_number(&win.id).ok_or_else(|| invalid_window_id(&win.id))?;
     let record =
@@ -75,7 +70,7 @@ fn locate_verified_record_until(
 pub(crate) fn verify_window_identity_until(
     id: &str,
     evidence: WindowIdentityEvidence<'_>,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<(), AdapterError> {
     let window_number = parse_window_number(id).ok_or_else(|| invalid_window_id(id))?;
     let record =
@@ -131,7 +126,7 @@ fn window_record_matches_source(
 
 fn resolve_window_element_strict(
     win: &WindowInfo,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<AXElement, AdapterError> {
     crate::tree::locator_deadline::remaining(deadline)?;
     let (window_number, record) = locate_verified_record_until(win, deadline)?;
@@ -197,7 +192,7 @@ fn ax_window_element_for_number(
     pid: i32,
     window_number: i64,
     fallback_title: Option<&str>,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<Option<AXElement>, AdapterError> {
     let windows = windows_for_pid(pid, deadline)?;
     let mut unavailable_bridge = None;
@@ -263,7 +258,7 @@ fn ax_window_element_for_number(
 fn window_element_by_title(
     pid: i32,
     requested_title: &str,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<AXElement, AdapterError> {
     let windows = windows_for_pid(pid, deadline)?;
     let mut exact = Vec::new();
@@ -303,7 +298,7 @@ fn window_element_by_title(
     Err(window_not_found(requested_title))
 }
 
-fn windows_for_pid(pid: i32, deadline: std::time::Instant) -> Result<Vec<AXElement>, AdapterError> {
+fn windows_for_pid(pid: i32, deadline: Deadline) -> Result<Vec<AXElement>, AdapterError> {
     let app = element_for_pid(pid);
     #[cfg(target_os = "macos")]
     {
@@ -324,7 +319,7 @@ fn windows_for_pid(pid: i32, deadline: std::time::Instant) -> Result<Vec<AXEleme
     }
 }
 
-fn prepare_for_read(element: &AXElement, deadline: std::time::Instant) -> Result<(), AdapterError> {
+fn prepare_for_read(element: &AXElement, deadline: Deadline) -> Result<(), AdapterError> {
     crate::tree::locator_deadline::remaining(deadline)?;
     set_messaging_timeout(element, deadline)?;
     Ok(())
@@ -333,7 +328,7 @@ fn prepare_for_read(element: &AXElement, deadline: std::time::Instant) -> Result
 #[cfg(target_os = "macos")]
 pub(crate) fn ax_window_id_with_deadline(
     window: &AXElement,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<Option<i64>, AdapterError> {
     prepare_for_read(window, deadline)?;
     let window_id = crate::system::window::window_bridge::window_id(window, deadline)?;
@@ -344,7 +339,7 @@ pub(crate) fn ax_window_id_with_deadline(
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn ax_window_id_with_deadline(
     _window: &AXElement,
-    _deadline: std::time::Instant,
+    _deadline: Deadline,
 ) -> Result<Option<i64>, AdapterError> {
     Ok(None)
 }

@@ -1,4 +1,4 @@
-use agent_desktop_core::Rect;
+use agent_desktop_core::{Deadline, Rect};
 
 use super::AXElement;
 
@@ -13,7 +13,7 @@ impl TreeBuildContext {
     pub(crate) fn for_pid_with_deadline(
         pid: i32,
         include_bounds: bool,
-        deadline: std::time::Instant,
+        deadline: Deadline,
     ) -> Result<Self, agent_desktop_core::AdapterError> {
         let app = super::element_for_pid(pid);
         let focused =

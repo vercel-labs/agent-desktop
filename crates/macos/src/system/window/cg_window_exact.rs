@@ -1,12 +1,11 @@
-use agent_desktop_core::AdapterError;
+use agent_desktop_core::{AdapterError, Deadline};
 use core_foundation::array::CFArray;
-use std::time::Instant;
 
 use super::cg_window::{WindowDictionary, WindowRecord, WindowRecordScope};
 
 pub(crate) fn exact_window_record_until(
     window_number: i64,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Option<WindowRecord>, AdapterError> {
     exact_window_record_until_with(window_number, deadline, || {
         let dictionaries = exact_window_dictionaries(window_number)?;
@@ -21,7 +20,7 @@ pub(crate) fn exact_window_record_until(
 
 fn exact_window_record_until_with(
     window_number: i64,
-    deadline: Instant,
+    deadline: Deadline,
     capture: impl FnOnce() -> Result<Vec<WindowRecord>, AdapterError>,
 ) -> Result<Option<WindowRecord>, AdapterError> {
     super::cg_window::ensure_before_deadline(deadline)?;

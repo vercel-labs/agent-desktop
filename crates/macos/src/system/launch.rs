@@ -252,7 +252,7 @@ fn validate_launched_target(
 #[cfg(target_os = "macos")]
 fn matching_apps(id: &str, deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
     ensure_launch_budget(deadline, id)?;
-    let until = deadline_instant(deadline)?;
+    let until = deadline;
     crate::system::app::app_inventory::stabilize_apps_until(until, || {
         let inventory = super::app::workspace_apps::list_apps_scoped_until(id, None, until)?;
         if inventory.apps.is_empty() {
@@ -287,14 +287,12 @@ fn exact_window(
     process_instance: &str,
     deadline: Deadline,
 ) -> Result<Option<WindowInfo>, AdapterError> {
-    let window = match crate::system::window::window_inventory::exact_window_for_pid_until(
-        pid,
-        deadline_instant(deadline)?,
-    ) {
-        Ok(window) => window,
-        Err(error) if error.code == ErrorCode::WindowNotFound => return Ok(None),
-        Err(error) => return Err(error),
-    };
+    let window =
+        match crate::system::window::window_inventory::exact_window_for_pid_until(pid, deadline) {
+            Ok(window) => window,
+            Err(error) if error.code == ErrorCode::WindowNotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
     if window.process_instance.as_deref() != Some(process_instance) {
         return Err(AdapterError::new(
             ErrorCode::AppUnresponsive,
@@ -386,13 +384,6 @@ pub(crate) fn looks_like_bundle_id(id: &str) -> bool {
 #[cfg(target_os = "macos")]
 fn after_launch(error: AdapterError) -> AdapterError {
     error.with_disposition(DeliverySemantics::delivered_unverified())
-}
-
-#[cfg(target_os = "macos")]
-fn deadline_instant(deadline: Deadline) -> Result<Instant, AdapterError> {
-    Instant::now()
-        .checked_add(deadline.remaining())
-        .ok_or_else(|| AdapterError::new(ErrorCode::InvalidArgs, "Launch deadline is out of range"))
 }
 
 #[cfg(test)]

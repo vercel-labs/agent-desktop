@@ -1,14 +1,15 @@
-use agent_desktop_core::{AdapterError, AppInfo, ErrorCode, ProcessId, WindowFilter, WindowInfo};
-use std::time::Instant;
+use agent_desktop_core::{
+    AdapterError, AppInfo, Deadline, ErrorCode, ProcessId, WindowFilter, WindowInfo,
+};
 
 use crate::system::{app::workspace_apps, process::process_apps, window::window_inventory};
 
-pub(crate) fn list_apps_complete_until(deadline: Instant) -> Result<Vec<AppInfo>, AdapterError> {
+pub(crate) fn list_apps_complete_until(deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
     stabilize_apps_until(deadline, || capture_complete_apps(deadline))
 }
 
 pub(crate) fn list_apps_inventory_until(
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<agent_desktop_core::AppInventory, AdapterError> {
     let mut skipped = Vec::new();
     let apps = stabilize_apps_until(deadline, || {
@@ -26,12 +27,12 @@ pub(crate) fn list_apps_inventory_until(
 pub(crate) fn list_apps_scoped_until(
     name: &str,
     bundle_id: Option<&str>,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Vec<AppInfo>, AdapterError> {
     stabilize_apps_until(deadline, || capture_scoped_apps(name, bundle_id, deadline))
 }
 
-fn capture_complete_apps(deadline: Instant) -> Result<Vec<AppInfo>, AdapterError> {
+fn capture_complete_apps(deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
     ensure_before_deadline(deadline)?;
     let inventory = workspace_apps::list_apps_inventory_until(deadline)?;
     workspace_apps::require_complete(&inventory.skipped)?;
@@ -44,7 +45,7 @@ fn capture_complete_apps(deadline: Instant) -> Result<Vec<AppInfo>, AdapterError
 fn capture_scoped_apps(
     name: &str,
     bundle_id: Option<&str>,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Vec<AppInfo>, AdapterError> {
     ensure_before_deadline(deadline)?;
     let process = if bundle_id.is_none() {
@@ -73,7 +74,7 @@ pub(in crate::system) fn scoped_apps_from_sources(
 }
 
 pub(in crate::system) fn stabilize_apps_until(
-    deadline: Instant,
+    deadline: Deadline,
     mut capture: impl FnMut() -> Result<Vec<AppInfo>, AdapterError>,
 ) -> Result<Vec<AppInfo>, AdapterError> {
     let mut previous: Option<Vec<AppInfo>> = None;
@@ -81,7 +82,7 @@ pub(in crate::system) fn stabilize_apps_until(
     let mut churn_events = 0_u64;
     let mut last_failure: Option<AdapterError> = None;
     loop {
-        if Instant::now() >= deadline {
+        if deadline.is_expired() {
             return Err(unstable_apps_error(
                 attempts,
                 churn_events,
@@ -114,7 +115,7 @@ pub(in crate::system) fn stabilize_apps_until(
             }
             Err(error) => return Err(error),
         }
-        let remaining = deadline.saturating_duration_since(Instant::now());
+        let remaining = deadline.remaining();
         if !remaining.is_zero() {
             std::thread::sleep(remaining.min(std::time::Duration::from_millis(5)));
         }
@@ -165,7 +166,7 @@ fn unstable_apps_error(
 
 pub(crate) fn list_windows_until(
     filter: &WindowFilter,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Vec<WindowInfo>, AdapterError> {
     window_inventory::list_windows_until(filter, deadline)
 }
@@ -223,8 +224,8 @@ fn source_failure(source: &str, result: &Result<Vec<AppInfo>, AdapterError>) -> 
     failure
 }
 
-fn ensure_before_deadline(deadline: Instant) -> Result<(), AdapterError> {
-    if Instant::now() >= deadline {
+fn ensure_before_deadline(deadline: Deadline) -> Result<(), AdapterError> {
+    if deadline.is_expired() {
         return Err(AdapterError::timeout("macOS app inventory timed out"));
     }
     Ok(())

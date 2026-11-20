@@ -44,6 +44,5 @@ pub(super) fn value_write_allowed(subrole: Option<&str>) -> bool {
 
 /// Reads the element's `AXSubrole`.
 pub(super) fn subrole(el: &AXElement, deadline: Deadline) -> Result<Option<String>, AdapterError> {
-    let instant = crate::tree::locator_deadline::from_operation(deadline)?;
-    crate::tree::resolve::resolve_ax_read::read_string(el, "AXSubrole", instant)
+    crate::tree::resolve::resolve_ax_read::read_string(el, "AXSubrole", deadline)
 }

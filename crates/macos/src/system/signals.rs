@@ -1,8 +1,8 @@
 use agent_desktop_core::{
-    AdapterError, AppInfo, SignalBaseline, SignalCompleteness, SignalFilter, SnapshotSurface,
-    SurfaceSignal, WindowFilter,
+    AdapterError, AppInfo, Deadline, SignalBaseline, SignalCompleteness, SignalFilter,
+    SnapshotSurface, SurfaceSignal, WindowFilter,
 };
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[cfg(target_os = "macos")]
 pub(crate) fn supported_surfaces_impl() -> Vec<SnapshotSurface> {
@@ -27,7 +27,7 @@ pub(crate) fn supported_surfaces_impl() -> Vec<SnapshotSurface> {
 #[cfg(target_os = "macos")]
 pub(crate) fn capture_signal_baseline_impl(
     filter: &SignalFilter,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<SignalBaseline, AdapterError> {
     ensure_before_deadline(deadline)?;
     let apps = matching_apps(filter, deadline)?;
@@ -57,13 +57,13 @@ pub(crate) fn capture_signal_baseline_impl(
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn capture_signal_baseline_impl(
     _filter: &SignalFilter,
-    _deadline: Instant,
+    _deadline: Deadline,
 ) -> Result<SignalBaseline, AdapterError> {
     Err(AdapterError::not_supported("capture_signal_baseline"))
 }
 
 #[cfg(target_os = "macos")]
-fn matching_apps(filter: &SignalFilter, deadline: Instant) -> Result<Vec<AppInfo>, AdapterError> {
+fn matching_apps(filter: &SignalFilter, deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
     if let Some(name) = &filter.app {
         return crate::system::app::app_inventory::list_apps_scoped_until(name, None, deadline);
     }
@@ -103,7 +103,7 @@ fn filter_apps(filter: &SignalFilter, all: Vec<AppInfo>) -> Vec<AppInfo> {
 }
 
 #[cfg(target_os = "macos")]
-fn cap_ax_messaging(apps: &[AppInfo], deadline: Instant) -> Result<(), AdapterError> {
+fn cap_ax_messaging(apps: &[AppInfo], deadline: Deadline) -> Result<(), AdapterError> {
     for app in apps {
         remaining_before_deadline(deadline)?;
         let pid = crate::system::process::process_identity::to_pid_t(app.pid)?;
@@ -117,7 +117,7 @@ fn cap_ax_messaging(apps: &[AppInfo], deadline: Instant) -> Result<(), AdapterEr
 fn surfaces_for_apps(
     filter: &SignalFilter,
     apps: &[AppInfo],
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Vec<SurfaceSignal>, AdapterError> {
     if filter.app.is_none() && filter.process.is_none() {
         return Ok(Vec::new());
@@ -159,8 +159,8 @@ fn map_surface_kind(raw: &str) -> Option<SnapshotSurface> {
 }
 
 #[cfg(target_os = "macos")]
-fn remaining_before_deadline(deadline: Instant) -> Result<Duration, AdapterError> {
-    let remaining = deadline.saturating_duration_since(Instant::now());
+fn remaining_before_deadline(deadline: Deadline) -> Result<Duration, AdapterError> {
+    let remaining = deadline.remaining();
     if remaining.is_zero() {
         return Err(AdapterError::timeout("Signal baseline capture timed out"));
     }
@@ -168,7 +168,7 @@ fn remaining_before_deadline(deadline: Instant) -> Result<Duration, AdapterError
 }
 
 #[cfg(target_os = "macos")]
-fn ensure_before_deadline(deadline: Instant) -> Result<(), AdapterError> {
+fn ensure_before_deadline(deadline: Deadline) -> Result<(), AdapterError> {
     remaining_before_deadline(deadline).map(|_| ())
 }
 

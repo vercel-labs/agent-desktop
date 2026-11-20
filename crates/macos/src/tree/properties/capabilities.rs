@@ -21,7 +21,7 @@ impl<T> NativeRead<T> {
 
 #[cfg(target_os = "macos")]
 fn read_with_recovery<T>(
-    deadline: std::time::Instant,
+    deadline: agent_desktop_core::Deadline,
     mut read: impl FnMut() -> NativeRead<T>,
 ) -> NativeRead<T> {
     crate::tree::read_recovery::read(deadline, || {
@@ -47,7 +47,7 @@ mod imp {
     pub(crate) fn is_attr_settable_with_status(
         el: &AXElement,
         attr: &str,
-        deadline: std::time::Instant,
+        deadline: agent_desktop_core::Deadline,
     ) -> NativeRead<bool> {
         let cf_attr = CFString::new(attr);
         super::read_with_recovery(deadline, || {
@@ -66,7 +66,7 @@ mod imp {
 
     pub(crate) fn copy_action_names_with_status(
         el: &AXElement,
-        deadline: std::time::Instant,
+        deadline: agent_desktop_core::Deadline,
         usage: &mut crate::tree::observation_usage::ObservationUsage,
     ) -> NativeRead<Vec<String>> {
         super::read_with_recovery(deadline, || copy_action_names_once(el, deadline, usage))
@@ -74,7 +74,7 @@ mod imp {
 
     fn copy_action_names_once(
         el: &AXElement,
-        deadline: std::time::Instant,
+        deadline: agent_desktop_core::Deadline,
         usage: &mut crate::tree::observation_usage::ObservationUsage,
     ) -> NativeRead<Vec<String>> {
         let (err, actions_ref) = crate::tree::properties::ax_ipc::copy_action_names(el, deadline);
@@ -122,14 +122,14 @@ mod imp {
     pub(crate) fn is_attr_settable_with_status(
         _el: &AXElement,
         _attr: &str,
-        _deadline: std::time::Instant,
+        _deadline: agent_desktop_core::Deadline,
     ) -> NativeRead<bool> {
         NativeRead::failure(i32::MIN)
     }
 
     pub(crate) fn copy_action_names_with_status(
         _el: &AXElement,
-        _deadline: std::time::Instant,
+        _deadline: agent_desktop_core::Deadline,
         _usage: &mut crate::tree::observation_usage::ObservationUsage,
     ) -> NativeRead<Vec<String>> {
         NativeRead::failure(i32::MIN)
@@ -164,7 +164,7 @@ mod tests {
         use accessibility_sys::{
             kAXErrorAPIDisabled, kAXErrorCannotComplete, kAXErrorFailure, kAXErrorInvalidUIElement,
         };
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let deadline = agent_desktop_core::Deadline::after(10_000).unwrap();
         let mut reads = 0;
         let recovered = super::read_with_recovery(deadline, || {
             reads += 1;
@@ -197,8 +197,10 @@ mod tests {
     #[test]
     #[cfg(target_os = "macos")]
     fn expired_capability_budget_never_calls_native_reader() {
-        let result =
-            super::read_with_recovery::<bool>(std::time::Instant::now(), || panic!("expired read"));
+        let result = super::read_with_recovery::<bool>(
+            agent_desktop_core::Deadline::after(0).unwrap(),
+            || panic!("expired read"),
+        );
         assert_eq!(
             result.error,
             Some(accessibility_sys::kAXErrorCannotComplete)

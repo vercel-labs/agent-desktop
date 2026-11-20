@@ -1,10 +1,9 @@
-use agent_desktop_core::{AdapterError, ErrorCode};
-use std::time::Instant;
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
 
 pub(crate) fn elements(
     element: &super::AXElement,
     attribute: &str,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Vec<super::AXElement>, AdapterError> {
     elements_with_reader(attribute, deadline, |attribute| {
         super::query::child_read::read_attribute_children(
@@ -18,7 +17,7 @@ pub(crate) fn elements(
 
 fn elements_with_reader(
     attribute: &str,
-    deadline: Instant,
+    deadline: Deadline,
     read_attribute: impl FnMut(&str) -> super::query::child_read::ChildRead,
 ) -> Result<Vec<super::AXElement>, AdapterError> {
     let read = super::query::child_source::read_resilient(&[attribute], deadline, read_attribute);
@@ -73,7 +72,7 @@ fn native_ax_error(api_disabled: bool, invalid_element: bool, cannot_complete: u
 pub(crate) fn element(
     source: &super::AXElement,
     attribute: &str,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Option<super::AXElement>, AdapterError> {
     prepare(source, deadline)?;
     finish(
@@ -86,7 +85,7 @@ pub(crate) fn element(
 pub(crate) fn string(
     element: &super::AXElement,
     attribute: &str,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Option<String>, AdapterError> {
     prepare(element, deadline)?;
     finish(
@@ -99,7 +98,7 @@ pub(crate) fn string(
 pub(crate) fn boolean(
     element: &super::AXElement,
     attribute: &str,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Option<bool>, AdapterError> {
     prepare(element, deadline)?;
     finish(
@@ -109,15 +108,15 @@ pub(crate) fn boolean(
     )
 }
 
-pub(crate) fn ensure_before_deadline(deadline: Instant) -> Result<(), AdapterError> {
-    if Instant::now() >= deadline {
+pub(crate) fn ensure_before_deadline(deadline: Deadline) -> Result<(), AdapterError> {
+    if deadline.is_expired() {
         return Err(deadline_error());
     }
     Ok(())
 }
 
-fn prepare(element: &super::AXElement, deadline: Instant) -> Result<(), AdapterError> {
-    if deadline.saturating_duration_since(Instant::now()).is_zero() {
+fn prepare(element: &super::AXElement, deadline: Deadline) -> Result<(), AdapterError> {
+    if deadline.remaining().is_zero() {
         return Err(deadline_error());
     }
     super::properties::attributes::set_messaging_timeout(element, deadline)?;
@@ -127,7 +126,7 @@ fn prepare(element: &super::AXElement, deadline: Instant) -> Result<(), AdapterE
 fn finish<T>(
     result: Result<Option<T>, i32>,
     attribute: &str,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Option<T>, AdapterError> {
     if result
         .as_ref()
@@ -201,7 +200,7 @@ mod tests {
 
     #[test]
     fn permission_failure_survives_expiry_but_success_never_does() {
-        let expired = Instant::now();
+        let expired = Deadline::after(0).unwrap();
         let permission = finish::<()>(Err(kAXErrorAPIDisabled), "AXRole", expired).unwrap_err();
         assert_eq!(permission.code, ErrorCode::PermDenied);
         assert_eq!(
@@ -236,7 +235,8 @@ mod tests {
 
     #[test]
     fn expired_deadline_fails_without_native_reads() {
-        let error = ensure_before_deadline(Instant::now()).expect_err("expired deadline");
+        let error =
+            ensure_before_deadline(Deadline::after(0).unwrap()).expect_err("expired deadline");
 
         assert_eq!(error.code, ErrorCode::Timeout);
     }
@@ -262,33 +262,29 @@ mod tests {
     #[test]
     fn array_retryability_comes_from_native_transience_not_truncation() {
         for variant in 0..6 {
-            let error = elements_with_reader(
-                "AXChildren",
-                Instant::now() + std::time::Duration::from_secs(1),
-                |_| {
-                    let mut read =
-                        super::super::query::child_read::ChildRead::empty(matches!(variant, 2 | 5));
-                    match variant {
-                        0 => read.status.health.cannot_complete = 1,
-                        1 => read.status.count_changed = true,
-                        2 | 4 | 5 => {
-                            read.total_count = agent_desktop_core::ObservationBudget::default()
-                                .max_children_per_node
-                                + 1;
-                            if variant >= 4 {
-                                read.status.health.cannot_complete = 1;
-                                read.status.count_changed = true;
-                            }
+            let error = elements_with_reader("AXChildren", Deadline::after(1000).unwrap(), |_| {
+                let mut read =
+                    super::super::query::child_read::ChildRead::empty(matches!(variant, 2 | 5));
+                match variant {
+                    0 => read.status.health.cannot_complete = 1,
+                    1 => read.status.count_changed = true,
+                    2 | 4 | 5 => {
+                        read.total_count = agent_desktop_core::ObservationBudget::default()
+                            .max_children_per_node
+                            + 1;
+                        if variant >= 4 {
+                            read.status.health.cannot_complete = 1;
+                            read.status.count_changed = true;
                         }
-                        _ => read.status.health.native_read_failures = 1,
                     }
-                    if variant == 5 {
-                        read.complete = false;
-                        read.prefix_certain = false;
-                    }
-                    read
-                },
-            )
+                    _ => read.status.health.native_read_failures = 1,
+                }
+                if variant == 5 {
+                    read.complete = false;
+                    read.prefix_certain = false;
+                }
+                read
+            })
             .err()
             .expect("incomplete array read must fail");
             assert_eq!(error.code, ErrorCode::AppUnresponsive);
@@ -300,17 +296,14 @@ mod tests {
     #[test]
     fn surface_read_recovers_transient_failure_before_reporting_missing_windows() {
         let mut calls = 0;
-        let result = elements_with_reader(
-            "AXWindows",
-            Instant::now() + std::time::Duration::from_secs(60),
-            |attribute| {
+        let result =
+            elements_with_reader("AXWindows", Deadline::after(60000).unwrap(), |attribute| {
                 assert_eq!(attribute, "AXWindows");
                 calls += 1;
                 let mut read = super::super::query::child_read::ChildRead::empty(calls > 1);
                 read.status.health.cannot_complete = u64::from(calls == 1);
                 read
-            },
-        );
+            });
         assert_eq!(calls, 2);
         assert!(result.unwrap().is_empty());
     }

@@ -1,5 +1,5 @@
 use super::*;
-use std::time::Duration;
+use agent_desktop_core::Deadline;
 
 fn surface(id: &str, kind: &str) -> SurfaceInfo {
     SurfaceInfo {
@@ -25,7 +25,7 @@ fn shared_menu_discovery_preserves_other_surfaces_and_existing_menu_ids() {
         let mut expected = menus.clone();
         expected.extend(window_surfaces.clone());
         let actual = list_surfaces_with(
-            Instant::now() + Duration::from_secs(1),
+            Deadline::after(1000).unwrap(),
             || Ok(window_surfaces.clone()),
             || Ok(menus),
         )
@@ -53,7 +53,7 @@ fn incomplete_shared_discovery_is_not_reported_as_an_empty_inventory() {
             }
         };
         let error = list_surfaces_with(
-            Instant::now() + Duration::from_secs(1),
+            Deadline::after(1000).unwrap(),
             || read(!failed_menu),
             || read(failed_menu),
         )
@@ -66,7 +66,7 @@ fn incomplete_shared_discovery_is_not_reported_as_an_empty_inventory() {
 
 #[test]
 fn expired_deadline_fails_before_accessibility_inventory() {
-    let deadline = Instant::now() - Duration::from_millis(1);
+    let deadline = Deadline::after(0).unwrap();
     let pid = i32::try_from(std::process::id()).expect("test pid fits macOS pid_t");
     let identity = crate::system::process::process_identity::ProcessIdentity::capture(pid)
         .unwrap()

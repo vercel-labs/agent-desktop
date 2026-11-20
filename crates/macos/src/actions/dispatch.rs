@@ -223,7 +223,7 @@ mod imp {
         element: &AXElement,
         deadline: Deadline,
     ) -> Result<Option<String>, AdapterError> {
-        let operation_deadline = crate::tree::locator_deadline::from_operation(deadline)?;
+        let operation_deadline = deadline;
         match crate::tree::resolve::resolve_ax_read::read_string(
             element,
             "AXRole",
