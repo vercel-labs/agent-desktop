@@ -138,7 +138,7 @@ fn a_token_rooted_drill_proves_its_tokenless_descendants() {
 fn a_token_rooted_drill_of_tokened_refs_reads_only_its_subtree() {
     let _guard = HomeGuard::new();
     let mut tokened = node("button", "Save");
-    tokened.identity.retained_object = Some("axtok1:save".into());
+    tokened.identity.retained_object = Some("token:axtok1:save".into());
     let mut sidebar = node("group", "Sidebar");
     sidebar.identity.retained_object = Some(TOKEN.into());
     sidebar.children = vec![group(vec![tokened])];
@@ -156,7 +156,7 @@ fn a_token_rooted_drill_of_tokened_refs_reads_only_its_subtree() {
     let (_, button) = named(&drilled.refmap, "Save");
     assert_eq!(
         button.identity.retained_object.as_deref(),
-        Some("axtok1:save")
+        Some("token:axtok1:save")
     );
 }
 

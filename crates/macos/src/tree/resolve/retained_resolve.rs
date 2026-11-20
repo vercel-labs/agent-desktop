@@ -1,8 +1,6 @@
 use agent_desktop_core::{AdapterError, Deadline, NativeHandle, RefEntry};
 
 #[cfg(target_os = "macos")]
-use super::resolve_classify::identity_summary_for_message;
-#[cfg(target_os = "macos")]
 use super::retained::{TokenLookup, resolve_token};
 #[cfg(target_os = "macos")]
 use crate::tree::AXElement;
@@ -43,7 +41,7 @@ pub(in crate::tree) fn resolve_saved_token(
     entry: &RefEntry,
     deadline: Deadline,
 ) -> Result<Option<NativeHandle>, AdapterError> {
-    let Some(token) = entry.identity.retained_object.as_deref() else {
+    let Some(token) = agent_desktop_core::refs::ref_identity::element_token(entry) else {
         return Ok(None);
     };
     match resolve_token(token)? {
@@ -154,15 +152,7 @@ pub(in crate::tree) fn native_identifier_attribute(
 
 #[cfg(target_os = "macos")]
 fn stale_token_error(entry: &RefEntry, mismatch: RetainedMismatch) -> AdapterError {
-    AdapterError::stale_ref_because(format!(
-        "The saved element no longer exists or no longer matches: {}",
-        identity_summary_for_message(entry)
-    ))
-    .with_details(serde_json::json!({
-        "kind": "retained_object_stale",
-        "reason": mismatch.reason(),
-        "pid": entry.process.pid,
-    }))
+    agent_desktop_core::refs::resolve_errors::element_token_stale(entry, mismatch.reason(), None)
 }
 
 #[cfg(all(test, target_os = "macos"))]

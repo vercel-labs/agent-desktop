@@ -81,22 +81,23 @@ Observation and semantic actions need no helper tool.
   requested depth cut. A shell with no document yet stays incomplete when the
   budget ends. A `--timeout` shorter than the first read returns `TIMEOUT`,
   never a partial tree.
-- **A ref must have been unique.** Linux stores no element address, so a ref
-  resolves only when it was the only element in the window its snapshot
-  captured with its role, native id, name and description, and exactly one live
-  element still matches. Uniqueness is counted over the whole window, not over
-  the shallow tree a `--skeleton` or `--max-depth` snapshot presents, so a twin
-  the shallow tree never showed still refuses the ref.
-  Position, size and value never count as identity, so a layout change does not
-  by itself stale a ref, but a twin does: identical buttons, or views that share
-  a role and carry no other field, refuse with `AMBIGUOUS_TARGET`,
-  `details.kind: identity_not_unique`, before anything reaches the app, and an
-  element that is gone is `STALE_REF`, `saved_ref_absent`. Take a
-  fresh snapshot after a list changes. To pick one of two identical controls on
-  X11, use `--headed mouse-click --xy`; a Wayland session refuses headed pointer
-  input, so there the twin has neither a ref nor a pointer path. A ref belongs
-  to the window it was taken in, so two windows with the same title each
-  resolve their own refs.
+- **GTK and Chromium refs carry the element's address; Qt refs must have been
+  unique.** In a GTK or Chromium app a ref records the element's bus address and
+  every parent above it, so identical twins (two equal buttons, repeated row
+  buttons) each keep their own ref. An action reads that chain again with no
+  search: if a parent no longer lists its child (a list changed under it, a
+  window closed) or the element's role, stable name, description or native id
+  changed, the ref is `STALE_REF`, `retained_object_stale`, and never lands on
+  a look-alike. Qt can hand a destroyed object's address to a new object, so a
+  Qt ref (and one from a toolkit that names none) resolves only when it was the
+  only element in the window its snapshot captured with its role, native id,
+  name and description, and exactly one live element still matches; a twin
+  there is `AMBIGUOUS_TARGET`, `details.kind: identity_not_unique`, and a gone
+  element is `STALE_REF`, `saved_ref_absent`. Position, size and value never
+  count as identity. Take a fresh snapshot after a list changes. To pick one of
+  two identical Qt controls on X11, use `--headed mouse-click --xy`; a Wayland
+  session refuses headed pointer input. A ref belongs to the window it was
+  taken in, so two windows with the same title each resolve their own refs.
 - **Chromium and Qt apps need a launch flag or variable** to appear on the bus;
   Electron apps need none, only `--no-sandbox` where `chrome-sandbox` is not
   setuid. See `references/troubleshooting.md`.

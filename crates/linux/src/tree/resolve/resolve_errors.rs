@@ -120,14 +120,6 @@ pub(crate) fn window_unverifiable() -> AdapterError {
     )
 }
 
-/// The ref carries nothing any live element could be checked against.
-pub(crate) fn unverifiable_entry() -> AdapterError {
-    settled(
-        "Stored ref carries no identifier, no stable text and no usable bounds to match a live element with",
-        "resolve_unverifiable_entry",
-    )
-}
-
 pub(crate) fn ambiguous(candidates: usize) -> AdapterError {
     let details = json!({
         "kind": "resolve_ambiguous",

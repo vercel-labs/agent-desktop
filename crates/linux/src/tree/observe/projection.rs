@@ -1,13 +1,13 @@
 use crate::tree::placement::Placement;
 use crate::tree::placement::snapshot_visibility::{SnapshotVisibility, append_visibility};
 use agent_desktop_core::{
-    IdentifierEvidence, LocatorEvidence, LocatorField, LocatorRefEvidence, LocatorStats,
-    ObservedSubtree, Rect,
+    LocatorEvidence, LocatorField, LocatorRefEvidence, LocatorStats, ObservedSubtree, Rect,
 };
 
 use super::decorate::Decorate;
 use crate::tree::capabilities::action_names::capabilities;
 use crate::tree::capabilities::value_read::truncate_to_boundary;
+use crate::tree::element::element_token::encode;
 use crate::tree::vocabulary::resolve_vocabulary;
 use crate::tree::{Extents, Field, ObservedRead, Walk, WalkLimits, WalkedNode};
 
@@ -39,31 +39,6 @@ fn window_bounds(read: &ObservedRead) -> LocatorField<Rect> {
     }
 }
 
-/// Whether the node's read settled enough to say its identifier and stable
-/// text do not name it. An unreadable field could hide a name, so it withholds
-/// the claim.
-fn identity_is_absent(
-    role: &LocatorField<String>,
-    name: &LocatorField<String>,
-    description: &LocatorField<String>,
-    value: &LocatorField<String>,
-    identifiers: &IdentifierEvidence,
-) -> bool {
-    let settled = !role.is_unknown()
-        && !name.is_unknown()
-        && !description.is_unknown()
-        && !value.is_unknown()
-        && identifiers.is_complete();
-    settled
-        && !agent_desktop_core::refs::ref_identity::identity_fields_are_meaningful(
-            role.known().map(String::as_str).unwrap_or_default(),
-            name.known().map(String::as_str),
-            value.known().map(String::as_str),
-            description.known().map(String::as_str),
-            identifiers.preferred_value(),
-        )
-}
-
 fn value_of(read: &ObservedRead) -> LocatorField<String> {
     match &read.value.value {
         Field::Present(text) => LocatorField::Known(text.clone()),
@@ -74,6 +49,7 @@ fn value_of(read: &ObservedRead) -> LocatorField<String> {
 
 struct Projector<'a> {
     limits: &'a WalkLimits,
+    guid: &'a str,
     stats: LocatorStats,
 }
 
@@ -110,26 +86,12 @@ impl Projector<'_> {
         let value = value_of(read);
         let window_bounds = window_bounds(read);
         let bounds = bounds_of(&read.node.extents);
-        let identity_is_absent = identity_is_absent(
-            &vocabulary.role,
-            &name,
-            &description,
-            &value,
-            &vocabulary.identifiers,
-        );
-        let identifiers = if identity_is_absent {
-            vocabulary
-                .identifiers
-                .with_retained_object(read.node.element.object_identity())
-        } else {
-            vocabulary.identifiers
-        };
         let mut evidence = LocatorEvidence {
             role: vocabulary.role,
             name,
             description,
             value,
-            identifiers,
+            identifiers: vocabulary.identifiers,
             states: vocabulary.states,
             ref_evidence: LocatorRefEvidence {
                 window_bounds,
@@ -138,6 +100,9 @@ impl Projector<'_> {
                 descriptors: vocabulary.descriptor,
             },
         };
+        if let Some(token) = encode(self.guid, &read.node.element, &evidence) {
+            evidence.identifiers = evidence.identifiers.clone().with_element_token(&token);
+        }
         append_visibility(read, &mut evidence, &Placement::default());
         evidence
     }
@@ -184,14 +149,17 @@ impl Projector<'_> {
 
 /// The evidence of one node read, exactly as a walk projects it: a ref taken
 /// from a snapshot and a node read later through this function agree on every
-/// field the node's own reads decide.
+/// field the node's own reads decide, the element token of bus instance
+/// `guid` included.
 pub(crate) fn project_node(
     read: &ObservedRead,
     in_web_document: bool,
     limits: &WalkLimits,
+    guid: &str,
 ) -> LocatorEvidence {
     Projector {
         limits,
+        guid,
         stats: LocatorStats::default(),
     }
     .evidence_of(read, in_web_document)
@@ -205,19 +173,22 @@ pub(crate) fn project(
     walk: Walk<ObservedRead>,
     limits: &WalkLimits,
 ) -> (ObservedSubtree, LocatorStats) {
-    project_with(walk, limits, &mut super::decorate::Plain, None)
+    project_with(walk, limits, &mut super::decorate::Plain, None, "")
 }
 
-/// `project`, with a hook that may decorate nodes and append its own.
+/// `project`, with a hook that may decorate nodes and append its own, and the
+/// element tokens of bus instance `guid`.
 pub(crate) fn project_with(
     walk: Walk<ObservedRead>,
     limits: &WalkLimits,
     decorate: &mut dyn Decorate,
     displays: Option<&[Extents]>,
+    guid: &str,
 ) -> (ObservedSubtree, LocatorStats) {
     decorate.prepare(&walk.root);
     let mut projector = Projector {
         limits,
+        guid,
         stats: LocatorStats::default(),
     };
     let counts = walk.counts;

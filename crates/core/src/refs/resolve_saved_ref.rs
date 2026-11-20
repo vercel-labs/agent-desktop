@@ -301,7 +301,7 @@ fn saved_ref_node(
         let found = observed
             .nodes
             .iter()
-            .position(|node| node.evidence.identifiers.retained_object() == Some(token));
+            .position(|node| node.evidence.identifiers.element_token() == Some(token));
         return match found {
             Some(index) => Ok(index),
             None if observed.is_exhaustive() => Err(absent(entry)),

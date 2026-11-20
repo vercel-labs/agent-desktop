@@ -64,6 +64,7 @@ fn extra(name: &str, index: usize) -> ObservedSubtree {
         &read_of(PUSH_BUTTON, name, &[]),
         false,
         &WalkLimits::default(),
+        "",
     );
     ObservedSubtree::new(evidence, Vec::new(), true, None).with_source_child_index(index)
 }
@@ -113,7 +114,7 @@ impl Decorate for Recording {
 #[test]
 fn nodes_are_seen_in_document_order_with_the_index_their_children_end_at() {
     let mut hook = Recording::default();
-    project_with(walk(), &WalkLimits::default(), &mut hook, None);
+    project_with(walk(), &WalkLimits::default(), &mut hook, None, "");
     assert_eq!(hook.prepared, 1);
     assert_eq!(
         hook.seen,
@@ -128,7 +129,7 @@ fn nodes_are_seen_in_document_order_with_the_index_their_children_end_at() {
 #[test]
 fn the_hook_changes_evidence_and_appends_children_after_the_node_own() {
     let mut hook = Recording::default();
-    let (subtree, stats) = project_with(walk(), &WalkLimits::default(), &mut hook, None);
+    let (subtree, stats) = project_with(walk(), &WalkLimits::default(), &mut hook, None, "");
     let root = tree(subtree, stats);
     let names: Vec<_> = root
         .children
@@ -145,7 +146,7 @@ fn the_hook_changes_evidence_and_appends_children_after_the_node_own() {
 #[test]
 fn only_the_root_is_finished_and_it_ends_after_its_own_appended_children() {
     let mut hook = Recording::default();
-    project_with(walk(), &WalkLimits::default(), &mut hook, None);
+    project_with(walk(), &WalkLimits::default(), &mut hook, None, "");
     assert_eq!(hook.finished_at, Some(4));
     assert_eq!(hook.finishes, 1);
 }

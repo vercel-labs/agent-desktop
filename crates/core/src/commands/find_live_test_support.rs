@@ -8,7 +8,7 @@ use crate::{
 };
 
 pub(crate) const FRAMED_LABEL: &str = "FramedLabel";
-pub(crate) const TOKEN_ROOT: &str = "axtok1:find-root";
+pub(crate) const TOKEN_ROOT: &str = "token:axtok1:find-root";
 pub(crate) const TOKEN_ROOT_NAME: &str = "Root";
 
 pub(crate) fn framed_label_screen_bounds() -> crate::Rect {
@@ -98,7 +98,7 @@ impl LiveFindAdapter {
         let mut evidence = Self::evidence("button", Some(name));
         if self.token_matches {
             evidence.identifiers =
-                IdentifierEvidence::absent().with_retained_object(format!("axtok1:{name}"));
+                IdentifierEvidence::absent().with_retained_object(format!("token:axtok1:{name}"));
         }
         evidence
     }

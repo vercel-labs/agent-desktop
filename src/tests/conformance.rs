@@ -49,8 +49,7 @@ impl ObservationOps for ContractAdapter {
             identity: LiveIdentity {
                 name: LocatorField::Known("OK".into()),
                 description: LocatorField::Absent,
-                identifiers: IdentifierEvidence::absent()
-                    .with_retained_object("axtok1:contract-node".into()),
+                identifiers: IdentifierEvidence::absent().with_element_token("contract-node"),
             },
             state: ElementState {
                 role: "button".into(),
@@ -169,7 +168,9 @@ fn entry(bounds: Rect) -> RefEntry {
             process_instance: Some("contract-process".into()),
         },
         identity: RefEntryIdentity {
-            retained_object: Some("axtok1:contract-node".into()),
+            retained_object: Some(
+                agent_desktop_core::refs::ref_identity::tagged_element_token("contract-node"),
+            ),
             role: "button".into(),
             name: Some("OK".into()),
             value: None,

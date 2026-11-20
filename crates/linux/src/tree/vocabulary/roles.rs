@@ -1,7 +1,7 @@
 use agent_desktop_core::{LocatorField, Role};
 
 use super::gtk_switch::is_gtk_switch;
-use super::role_numbers::{CHECK_BOX, LANDMARK, LIST, PUSH_BUTTON, TERMINAL, TEXT};
+use super::role_numbers::{LANDMARK, LIST, PUSH_BUTTON, TERMINAL, TEXT};
 use super::role_table::base_role;
 use super::state_bits::{EDITABLE, FOCUSABLE, HAS_POPUP, READ_ONLY, StateBits};
 use crate::tree::properties::attributes::{AttributeRead, first_xml_role};
@@ -82,22 +82,6 @@ pub(crate) fn role_of(
         LANDMARK => landmark_role(attributes),
         other => base_role(other),
     }
-}
-
-/// Whether a node with this AT-SPI role number can read as the role token
-/// under some states, interfaces and attributes. A node that cannot is
-/// refuted by its number alone; the refinements are the only reads that
-/// move a number to a different role.
-pub(crate) fn may_resolve_to(number: u32, token: &str) -> bool {
-    let reachable: &[Role] = match number {
-        TEXT | TERMINAL => &[Role::TextField, Role::Document],
-        PUSH_BUTTON => &[Role::MenuButton, Role::Button],
-        LIST => &[Role::ListBox, Role::List],
-        CHECK_BOX => &[Role::Checkbox, Role::Switch],
-        LANDMARK => return true,
-        other => return base_role(other).as_str() == token,
-    };
-    reachable.iter().any(|role| role.as_str() == token)
 }
 
 /// The role token of a node, or unknown when the role read failed. That is

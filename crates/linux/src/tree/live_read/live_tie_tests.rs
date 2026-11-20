@@ -39,7 +39,7 @@ fn twin_window(hidden: Option<bool>) -> Placement {
 
 fn state_in(placement: &Placement) -> agent_desktop_core::ElementState {
     let read = button();
-    let evidence = evidence_for(&read, &read.node.element);
+    let evidence = evidence_for(&read, &read.node.element, "");
     live_state(&read, &evidence, placement).expect("the state projects")
 }
 

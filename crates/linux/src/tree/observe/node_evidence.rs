@@ -37,9 +37,18 @@ pub(crate) fn require_ancestry(element: &AtspiElement) -> Result<(), AdapterErro
 }
 
 /// The evidence of a node read for `element`, in the web context the element
-/// carries.
-pub(crate) fn evidence_for(read: &ObservedRead, element: &AtspiElement) -> LocatorEvidence {
-    project_node(read, element.in_web_document(), &WalkLimits::default())
+/// carries, with its element token on bus instance `guid`.
+pub(crate) fn evidence_for(
+    read: &ObservedRead,
+    element: &AtspiElement,
+    guid: &str,
+) -> LocatorEvidence {
+    project_node(
+        read,
+        element.in_web_document(),
+        &WalkLimits::default(),
+        guid,
+    )
 }
 
 /// Reads one node for resolution and places its evidence exactly as the
@@ -53,7 +62,7 @@ pub(crate) async fn read_evidence_placed(
 ) -> Result<NodeEvidence, AdapterError> {
     let mut node = read_evidence(connection, element, ReadPurpose::Identity).await?;
     place_single(bus, &mut node.read, deadline)?;
-    node.evidence = evidence_for(&node.read, element);
+    node.evidence = evidence_for(&node.read, element, connection.server_guid().as_str());
     Ok(node)
 }
 
@@ -72,7 +81,7 @@ pub(crate) async fn read_evidence(
         purpose,
     )
     .await?;
-    let evidence = evidence_for(&read, element);
+    let evidence = evidence_for(&read, element, connection.server_guid().as_str());
     Ok(NodeEvidence {
         read,
         evidence,

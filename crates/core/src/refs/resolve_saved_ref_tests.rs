@@ -138,7 +138,7 @@ fn an_element_token_goes_straight_to_the_adapter() {
     let adapter = RuleAdapter::new(tree_with(vec![]));
     let mut entry = entry();
     entry.identity.unique_at_capture = false;
-    entry.identity.retained_object = Some("axtok1:page-7:node-3".into());
+    entry.identity.retained_object = Some("token:axtok1:page-7:node-3".into());
 
     let Ok(handle) = resolve(&adapter, &entry) else {
         panic!("a token is re-identified by the adapter");

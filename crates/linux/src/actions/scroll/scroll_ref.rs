@@ -119,7 +119,9 @@ fn eligible(
     toolkit: &crate::system::process::toolkit_id::ToolkitId,
 ) -> bool {
     entry.identity.role == "incrementor"
-        && entry.identity.retained_object.as_deref() == Some(element.object_identity().as_str())
+        && agent_desktop_core::refs::ref_identity::element_token(entry)
+            .and_then(crate::tree::element::element_token::decode)
+            .is_some_and(|token| token.names(element))
         && uuid_context(element.path())
         && element
             .scroll_container()

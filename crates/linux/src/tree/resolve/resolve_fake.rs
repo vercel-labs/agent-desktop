@@ -3,15 +3,13 @@ use std::collections::HashMap;
 use agent_desktop_core::{AdapterError, Deadline, LocatorEvidence, RefEntry};
 
 use super::path_descent::level_of;
-use super::resolve_search::evaluate;
-use super::searched::Searched;
 use crate::system::window::window_id;
 use crate::tree::element::ancestry;
 use crate::tree::live::test_support::{read_of, ref_entry};
 use crate::tree::observe::node_evidence::evidence_for;
 use crate::tree::observe::projection::project_node;
 use crate::tree::resolve::Source;
-use crate::tree::vocabulary::role_numbers::FRAME;
+use crate::tree::vocabulary::role_numbers::{APPLICATION, FRAME};
 use crate::tree::walk::level::Level;
 use crate::tree::walk::walker::walk_levels;
 use crate::tree::walk::walker_expand::UNKNOWN_PID;
@@ -36,7 +34,6 @@ pub(in crate::tree) struct Reads {
     pub(in crate::tree) gate: usize,
     pub(in crate::tree) levels: usize,
     pub(in crate::tree) evidence: usize,
-    pub(in crate::tree) searches: usize,
 }
 
 /// The reads a test makes fail, by kind or by node path.
@@ -44,7 +41,6 @@ pub(in crate::tree) struct Reads {
 pub(in crate::tree) struct Faults {
     pub(in crate::tree) gate_error: Option<AdapterError>,
     pub(in crate::tree) recheck_error: Option<AdapterError>,
-    pub(in crate::tree) search_error: Option<AdapterError>,
     pub(in crate::tree) level_errors: HashMap<String, AdapterError>,
     pub(in crate::tree) evidence_errors: HashMap<String, AdapterError>,
 }
@@ -56,6 +52,7 @@ pub(in crate::tree) struct Fake {
     pub(in crate::tree) stopped: Option<String>,
     pub(in crate::tree) faults: Faults,
     pub(in crate::tree) reads: Reads,
+    pub(in crate::tree) guid: String,
 }
 
 pub(in crate::tree) fn node(role: u32, name: &str, width: i32, height: i32) -> ObservedRead {
@@ -82,8 +79,20 @@ impl Fake {
             stopped: None,
             faults: Faults::default(),
             reads: Reads::default(),
+            guid: "test-guid".to_owned(),
         };
-        fake.add_on(BUS, None, FRAME_PATH, node(FRAME, "window", 800, 600));
+        fake.add_on(
+            BUS,
+            None,
+            crate::system::REGISTRY_ROOT_PATH,
+            node(APPLICATION, "app", 0, 0),
+        );
+        fake.add_on(
+            BUS,
+            Some(crate::system::REGISTRY_ROOT_PATH),
+            FRAME_PATH,
+            node(FRAME, "window", 800, 600),
+        );
         fake
     }
 
@@ -196,7 +205,12 @@ impl Fake {
     pub(in crate::tree) fn entry_of(&self, path: &str, keep_rect: bool) -> RefEntry {
         let walk = self.walk();
         let (node, trail) = Self::find(&walk.root, path).expect("the node is walked");
-        let evidence = project_node(&node.payload, node.in_web_document, &WalkLimits::default());
+        let evidence = project_node(
+            &node.payload,
+            node.in_web_document,
+            &WalkLimits::default(),
+            "",
+        );
         let mut entry = ref_entry(evidence.role.known().expect("a role was read"));
         entry.identity.name = evidence.name.known().filter(|n| !n.is_empty()).cloned();
         entry.identity.native_id = evidence.identifiers.preferred_identifier().cloned();
@@ -214,17 +228,33 @@ impl Fake {
         entry
     }
 
-    pub(in crate::tree) fn shift_every_position(&mut self, dx: i32, dy: i32) {
-        for stored in self.nodes.values_mut() {
-            if let Field::Present(extents) = &mut stored.read.node.extents {
-                extents.x += dx;
-                extents.y += dy;
-            }
-        }
+    /// The element token a snapshot would have stored for the node at `path`.
+    pub(in crate::tree) fn token_of(&self, path: &str) -> String {
+        let walk = self.walk();
+        let (node, _) = Self::find(&walk.root, path).expect("the node is walked");
+        let element = &node.payload.node.element;
+        let evidence = evidence_for(&node.payload, element, &self.guid);
+        evidence
+            .identifiers
+            .retained_object()
+            .expect("a walked node has a token")
+            .to_owned()
     }
 }
 
 impl Source for Fake {
+    fn bus_guid(&mut self) -> Result<String, AdapterError> {
+        Ok(self.guid.clone())
+    }
+
+    fn verify_window(&mut self, entry: &RefEntry) -> Result<AtspiElement, AdapterError> {
+        self.open_window(entry)
+    }
+
+    fn is_shell_frame(&mut self, _frame: &AtspiElement) -> bool {
+        false
+    }
+
     fn open_window(&mut self, _entry: &RefEntry) -> Result<AtspiElement, AdapterError> {
         self.reads.gate += 1;
         if self.reads.gate > 1
@@ -259,19 +289,7 @@ impl Source for Fake {
         }
         let mut read = self.nodes[element.path()].read.clone();
         read.node = self.raw(element);
-        Ok(evidence_for(&read, element))
-    }
-
-    fn search(
-        &mut self,
-        _frame: &AtspiElement,
-        entry: &RefEntry,
-    ) -> Result<Searched, AdapterError> {
-        self.reads.searches += 1;
-        if let Some(error) = self.faults.search_error.clone() {
-            return Err(error);
-        }
-        Ok(evaluate(&self.walk(), entry, self.web_process))
+        Ok(evidence_for(&read, element, &self.guid))
     }
 
     fn stopped_app(&mut self, _pid: u32) -> Option<String> {

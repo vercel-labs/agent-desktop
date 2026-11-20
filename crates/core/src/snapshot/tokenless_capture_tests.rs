@@ -149,7 +149,7 @@ fn a_shallow_capture_of_tokened_refs_takes_one_walk() {
     let mut run = node("button", "Run");
     run.identity.retained_object = Some(TOKEN.into());
     let mut deep = node("group", "");
-    deep.identity.retained_object = Some("axtok1:deep".into());
+    deep.identity.retained_object = Some("token:axtok1:deep".into());
     deep.children = vec![node("button", "Deep")];
     let adapter = CaptureAdapter::new(window(vec![run, group(vec![group(vec![deep])])]));
 

@@ -8,6 +8,7 @@ use super::menu_context::MenuContext;
 use super::observe_menu::rooted;
 use crate::system::menu::menu_surface::popups_at;
 use crate::system::{SharedBus, owner_process_id, process::process_facts, within};
+use crate::tree::AtspiElement;
 use crate::tree::live_read::with_reader;
 use crate::tree::observe::node_evidence::read_evidence;
 use crate::tree::placement::popup_position::{PopupPosition, popup_position_via};
@@ -18,11 +19,7 @@ use crate::tree::resolve::path_descent::Levels;
 use crate::tree::resolve::resolve_anchor::resolve_anchor;
 use crate::tree::resolve::resolve_errors::{ambiguous, settle_gone, stopped_app};
 use crate::tree::resolve::resolve_gate::stored_window;
-use crate::tree::resolve::resolve_search::evaluate;
-use crate::tree::resolve::searched::Searched;
 use crate::tree::walk::level::Level;
-use crate::tree::walk::walker::walk_tree;
-use crate::tree::{AtspiElement, WalkLimits};
 
 pub(crate) fn is_menu_entry(entry: &RefEntry) -> bool {
     entry.source.source_surface == SnapshotSurface::Menu
@@ -44,15 +41,26 @@ pub(crate) fn menu_closed() -> AdapterError {
     )
 }
 
-struct MenuSource<'a> {
-    bus: &'a SharedBus,
+struct MenuSource {
     connection: Connection,
     popup: AtspiElement,
     levels: Option<Levels>,
     deadline: Deadline,
 }
 
-impl Source for MenuSource<'_> {
+impl Source for MenuSource {
+    fn bus_guid(&mut self) -> Result<String, AdapterError> {
+        Ok(self.connection.server_guid().to_string())
+    }
+
+    fn verify_window(&mut self, entry: &RefEntry) -> Result<AtspiElement, AdapterError> {
+        self.open_window(entry)
+    }
+
+    fn is_shell_frame(&mut self, _frame: &AtspiElement) -> bool {
+        false
+    }
+
     fn open_window(&mut self, _entry: &RefEntry) -> Result<AtspiElement, AdapterError> {
         let root = rooted(&self.popup);
         self.levels = Some(Levels::new(self.connection.clone(), &root, self.deadline));
@@ -82,11 +90,6 @@ impl Source for MenuSource<'_> {
             Liveness::TimedOut => Err(unanswered()),
             _ => Ok(read.evidence),
         }
-    }
-
-    fn search(&mut self, frame: &AtspiElement, entry: &RefEntry) -> Result<Searched, AdapterError> {
-        let walk = walk_tree(self.bus, frame, &WalkLimits::default(), self.deadline)?;
-        Ok(evaluate(&walk, entry, false))
     }
 
     fn stopped_app(&mut self, pid: u32) -> Option<String> {
@@ -157,7 +160,6 @@ pub(crate) fn resolve_menu(
     }
     resolve_contextual(entry, window.frame(), candidates, |popup, scoped_entry| {
         let mut source = MenuSource {
-            bus,
             connection: connection.clone(),
             popup,
             levels: None,

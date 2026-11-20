@@ -23,9 +23,13 @@ fn recovery_requires_the_retained_bus_and_object_identity() {
         version: Some("4.14.5".to_owned()),
     };
     let mut entry = crate::tree::live::test_support::ref_entry("incrementor");
-    entry.identity.retained_object = Some(format!(":1.2{path}"));
+    entry.identity.retained_object =
+        Some(format!("token:atspi1:g|40|:1.2|0000000000000000||{path}"));
     assert!(eligible(&entry, &element, &toolkit));
-    for other in [path.to_owned(), format!(":1.3{path}")] {
+    for other in [
+        format!(":1.2{path}"),
+        format!("token:atspi1:g|40|:1.3|0000000000000000||{path}"),
+    ] {
         entry.identity.retained_object = Some(other);
         assert!(!eligible(&entry, &element, &toolkit));
     }

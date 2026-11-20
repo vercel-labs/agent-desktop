@@ -20,7 +20,7 @@ fn node(role: &str, name: &str) -> AccessibilityNode {
 
 fn tokened(role: &str, name: &str, token: &str) -> AccessibilityNode {
     let mut node = node(role, name);
-    node.identity.retained_object = Some(format!("axtok1:{token}"));
+    node.identity.retained_object = Some(format!("token:axtok1:{token}"));
     node
 }
 

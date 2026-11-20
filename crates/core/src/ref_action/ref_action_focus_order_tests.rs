@@ -360,7 +360,7 @@ fn headed_click_does_not_resolve_before_window_focus_and_dispatch() {
         "bounds": bounds(), "available_actions": ["Click"], "states": []
     }))
     .unwrap();
-    entry.identity.retained_object = Some("axtok1:run".into());
+    entry.identity.retained_object = Some("token:axtok1:run".into());
     let context = crate::CommandContext::default();
     let deadline = Deadline::standard().unwrap();
     let lease = InteractionLease::guarded(deadline, ()).unwrap();

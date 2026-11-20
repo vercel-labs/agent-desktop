@@ -14,7 +14,7 @@ fn framed() -> AtspiElement {
 }
 
 fn evidence_of(read: &ObservedRead) -> LocatorEvidence {
-    evidence_for(read, &framed())
+    evidence_for(read, &framed(), "")
 }
 
 fn with_states(mut read: ObservedRead, bits: &[u32]) -> ObservedRead {

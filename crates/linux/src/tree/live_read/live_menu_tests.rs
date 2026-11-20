@@ -47,7 +47,7 @@ impl NodeReader for MenuReader {
 
     fn read(&mut self, element: &AtspiElement) -> Result<NodeEvidence, AdapterError> {
         let read = read_of(PUSH_BUTTON, "Open", &["click"]);
-        let evidence = evidence_for(&read, element);
+        let evidence = evidence_for(&read, element, "");
         Ok(NodeEvidence {
             read,
             evidence,

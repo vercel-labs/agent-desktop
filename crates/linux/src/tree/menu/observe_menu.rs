@@ -142,6 +142,7 @@ pub(crate) fn observe_menu(
         &limits,
         &mut MenuIdentity::new(context),
         displays.as_deref(),
+        "",
     );
     stats.reads.health.deadline_exhausted += u64::from(!complete && request.deadline.is_expired());
     stats.elapsed_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);

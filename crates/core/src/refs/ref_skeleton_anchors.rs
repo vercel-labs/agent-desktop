@@ -1,6 +1,6 @@
 use crate::AccessibilityNode;
 use crate::refs::ref_alloc::is_ref_able;
-use crate::refs::ref_identity::is_element_token;
+use crate::refs::ref_identity::untagged_element_token;
 use std::collections::HashSet;
 
 /// Plans the boundary containers that anchor a skeleton, deepest first. A
@@ -63,7 +63,8 @@ pub(crate) fn carries_element_token(node: &AccessibilityNode) -> bool {
     node.identity
         .retained_object
         .as_deref()
-        .is_some_and(is_element_token)
+        .and_then(untagged_element_token)
+        .is_some()
 }
 
 fn can_receive_observed_ref(node: &AccessibilityNode) -> bool {

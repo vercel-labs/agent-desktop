@@ -24,6 +24,7 @@ pub(super) fn observe_plain(
         root,
         request,
         SettleHost {
+            guid: "",
             walker: &mut |element, limits, deadline, _| walker(element, limits, deadline),
             place: &mut |_| Ok(()),
             is_web_process: &|_| Ok(false),
@@ -372,6 +373,7 @@ fn optional_display_completion_runs_after_the_accessibility_walk() {
         ObservationRoot::Window(&window),
         &request(),
         SettleHost {
+            guid: "",
             walker: &mut |_, limits, _, _| {
                 walked.set(true);
                 one_node_walk(limits)

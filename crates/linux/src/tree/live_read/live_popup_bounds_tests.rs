@@ -19,7 +19,7 @@ impl NodeReader for PopupPlacementReader {
         let mut read = read_of(PUSH_BUTTON, "Open", &["click"]);
         read.node.extents = Field::Present(rect(0, 0, 30, 20));
         Ok(NodeEvidence {
-            evidence: evidence_for(&read, element),
+            evidence: evidence_for(&read, element, ""),
             read,
             liveness: Liveness::Alive,
         })
@@ -168,7 +168,7 @@ fn a_viewable_popup_is_known_not_minimized() {
     assert_eq!(
         live_state(
             &read,
-            &evidence_for(&read, &AtspiElement::new(":1.1", "/menu/open", 40)),
+            &evidence_for(&read, &AtspiElement::new(":1.1", "/menu/open", 40), ""),
             &placement
         )
         .expect("state")

@@ -324,31 +324,10 @@ fn failed_window_geometry_remains_unknown_after_placement() {
     let evidence = crate::tree::observe::node_evidence::evidence_for(
         &root.payload,
         &root.payload.node.element,
+        "",
     );
     assert!(evidence.ref_evidence.window_bounds.is_unknown());
     assert!(evidence.ref_evidence.bounds.is_unknown());
-}
-
-#[test]
-fn a_placement_timeout_cannot_authorize_or_refute_raw_coordinate_evidence() {
-    use crate::tree::live::test_support::{rect, ref_entry};
-    use crate::tree::resolve::resolve_identity::admit_node;
-    use crate::tree::walk::admission::Admission;
-    let bus = SharedBus::default();
-    let deadline = Deadline::standard()
-        .unwrap()
-        .capped(std::time::Duration::ZERO);
-    let mut read = read_of(crate::tree::vocabulary::role_numbers::PUSH_BUTTON, "", &[]);
-    place_single(&bus, &mut read, deadline).unwrap();
-    let evidence = crate::tree::observe::node_evidence::evidence_for(&read, &read.node.element);
-    assert!(evidence.ref_evidence.bounds.is_unknown());
-    assert!(evidence.ref_evidence.window_bounds.is_unknown());
-    for space in [BoundsSpace::Window, BoundsSpace::Screen] {
-        let mut entry = ref_entry("button");
-        entry.geometry.bounds = Some(rect(0.0, 0.0, 10.0, 10.0));
-        entry.geometry.bounds_space = Some(space);
-        assert_eq!(admit_node(&entry, &evidence), Admission::Unread);
-    }
 }
 
 #[test]

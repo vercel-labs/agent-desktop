@@ -159,7 +159,7 @@ fn a_saved_ref_without_an_element_token_is_refused_not_searched_for() {
         .err()
         .expect("a tokenless ref must be refused");
 
-    assert_eq!(error.code, ErrorCode::ElementNotFound);
+    assert_eq!(error.code, ErrorCode::StaleRef);
     assert_eq!(error.details.unwrap()["kind"], "element_token_required");
 }
 

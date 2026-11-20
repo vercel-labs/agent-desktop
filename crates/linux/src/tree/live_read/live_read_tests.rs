@@ -57,7 +57,7 @@ impl NodeReader for Counting {
             read.node.traits.states = crate::tree::Field::Failed("state unavailable".into());
         }
         Ok(NodeEvidence {
-            evidence: evidence_for(&read, element),
+            evidence: evidence_for(&read, element, ""),
             read,
             liveness,
         })

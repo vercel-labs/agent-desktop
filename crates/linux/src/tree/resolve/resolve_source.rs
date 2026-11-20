@@ -5,22 +5,17 @@ use zbus::Connection;
 
 use super::path_descent::Levels;
 use super::resolve_anchor::resolve_anchor;
-use super::resolve_candidates::read_candidates;
 use super::resolve_errors::{settle_gone, stopped_app};
 use super::resolve_gate::stored_window;
-use super::resolve_search::evaluate;
-use super::searched::Searched;
 use crate::system::{SharedBus, owner_process_id, process::process_facts, shell, within};
 use crate::tree::menu::menu_resolve::resolve_menu;
 use crate::tree::observe::node_evidence::read_evidence_placed;
-use crate::tree::placement::node_position::place_nodes;
 use crate::tree::properties::liveness::Liveness;
 use crate::tree::properties::node_read::read_node_for;
 use crate::tree::properties::read_purpose::ReadPurpose;
-use crate::tree::properties::toolkit_trust::read_web_family;
 use crate::tree::resolve::{Source, resolve};
 use crate::tree::walk::level::Level;
-use crate::tree::walk::walker::{walk_tree, walk_tree_for};
+use crate::tree::walk::walker::walk_tree;
 use crate::tree::{AtspiElement, WalkLimits};
 
 fn unanswered() -> AdapterError {
@@ -50,7 +45,11 @@ impl<'a> BusSource<'a> {
 }
 
 impl Source for BusSource<'_> {
-    fn open_window(&mut self, entry: &RefEntry) -> Result<AtspiElement, AdapterError> {
+    fn bus_guid(&mut self) -> Result<String, AdapterError> {
+        Ok(self.connection.server_guid().to_string())
+    }
+
+    fn verify_window(&mut self, entry: &RefEntry) -> Result<AtspiElement, AdapterError> {
         let window = stored_window(entry)?;
         window.check_process(&process_facts::lookup(window.pid()), entry)?;
         let frame = window.frame();
@@ -70,6 +69,16 @@ impl Source for BusSource<'_> {
             let owner = owner_process_id(connection, window.bus()).await;
             window.check_owner(owner, entry)
         })?;
+        self.levels = Some(Levels::new(connection.clone(), &frame, self.deadline));
+        Ok(frame)
+    }
+
+    fn is_shell_frame(&mut self, frame: &AtspiElement) -> bool {
+        shell::is_shell_element(frame)
+    }
+
+    fn open_window(&mut self, entry: &RefEntry) -> Result<AtspiElement, AdapterError> {
+        let frame = self.verify_window(entry)?;
         let frame = if matches!(
             entry.source.source_surface,
             SnapshotSurface::Sheet | SnapshotSurface::Alert
@@ -104,7 +113,7 @@ impl Source for BusSource<'_> {
         } else {
             frame
         };
-        self.levels = Some(Levels::new(connection.clone(), &frame, self.deadline));
+        self.levels = Some(Levels::new(self.connection.clone(), &frame, self.deadline));
         Ok(frame)
     }
 
@@ -127,23 +136,6 @@ impl Source for BusSource<'_> {
             Liveness::TimedOut => Err(unanswered()),
             _ => Ok(read.evidence),
         }
-    }
-
-    fn search(&mut self, frame: &AtspiElement, entry: &RefEntry) -> Result<Searched, AdapterError> {
-        let mut walk = walk_tree_for(
-            self.bus,
-            frame,
-            &WalkLimits::default(),
-            self.deadline,
-            ReadPurpose::Shape,
-        )?;
-        read_candidates(&self.connection, &mut walk, entry, self.deadline)?;
-        place_nodes(self.bus, &mut walk, self.deadline)?;
-        Ok(evaluate(
-            &walk,
-            entry,
-            within(self.deadline, read_web_family(&self.connection, frame))?.is_some(),
-        ))
     }
 
     fn stopped_app(&mut self, pid: u32) -> Option<String> {
@@ -188,7 +180,3 @@ pub(crate) fn resolve_locator_anchor(
 #[cfg(test)]
 #[path = "resolve_source_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "resolve_renderer_live_tests.rs"]
-mod renderer_live_tests;

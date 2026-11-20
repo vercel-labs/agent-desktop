@@ -146,3 +146,16 @@ fn a_ref_without_a_token_keeps_the_attribute_path() {
 
     assert!(resolve_saved_token(&stored, deadline).unwrap().is_none());
 }
+
+#[test]
+fn a_bare_token_saved_before_core_tagged_tokens_is_refused_not_resolved_by_fields() {
+    let mut saved = entry("button");
+    saved.identity.unique_at_capture = true;
+    saved.identity.retained_object = Some("axtok1:00ff".into());
+    let error = super::super::retained::refuse_untagged_token(&saved).expect_err("refused");
+    assert_eq!(error.code, agent_desktop_core::ErrorCode::StaleRef);
+    assert_eq!(error.details.as_ref().expect("details")["reason"], "legacy");
+
+    saved.identity.retained_object = Some("token:axtok1:00ff".into());
+    assert!(super::super::retained::refuse_untagged_token(&saved).is_ok());
+}

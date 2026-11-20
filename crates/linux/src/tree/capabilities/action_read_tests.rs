@@ -11,7 +11,7 @@ use crate::tree::vocabulary::state_bits::{CHECKED, EXPANDED, FOCUSED, PRESSED, S
 use crate::tree::{Field, ObservedRead};
 
 fn view_of(read: ObservedRead) -> NodeView {
-    let evidence = evidence_for(&read, &read.node.element);
+    let evidence = evidence_for(&read, &read.node.element, "");
     NodeView::new(NodeEvidence {
         read,
         evidence,
