@@ -154,6 +154,11 @@ jobs:
           clang -fobjc-arc -fblocks -Wall -Wextra -Werror -framework AppKit tests/native/appkit_workspace_name_test.m -o "$RUNNER_TEMP/appkit-workspace-name-test"
           "$RUNNER_TEMP/appkit-workspace-name-test"
 
+      - name: Native launch by translated app name
+        run: |
+          clang -fobjc-arc -fblocks -Wall -Wextra -Werror -mmacosx-version-min=10.15 -framework AppKit tests/native/launch_display_name_test.m -o "$RUNNER_TEMP/launch-display-name-test"
+          "$RUNNER_TEMP/launch-display-name-test"
+
       - name: macOS VM host and guest agent compile, sign, and refuse a missing command
         run: |
           VM_HOST_DIR="$RUNNER_TEMP/macos"

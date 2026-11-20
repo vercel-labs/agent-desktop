@@ -84,6 +84,100 @@ static BOOL isStringArray(id value) {
     return YES;
 }
 
+static NSString *withoutAppExtension(NSString *name) {
+    if ([name.pathExtension compare:@"app" options:NSCaseInsensitiveSearch] == NSOrderedSame) {
+        return name.stringByDeletingPathExtension;
+    }
+    return name;
+}
+
+static BOOL sameApplicationName(NSString *shown, NSString *requested) {
+    NSStringCompareOptions options = NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch;
+    return [withoutAppExtension(shown) compare:withoutAppExtension(requested)
+                                       options:options] == NSOrderedSame;
+}
+
+static NSArray<NSString *> *applicationDirectories(void) {
+    NSString *home = [NSHomeDirectory() stringByAppendingPathComponent:@"Applications"];
+    return @[
+        home,
+        @"/Applications",
+        @"/Applications/Utilities",
+        @"/System/Applications",
+        @"/System/Applications/Utilities",
+    ];
+}
+
+static NSDictionary *infoStringsForLocalization(NSBundle *bundle, NSDictionary *table, NSString *localization) {
+    id strings = table[localization];
+    if (![strings isKindOfClass:[NSDictionary class]]) {
+        NSString *file = [bundle pathForResource:@"InfoPlist"
+                                          ofType:@"strings"
+                                     inDirectory:nil
+                                 forLocalization:localization];
+        strings = file == nil ? nil : [NSDictionary dictionaryWithContentsOfFile:file];
+    }
+    return [strings isKindOfClass:[NSDictionary class]] ? strings : nil;
+}
+
+/// The names the user sees for an application in their own language. A command-line
+/// process has no localizations of its own, so `displayNameAtPath:` answers in English
+/// (`Calculator`); the translated `CFBundleDisplayName` and `CFBundleName` come from the
+/// bundle's `InfoPlist.loctable` or `InfoPlist.strings` for the user's languages.
+static NSArray<NSString *> *localizedApplicationNames(NSString *path, NSArray<NSString *> *languages) {
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    NSBundle *bundle = [NSBundle bundleWithPath:path];
+    if (bundle != nil) {
+        NSString *tablePath = [bundle pathForResource:@"InfoPlist" ofType:@"loctable"];
+        NSDictionary *table = tablePath == nil ? nil : [NSDictionary dictionaryWithContentsOfFile:tablePath];
+        NSArray<NSString *> *localizations =
+            [NSBundle preferredLocalizationsFromArray:bundle.localizations
+                                       forPreferences:languages];
+        for (NSString *localization in localizations) {
+            NSDictionary *strings = infoStringsForLocalization(bundle, table, localization);
+            for (NSString *key in @[@"CFBundleDisplayName", @"CFBundleName"]) {
+                if ([strings[key] isKindOfClass:[NSString class]]) {
+                    [names addObject:strings[key]];
+                }
+            }
+        }
+    }
+    NSString *shown = [[NSFileManager defaultManager] displayNameAtPath:path];
+    if (shown.length > 0) {
+        [names addObject:shown];
+    }
+    return names;
+}
+
+/// Finds an application by a name the user sees for it, which on a Mac set to another
+/// language is the translated name (`Calculadora` for `Calculator.app`).
+/// `fullPathForApplication:` only knows the bundle file name, so this lookup is what lets
+/// `launch` take the name that `list-apps` reports and `--app` accepts. Case and accents
+/// are ignored and the first match in `directories` order wins.
+static NSString *applicationPathForDisplayName(
+    NSString *requested,
+    NSArray<NSString *> *directories,
+    NSArray<NSString *> *(^namesForPath)(NSString *path)
+) {
+    NSFileManager *files = [NSFileManager defaultManager];
+    for (NSString *directory in directories) {
+        NSArray<NSString *> *entries = [[files contentsOfDirectoryAtPath:directory error:nil]
+            sortedArrayUsingSelector:@selector(compare:)];
+        for (NSString *entry in entries) {
+            if ([entry.pathExtension compare:@"app" options:NSCaseInsensitiveSearch] != NSOrderedSame) {
+                continue;
+            }
+            NSString *path = [directory stringByAppendingPathComponent:entry];
+            for (NSString *shown in namesForPath(path)) {
+                if (shown.length > 0 && sameApplicationName(shown, requested)) {
+                    return path;
+                }
+            }
+        }
+    }
+    return nil;
+}
+
 static BOOL isStringDictionary(id value) {
     if (![value isKindOfClass:[NSDictionary class]]) {
         return NO;
@@ -143,6 +237,12 @@ bool agent_desktop_open_application(
             url = [workspace URLForApplicationWithBundleIdentifier:identifier];
         } else {
             NSString *path = [workspace fullPathForApplication:identifier];
+            if (path == nil) {
+                path = applicationPathForDisplayName(
+                    identifier, applicationDirectories(), ^(NSString *candidate) {
+                        return localizedApplicationNames(candidate, [NSLocale preferredLanguages]);
+                    });
+            }
             if (path != nil) {
                 url = [NSURL fileURLWithPath:path];
             }
