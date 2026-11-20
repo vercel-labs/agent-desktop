@@ -53,10 +53,23 @@ fn is_local_ref(ref_id: &str) -> bool {
 }
 
 fn invalid_ref(ref_id: &str) -> AppError {
+    let suggestion = if lost_snapshot_id_to_shell_modifier(ref_id) {
+        "This ref lost its snapshot id to the shell: in zsh, \"@$SNAP:e5\" applies the :e modifier to $SNAP and leaves @5. Write \"@${SNAP}:e5\", or paste the ref exactly as snapshot prints it, for example @s8f3k2p9:e1."
+    } else {
+        "Use the snapshot-qualified ref that snapshot prints, for example @s8f3k2p9:e1. A bare @eN ref is not accepted."
+    };
     AppError::invalid_input_with_suggestion(
         format!("Invalid ref_id '{ref_id}': expected @<snapshot_id>:e<N>"),
-        "Use the snapshot-qualified ref that snapshot prints, for example @s8f3k2p9:e1. A bare @eN ref is not accepted.",
+        suggestion,
     )
+}
+
+/// True for `@<digits>`, what zsh leaves of `"@$SNAP:e<digits>"`: `:e` is its
+/// extension modifier, so the variable expands to nothing and the `:e` is consumed.
+fn lost_snapshot_id_to_shell_modifier(ref_id: &str) -> bool {
+    ref_id.strip_prefix('@').is_some_and(|digits| {
+        !digits.is_empty() && digits.chars().all(|character| character.is_ascii_digit())
+    })
 }
 
 #[cfg(test)]

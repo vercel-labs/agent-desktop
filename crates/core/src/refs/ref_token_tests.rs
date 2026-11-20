@@ -31,3 +31,23 @@ fn syntax_validation_accepts_only_the_qualified_form() {
     assert!(validate_ref_token("@sabc:e").is_err());
     assert!(validate_ref_token("sabc:e1").is_err());
 }
+
+#[test]
+fn ref_emptied_by_a_zsh_modifier_gets_the_braced_form_suggestion() {
+    for emptied in ["@5", "@10", "@123"] {
+        let error = resolve_ref_target(emptied).unwrap_err();
+        assert_eq!(error.code(), "INVALID_ARGS");
+        assert!(
+            error
+                .suggestion()
+                .is_some_and(|s| s.contains("@${SNAP}:e5")),
+            "{emptied}: suggestion must name the braced shell form"
+        );
+    }
+    let bare = resolve_ref_target("@e5").unwrap_err();
+    assert!(
+        bare.suggestion()
+            .is_some_and(|s| !s.contains("@${SNAP}:e5")),
+        "a bare @eN ref keeps the qualified-ref suggestion"
+    );
+}
