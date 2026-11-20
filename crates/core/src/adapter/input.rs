@@ -32,6 +32,16 @@ pub trait InputOps: Send + Sync {
         Err(AdapterError::not_supported("mouse_event"))
     }
 
+    /// Sends a window-relative click without activating the window or moving the OS pointer.
+    fn mouse_click_for_window(
+        &self,
+        _window_id: &str,
+        _event: MouseEvent,
+        _lease: &InteractionLease,
+    ) -> Result<OperationReport, AdapterError> {
+        Err(AdapterError::not_supported("mouse_click_for_window"))
+    }
+
     fn key_event(
         &self,
         _combo: &KeyCombo,

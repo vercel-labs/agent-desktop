@@ -30,7 +30,7 @@ Physical input gets no confirmation from the OS, so a physical result is usually
 
 ## Which commands need `--headed`
 
-On every platform: `triple-click`, `hover`, `drag`, `mouse-move`, `mouse-click`, and `mouse-wheel`. `double-click` needs it too, except on macOS when the element offers `AXOpen`. `key-down`, `key-up`, `mouse-down`, and `mouse-up` never deliver input in either mode; see the [keyboard](/desktop/commands/keyboard#key-down) and [mouse](/desktop/commands/mouse#mouse-down) references.
+On every platform, `triple-click`, `hover`, `drag`, `mouse-move`, `mouse-click --xy`, and `mouse-wheel` require `--headed`. On macOS, [window-relative clicks](/desktop/commands/mouse#click-inside-a-window-on-macos) work headless. `double-click` needs `--headed` except on macOS when the element offers `AXOpen`. `key-down`, `key-up`, `mouse-down`, and `mouse-up` never deliver input in either mode. See the [keyboard](/desktop/commands/keyboard#key-down) and [mouse](/desktop/commands/mouse#mouse-down) references.
 
 Depending on the OS:
 

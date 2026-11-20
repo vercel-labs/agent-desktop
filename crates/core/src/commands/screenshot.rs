@@ -13,13 +13,24 @@ pub struct ScreenshotArgs {
     pub app: Option<String>,
     pub window_id: Option<String>,
     pub screen: Option<usize>,
+    pub window_frame: bool,
     pub output_path: Option<PathBuf>,
 }
 
 pub fn execute(args: ScreenshotArgs, adapter: &dyn PlatformAdapter) -> Result<Value, AppError> {
     let deadline = crate::Deadline::standard()?;
+    if args.window_frame && args.window_id.is_none() {
+        return Err(AppError::invalid_input(
+            "--window-frame requires --window-id",
+        ));
+    }
     let target = resolve_target(&args, adapter, deadline)?;
-    let buf = adapter.screenshot(target, deadline)?;
+    let buf = match target {
+        ScreenshotTarget::ExactWindow(window) if args.window_frame => {
+            adapter.screenshot_window_frame(&window, deadline)?
+        }
+        target => adapter.screenshot(target, deadline)?,
+    };
 
     if let Some(path) = args.output_path {
         crate::refs::write_user_file(&path, &buf.data)

@@ -16,6 +16,16 @@ impl InputOps for MacOSAdapter {
         Ok(report)
     }
 
+    #[cfg(target_os = "macos")]
+    fn mouse_click_for_window(
+        &self,
+        window_id: &str,
+        event: MouseEvent,
+        lease: &InteractionLease,
+    ) -> Result<OperationReport, AdapterError> {
+        crate::input::mouse::window_click::click_window(window_id, event, lease.deadline())
+    }
+
     fn key_event(
         &self,
         combo: &KeyCombo,

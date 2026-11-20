@@ -36,6 +36,7 @@ fn unknown_permission_does_not_mask_platform_errors() {
             window_id: None,
         },
         screen: None,
+        window_frame: false,
         output_path: None,
     });
 
@@ -57,6 +58,7 @@ fn screen_recording_denial_is_preflighted() {
             window_id: None,
         },
         screen: None,
+        window_frame: false,
         output_path: None,
     });
 

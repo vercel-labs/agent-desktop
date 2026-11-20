@@ -113,9 +113,10 @@ Checks one boolean: `visible` (default), `enabled`, `checked`, `focused`, `expan
 ```bash
 agent-desktop screenshot --app "Finder" out.png
 agent-desktop screenshot --screen 0 display.png
+agent-desktop screenshot --window-id w-4521 --window-frame window.png
 ```
 
-With no path, the PNG returns as base64 in `data`. `--screen` takes a display index from `list-displays`; `0` is the primary display. A screenshot is evidence for you, not proof that an action worked. Permission denial returns `PERM_DENIED` (see the platform skill).
+With no path, the PNG returns as base64 in `data`. `--screen` takes a display index from `list-displays`, where `0` is the primary. `--window-frame` requires a window ID and captures the frame without the drop shadow. Permission denial returns `PERM_DENIED`. See the platform skill.
 
 ## list-displays
 

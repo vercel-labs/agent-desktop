@@ -84,6 +84,7 @@ pub(super) fn screenshot(
             app: args.scope.app,
             window_id: args.scope.window_id,
             screen: args.screen,
+            window_frame: args.window_frame,
             output_path: args.output_path,
         },
         adapter,

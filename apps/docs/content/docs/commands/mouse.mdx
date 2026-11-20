@@ -1,10 +1,10 @@
 ---
 title: Mouse commands
 navTitle: Mouse
-description: Reference for hover, drag, mouse-move, mouse-click, mouse-down, mouse-up, and mouse-wheel. Cursor movement needs --headed, and the held-button commands fail closed.
+description: Reference for mouse commands, including desktop coordinates and background window clicks on macOS.
 ---
 
-Every mouse command moves the real cursor, so each one needs the global `--headed` flag. Without it the command returns `POLICY_DENIED` with `not_delivered` and sends nothing:
+Mouse commands that move the real cursor require the global `--headed` flag. Without it the command returns `POLICY_DENIED` with `not_delivered` and sends nothing:
 
 ```json
 {
@@ -15,7 +15,7 @@ Every mouse command moves the real cursor, so each one needs the global `--heade
 }
 ```
 
-Read [Headed mode](/desktop/guides/headed-mode) before you add the flag. Coordinates are absolute screen points written `x,y`; write a negative value with `=` so the shell does not read it as a flag (`--xy=-100,50`). Raw coordinates carry no window identity and never focus an app; a ref target focuses its exact window first. The pointer commands return an [OperationReport](/desktop/json-output#operationreport) with a `pointer` target. The examples are real output from Linux X11.
+Read [Headed mode](/desktop/guides/headed-mode) before you add the flag. Desktop coordinates are absolute screen points written `x,y`. Use `=` for negative values, as in `--xy=-100,50`. A headed pointer action on a ref focuses its exact window first. The pointer commands return an [OperationReport](/desktop/json-output#operationreport). The desktop-coordinate examples are from Linux X11.
 
 ## hover
 
@@ -94,7 +94,7 @@ The report matches the [`hover`](#hover) example. On macOS the position is read 
 
 ## mouse-click
 
-Clicks at absolute coordinates.
+Clicks at a desktop point or, on macOS, at a point inside a specific window.
 
 ```bash
 agent-desktop --headed mouse-click --xy 500,300 [--button left|right|middle] [--count N] [--modifiers NAME]...
@@ -105,7 +105,9 @@ agent-desktop --headed mouse-click --xy 500,300 [--button left|right|middle] [--
     <tr><th>Flag</th><th>Default</th><th>Meaning</th></tr>
   </thead>
   <tbody>
-    <tr><td><code>--xy X,Y</code></td><td>required</td><td>Absolute coordinates.</td></tr>
+    <tr><td><code>--xy X,Y</code></td><td>none</td><td>Absolute desktop coordinates. Requires <code>--headed</code>.</td></tr>
+    <tr><td><code>--window-id ID</code></td><td>none</td><td>Exact ID from <code>list-windows</code>. Use with <code>--window-xy</code> on macOS.</td></tr>
+    <tr><td><code>--window-xy X,Y</code></td><td>none</td><td>Points from the top-left of the window frame. Use instead of <code>--xy</code>.</td></tr>
     <tr><td><code>--button</code></td><td><code>left</code></td><td><code>left</code>, <code>right</code>, or <code>middle</code>.</td></tr>
     <tr><td><code>--count N</code></td><td><code>1</code></td><td>Clicks, 1 to 100. Use 2 for a double click and 3 for a triple click.</td></tr>
     <tr><td><code>--modifiers NAME</code></td><td>none</td><td>A modifier held during the click: <code>shift</code>, <code>meta</code>, <code>ctrl</code>, <code>alt</code>. Repeat the flag for several.</td></tr>
@@ -131,6 +133,18 @@ agent-desktop --headed mouse-click --xy 500,300 [--button left|right|middle] [--
 ```
 
 `target.point` is where the click was dispatched; it does not prove which app received it. Before you click at bounds read from a snapshot, check `get --property bounds` and its `live` flag.
+
+### Click inside a window on macOS
+
+Use a window click when a visible control has no ref. Capture the exact window frame and divide the image coordinates by the returned `scale_factor` to get window points. The origin includes the title bar.
+
+```bash
+agent-desktop list-windows --app "Your app"
+agent-desktop screenshot --window-id w-4521 --window-frame window.png
+agent-desktop mouse-click --window-id w-4521 --window-xy 120,95
+```
+
+The command posts to the window's owning process without moving the hardware pointer or activating the app. Choose the frontmost on-screen window of that app. Another app can cover it. A window behind a sibling of the same app returns `ACTION_NOT_SUPPORTED` before input because macOS can reorder those windows on click. A minimized window or a point outside the frame also fails before input. Check for the effect with a fresh screenshot or accessibility read. A successful post reports a `window` target and `delivered_unverified`. Some apps ignore synthetic events or change focus in response to a click.
 
 ## mouse-down
 

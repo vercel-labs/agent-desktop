@@ -91,7 +91,9 @@ pub(crate) enum Commands {
     Drag(DragCliArgs),
     #[command(about = "Move cursor to absolute screen coordinates (requires --headed)")]
     MouseMove(MouseMoveArgs),
-    #[command(about = "Click at absolute screen coordinates (requires --headed)")]
+    #[command(
+        about = "Click at screen coordinates with --headed or at window-relative points on macOS"
+    )]
     MouseClick(MouseClickArgs),
     #[command(
         about = "Press mouse button at coordinates (fails closed in stateless mode; use mouse-click or drag)"

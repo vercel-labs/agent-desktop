@@ -133,8 +133,6 @@ mod imp {
         deadline: Deadline,
         verify_target: &mut dyn FnMut() -> Result<(), AdapterError>,
     ) -> Result<(), AdapterError> {
-        let down_ty = down_type(spec.button);
-        let up_ty = up_type(spec.button);
         let mut delivery = crate::actions::DeliveryTracker::default();
         crate::input::mouse::mouse_move::post_move_events(
             spec.point,
@@ -143,6 +141,61 @@ mod imp {
             deadline,
             &mut delivery,
         )?;
+        deliver_click_pairs(
+            spec,
+            deadline,
+            verify_target,
+            &|event| {
+                event.post(CGEventTapLocation::HID);
+            },
+            delivery,
+        )
+    }
+
+    pub(super) fn synthesize_window_click(
+        event: MouseEvent,
+        deadline: Deadline,
+        verify_target: &mut dyn FnMut() -> Result<(), AdapterError>,
+        post: &dyn Fn(&CGEvent),
+    ) -> Result<(), AdapterError> {
+        let MouseEventKind::Click { count } = event.kind else {
+            return Err(AdapterError::new(
+                ErrorCode::InvalidArgs,
+                "Window input requires a mouse click",
+            ));
+        };
+        validate_point(&event.point)?;
+        agent_desktop_core::validate_mouse_click_count(count)?;
+        let spec = ClickSpec {
+            point: CGPoint::new(event.point.x, event.point.y),
+            cg_button: to_cg_button(&event.button),
+            button: &event.button,
+            count,
+            flags: event_flags(&event.modifiers),
+        };
+        let mut delivery = crate::actions::DeliveryTracker::default();
+        let moved = create_event(
+            CGEventType::MouseMoved,
+            spec.point,
+            spec.cg_button,
+            spec.flags,
+        )?;
+        verify_target()?;
+        post(&moved);
+        delivery.mark_delivered();
+        sleep_bounded(deadline, std::time::Duration::from_millis(30), delivery)?;
+        deliver_click_pairs(spec, deadline, verify_target, post, delivery)
+    }
+
+    fn deliver_click_pairs(
+        spec: ClickSpec,
+        deadline: Deadline,
+        verify_target: &mut dyn FnMut() -> Result<(), AdapterError>,
+        post: &dyn Fn(&CGEvent),
+        mut delivery: crate::actions::DeliveryTracker,
+    ) -> Result<(), AdapterError> {
+        let down_ty = down_type(spec.button);
+        let up_ty = up_type(spec.button);
         for i in 1..=spec.count {
             ensure_budget(deadline, delivery)?;
             let down = create_event(down_ty, spec.point, spec.cg_button, spec.flags)
@@ -153,9 +206,12 @@ mod imp {
             set_click_count(&up, i as i64);
             ensure_budget(deadline, delivery)?;
             verify_target().map_err(|error| delivery.annotate(error))?;
-            down.post(CGEventTapLocation::HID);
+            post(&down);
             delivery.mark_delivered();
-            let mut release = ClickReleaseGuard { event: Some(up) };
+            let mut release = ClickReleaseGuard {
+                event: Some(up),
+                post,
+            };
             sleep_bounded(deadline, std::time::Duration::from_millis(10), delivery)?;
             let up = release
                 .event
@@ -164,7 +220,7 @@ mod imp {
                     AdapterError::internal("Mouse click release guard lost its pending event")
                 })
                 .map_err(|error| delivery.annotate(error))?;
-            up.post(CGEventTapLocation::HID);
+            post(&up);
             ensure_budget(deadline, delivery)?;
             if i < spec.count {
                 sleep_bounded(deadline, std::time::Duration::from_millis(30), delivery)?;
@@ -173,14 +229,15 @@ mod imp {
         Ok(())
     }
 
-    struct ClickReleaseGuard {
+    struct ClickReleaseGuard<'a> {
         event: Option<CGEvent>,
+        post: &'a dyn Fn(&CGEvent),
     }
 
-    impl Drop for ClickReleaseGuard {
+    impl Drop for ClickReleaseGuard<'_> {
         fn drop(&mut self) {
             if let Some(event) = self.event.take() {
-                event.post(CGEventTapLocation::HID);
+                (self.post)(&event);
             }
         }
     }
@@ -320,6 +377,11 @@ pub(crate) use imp::{
     create_event_with_source, ensure_budget, event_flags, event_source, post_event_with_source,
     sleep_bounded, validate_point,
 };
+
+#[cfg(target_os = "macos")]
+pub(crate) mod window_click;
+#[cfg(target_os = "macos")]
+mod window_click_route;
 
 #[cfg(all(test, target_os = "macos", feature = "interactive-tests"))]
 pub(crate) use imp::{create_event, standalone_state_error, wheel_lines_to_i32};
