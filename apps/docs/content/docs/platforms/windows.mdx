@@ -18,7 +18,7 @@ Windows has no grant dialog for UI Automation; access is controlled by integrity
 
 - Apps at your terminal's integrity level need no grant. `permissions` reports `accessibility: granted` when UIA answers, and `automation: not_required`. `permissions --guide` returns `PLATFORM_NOT_SUPPORTED`.
 - An app running as administrator can be read but not driven from a lower-integrity terminal, because User Interface Privilege Isolation (UIPI) blocks the input. agent-desktop compares the process tokens before sending anything and returns `PERM_DENIED` with `E_ACCESSDENIED` in `platform_detail`. Run agent-desktop from a terminal elevated to the same level.
-- Elevated and non-elevated runs cannot share a state root; the second fails with `INTERNAL`, "private file parent is owned by a foreign principal". Give the elevated run its own `AGENT_DESKTOP_HOME`.
+- Elevated and non-elevated runs cannot share a state root; the second fails with `PERM_DENIED`, "private file parent is owned by a foreign principal". Give the elevated run its own `AGENT_DESKTOP_HOME`.
 
 ## What works headless
 
@@ -102,4 +102,4 @@ Chromium 138 and later exposes a full UIA tree with no flag, but the first read 
   </tbody>
 </table>
 
-More cases are in `agent-desktop skills get windows troubleshooting`.
+More cases are in `agent-desktop skills get windows`.

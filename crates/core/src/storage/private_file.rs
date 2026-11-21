@@ -16,7 +16,7 @@ pub(crate) fn open_private_lock_portable(path: &Path, create: bool) -> std::io::
     options.read(true).write(true).create(create);
     configure_unix(&mut options, 0o600);
     let file = options.open(path)?;
-    validate_private_regular(&file)?;
+    validate_private_regular(&file, path)?;
     Ok(file)
 }
 
@@ -32,7 +32,7 @@ pub(crate) fn open_private_append_portable(path: &Path) -> std::io::Result<File>
     options.read(true).create(true).append(true);
     configure_unix(&mut options, 0o600);
     let file = options.open(path)?;
-    validate_private_regular(&file)?;
+    validate_private_regular(&file, path)?;
     Ok(file)
 }
 
@@ -130,7 +130,7 @@ fn write_atomic_with(
         #[cfg(test)]
         crash_before_rename_if_requested(path);
         replace_atomic(&temporary, path)?;
-        validate_private_regular(&open_private_read(path)?)?;
+        validate_private_regular(&open_private_read(path)?, path)?;
         sync_parent(parent)
     });
     if result.is_err() {
@@ -161,7 +161,15 @@ fn validate_user_destination(path: &Path) -> std::io::Result<()> {
     }
 }
 
-pub(crate) fn validate_private_regular(file: &File) -> std::io::Result<std::fs::Metadata> {
+pub(crate) fn validate_private_regular(
+    file: &File,
+    path: &Path,
+) -> std::io::Result<std::fs::Metadata> {
+    validate_private_metadata(file)
+        .map_err(|error| super::private_file_parent::privacy_error(path, error, "600"))
+}
+
+fn validate_private_metadata(file: &File) -> std::io::Result<std::fs::Metadata> {
     let metadata = validate_regular(file)?;
     #[cfg(unix)]
     {
@@ -196,7 +204,7 @@ fn open_private_read(path: &Path) -> std::io::Result<File> {
     options.read(true);
     configure_unix(&mut options, 0);
     let file = options.open(path)?;
-    validate_private_regular(&file)?;
+    validate_private_regular(&file, path)?;
     Ok(file)
 }
 
@@ -214,7 +222,7 @@ fn create_temporary(path: &Path) -> std::io::Result<(PathBuf, File)> {
         configure_unix(&mut options, 0o600);
         match options.open(&temporary) {
             Ok(file) => {
-                validate_private_regular(&file)?;
+                validate_private_regular(&file, &temporary)?;
                 return Ok((temporary, file));
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,

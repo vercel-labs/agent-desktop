@@ -59,29 +59,35 @@ pub(super) struct PinnedDirectoryChain {
 }
 
 pub(super) fn ensure_private_directory_chain(path: &Path) -> std::io::Result<PinnedDirectoryChain> {
-    let chain = walk_directory_components(path, MissingComponents::Create)?;
-    let directory = open_directory_no_follow(
-        path,
-        FILE_READ_ATTRIBUTES | READ_CONTROL | windows_sys::Win32::Storage::FileSystem::WRITE_DAC,
-    )?;
-    require_verified_directory(&directory)?;
-    owner::require_actual_owner_by_eligible_principal(&directory, "private file parent")?;
-    if chain.created_leaf {
-        dacl::protect_directory(&directory)?;
-    }
-    dacl::require_private(&directory)?;
-    Ok(chain)
+    private_directory_chain(path, MissingComponents::Create)
 }
 
 pub(super) fn require_private_directory_chain(
     path: &Path,
 ) -> std::io::Result<PinnedDirectoryChain> {
-    let chain = walk_directory_components(path, MissingComponents::Reject)?;
-    let directory = open_directory_no_follow(path, FILE_READ_ATTRIBUTES | READ_CONTROL)?;
-    require_verified_directory(&directory)?;
-    owner::require_actual_owner_by_eligible_principal(&directory, "private file parent")?;
-    dacl::require_private(&directory)?;
-    Ok(chain)
+    private_directory_chain(path, MissingComponents::Reject)
+}
+
+fn private_directory_chain(
+    path: &Path,
+    missing: MissingComponents,
+) -> std::io::Result<PinnedDirectoryChain> {
+    let check = || {
+        let chain = walk_directory_components(path, missing)?;
+        let mut access = FILE_READ_ATTRIBUTES | READ_CONTROL;
+        if missing == MissingComponents::Create {
+            access |= windows_sys::Win32::Storage::FileSystem::WRITE_DAC;
+        }
+        let directory = open_directory_no_follow(path, access)?;
+        require_verified_directory(&directory)?;
+        owner::require_actual_owner_by_eligible_principal(&directory, "private file parent")?;
+        if chain.created_leaf {
+            dacl::protect_directory(&directory)?;
+        }
+        dacl::require_private(&directory)?;
+        Ok(chain)
+    };
+    check().map_err(|error| super::privacy_error(path, error))
 }
 
 fn walk_directory_components(

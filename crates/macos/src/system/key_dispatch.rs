@@ -116,10 +116,12 @@ fn no_focused_element_error(policy: InteractionPolicy) -> AdapterError {
     )
     .with_details(serde_json::json!({ "physical_delivery_started": false }))
     .with_suggestion(if policy.allow_focus_steal {
-        "Ensure the target field has keyboard focus before retrying, or run the menu command without keys: find the item with 'snapshot --app <app> --surface menubar' and click its ref."
+        "Ensure the target field has keyboard focus before retrying, or run the menu command without keys: find the item with 'snapshot --app <app> --surface menubar' and click its ref.".to_owned()
     } else {
-        "Retry with --headed so the app can take focus, or run the menu command without \
-         keys: find the item with 'snapshot --app <app> --surface menubar' and click its ref."
+        format!(
+            "{} A headless alternative is to run the menu command without keys: find the item with 'snapshot --app <app> --surface menubar' and click its ref.",
+            agent_desktop_core::headed_mode_suggestion("lets the app take focus before sending keys")
+        )
     })
 }
 

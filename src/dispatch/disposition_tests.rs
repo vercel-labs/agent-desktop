@@ -160,6 +160,29 @@ fn a_read_only_failure_that_is_not_an_adapter_error_keeps_its_code_and_message()
 }
 
 #[test]
+fn a_read_only_failure_keeps_the_details_and_suggestion_of_the_error_it_carries() {
+    let carried = AdapterError::new(ErrorCode::PermDenied, "private file is readable by others")
+        .with_details(json!({ "path": "/state/refmap.json" }))
+        .with_suggestion("Run chmod 600 '/state/refmap.json'");
+    let failure = AppError::Io(std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        carried,
+    ));
+
+    let AppError::Adapter(settled) = settle_unknown_delivery(failure, true) else {
+        panic!("a read-only failure must carry a delivery verdict");
+    };
+
+    assert_eq!(settled.code, ErrorCode::PermDenied);
+    assert_eq!(settled.details.unwrap()["path"], "/state/refmap.json");
+    assert_eq!(
+        settled.suggestion.as_deref(),
+        Some("Run chmod 600 '/state/refmap.json'")
+    );
+    assert_eq!(settled.disposition, DeliverySemantics::not_delivered());
+}
+
+#[test]
 fn a_mutations_failure_that_is_not_an_adapter_error_is_left_as_it_came() {
     let settled = settle_unknown_delivery(AppError::Io(std::io::Error::other("disk full")), false);
 

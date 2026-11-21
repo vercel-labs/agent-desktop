@@ -25,7 +25,9 @@ pub(crate) fn require_headed(policy: InteractionPolicy) -> Result<(), AdapterErr
         "Changing notifications moves the pointer on the shell and needs headed mode",
         policy,
     )
-    .with_suggestion("Pass --headed to let the command click in the message list"))
+    .with_suggestion(agent_desktop_core::headed_mode_suggestion(
+        "moves the pointer to click in the message list",
+    )))
 }
 
 /// The message list for one mutation. A list that was showing on entry is

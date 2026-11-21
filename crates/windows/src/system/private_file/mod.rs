@@ -76,8 +76,7 @@ impl PrivateFileOps for WindowsPrivateFile {
         let mut options = OpenOptions::new();
         options.read(true).create(true).append(true);
         let file = path::open_leaf_regular_no_follow(path, &mut options, "private append target")?;
-        owner::require_owned_by_eligible_principal(&file, "private append target")?;
-        dacl::require_private(&file)?;
+        require_private(&file, path, "private append target")?;
         locality::require_local_for_private_write(&file, "private append target")?;
         Ok(file)
     }
@@ -90,8 +89,7 @@ impl PrivateFileOps for WindowsPrivateFile {
         let mut options = OpenOptions::new();
         options.read(true).write(true).create(create);
         let file = path::open_leaf_regular_no_follow(path, &mut options, "private lock file")?;
-        owner::require_owned_by_eligible_principal(&file, "private lock file")?;
-        dacl::require_private(&file)?;
+        require_private(&file, path, "private lock file")?;
         locality::require_local_for_private_write(&file, "private lock file")?;
         Ok(file)
     }
@@ -118,17 +116,13 @@ pub(crate) fn read_private_bounded_path(path: &Path, max_bytes: u64) -> std::io:
     let mut options = OpenOptions::new();
     options.read(true);
     let file = path::open_leaf_regular_no_follow(path, &mut options, "private file")?;
-    owner::require_owned_by_eligible_principal(&file, "private file")?;
-    dacl::require_private(&file)?;
+    require_private(&file, path, "private file")?;
     bounded_read(file, max_bytes)
 }
 
 fn validate_destination_if_present(path: &Path) -> std::io::Result<()> {
     match path::open_leaf_for_validation(path, "private file destination") {
-        Ok(file) => {
-            owner::require_owned_by_eligible_principal(&file, "private file destination")?;
-            dacl::require_private(&file)
-        }
+        Ok(file) => require_private(&file, path, "private file destination"),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
     }
@@ -136,8 +130,21 @@ fn validate_destination_if_present(path: &Path) -> std::io::Result<()> {
 
 fn validate_written_destination(path: &Path) -> std::io::Result<()> {
     let file = path::open_leaf_for_validation(path, "replaced private file")?;
-    owner::require_owned_by_eligible_principal(&file, "replaced private file")?;
-    dacl::require_private(&file)
+    require_private(&file, path, "replaced private file")
+}
+
+fn require_private(file: &File, path: &Path, what: &str) -> std::io::Result<()> {
+    owner::require_owned_by_eligible_principal(file, what)
+        .and_then(|()| dacl::require_private(file))
+        .map_err(|error| privacy_error(path, error))
+}
+
+fn privacy_error(path: &Path, error: std::io::Error) -> std::io::Error {
+    agent_desktop_core::private_file_error(
+        path,
+        error,
+        "Keep only this user, SYSTEM and Administrators on the folder's permissions, or set AGENT_DESKTOP_HOME to a folder under your user profile.",
+    )
 }
 
 fn write_all_and_sync(mut file: File, bytes: &[u8]) -> std::io::Result<()> {

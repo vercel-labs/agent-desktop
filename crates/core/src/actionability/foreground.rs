@@ -11,8 +11,6 @@ use crate::{
     adapter::{NativeHandle, PlatformAdapter},
 };
 
-const FOREGROUND_SUGGESTION: &str = "This action opens a popup, menu or window that takes the foreground, which a headless request does not allow. Run it again with --headed only if taking the foreground is intended.";
-
 /// The refusal for `mechanism`, which takes the foreground `policy` forbids.
 /// `kind` says why the platform expects it to; nothing was sent.
 pub fn foreground_denied(
@@ -45,7 +43,9 @@ pub(crate) fn require_declared(
         .require(declared.effect, operation)
         .map_err(|refusal| {
             refusal
-                .with_suggestion(FOREGROUND_SUGGESTION)
+                .with_suggestion(crate::headed_mode_suggestion(
+                    "opens a popup, menu or window that takes the foreground",
+                ))
                 .with_details(json!({
                     "check": "foreground",
                     "kind": declared.kind,

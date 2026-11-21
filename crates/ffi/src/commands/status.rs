@@ -1,4 +1,3 @@
-use crate::commands::app_error_to_adapter;
 use crate::commands::envelope_out::write_command_envelope;
 use crate::error::{self, AdResult};
 use crate::ffi_try::trap_panic;
@@ -43,7 +42,7 @@ pub unsafe extern "C" fn ad_status(
         let ctx = match adapter.command_context() {
             Ok(c) => c,
             Err(app_err) => {
-                let ae = app_error_to_adapter(app_err);
+                let ae = agent_desktop_core::AppError::into_adapter_error(app_err);
                 error::set_last_error(&ae);
                 return error::last_error_code();
             }

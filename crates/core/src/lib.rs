@@ -110,6 +110,7 @@ pub use response::adapter_error::AdapterError;
 pub use response::app_error::AppError;
 pub use response::delivery_disposition::DeliveryDisposition;
 pub use response::error_code::ErrorCode;
+pub use response::headed_mode::headed_mode_suggestion;
 pub use response::output::{ErrorPayload, Response};
 pub use response::recovery_hint::RecoveryHint;
 pub use response::retry_disposition::RetryDisposition;
@@ -128,7 +129,7 @@ pub use snapshot::snapshot_owner::SnapshotOwner;
 pub use snapshot::snapshot_surface::SnapshotSurface;
 pub use storage::file_lock::FileLock;
 pub use storage::private_file_ops::{
-    PrivateFileOps, bounded_read, install_private_file_ops, temporary_file_name,
+    PrivateFileOps, bounded_read, install_private_file_ops, private_file_error, temporary_file_name,
 };
 pub use storage::state_root::validate_state_root_env;
 pub use system::app_info::{AppInfo, AppPresentation, app_name_matches};

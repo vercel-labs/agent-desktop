@@ -33,12 +33,12 @@ pub(crate) fn identity_not_unique(entry: &RefEntry) -> AdapterError {
         ErrorCode::AmbiguousTarget,
         "Saved ref was not proven unique when it was captured, so it cannot be re-identified safely",
     )
-    .with_suggestion(
+    .with_suggestion(format!(
         "Either another element in the window matched it, or the window could not be read \
          whole within the snapshot timeout. For a large window, retake the snapshot with a \
-         larger --timeout-ms. Identical twins are refused again by every snapshot; where \
-         headed pointer input is available, an explicit --headed coordinate click can pick one.",
-    )
+         larger --timeout-ms. Identical twins are refused again by every snapshot. {}",
+        crate::headed_mode_suggestion("moves the pointer to choose one by coordinate click, where physical input is available")
+    ))
     .with_details(json!({
         "kind": "identity_not_unique",
         "retryable": false,
@@ -69,11 +69,13 @@ pub(crate) fn ambiguous_live_match(entry: &RefEntry) -> AdapterError {
     AdapterError::ambiguous_target(
         "Two or more live elements match the saved ref's recorded role and stable identity",
     )
-    .with_suggestion(
+    .with_suggestion(format!(
         "An element identical to the captured one appeared, so neither can be picked by ref and \
-         a new snapshot refuses both as twins. Act on a control that is unique in the window, or, \
-         where headed pointer input is available, use an explicit --headed coordinate click.",
-    )
+         a new snapshot refuses both as twins. Act on a control that is unique in the window. {}",
+        crate::headed_mode_suggestion(
+            "moves the pointer to choose one by coordinate click, where physical input is available"
+        )
+    ))
     .with_details(json!({
         "kind": "saved_ref_ambiguous",
         "retryable": false,

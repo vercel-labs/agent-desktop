@@ -259,17 +259,17 @@ fn finish(
     }
     let code = report.terminal_code().unwrap_or(ErrorCode::ActionFailed);
     let suggestion = if code == ErrorCode::ActionFailed {
-        suggestion::ACTION_FAILED_SUGGESTION
+        suggestion::ACTION_FAILED_SUGGESTION.to_owned()
     } else if evidence.state.role == "cell"
         && report.checks.iter().any(|check| {
             check.check == "editable" && check.status == super::status::ActionabilityStatus::Fail
         })
     {
-        "This cell is not directly editable. Activate it, take a fresh snapshot, and target the text editor if one appears."
+        "This cell is not directly editable. Activate it, take a fresh snapshot, and target the text editor if one appears.".to_owned()
     } else if code == ErrorCode::ActionNotSupported
         && matches!(request.action, crate::Action::SetFocus)
     {
-        "Choose an element advertising SetFocus in a fresh snapshot. To focus the owning window instead, use focus-window."
+        "Choose an element advertising SetFocus in a fresh snapshot. To focus the owning window instead, use focus-window.".to_owned()
     } else if code == ErrorCode::ActionNotSupported
         && matches!(
             request.action,
@@ -277,13 +277,9 @@ fn finish(
         )
         && matches!(evidence.state.role.as_str(), "textfield" | "combobox")
     {
-        if request.policy.is_headed() {
-            "This field has no semantic text-write action. Use 'type' in the current headed mode for physical keyboard input; select the existing text first if you intend to replace it. If typing refuses because the field cannot be focused, use clipboard-set and the app's paste shortcut, then verify the field."
-        } else {
-            "This field has no semantic text-write action. Use '--headed type' for physical keyboard input; select the existing text first if you intend to replace it. If typing refuses because the field cannot be focused, use clipboard-set and the app's paste shortcut, then verify the field."
-        }
+        suggestion::text_write(request.policy)
     } else {
-        super::suggestion::WAITING_SUGGESTION
+        super::suggestion::WAITING_SUGGESTION.to_owned()
     };
     let mut details = json!(report);
     if let Some(object) = details.as_object_mut()

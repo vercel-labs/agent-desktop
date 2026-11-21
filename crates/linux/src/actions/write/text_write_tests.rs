@@ -263,7 +263,7 @@ fn the_gecko_refusal_is_not_supported_not_delivered_and_names_its_cause() {
         );
         let hint = error.suggestion.expect("recovery hint");
         assert_eq!(
-            hint.contains("--headed type"),
+            hint.contains("only if the user explicitly asked"),
             !policy.is_headed(),
             "{hint}"
         );

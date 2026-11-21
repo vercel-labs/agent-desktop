@@ -109,7 +109,7 @@ unsafe fn is_in_window(
     ) {
         Ok(resolution) => resolution,
         Err(error) => {
-            set_last_error(&crate::commands::app_error_to_adapter(error));
+            set_last_error(&agent_desktop_core::AppError::into_adapter_error(error));
             return crate::error::last_error_code();
         }
     };
@@ -117,7 +117,7 @@ unsafe fn is_in_window(
         match agent_desktop_core::require_unique(resolution) {
             Ok(selected) => selected,
             Err(error) => {
-                set_last_error(&crate::commands::app_error_to_adapter(error));
+                set_last_error(&agent_desktop_core::AppError::into_adapter_error(error));
                 return crate::error::last_error_code();
             }
         }

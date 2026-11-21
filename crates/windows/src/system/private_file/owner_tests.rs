@@ -223,6 +223,16 @@ fn read_private_bounded_refuses_when_the_owner_seam_forces_a_foreign_principal()
         refused.to_string().contains("foreign principal"),
         "the refused read must name the foreign principal: {refused}"
     );
+    let payload = agent_desktop_core::ErrorPayload::from_app_error(
+        &agent_desktop_core::AppError::Io(refused),
+    );
+    assert_eq!(payload.details.unwrap()["path"], artifact.to_str().unwrap());
+    let suggestion = payload.suggestion.unwrap();
+    assert!(
+        suggestion.contains("this user, SYSTEM and Administrators"),
+        "{suggestion}"
+    );
+    assert!(suggestion.contains("AGENT_DESKTOP_HOME"), "{suggestion}");
 }
 
 #[test]

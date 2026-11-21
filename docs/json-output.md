@@ -179,6 +179,10 @@ When a ref action returns `delivery_uncertain` with a post-action wait selector,
 
 ## Version 2.7 migration
 
+- Headed-mode refusal suggestions require an explicit user request for headed operation; agents must not add `--headed` to recover from a headless failure.
+- Private-file privacy errors keep their code and add `details.path` and a fix: Unix permissions (`chmod 700` for a directory) or Windows permissions limited to this user, SYSTEM and Administrators, or a new `AGENT_DESKTOP_HOME`.
+- `status` adds `data.state_root_privacy`: `{ "ok": true }` or `{ "ok": false, "error": { ... } }` from the same private-directory check; failed checks leave snapshot rows null.
+
 `launch`, `open-system-surface`, `focus-window`, `dismiss-notification` and `dismiss-all-notifications` now carry `data.disposition` on success, and an incomplete-locator `TIMEOUT` names its cause. Every key is additive; every other key keeps its value. A `launch` payload written before the field existed has no `disposition`; readers must treat its absence as `unknown`, not as a delivery claim.
 
 - `launch` reports `not_delivered` (`retry: "safe"`) when it attached to a running application and dispatched nothing — no `--activate`, or an `--activate` whose target was already active and needed no request. With `--activate` it reports `delivered_verified` only when the platform read back the target as the frontmost application afterwards, and `delivered_unverified` (`retry: "unsafe"`) otherwise. A fresh launch reports `delivered_verified` when the adapter read back the process it started, and `delivered_unverified` when it did not — including a spawned process that never appeared on the platform's accessibility bus.

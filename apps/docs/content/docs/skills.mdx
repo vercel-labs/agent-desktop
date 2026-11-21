@@ -88,14 +88,7 @@ agent-desktop skills get desktop | jq -r '.data.content'
   "current": true,
   "name": "agent-desktop-linux",
   "platform": "linux",
-  "references": [
-    "references/bus-and-permissions.md",
-    "references/display-servers-and-input.md",
-    "references/windows-and-lifecycle.md",
-    "references/capture-and-clipboard.md",
-    "references/shell-tray-and-notifications.md",
-    "references/troubleshooting.md"
-  ]
+  "references": []
 }
 ```
 
@@ -110,11 +103,10 @@ An unknown name returns `INVALID_ARGS` and lists every alias:
 
 ## References
 
-Load a reference only when you need it. Name it by path (`references/workflows.md`), file name (`workflows.md`), or stem (`workflows`):
+The core and platform guides are standalone. For an FFI reference, use its path (`references/ownership.md`), file name (`ownership.md`), or stem (`ownership`):
 
 ```bash
-agent-desktop skills get desktop workflows
-agent-desktop skills get linux troubleshooting
+agent-desktop skills get ffi ownership
 ```
 
 <table>
@@ -122,10 +114,10 @@ agent-desktop skills get linux troubleshooting
     <tr><th>Skill</th><th>References</th></tr>
   </thead>
   <tbody>
-    <tr><td><code>desktop</code></td><td><code>commands-observation</code>, <code>commands-interaction</code>, <code>commands-system</code>, <code>workflows</code></td></tr>
-    <tr><td><code>macos</code></td><td><code>troubleshooting</code></td></tr>
-    <tr><td><code>windows</code></td><td><code>permissions-and-elevation</code>, <code>chromium-and-electron</code>, <code>troubleshooting</code>, <code>shell-and-overlay</code></td></tr>
-    <tr><td><code>linux</code></td><td><code>bus-and-permissions</code>, <code>display-servers-and-input</code>, <code>windows-and-lifecycle</code>, <code>capture-and-clipboard</code>, <code>shell-tray-and-notifications</code>, <code>troubleshooting</code></td></tr>
+    <tr><td><code>desktop</code></td><td>None</td></tr>
+    <tr><td><code>macos</code></td><td>None</td></tr>
+    <tr><td><code>windows</code></td><td>None</td></tr>
+    <tr><td><code>linux</code></td><td>None</td></tr>
     <tr><td><code>ffi</code></td><td><code>build-and-link</code>, <code>error-handling</code>, <code>ownership</code>, <code>threading</code></td></tr>
   </tbody>
 </table>

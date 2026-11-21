@@ -50,7 +50,7 @@ impl InteractionPolicy {
             format!("{operation} {what}, which the interaction policy does not allow"),
             self,
         )
-        .with_suggestion(headed_suggestion(what))
+        .with_suggestion(crate::headed_mode_suggestion(what))
         .with_details(serde_json::json!({ "effect": effect })))
     }
 
@@ -60,14 +60,6 @@ impl InteractionPolicy {
             allow_cursor_move: self.allow_cursor_move || other.allow_cursor_move,
         }
     }
-}
-
-/// The suggestion for a refused effect: only headed mode grants it, and a
-/// different element cannot write the clipboard or raise a window.
-fn headed_suggestion(what: &str) -> String {
-    format!(
-        "This operation needs headed mode, which {what}. Use --headed only if the user explicitly asked for that; otherwise report this limitation to the user."
-    )
 }
 
 impl Default for InteractionPolicy {

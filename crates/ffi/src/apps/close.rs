@@ -40,7 +40,7 @@ pub unsafe extern "C" fn ad_close_app(
         ) {
             Ok(_) => AdResult::Ok,
             Err(e) => {
-                set_last_error(&crate::commands::app_error_to_adapter(e));
+                set_last_error(&agent_desktop_core::AppError::into_adapter_error(e));
                 crate::error::last_error_code()
             }
         }

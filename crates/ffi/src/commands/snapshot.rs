@@ -1,5 +1,4 @@
 use crate::AdAdapter;
-use crate::commands::app_error_to_adapter;
 use crate::commands::envelope_out::write_command_envelope;
 use crate::convert::string::decode_optional_filter;
 use crate::convert::surface::snapshot_surface_from_c;
@@ -90,7 +89,7 @@ pub unsafe extern "C" fn ad_snapshot(
         let context = match adapter_ref.command_context() {
             Ok(ctx) => ctx,
             Err(e) => {
-                let ae = app_error_to_adapter(e);
+                let ae = agent_desktop_core::AppError::into_adapter_error(e);
                 set_last_error(&ae);
                 return crate::error::last_error_code();
             }
