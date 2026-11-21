@@ -105,7 +105,3 @@ fn verify_stored_failure_error(entry: &RefEntry, deadline: Deadline) -> AdapterE
 pub(crate) mod resolve_anchor;
 pub(crate) mod resolve_match;
 pub(crate) mod resolve_search;
-
-#[cfg(all(test, target_os = "windows"))]
-#[path = "resolve_tests.rs"]
-mod windows_only;

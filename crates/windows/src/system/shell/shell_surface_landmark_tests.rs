@@ -16,7 +16,7 @@ const CONTEXT: &str = "search an immersive surface candidate for its landmark";
 
 #[test]
 fn a_found_element_and_a_raced_subtree_are_the_two_absence_shaped_answers() {
-    crate::tree::fixture::bootstrap();
+    crate::system::test_support::apartment::bootstrap();
     assert!(landmark_search_answer(Ok(found_element()), CONTEXT).expect("a hit reads as presence"));
     assert!(
         !landmark_search_answer(Err(Error::new(ERR_NOTFOUND, "test")), CONTEXT)

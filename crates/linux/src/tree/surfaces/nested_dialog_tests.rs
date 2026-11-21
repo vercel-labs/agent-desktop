@@ -1,5 +1,5 @@
 use super::{Node, find, is_cut_short, is_incomplete};
-use crate::tree::live::test_support::{read_of, words};
+use crate::tree::test_support::helpers::{read_of, words};
 use crate::tree::vocabulary::role_numbers::{ALERT, DIALOG, FRAME, NOTIFICATION, PANEL};
 use crate::tree::vocabulary::state_bits::SHOWING;
 use crate::tree::{AtspiElement, Field, WalkedNode};

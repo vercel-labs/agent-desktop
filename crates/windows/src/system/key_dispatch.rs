@@ -33,22 +33,15 @@ pub(crate) fn press_for_app_impl(
     require_process(&process)?;
     require_keyboard_focus(process.pid, &process.instance, deadline)?;
     require_process(&process)?;
-    #[cfg(all(test, target_os = "windows"))]
-    between_verify_and_inject::run();
     if !process_owns_foreground(process.pid, &process.instance)? {
         return Err(focus_lost_before_delivery(process.pid));
     }
     require_process(&process)?;
-    run_synthesize(combo, deadline)?;
+    synthesize_key(combo, deadline)?;
     post_delivery_process_result(&process)
 }
 
 fn ensure_injection_integrity(pid: ProcessId) -> Result<(), AdapterError> {
-    #[cfg(all(test, target_os = "windows"))]
-    if force_higher_integrity::is_active() {
-        return crate::input::elevation::evaluate_integrity_gate(Some(0x2000), Some(0x3000))
-            .map_err(as_predelivery_refusal);
-    }
     ensure_target_integrity_allows_input(pid).map_err(as_predelivery_refusal)
 }
 
@@ -149,12 +142,6 @@ fn bounded_instant(deadline: Deadline, maximum: Duration) -> Result<Instant, Ada
         .ok_or_else(|| AdapterError::new(ErrorCode::InvalidArgs, "Deadline is out of range"))
 }
 
-fn run_synthesize(combo: &KeyCombo, deadline: Deadline) -> Result<(), AdapterError> {
-    #[cfg(all(test, target_os = "windows"))]
-    synthesis_probe::note();
-    synthesize_key(combo, deadline)
-}
-
 fn focus_verify_failed(pid: ProcessId) -> AdapterError {
     focus_lost_before_delivery(pid)
         .with_suggestion("Retry after ensuring the target application remains frontmost")
@@ -189,10 +176,6 @@ fn focus_lost_before_delivery(pid: ProcessId) -> AdapterError {
 
 #[cfg(target_os = "windows")]
 fn process_owns_foreground(pid: ProcessId, instance: &str) -> Result<bool, AdapterError> {
-    #[cfg(test)]
-    if force_focus_lost::is_active() {
-        return Ok(false);
-    }
     let Some(foreground_pid) = foreground_process_id() else {
         return Ok(false);
     };
@@ -209,10 +192,6 @@ fn process_owns_foreground(_pid: ProcessId, _instance: &str) -> Result<bool, Ada
 
 #[cfg(target_os = "windows")]
 fn process_holds_keyboard_focus(pid: ProcessId) -> Result<bool, AdapterError> {
-    #[cfg(test)]
-    if force_keyboard_focus_denied::is_active() {
-        return Ok(false);
-    }
     use windows_sys::Win32::UI::WindowsAndMessaging::{GUITHREADINFO, GetGUIThreadInfo};
 
     let mut info = GUITHREADINFO {
@@ -249,23 +228,6 @@ fn foreground_process_id() -> Option<ProcessId> {
     super::window::window_identity::live_window_owner(foreground)
 }
 
-#[cfg(all(test, target_os = "windows"))]
-#[path = "key_dispatch_hooks.rs"]
-mod hooks;
-
-#[cfg(all(test, target_os = "windows"))]
-use hooks::{
-    between_verify_and_inject, force_focus_lost, force_higher_integrity,
-    force_keyboard_focus_denied, synthesis_probe,
-};
-
 #[cfg(test)]
 #[path = "key_dispatch_tests.rs"]
 mod tests;
-
-/// Split from `key_dispatch_tests.rs`, which sits at the per-file line cap:
-/// this module owns the keyboard-focus verification timeout, a scenario
-/// distinct from that file's foreground and integrity preflight gates.
-#[cfg(test)]
-#[path = "key_dispatch_focus_tests.rs"]
-mod focus_tests;

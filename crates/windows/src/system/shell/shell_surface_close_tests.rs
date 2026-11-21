@@ -6,10 +6,10 @@
 
 use agent_desktop_core::{InteractionPolicy, SnapshotSurface};
 
-use crate::system::fixture::test_support::{SHELL_SURFACE_LOCK, settles_to};
 use crate::system::shell::shell_surface_open::{close_surface, open_surface};
+use crate::system::test_support::helpers::{SHELL_SURFACE_LOCK, settles_to};
 
-use crate::system::fixture::test_time::deadline;
+use crate::system::test_support::test_time::deadline;
 
 fn overflow_top() -> Option<*mut core::ffi::c_void> {
     crate::system::shell::shell_surface::class_chain_top_handle(&["NotifyIconOverflowWindow"])
@@ -55,7 +55,7 @@ impl Drop for CloseOnDrop {
 /// tells the two apart.
 #[test]
 fn a_presented_overflow_that_owns_no_foreground_still_closes() {
-    crate::tree::fixture::bootstrap();
+    crate::system::test_support::apartment::bootstrap();
     let _lock = SHELL_SURFACE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _cleanup = CloseOnDrop(SnapshotSurface::SystemTrayOverflow);
 
@@ -90,7 +90,7 @@ fn a_presented_overflow_that_owns_no_foreground_still_closes() {
 /// shell's own raise leaves must close too.
 #[test]
 fn an_overflow_the_shell_raised_closes_and_leaves_no_foreground_behind() {
-    crate::tree::fixture::bootstrap();
+    crate::system::test_support::apartment::bootstrap();
     let _lock = SHELL_SURFACE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let _cleanup = CloseOnDrop(SnapshotSurface::SystemTrayOverflow);
 

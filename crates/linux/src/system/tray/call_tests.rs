@@ -1,7 +1,7 @@
 use agent_desktop_core::{DeliveryDisposition, ErrorCode};
 
 use super::*;
-use crate::tree::live::test_support::{client_timeout, method_error};
+use crate::tree::test_support::helpers::{client_timeout, method_error};
 
 #[test]
 fn a_name_that_left_the_bus_is_a_stale_ref_that_delivered_nothing() {

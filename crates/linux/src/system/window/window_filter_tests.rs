@@ -1,5 +1,5 @@
 use super::*;
-use crate::tree::live::test_support::words;
+use crate::tree::test_support::helpers::words;
 
 #[test]
 fn frames_without_a_component_are_not_top_levels() {

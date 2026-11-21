@@ -4,8 +4,8 @@ use agent_desktop_core::{
 };
 
 use super::Decorate;
-use crate::tree::live::test_support::read_of;
 use crate::tree::observe::projection::{project_node, project_with};
+use crate::tree::test_support::helpers::read_of;
 use crate::tree::vocabulary::role_numbers::{PANEL, PUSH_BUTTON};
 use crate::tree::{ObservedRead, Walk, WalkCounts, WalkLimits, WalkedNode};
 

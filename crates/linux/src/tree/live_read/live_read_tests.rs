@@ -1,8 +1,8 @@
 use agent_desktop_core::{AdapterError, Deadline, ErrorCode, NativeHandle};
 
 use super::*;
-use crate::tree::live::test_support::read_of;
 use crate::tree::observe::node_evidence::evidence_for;
+use crate::tree::test_support::helpers::read_of;
 use crate::tree::vocabulary::role_numbers::PUSH_BUTTON;
 use crate::tree::{AtspiElement, element::ancestry};
 
@@ -42,7 +42,7 @@ impl NodeReader for Counting {
         let liveness = self.answer.clone()?;
         let mut read = read_of(PUSH_BUTTON, "Save", &["click"]);
         read.node.traits.states =
-            crate::tree::Field::Present(crate::tree::live::test_support::words(&[
+            crate::tree::Field::Present(crate::tree::test_support::helpers::words(&[
                 crate::tree::vocabulary::state_bits::ENABLED,
                 crate::tree::vocabulary::state_bits::SHOWING,
                 crate::tree::vocabulary::state_bits::FOCUSED,

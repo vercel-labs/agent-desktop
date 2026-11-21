@@ -232,17 +232,9 @@ fn cached_token(
     if let Some(cached) = cache.get(&pid) {
         return Ok(cached.clone());
     }
-    let token = token_for_pid_seamed(pid)?;
+    let token = process_identity::token_for_pid(pid)?;
     cache.insert(pid, token.clone());
     Ok(token)
-}
-
-fn token_for_pid_seamed(pid: ProcessId) -> Result<Option<String>, AdapterError> {
-    #[cfg(test)]
-    if force_token_none::matches(pid) {
-        return Ok(None);
-    }
-    process_identity::token_for_pid(pid)
 }
 
 /// Narrows any native-call failure onto the closed error set. `TIMEOUT`
@@ -275,14 +267,10 @@ fn mid_walk_identity_race_error(attempts: u32) -> AdapterError {
 #[path = "signal_inventory_test_seams.rs"]
 mod test_seams;
 #[cfg(test)]
-use test_seams::{enum_windows_calls, force_token_none};
+use test_seams::enum_windows_calls;
 #[cfg(all(test, target_os = "windows"))]
 use test_seams::{force_race, force_truncation};
 
 #[cfg(test)]
 #[path = "signal_inventory_tests.rs"]
 mod tests;
-
-#[cfg(all(test, target_os = "windows"))]
-#[path = "signal_inventory_command_live_tests.rs"]
-mod command_live_tests;

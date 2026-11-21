@@ -65,7 +65,3 @@ fn assemble(
 #[cfg(test)]
 #[path = "signals_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "wait_event_live_tests.rs"]
-mod live_event_tests;

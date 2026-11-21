@@ -1,7 +1,6 @@
 pub(crate) mod capabilities;
 pub(crate) mod element;
 pub(crate) mod hit_test;
-pub(crate) mod live;
 pub(crate) mod live_read;
 pub(crate) mod menu;
 pub(crate) mod observe;
@@ -9,6 +8,8 @@ pub(crate) mod placement;
 pub(crate) mod properties;
 mod resolve;
 pub(crate) mod surfaces;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub(crate) mod vocabulary;
 mod walk;
 
@@ -30,10 +31,6 @@ pub(crate) use properties::node_traits::NodeTraits;
 pub(crate) use properties::read_purpose::ReadPurpose;
 pub(crate) use resolve::resolve_source::{resolve_element_strict, resolve_locator_anchor};
 pub(crate) use vocabulary::label_outcome::LabelOutcome;
-#[cfg(test)]
-pub(crate) use vocabulary::label_read::read_label;
-#[cfg(test)]
-pub(crate) use vocabulary::{ResolvedVocabulary, resolve_vocabulary};
 pub(crate) use walk::Walk;
 pub(crate) use walk::expansion::Expansion;
 pub(crate) use walk::node_class::NodeClass;

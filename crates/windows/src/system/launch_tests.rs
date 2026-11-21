@@ -180,7 +180,7 @@ fn absolute_cwd_returns_an_absolute_path_unchanged() {
 }
 
 #[cfg(target_os = "windows")]
-use crate::system::fixture::test_time::deadline;
+use crate::system::test_support::test_time::deadline;
 
 #[cfg(target_os = "windows")]
 fn matching_pids(image: &str) -> Vec<ProcessId> {
@@ -225,97 +225,12 @@ fn scratch_dir(label: &str) -> PathBuf {
     dir
 }
 
-/// Copies this test binary under a unique name to serve as a launch probe.
-///
-/// A copied system application is not a dependable probe: `notepad.exe`
-/// re-execs and exits the moment it is started from outside its install
-/// location, so the copy is gone before the process table is read, and which
-/// system applications survive copying differs per Windows image. The test
-/// binary always exists, always survives being copied, and already knows how
-/// to host a real window - so the probe is repo-controlled rather than a bet
-/// on what is installed.
-#[cfg(target_os = "windows")]
-fn copy_probe_binary(dest_dir: &Path, alias: &str) -> PathBuf {
-    let source = std::env::current_exe().expect("test binary path");
-    let dest = dest_dir.join(alias);
-    std::fs::copy(&source, &dest).expect("copy test binary");
-    dest
-}
-
-/// The arguments and environment that turn a copy of the test binary into the
-/// windowed fixture host, matching what `HostedFixture` spawns.
-#[cfg(target_os = "windows")]
-fn fixture_host_args() -> Vec<String> {
-    [
-        "--exact",
-        "tree::fixture::tests::fixture_host_process_entry",
-        "--ignored",
-        "--nocapture",
-    ]
-    .iter()
-    .map(|value| (*value).to_string())
-    .collect()
-}
-
-#[cfg(target_os = "windows")]
-fn fixture_host_env() -> std::collections::BTreeMap<String, String> {
-    std::collections::BTreeMap::from([(
-        String::from("AGENT_DESKTOP_FIXTURE_HOST"),
-        String::from("1"),
-    )])
-}
-
-/// `LaunchOptions` that start the windowed fixture host, with the launch
-/// policy the calling test is actually exercising.
-#[cfg(target_os = "windows")]
-fn probe_launch_options(attach_if_running: bool, timeout_ms: u64) -> LaunchOptions {
-    LaunchOptions {
-        args: fixture_host_args(),
-        env: fixture_host_env(),
-        attach_if_running,
-        timeout_ms,
-        ..Default::default()
-    }
-}
-
 #[cfg(target_os = "windows")]
 fn copy_system_exe(name: &str, dest_dir: &Path, alias: &str) -> PathBuf {
     let source = resolve_executable(name).expect("system executable");
     let dest = dest_dir.join(alias);
     std::fs::copy(&source, &dest).expect("copy executable");
     dest
-}
-
-#[cfg(target_os = "windows")]
-fn start_windowed_probe(exe: &Path) -> KillOnDrop {
-    let child = std::process::Command::new(exe)
-        .args(fixture_host_args())
-        .env("AGENT_DESKTOP_FIXTURE_HOST", "1")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .expect("start windowed probe");
-    let pid = ProcessId::from(child.id());
-    std::mem::forget(child);
-    let started = std::time::Instant::now();
-    while started.elapsed() < std::time::Duration::from_secs(5) {
-        let token = match process_identity::token_for_pid(pid) {
-            Ok(Some(token)) => token,
-            _ => {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-                continue;
-            }
-        };
-        if exact_window(pid, &token, Deadline::after(200).expect("short"))
-            .ok()
-            .flatten()
-            .is_some()
-        {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-    KillOnDrop(pid)
 }
 
 #[cfg(target_os = "windows")]
@@ -329,28 +244,6 @@ fn start_named_windowless(exe: &Path, args: &[&str]) -> KillOnDrop {
     let pid = ProcessId::from(child.id());
     std::mem::forget(child);
     KillOnDrop(pid)
-}
-
-#[cfg(target_os = "windows")]
-fn full_image_path(pid: ProcessId) -> Option<PathBuf> {
-    use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::System::Threading::{
-        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
-    };
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, u32::from(pid)) };
-    if handle.is_null() {
-        return None;
-    }
-    let mut buffer = [0u16; 512];
-    let mut size = buffer.len() as u32;
-    let ok = unsafe { QueryFullProcessImageNameW(handle, 0, buffer.as_mut_ptr(), &mut size) };
-    unsafe { CloseHandle(handle) };
-    if ok == 0 || size == 0 {
-        return None;
-    }
-    Some(PathBuf::from(String::from_utf16_lossy(
-        &buffer[..size as usize],
-    )))
 }
 
 /// A value ending in a backslash would otherwise escape the closing quote,

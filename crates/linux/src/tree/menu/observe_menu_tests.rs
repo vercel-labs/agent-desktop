@@ -35,7 +35,7 @@ fn the_popup_root_is_its_own_frame_and_not_the_window() {
 
 mod pruning {
     use super::super::{BULK_CHILDREN, is_cut_short_beyond_pruning, is_pruned};
-    use crate::tree::live::test_support::read_of;
+    use crate::tree::test_support::helpers::read_of;
     use crate::tree::vocabulary::role_numbers::{LIST, PANEL, TABLE};
     use crate::tree::{ObservedRead, WalkedNode};
 

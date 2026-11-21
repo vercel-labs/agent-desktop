@@ -2,7 +2,7 @@ use std::os::unix::fs::PermissionsExt;
 
 use super::*;
 use crate::system::app::alias_cache::AliasCache;
-use crate::tree::live::live_launch::nonce;
+use crate::tree::test_support::live_launch::nonce;
 
 pub(super) struct Fixture {
     root: PathBuf,

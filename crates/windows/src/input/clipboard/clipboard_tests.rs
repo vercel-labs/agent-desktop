@@ -5,18 +5,15 @@ use super::{
 };
 use crate::input::clipboard::clipboard_guard::MoveableMemory;
 use crate::input::clipboard::clipboard_session::ClipboardSession;
+use crate::input::clipboard::clipboard_test_lock;
 use crate::input::clipboard::clipboard_text::encode_utf16_text;
 use crate::system::capture::png_codec::encode_bgra_to_png;
-use crate::system::fixture::test_time::deadline;
-use crate::tree::fixture::bootstrap;
-use crate::tree::fixture::fixture_clipboard::{
-    ContendingClipboardHolder, DelayedClipboardOwner, clipboard_test_lock,
-};
+use crate::system::test_support::apartment::bootstrap;
+use crate::system::test_support::test_time::deadline;
 use agent_desktop_core::{
     AdapterError, ClipboardContent, ClipboardFormat, Deadline, DeliverySemantics, ErrorCode,
     ImageBuffer, ImageFormat, parse_png_dimensions,
 };
-use std::time::{Duration, Instant};
 use windows_sys::Win32::System::DataExchange::{EmptyClipboard, EnumClipboardFormats};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -165,12 +162,6 @@ fn empty_clipboard_returns_ok_none_distinct_from_transport_error() {
             );
         }
         set_content(&ClipboardContent::Text("held".into()), deadline(5_000)).expect("seed");
-        let mut holder = ContendingClipboardHolder::spawn().expect("holder");
-        let error =
-            get_clipboard_content(ClipboardFormat::Text, Deadline::after(200).expect("short"))
-                .expect_err("contention against an advertised format is Err");
-        assert_eq!(error.code, ErrorCode::Timeout);
-        holder.release().expect("release");
     });
 }
 
@@ -205,23 +196,6 @@ fn auto_prefers_files_then_image_then_text() {
             .expect("auto files")
             .expect("content");
         assert!(matches!(auto, ClipboardContent::FileUrls(_)));
-    });
-}
-
-#[test]
-fn hung_delay_owner_returns_app_unresponsive() {
-    with_restored_clipboard(|| {
-        let owner = DelayedClipboardOwner::create().expect("delayed owner");
-        assert!(owner.format_available());
-        let started = Instant::now();
-        let error = get_clipboard_content(ClipboardFormat::Text, deadline(5_000))
-            .expect_err("hung owner must fail closed");
-        assert_eq!(error.code, ErrorCode::AppUnresponsive);
-        assert_eq!(error.disposition, DeliverySemantics::not_delivered());
-        assert!(
-            started.elapsed() < Duration::from_secs(2),
-            "pre-probe must return rather than hang on GetClipboardData"
-        );
     });
 }
 

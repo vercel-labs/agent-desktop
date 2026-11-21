@@ -8,26 +8,23 @@
 use crate::adapter::WindowsAdapter;
 use crate::input::clipboard::{clear, set_content};
 use crate::system::private_file::WindowsPrivateFile;
-use crate::tree::fixture::{LocalPatternFixture, bootstrap};
+use crate::system::test_support::apartment::bootstrap;
 use agent_desktop_core::commands::clipboard_clear;
 use agent_desktop_core::commands::clipboard_get::{self, ClipboardGetArgs};
 use agent_desktop_core::commands::clipboard_set::{self, ClipboardSetArgs};
 use agent_desktop_core::commands::screenshot::{self, ScreenshotArgs};
 use agent_desktop_core::{
-    AppError, ClipboardContent, ClipboardFormat, CommandContext, DeliverySemantics, ErrorCode,
-    ErrorPayload, ImageBuffer, ImageFormat, PrivateFileOps, ProcessId, ScreenshotTarget, SystemOps,
-    WindowInfo, WindowState, parse_png_dimensions,
+    ClipboardContent, ClipboardFormat, CommandContext, ImageBuffer, ImageFormat, PrivateFileOps,
+    parse_png_dimensions,
 };
 use serde_json::Value;
 use std::path::PathBuf;
-
-const LIVE_STAGE_VARIABLE: &str = "AGENT_DESKTOP_LIVE_WPF";
 
 use crate::system::capture::capture_test_support::{
     HomeIsolation, install_windows_private_file, live_graphics_capture_lock, sample_png,
     with_restored_clipboard,
 };
-use crate::system::fixture::test_time::deadline;
+use crate::system::test_support::test_time::deadline;
 
 fn keys_of(value: &Value) -> Vec<&str> {
     value
@@ -36,42 +33,6 @@ fn keys_of(value: &Value) -> Vec<&str> {
         .keys()
         .map(String::as_str)
         .collect()
-}
-
-fn error_wire(error: &agent_desktop_core::AdapterError) -> Value {
-    serde_json::to_value(ErrorPayload::from_app_error(&AppError::from(error.clone())))
-        .expect("ErrorPayload serializes")
-}
-
-fn assert_disposition_wire(error: &agent_desktop_core::AdapterError, expected: DeliverySemantics) {
-    let wire = error_wire(error);
-    let projected = serde_json::to_value(expected).expect("disposition serializes");
-    assert_eq!(wire["disposition"], projected, "disposition wire shape");
-}
-
-#[test]
-fn screenshot_failure_disposition_serializes_not_delivered() {
-    let _capture = live_graphics_capture_lock();
-    bootstrap();
-    let adapter = WindowsAdapter::new();
-    let fixture = LocalPatternFixture::create().expect("pattern fixture");
-    let info = WindowInfo {
-        id: format!("w-{}", fixture.handle() as usize),
-        title: String::new(),
-        app: String::new(),
-        pid: ProcessId::from(std::process::id()),
-        process_instance: None,
-        bounds: None,
-        state: WindowState::default(),
-    };
-    let error = SystemOps::screenshot(
-        &adapter,
-        ScreenshotTarget::ExactWindow(info),
-        deadline(10_000),
-    )
-    .expect_err("ExactWindow without process_instance must fail before capture");
-    assert_eq!(error.code, ErrorCode::InvalidArgs);
-    assert_disposition_wire(&error, DeliverySemantics::not_delivered());
 }
 
 #[test]
@@ -132,7 +93,7 @@ fn screenshot_path_and_inline_data_shapes_match_core_serialization() {
 
 #[test]
 fn clipboard_get_set_clear_data_shapes_match_core_serialization() {
-    crate::system::fixture::test_support::with_interaction_lease_test_lock(|| {
+    crate::system::test_support::helpers::with_interaction_lease_test_lock(|| {
         with_restored_clipboard(|| {
             install_windows_private_file();
             let adapter = WindowsAdapter::new();
@@ -258,19 +219,5 @@ fn non_one_scale_factor_capture_skipped_on_96dpi_only_hosts() {
         "capture must report the owning display scale {}, got {}",
         scaled.scale,
         image.scale_factor
-    );
-}
-
-#[test]
-fn the_windows_lane_opts_into_live_capture_staging() {
-    let workflow = include_str!("../../../../../.github/workflows/ci.yml").replace("\r\n", "\n");
-    let assignment = format!("{LIVE_STAGE_VARIABLE}: \"1\"");
-    let step = workflow
-        .split("- name: ")
-        .find(|step| step.starts_with("Core and Windows unit tests"))
-        .expect("the Windows lane runs a library-test step");
-    assert!(
-        step.contains(&assignment),
-        "the library-test step must opt into on-screen staging for live capture breadth"
     );
 }

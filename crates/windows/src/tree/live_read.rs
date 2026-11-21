@@ -337,37 +337,15 @@ fn stale_reader_error() -> AdapterError {
     )
 }
 
-#[cfg(all(test, target_os = "windows"))]
-#[path = "live_read_tests.rs"]
-mod tests;
-
-/// Split from `live_read_tests.rs` to keep both files under the crate's
-/// per-file line cap: this module owns the one test that mutates the
-/// fixture's content control cross-process, plus the Win32 lookup helpers
-/// that only that test needs.
-#[cfg(all(test, target_os = "windows"))]
-#[path = "live_read_edit_tests.rs"]
-mod edit_tests;
-
-/// Split from `live_read_tests.rs` for the same reason: this module owns the
-/// tests that drive the shared read through the closures it is generic over,
-/// standing in for failures a real fixture cannot be made to produce on
-/// demand.
-#[cfg(all(test, target_os = "windows"))]
-#[path = "live_read_seam_tests.rs"]
-mod seam_tests;
-
-/// Split out because the completeness gate is a pure predicate over evidence:
-/// its tests need no UI Automation client and run on every target, which the
-/// fixture-driven modules above cannot.
+/// The completeness gate is a pure predicate over evidence: its tests need no
+/// UI Automation client and run on every target.
 #[cfg(test)]
 #[path = "live_read_gate_tests.rs"]
 mod gate_tests;
 
-/// Split from `live_read_tests.rs` for the per-file line cap: the
-/// states-completeness predicate's truth table is likewise a pure function of
-/// the read set and the resolved role, so it needs no UI Automation client and
-/// runs on every target.
+/// The states-completeness predicate's truth table is a pure function of the
+/// read set and the resolved role, so it needs no UI Automation client and runs
+/// on every target.
 #[cfg(test)]
 #[path = "live_read_states_complete_tests.rs"]
 mod states_complete_tests;

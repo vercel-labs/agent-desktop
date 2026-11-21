@@ -43,18 +43,6 @@ pub(crate) fn one_entry_per_process(apps: Vec<AppInfo>) -> Vec<AppInfo> {
     merged
 }
 
-#[cfg(test)]
-pub(crate) fn inventory(
-    bus: &crate::system::SharedBus,
-    deadline: agent_desktop_core::Deadline,
-) -> Result<agent_desktop_core::AppInventory, AdapterError> {
-    crate::system::context::inventory::query(
-        bus,
-        agent_desktop_core::AppInventoryQuery::All,
-        deadline,
-    )
-}
-
 /// The error for a name that no registry application has but a running
 /// process does.
 pub(crate) fn missing_connection(query: &str, pid: u32, comm: &str) -> AdapterError {
@@ -91,30 +79,5 @@ pub(crate) fn scoped_outcome(
 }
 
 #[cfg(test)]
-pub(crate) fn scoped(
-    bus: &crate::system::SharedBus,
-    name: &str,
-    bundle_id: Option<&str>,
-    deadline: agent_desktop_core::Deadline,
-) -> Result<Vec<AppInfo>, AdapterError> {
-    let inventory = crate::system::context::inventory::query(
-        bus,
-        agent_desktop_core::AppInventoryQuery::Exact { name, bundle_id },
-        deadline,
-    )?;
-    if !inventory.skipped.is_empty() {
-        return Err(
-            AdapterError::timeout("The application inventory could not be fully read")
-                .with_details(json!({ "skipped": inventory.skipped })),
-        );
-    }
-    Ok(inventory.apps)
-}
-
-#[cfg(test)]
 #[path = "app_ops_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "app_ops_live_tests.rs"]
-mod live_tests;

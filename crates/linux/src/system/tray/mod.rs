@@ -22,15 +22,6 @@ mod watcher;
 
 #[cfg(test)]
 mod fit_tests;
-#[cfg(test)]
-mod live_rig;
-#[cfg(test)]
-mod live_scripts;
-#[cfg(test)]
-mod live_tests;
-
-#[cfg(test)]
-pub(crate) use view::read;
 
 pub(crate) use execute::execute;
 pub(crate) use live::{

@@ -1,30 +1,4 @@
 use std::process::Command;
-use std::time::{Duration, Instant};
-
-use x11rb::protocol::xproto::ConnectionExt;
-use x11rb::rust_connection::RustConnection;
-
-use super::map_state::MapState;
-
-pub(crate) fn wait_viewable(connection: &RustConnection, window: u32) {
-    let started = Instant::now();
-    loop {
-        let state = connection
-            .get_window_attributes(window)
-            .expect("attributes")
-            .reply()
-            .expect("an attributes reply")
-            .map_state;
-        if MapState::from(state) == MapState::Viewable {
-            return;
-        }
-        assert!(
-            started.elapsed() < Duration::from_secs(5),
-            "the window never became viewable"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
-}
 
 pub(crate) fn xwd_pixel(window: u32, x: usize, y: usize, dir: &str) -> [u8; 3] {
     let path = format!("{dir}/flat.xwd");

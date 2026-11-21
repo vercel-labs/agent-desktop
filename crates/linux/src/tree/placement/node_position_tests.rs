@@ -1,5 +1,5 @@
 use super::*;
-use crate::tree::live::test_support::read_of;
+use crate::tree::test_support::helpers::read_of;
 
 fn node(x: i32, y: i32, children: Vec<WalkedNode<ObservedRead>>) -> WalkedNode<ObservedRead> {
     let mut payload = read_of(1, "n", &[]);

@@ -130,6 +130,9 @@ jobs:
       - name: Enforce no delivery-plan references in source
         run: scripts/check-no-phase-references.sh
 
+      - name: Enforce no application names in runtime source
+        run: scripts/check-no-app-names.sh
+
       - name: Enforce the stale_ref constructors take only ref ids
         run: scripts/check-stale-ref-constructor-misuse.sh
 

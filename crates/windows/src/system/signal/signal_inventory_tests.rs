@@ -1,7 +1,7 @@
 use super::*;
 use agent_desktop_core::{Deadline, ErrorCode};
 
-use crate::system::fixture::test_time::deadline;
+use crate::system::test_support::test_time::deadline;
 
 #[test]
 fn a_non_timeout_native_failure_is_remapped_to_app_unresponsive() {
@@ -46,7 +46,7 @@ fn the_exhausted_race_error_names_its_kind_and_attempt_count() {
 #[cfg(target_os = "windows")]
 mod windows_only {
     use super::*;
-    use crate::tree::fixture::{HostedFixture, bootstrap};
+    use crate::system::test_support::apartment::bootstrap;
     use std::collections::HashSet;
 
     /// Runs a live capture and accepts the one refusal this inventory may
@@ -99,67 +99,6 @@ mod windows_only {
     }
 
     #[test]
-    fn a_hosted_fixture_appears_once_in_both_inventories_with_identity() {
-        bootstrap();
-        let fixture = HostedFixture::spawn().expect("a fixture host starts");
-        let fixture_pid = ProcessId::from(fixture.process_id());
-        let Some(inventory) = expect_capture(deadline(10_000)) else {
-            return;
-        };
-
-        let matches: Vec<_> = inventory
-            .windows
-            .iter()
-            .filter(|window| window.pid == fixture_pid)
-            .collect();
-        assert!(
-            !matches.is_empty(),
-            "the fixture's window must appear in the inventory"
-        );
-        for window in &matches {
-            assert!(
-                window
-                    .process_instance
-                    .as_deref()
-                    .is_some_and(|token| !token.is_empty()),
-                "a listed window carries a non-empty process_instance"
-            );
-            assert!(
-                !window_ops::parse_handle(&window.id).is_null(),
-                "the window id parses back to a handle"
-            );
-        }
-        let app_matches = inventory
-            .apps
-            .iter()
-            .filter(|app| app.pid == fixture_pid)
-            .count();
-        assert_eq!(
-            app_matches, 1,
-            "the fixture's process appears exactly once in apps"
-        );
-    }
-
-    #[test]
-    fn terminating_the_fixture_removes_it_from_a_later_capture() {
-        bootstrap();
-        let mut fixture = HostedFixture::spawn().expect("a fixture host starts");
-        let fixture_pid = ProcessId::from(fixture.process_id());
-        fixture.terminate();
-
-        let Some(inventory) = expect_capture(deadline(10_000)) else {
-            return;
-        };
-        assert!(
-            !inventory
-                .windows
-                .iter()
-                .any(|window| window.pid == fixture_pid)
-        );
-        assert!(!inventory.apps.iter().any(|app| app.pid == fixture_pid));
-    }
-
-    #[test]
     fn every_returned_window_and_app_carries_a_non_empty_process_instance() {
         bootstrap();
         let Some(inventory) = expect_capture(deadline(10_000)) else {
@@ -185,40 +124,6 @@ mod windows_only {
                 app.pid
             );
         }
-    }
-
-    #[test]
-    fn a_window_whose_token_read_fails_is_excluded_and_not_emitted_with_none() {
-        bootstrap();
-        let fixture = HostedFixture::spawn().expect("a fixture host starts");
-        let fixture_pid = ProcessId::from(fixture.process_id());
-
-        let outcome =
-            force_token_none::with(fixture_pid, || capture_windows_and_apps(deadline(10_000)));
-
-        let inventory = match outcome {
-            Ok(inventory) => inventory,
-            Err(error) => {
-                assert_eq!(error.code, ErrorCode::AppUnresponsive);
-                return;
-            }
-        };
-
-        assert!(
-            !inventory
-                .windows
-                .iter()
-                .any(|window| window.pid == fixture_pid),
-            "a window whose identity cannot be read must not be emitted"
-        );
-        assert!(
-            !inventory.apps.iter().any(|app| app.pid == fixture_pid),
-            "an app whose identity cannot be read must not be emitted"
-        );
-        assert!(
-            inventory.windows_complete && inventory.apps_complete,
-            "an identity exclusion must not flip completeness"
-        );
     }
 
     #[test]

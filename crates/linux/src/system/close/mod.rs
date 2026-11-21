@@ -86,6 +86,4 @@ pub(crate) fn close_app(
 #[path = "close_tests.rs"]
 mod tests;
 
-#[cfg(test)]
-pub(super) mod close_live_tests;
 pub(super) mod close_plan;

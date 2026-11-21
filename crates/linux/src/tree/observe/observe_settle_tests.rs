@@ -8,7 +8,7 @@ use agent_desktop_core::{
 
 use super::{SettleHost, observe_with};
 use crate::system::window::window_id;
-use crate::tree::live::test_support::read_of;
+use crate::tree::test_support::helpers::read_of;
 use crate::tree::vocabulary::role_numbers::{DOCUMENT_WEB, PUSH_BUTTON};
 use crate::tree::walk::walker::walk_levels;
 use crate::tree::walk::wrapper::classify;
@@ -156,7 +156,7 @@ fn observe_element(web: bool, curve: &[Result<usize, AdapterError>]) -> usize {
     let mut handle = AtspiElement::new(":1.7", "/org/a11y/atspi/accessible/9", 77);
     handle.set_ancestry(crate::tree::element::ancestry::of_root(&handle.clone()));
     let handle = handle.into_native_handle();
-    let entry = crate::tree::live::test_support::ref_entry("button");
+    let entry = crate::tree::test_support::helpers::ref_entry("button");
     observe_with(
         ObservationRoot::Element {
             handle: &handle,

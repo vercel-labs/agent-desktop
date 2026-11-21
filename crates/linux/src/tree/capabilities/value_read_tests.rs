@@ -1,5 +1,5 @@
 use super::{ValueSource, number_text, truncate_to_boundary, value_source};
-use crate::tree::live::test_support::words;
+use crate::tree::test_support::helpers::words;
 use crate::tree::vocabulary::role_numbers::{
     COMBO_BOX, ENTRY, PANEL, PASSWORD_TEXT, PROGRESS_BAR, PUSH_BUTTON, SLIDER, TEXT,
 };
@@ -86,9 +86,9 @@ fn a_node_whose_role_read_failed_has_an_unknown_value_source() {
 #[test]
 fn unread_value_prerequisites_cannot_verify_a_click_effect() {
     use crate::tree::capabilities::action_read::NodeView;
-    use crate::tree::live::test_support::read_of;
     use crate::tree::observe::node_evidence::{NodeEvidence, evidence_for};
     use crate::tree::properties::liveness::Liveness;
+    use crate::tree::test_support::helpers::read_of;
     use zbus::connection::Builder;
 
     let (near, far) = std::os::unix::net::UnixStream::pair().unwrap();
@@ -135,7 +135,7 @@ fn unread_value_prerequisites_cannot_verify_a_click_effect() {
 
 #[test]
 fn value_connection_loss_is_not_field_uncertainty() {
-    let connection = crate::tree::live::test_support::closed_connection();
+    let connection = crate::tree::test_support::helpers::closed_connection();
     for node in [node(ENTRY, &["Text"], &[]), node(SLIDER, &["Value"], &[])] {
         let error = zbus::block_on(super::read_value(&connection, &node, 64))
             .expect_err("a lost bus must end observation");

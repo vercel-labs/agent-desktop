@@ -8,29 +8,11 @@ pub(super) mod enum_windows_calls {
     }
 
     pub(crate) fn record() {
-        crate::system::fixture::call_counter::record(&COUNT);
+        crate::system::test_support::call_counter::record(&COUNT);
     }
 
     pub(crate) fn take() -> usize {
-        crate::system::fixture::call_counter::take(&COUNT)
-    }
-}
-
-pub(super) mod force_token_none {
-    use std::cell::Cell;
-
-    use agent_desktop_core::ProcessId;
-
-    thread_local! {
-        static TARGET: Cell<Option<u32>> = const { Cell::new(None) };
-    }
-
-    pub(crate) fn with<R>(pid: ProcessId, run: impl FnOnce() -> R) -> R {
-        crate::system::fixture::test_flag_option::with_option_u32_flag(&TARGET, u32::from(pid), run)
-    }
-
-    pub(crate) fn matches(pid: ProcessId) -> bool {
-        TARGET.with(|cell| cell.get() == Some(u32::from(pid)))
+        crate::system::test_support::call_counter::take(&COUNT)
     }
 }
 
@@ -43,7 +25,7 @@ pub(super) mod force_race {
     }
 
     pub(crate) fn with<R>(times: usize, run: impl FnOnce() -> R) -> R {
-        crate::system::fixture::test_support::with_usize_flag(&REMAINING, times, run)
+        crate::system::test_support::helpers::with_usize_flag(&REMAINING, times, run)
     }
 
     pub(crate) fn consume_if_armed() -> bool {
@@ -68,7 +50,7 @@ pub(super) mod force_truncation {
     }
 
     pub(crate) fn with<R>(run: impl FnOnce() -> R) -> R {
-        crate::system::fixture::test_support::with_flag(&ACTIVE, true, run)
+        crate::system::test_support::helpers::with_flag(&ACTIVE, true, run)
     }
 
     pub(crate) fn is_active() -> bool {

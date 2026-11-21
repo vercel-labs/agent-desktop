@@ -3,7 +3,7 @@ use super::{
     decode_dib_clipboard, decode_png_clipboard, dib_to_bgra, encode_dib_from_png,
     pixel_array_offset, png_bytes_for_clipboard,
 };
-use crate::system::fixture::test_time::deadline;
+use crate::system::test_support::test_time::deadline;
 use agent_desktop_core::{ErrorCode, ImageBuffer, ImageFormat, parse_png_dimensions};
 
 fn pattern_bgra(width: u32, height: u32) -> Vec<u8> {
@@ -98,7 +98,7 @@ fn build_dib(
 
 #[test]
 fn png_passthrough_preserves_bytes_and_metadata() {
-    crate::tree::fixture::bootstrap();
+    crate::system::test_support::apartment::bootstrap();
     let bgra = pattern_bgra(3, 2);
     let png =
         crate::system::capture::png_codec::encode_bgra_to_png(&bgra, 3, 2, 12, deadline(5_000))
@@ -167,7 +167,7 @@ fn bitmapv5_mask_section_uses_header_size_for_pixel_offset() {
 
 #[test]
 fn png_dib_png_round_trips_pixels() {
-    crate::tree::fixture::bootstrap();
+    crate::system::test_support::apartment::bootstrap();
     let width = 5u32;
     let height = 3u32;
     let bgra = pattern_bgra(width, height);
@@ -201,7 +201,7 @@ fn png_dib_png_round_trips_pixels() {
 
 #[test]
 fn write_helpers_preserve_original_png_bytes() {
-    crate::tree::fixture::bootstrap();
+    crate::system::test_support::apartment::bootstrap();
     let bgra = pattern_bgra(2, 2);
     let png =
         crate::system::capture::png_codec::encode_bgra_to_png(&bgra, 2, 2, 8, deadline(5_000))

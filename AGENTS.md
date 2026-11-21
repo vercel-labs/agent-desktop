@@ -46,7 +46,7 @@ bash scripts/perf-baseline-compare.sh                          # macOS perf A/B 
 of your real `~/.agent-desktop`. The pre-commit hook uses it.
 
 Enable the hook once per clone with `git config core.hooksPath .githooks`. For staged Rust or TOML changes it runs the
-source-rule scripts (`check-rust-file-size.sh`, `check-no-phase-references.sh`, `check-stale-ref-constructor-misuse.sh`),
+source-rule scripts (`check-rust-file-size.sh`, `check-no-phase-references.sh`, `check-no-app-names.sh`, `check-stale-ref-constructor-misuse.sh`),
 fmt, clippy and library tests over the host set. FFI changes add the C ABI passthrough test and the cbindgen header
 check. Bypass it only in an emergency: `git commit --no-verify` or `SKIP_PRECOMMIT=1 git commit ...`.
 

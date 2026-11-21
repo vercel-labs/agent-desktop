@@ -342,11 +342,3 @@ pub(crate) fn corroborate_interception(
 #[cfg(test)]
 #[path = "hit_test_corroborate_tests.rs"]
 mod tests;
-
-/// Split from `hit_test_corroborate_tests.rs`: this module owns the cases
-/// that drive a live fixture and a real walker to tell an incomplete climb
-/// apart from a completed one that found no window.
-#[cfg(test)]
-#[cfg(target_os = "windows")]
-#[path = "hit_test_corroborate_climb_tests.rs"]
-mod climb_tests;

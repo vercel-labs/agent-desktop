@@ -3,8 +3,8 @@ use agent_desktop_core::{Action, ActionRequest, AdapterError, Deadline, HeadedRe
 use super::{headed_requirement, takes_foreground};
 use crate::tree::Field;
 use crate::tree::capabilities::action_read::NodeView;
-use crate::tree::live::test_support::{read_of, view_of, words};
 use crate::tree::properties::toolkit_trust::ToolkitKind::{self, Gtk3, Gtk4, Other, Qt};
+use crate::tree::test_support::helpers::{read_of, view_of, words};
 use crate::tree::vocabulary::role_numbers::{COMBO_BOX, MENU_ITEM, PUSH_BUTTON, TOGGLE_BUTTON};
 use crate::tree::vocabulary::state_bits::{HAS_POPUP, SHOWING};
 

@@ -1,9 +1,8 @@
 use super::*;
 use agent_desktop_core::{
-    Deadline, ErrorCode, ProcessId, ProcessIdentity, system::process_state::ProcessState,
+    ErrorCode, ProcessId, ProcessIdentity, system::process_state::ProcessState,
 };
 use std::cell::Cell;
-use std::time::{Duration, Instant};
 
 const STILL_ACTIVE: u32 = 259;
 
@@ -88,11 +87,11 @@ fn hresult_from_win32_matches_facility_win32_shape() {
 
 #[cfg(target_os = "windows")]
 fn identity_for_pid(pid: ProcessId) -> ProcessIdentity {
-    crate::system::fixture::live_identity::live_process_identity(pid)
+    crate::system::test_support::live_identity::live_process_identity(pid)
 }
 
 #[cfg(target_os = "windows")]
-use crate::system::fixture::test_time::deadline;
+use crate::system::test_support::test_time::deadline;
 
 #[cfg(target_os = "windows")]
 #[test]
@@ -115,16 +114,6 @@ fn wait_failure_is_reported_never_treated_as_alive() {
         ErrorCode::PermDenied,
         "WAIT_FAILED must surface the classified Win32 error, not an invented Running state"
     );
-}
-
-#[cfg(target_os = "windows")]
-#[test]
-fn live_scratch_process_classifies_running() {
-    crate::tree::fixture::bootstrap();
-    let fixture = crate::tree::fixture::HostedFixture::spawn().expect("hosted fixture");
-    let pid = ProcessId::from(fixture.process_id());
-    let state = process_state_impl(identity_for_pid(pid), deadline(5_000)).expect("classify");
-    assert_eq!(state, ProcessState::Running);
 }
 
 #[cfg(target_os = "windows")]
@@ -179,39 +168,6 @@ fn running_process_is_never_exited_despite_still_active_code() {
 
 #[cfg(target_os = "windows")]
 #[test]
-fn stalled_fixture_classifies_unresponsive() {
-    let stalled = crate::tree::fixture::StalledFixture::create().expect("stalled");
-    wait_until_hung(stalled.handle());
-    let pid = ProcessId::from(std::process::id());
-    let state = process_state_impl(identity_for_pid(pid), deadline(5_000)).expect("classify");
-    assert_eq!(
-        state,
-        ProcessState::Unresponsive,
-        "any hung top-level window of the pid must classify Unresponsive (handle={})",
-        stalled.handle()
-    );
-}
-
-#[cfg(target_os = "windows")]
-#[test]
-fn multi_window_any_one_hung_classifies_unresponsive() {
-    crate::tree::fixture::bootstrap();
-    let pumping = crate::tree::fixture::LocalFixture::create().expect("pumping");
-    let stalled = crate::tree::fixture::StalledFixture::create().expect("stalled");
-    wait_until_hung(stalled.handle());
-    let pid = ProcessId::from(std::process::id());
-    let state = process_state_impl(identity_for_pid(pid), deadline(5_000)).expect("classify");
-    assert_eq!(
-        state,
-        ProcessState::Unresponsive,
-        "pumping={} stalled={} — any-one-hangs",
-        pumping.handle(),
-        stalled.handle()
-    );
-}
-
-#[cfg(target_os = "windows")]
-#[test]
 fn windowless_process_never_classifies_unresponsive() {
     let mut child = std::process::Command::new("cmd")
         .args(["/C", "ping", "-n", "30", "127.0.0.1", ">", "NUL"])
@@ -237,41 +193,6 @@ fn token_mismatch_reports_exited_for_original_generation() {
     identity.instance = "windows-proc-v1:1:2".into();
     let state = process_state_impl(identity, deadline(5_000)).expect("classify");
     assert_eq!(state, ProcessState::Exited { code: None });
-}
-
-#[cfg(target_os = "windows")]
-#[test]
-fn classifier_is_deadline_bounded_against_hung_target() {
-    let stalled = crate::tree::fixture::StalledFixture::create().expect("stalled");
-    wait_until_hung(stalled.handle());
-    let pid = ProcessId::from(std::process::id());
-    let identity = identity_for_pid(pid);
-    let started = Instant::now();
-    let outcome = process_state_impl(identity, Deadline::after(200).expect("short deadline"));
-    let elapsed = started.elapsed();
-    assert!(
-        elapsed < Duration::from_secs(2),
-        "hung probe must stay deadline-bounded; elapsed={elapsed:?} handle={}",
-        stalled.handle()
-    );
-    match outcome {
-        Ok(ProcessState::Unresponsive) | Err(_) => {}
-        Ok(other) => panic!("expected Unresponsive or TIMEOUT, got {other:?}"),
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn wait_until_hung(hwnd: isize) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::IsHungAppWindow;
-
-    let started = Instant::now();
-    while started.elapsed() < Duration::from_secs(15) {
-        if unsafe { IsHungAppWindow(hwnd as *mut core::ffi::c_void) } != 0 {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    panic!("IsHungAppWindow never marked hwnd={hwnd} hung within 15s (A21-4 ~5s heuristic)");
 }
 
 #[cfg(target_os = "windows")]

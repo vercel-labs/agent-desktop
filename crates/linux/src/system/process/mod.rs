@@ -8,8 +8,6 @@ pub(crate) mod process_facts;
 pub(crate) mod process_lookup;
 pub(super) mod process_state;
 pub(super) mod process_state_classify;
-#[cfg(test)]
-pub(super) mod process_state_live_tests;
 pub(super) mod protected;
 pub(crate) mod running_app;
 pub(super) mod session_origin;

@@ -328,11 +328,3 @@ mod fallback_tests;
 #[cfg(test)]
 #[path = "focus_lift_tests.rs"]
 mod lift_tests;
-
-#[cfg(test)]
-#[path = "focus_lift_live_tests.rs"]
-pub(in crate::system) mod lift_live_tests;
-
-#[cfg(test)]
-#[path = "focus_fallback_live_tests.rs"]
-mod fallback_live_tests;

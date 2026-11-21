@@ -14,6 +14,8 @@ use std::cell::Cell;
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, channel};
+#[cfg(test)]
+use std::sync::{Mutex, MutexGuard};
 use std::thread;
 
 use windows_sys::Win32::Foundation::HANDLE;
@@ -342,7 +344,13 @@ fn seed_worker_global_size_override(bytes: usize) {
 
 #[cfg(test)]
 pub(crate) fn with_global_size_override_for_test<R>(bytes: usize, run: impl FnOnce() -> R) -> R {
-    crate::system::fixture::test_support::with_usize_flag(&GLOBAL_SIZE_OVERRIDE_BYTES, bytes, run)
+    crate::system::test_support::helpers::with_usize_flag(&GLOBAL_SIZE_OVERRIDE_BYTES, bytes, run)
+}
+
+#[cfg(test)]
+pub(crate) fn clipboard_test_lock() -> MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 pub(crate) mod clipboard_bytes;

@@ -1,16 +1,16 @@
 use super::super::shell_surface_open::{accelerator_probe, close_surface, open_surface};
 use super::{SnapshotSurface, WindowInfo};
-use crate::system::fixture::test_support::{settles_to, wait_for_foreground_to_settle};
+use crate::system::test_support::helpers::{settles_to, wait_for_foreground_to_settle};
 use crate::system::window::window_enum::{EnumeratedWindow, enumerate_top_level, is_cloaked};
 use crate::system::window::window_ops::passes_filter;
 
-use crate::system::fixture::test_support::{SHELL_SURFACE_LOCK, or_skip_shell};
 use crate::system::shell::raise_oracle::{responded_since, witness_desktop};
+use crate::system::test_support::helpers::{SHELL_SURFACE_LOCK, or_skip_shell};
 
-use crate::system::fixture::test_time::{deadline, headed};
+use crate::system::test_support::test_time::{deadline, headed};
 
 fn bootstrap() {
-    crate::tree::fixture::bootstrap();
+    crate::system::test_support::apartment::bootstrap();
 }
 
 fn handle_of(info: &WindowInfo) -> isize {

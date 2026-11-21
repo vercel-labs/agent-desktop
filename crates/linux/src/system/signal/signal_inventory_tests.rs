@@ -11,7 +11,7 @@ use crate::system::registry::frame_read::FrameRead;
 use crate::system::registry::listed_window::ListedWindow;
 use crate::system::registry::registry_app::{RegistryApp, assemble};
 use crate::system::x11::X11State;
-use crate::tree::live::test_support::{read_of, words};
+use crate::tree::test_support::helpers::{read_of, words};
 use crate::tree::{AtspiElement, Field, RawNode};
 
 fn app(bus: &str, pid: u32, exe: &str, answered: bool) -> RegistryApp {

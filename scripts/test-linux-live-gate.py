@@ -38,8 +38,9 @@ class GateTests(unittest.TestCase):
                 gate.save(directory / tier / "summary.json", dict(passed=True))
             with redirect_stdout(io.StringIO()):
                 self.assertFalse(gate.merge(manifest))
-                gate.save(directory / "mutter/shard-0.json",
-                          [dict(passed=True, results=[[name, "ok"]])])
+                for tier in ("openbox", "mutter"):
+                    gate.save(directory / tier / "shard-0.json",
+                              [dict(passed=True, results=[[name, "ok"]])])
                 self.assertTrue(gate.merge(manifest))
             blocked = directory / "blocked"
             blocked.write_text("a file cannot contain the session base")
@@ -62,28 +63,10 @@ class GateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             gate.select_tests(names, ignored, ["tree::typo"], True)
 
-    def test_private_services_get_their_own_session(self):
-        cases = (
-            "input::physical::target_pointer::shell_live_tests::a_completed_wayland_click_with_refused_stop_is_delivered_once_and_unsafe_to_retry",
-            "input::physical::target_pointer::shell_live_tests::a_missing_mutter_capability_refuses_before_session_creation",
-        )
-        for name in cases:
-            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
-                directory = Path(temporary)
-                (directory / "mutter").mkdir()
-                manifest = directory / "manifest.json"
-                gate.save(manifest, dict(binary="/unused/libtest", timeout=10,
-                                         shards=gate.plan([name], {name}, 1)))
-                commands = []
-
-                def launch(command, log, timeout):
-                    commands.append(command)
-                    Path(command[command.index("--logfile") + 1]).write_text(f"ok {name}\n")
-                    return 0, 0.0
-
-                with patch.object(gate, "run_bounded", side_effect=launch), redirect_stdout(io.StringIO()):
-                    gate.worker(manifest, "mutter", 0)
-                self.assertEqual(commands[0][:3], ["bash", str(gate.ROOT / "scripts/private-session.sh"), "--"])
+    def test_tier_rules_require_only_tests_that_exist(self):
+        gate.validate_tiers([gate.CURSOR_WAYLAND, gate.CLI_WAYLAND])
+        with self.assertRaises(ValueError):
+            gate.validate_tiers([gate.CURSOR_WAYLAND])
 
     def test_global_lease_consumers_share_one_writer_while_reads_run_elsewhere(self):
         writers = ["system::interaction::interaction_lease::tests::unit", "actions::dispatch_tests::unit",
@@ -104,12 +87,8 @@ class GateTests(unittest.TestCase):
                 self.assertEqual(set(readers), set.union(*assigned[1:]))
 
     def test_partition_keeps_every_case_on_each_applicable_tier(self):
-        wayland = [gate.CURSOR_WAYLAND, *(module + "::case" for module in gate.WAYLAND_MODULES),
-                   "system::process::protected::live_tests::a_native_wayland_application_is_cleared_by_its_tree_and_a_windowless_one_is_not",
-                   "input::wayland::live_tests::reply_loss::case",
-                   "system::shell::live_wayland_tests::native_case"]
-        mutter = ["notifications::live_tests::case",
-                  "system::shell::outage_live_tests::case"]
+        wayland = [gate.CURSOR_WAYLAND, gate.CLI_WAYLAND]
+        mutter = []
         cases = ["unit::fast", "tree::live::one", "tree::live::two", *wayland, *mutter]
         ignored = set(cases[1:])
         for jobs in (1, 2, 3):

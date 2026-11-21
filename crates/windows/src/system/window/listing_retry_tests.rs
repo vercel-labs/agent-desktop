@@ -4,8 +4,8 @@ use agent_desktop_core::ErrorCode;
 
 use super::*;
 
-use crate::system::fixture::test_time::deadline;
 use crate::system::runtime::hresult::{E_FAIL, E_UNEXPECTED};
+use crate::system::test_support::test_time::deadline;
 use crate::tree::automation::{UiaFailure, uia_failure_error};
 
 fn race_error() -> AdapterError {

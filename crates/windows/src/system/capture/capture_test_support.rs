@@ -15,12 +15,12 @@ use std::sync::{Mutex, MutexGuard};
 
 use agent_desktop_core::{ClipboardContent, ClipboardFormat};
 
+use crate::input::clipboard::clipboard_test_lock;
 use crate::input::clipboard::{clear, get_clipboard_content, set_content};
 use crate::system::capture::png_codec::encode_bgra_to_png;
-use crate::system::fixture::test_time::deadline;
 use crate::system::private_file::WindowsPrivateFile;
-use crate::tree::fixture::bootstrap;
-use crate::tree::fixture::fixture_clipboard::clipboard_test_lock;
+use crate::system::test_support::apartment::bootstrap;
+use crate::system::test_support::test_time::deadline;
 
 static HOME_ENV_LOCK: Mutex<()> = Mutex::new(());
 static LIVE_GRAPHICS_CAPTURE_LOCK: Mutex<()> = Mutex::new(());
@@ -118,13 +118,6 @@ pub(crate) fn sample_png() -> Vec<u8> {
         deadline(10_000),
     )
     .expect("png")
-}
-
-/// One pixel of a BGRA buffer, reordered to RGB, for asserting a capture's
-/// content rather than only its dimensions.
-pub(crate) fn sample_rgb(bgra: &[u8], width: u32, x: i32, y: i32) -> [u8; 3] {
-    let offset = ((y as u32 * width + x as u32) * 4) as usize;
-    [bgra[offset + 2], bgra[offset + 1], bgra[offset]]
 }
 
 pub(crate) fn with_restored_clipboard(body: impl FnOnce()) {

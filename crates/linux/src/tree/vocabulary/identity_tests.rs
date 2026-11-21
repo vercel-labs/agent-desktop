@@ -2,7 +2,7 @@ use agent_desktop_core::{ElementIdentifier, IdentifierKind};
 
 use super::identifier_evidence;
 use crate::tree::Field;
-use crate::tree::live::test_support::attributes;
+use crate::tree::test_support::helpers::attributes;
 
 fn id(value: &str) -> Field<String> {
     Field::Present(value.to_owned())

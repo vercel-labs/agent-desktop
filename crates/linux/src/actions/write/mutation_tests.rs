@@ -2,8 +2,8 @@ use agent_desktop_core::{AdapterError, DeliveryDisposition, ErrorCode, RetryDisp
 
 use super::*;
 use crate::system::{NAME_HAS_NO_OWNER, SERVICE_UNKNOWN};
-use crate::tree::live::test_support::{client_timeout, method_error};
 use crate::tree::properties::absence::{UNKNOWN_INTERFACE, UNKNOWN_METHOD, UNKNOWN_OBJECT};
+use crate::tree::test_support::helpers::{client_timeout, method_error};
 
 const FAILED: &str = "org.freedesktop.DBus.Error.Failed";
 const UNMAPPED: &str = "org.gtk.GDBus.UnmappedGError.Quark._g_2dio_2derror_2dquark.Code99";

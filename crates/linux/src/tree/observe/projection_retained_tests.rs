@@ -1,6 +1,6 @@
 use crate::tree::AtspiElement;
 use crate::tree::element::ancestry::{child, of_root};
-use crate::tree::live::test_support::read_of;
+use crate::tree::test_support::helpers::read_of;
 use crate::tree::vocabulary::role_numbers::PUSH_BUTTON;
 use crate::tree::{ObservedRead, WalkLimits};
 

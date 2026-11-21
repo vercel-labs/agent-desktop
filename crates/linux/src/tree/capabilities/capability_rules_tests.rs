@@ -5,7 +5,7 @@ use crate::system::display::display_cause::Cause;
 use crate::system::display::display_server::DisplayServer;
 use crate::system::display::display_unavailable::Unavailable;
 use crate::tree::capabilities::action_names::capabilities;
-use crate::tree::live::test_support::{read_of, words};
+use crate::tree::test_support::helpers::{read_of, words};
 use crate::tree::vocabulary::role_numbers::{
     CHECK_BOX, CHECK_MENU_ITEM, COMBO_BOX, DIAL, ENTRY, LEVEL_BAR, LIST, MENU_ITEM, PANEL,
     PASSWORD_TEXT, PROGRESS_BAR, PUSH_BUTTON, RADIO_MENU_ITEM, SCROLL_BAR, SCROLL_PANE, SLIDER,

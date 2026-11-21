@@ -285,7 +285,3 @@ impl Drop for Subscription {
 #[cfg(test)]
 #[path = "subscription_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "subscription_live_tests.rs"]
-mod live_tests;

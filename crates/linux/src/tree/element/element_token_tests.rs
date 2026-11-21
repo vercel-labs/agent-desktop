@@ -3,7 +3,7 @@ use agent_desktop_core::{LocatorEvidence, LocatorField};
 use super::{decode, encode};
 use crate::tree::AtspiElement;
 use crate::tree::element::ancestry::{child, of_root};
-use crate::tree::live::test_support::evidence;
+use crate::tree::test_support::helpers::evidence;
 
 const GUID: &str = "0123456789abcdef";
 

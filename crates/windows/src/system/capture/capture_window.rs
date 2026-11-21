@@ -128,29 +128,11 @@ fn print_window_bgra(
     width: u32,
     height: u32,
 ) -> Result<Vec<u8>, AdapterError> {
-    #[cfg(test)]
-    if fail_after_alloc::is_active() {
-        let _surface = CaptureSurface::create(width as i32, height as i32)?;
-        return Err(AdapterError::new(
-            ErrorCode::ActionFailed,
-            "forced capture failure after GDI allocation",
-        ));
-    }
     let full = capture_with_flags(handle, width, height, PW_RENDERFULLCONTENT)?;
-    if !frame_appears_empty(&full) && !fail_after_fullcontent_is_active() {
+    if !frame_appears_empty(&full) {
         return Ok(full);
     }
     capture_with_flags(handle, width, height, 0)
-}
-
-#[cfg(not(test))]
-fn fail_after_fullcontent_is_active() -> bool {
-    false
-}
-
-#[cfg(test)]
-fn fail_after_fullcontent_is_active() -> bool {
-    fail_after_fullcontent::is_active()
 }
 
 fn capture_with_flags(
@@ -159,10 +141,6 @@ fn capture_with_flags(
     height: u32,
     flags: u32,
 ) -> Result<Vec<u8>, AdapterError> {
-    #[cfg(test)]
-    if flags == 0 {
-        bare_retry_observed::mark();
-    }
     let surface = CaptureSurface::create(width as i32, height as i32)?;
     if unsafe { PrintWindow(handle, surface.dc_pair.memory_dc, flags) } == 0 {
         return Err(win32_last_error("PrintWindow failed"));
@@ -246,65 +224,6 @@ impl CaptureSurface {
 impl Drop for CaptureSurface {
     fn drop(&mut self) {
         gdi_surface::restore_selected_bitmap(self.dc_pair.memory_dc, self.previous, self.bitmap);
-    }
-}
-
-#[cfg(test)]
-pub(in crate::system) mod fail_after_alloc {
-    use std::cell::Cell;
-
-    thread_local! {
-        static ACTIVE: Cell<bool> = const { Cell::new(false) };
-    }
-
-    pub(super) fn is_active() -> bool {
-        ACTIVE.with(Cell::get)
-    }
-
-    pub(super) fn with<R>(run: impl FnOnce() -> R) -> R {
-        crate::system::fixture::test_support::with_flag(&ACTIVE, true, run)
-    }
-}
-
-#[cfg(test)]
-pub(in crate::system) mod fail_after_fullcontent {
-    use std::cell::Cell;
-
-    thread_local! {
-        static ACTIVE: Cell<bool> = const { Cell::new(false) };
-    }
-
-    pub(super) fn is_active() -> bool {
-        ACTIVE.with(Cell::get)
-    }
-
-    pub(super) fn with<R>(run: impl FnOnce() -> R) -> R {
-        crate::system::fixture::test_support::with_flag(&ACTIVE, true, run)
-    }
-}
-
-#[cfg(test)]
-pub(in crate::system) mod bare_retry_observed {
-    use std::cell::Cell;
-
-    thread_local! {
-        static SEEN: Cell<bool> = const { Cell::new(false) };
-    }
-
-    pub(super) fn mark() {
-        SEEN.with(|cell| cell.set(true));
-    }
-
-    pub(super) fn take() -> bool {
-        SEEN.with(|cell| {
-            let seen = cell.get();
-            cell.set(false);
-            seen
-        })
-    }
-
-    pub(super) fn reset() {
-        SEEN.with(|cell| cell.set(false));
     }
 }
 

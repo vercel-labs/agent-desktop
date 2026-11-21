@@ -2,7 +2,7 @@ use agent_desktop_core::{ErrorCode, IdentifierKind};
 
 use super::*;
 use crate::tree::element::ancestry::{self, Ancestry};
-use crate::tree::live::test_support::{attributes, read_of};
+use crate::tree::test_support::helpers::{attributes, read_of};
 use crate::tree::vocabulary::role_numbers::PUSH_BUTTON;
 
 fn dom_button() -> ObservedRead {
@@ -102,7 +102,7 @@ fn pointer_evidence_reads_bounds_and_state_once_without_children_or_actions() {
         }
         fn get_state(&self) -> Vec<u32> {
             self.0.state.fetch_add(1, Ordering::SeqCst);
-            crate::tree::live::test_support::words(&[ENABLED, SHOWING, VISIBLE])
+            crate::tree::test_support::helpers::words(&[ENABLED, SHOWING, VISIBLE])
         }
         fn get_interfaces(&self) -> Vec<String> {
             vec![

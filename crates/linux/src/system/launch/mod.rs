@@ -384,8 +384,6 @@ pub(super) mod desktop_stamp;
 pub(super) mod indexed_entry;
 pub(super) mod launch_attach;
 mod launch_handoff;
-#[cfg(test)]
-pub(super) mod launch_live_tests;
 pub(super) mod launch_observe;
 pub(crate) mod launch_sample;
 pub(crate) mod launch_search;

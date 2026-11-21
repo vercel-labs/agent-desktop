@@ -48,7 +48,7 @@ fn permission_report_through_the_trait_probes_instead_of_defaulting() {
 #[cfg(target_os = "windows")]
 #[test]
 fn the_activation_path_acquires_a_windows_lease_and_settles() {
-    crate::system::fixture::test_support::with_interaction_lease_test_lock(|| {
+    crate::system::test_support::helpers::with_interaction_lease_test_lock(|| {
         let adapter = WindowsAdapter::new();
         let lease = SystemOps::acquire_interaction_lease(&adapter, Deadline::after(5_000).unwrap())
             .expect("the Windows lease override must not show up as not_supported");

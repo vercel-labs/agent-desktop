@@ -37,7 +37,7 @@ struct MalformedText;
 
 #[test]
 fn label_connection_loss_is_not_field_uncertainty() {
-    let connection = crate::tree::live::test_support::closed_connection();
+    let connection = crate::tree::test_support::helpers::closed_connection();
     let error = zbus::block_on(read_label(
         &connection,
         &AtspiElement::new(OWNER, "/button", 1),
@@ -93,7 +93,7 @@ fn label_text_transport_failures_preserve_name_uncertainty() {
         ))
         .unwrap();
         assert_eq!(label, expected, "text={text:?} malformed={malformed}");
-        let mut read = crate::tree::live::test_support::read_of(
+        let mut read = crate::tree::test_support::helpers::read_of(
             crate::tree::vocabulary::role_numbers::PUSH_BUTTON,
             "",
             &["click"],

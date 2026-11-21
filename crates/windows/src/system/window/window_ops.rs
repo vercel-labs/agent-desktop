@@ -166,10 +166,6 @@ fn forced_race_signal() -> AdapterError {
 
 /// Whether a handle is the desktop's foreground window right now.
 pub(crate) fn is_foreground_window(handle: super::window_enum::WindowHandle) -> bool {
-    #[cfg(all(test, target_os = "windows"))]
-    if let Some(forced) = forced_foreground::current() {
-        return forced == handle as isize;
-    }
     #[cfg(target_os = "windows")]
     {
         use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
@@ -274,39 +270,11 @@ pub(in crate::system) mod enumeration_calls {
     }
 
     pub(in crate::system) fn record() {
-        crate::system::fixture::call_counter::record(&COUNT);
+        crate::system::test_support::call_counter::record(&COUNT);
     }
 
     pub(in crate::system) fn take() -> usize {
-        crate::system::fixture::call_counter::take(&COUNT)
-    }
-}
-
-/// Pins which handle [`is_foreground_window`] reports as the foreground for
-/// the closure's run on this thread, so a test can stage "this window owns the
-/// foreground" without racing the live desktop for it.
-#[cfg(all(test, target_os = "windows"))]
-pub(in crate::system) mod forced_foreground {
-    use std::cell::Cell;
-
-    thread_local! {
-        static FORCED: Cell<Option<isize>> = const { Cell::new(None) };
-    }
-
-    pub(in crate::system) fn current() -> Option<isize> {
-        FORCED.with(Cell::get)
-    }
-
-    pub(in crate::system) fn with<R>(handle: isize, run: impl FnOnce() -> R) -> R {
-        struct ResetOnDrop;
-        impl Drop for ResetOnDrop {
-            fn drop(&mut self) {
-                FORCED.with(|cell| cell.set(None));
-            }
-        }
-        FORCED.with(|cell| cell.set(Some(handle)));
-        let _reset = ResetOnDrop;
-        run()
+        crate::system::test_support::call_counter::take(&COUNT)
     }
 }
 
@@ -319,7 +287,7 @@ pub(in crate::system) mod force_window_not_found {
     }
 
     pub(super) fn with<R>(times: usize, run: impl FnOnce() -> R) -> R {
-        crate::system::fixture::test_support::with_usize_flag(&REMAINING, times, run)
+        crate::system::test_support::helpers::with_usize_flag(&REMAINING, times, run)
     }
 
     pub(super) fn consume_if_armed() -> bool {

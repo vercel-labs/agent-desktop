@@ -3,8 +3,8 @@ use agent_desktop_core::{AdapterError, Deadline, IdentityMatch, LocatorField, Na
 
 use super::*;
 use crate::tree::element::ancestry;
-use crate::tree::live::test_support::read_of;
 use crate::tree::observe::node_evidence::evidence_for;
+use crate::tree::test_support::helpers::read_of;
 use crate::tree::vocabulary::role_numbers::PUSH_BUTTON;
 use crate::tree::{AtspiElement, menu::menu_context::MenuContext};
 
@@ -99,7 +99,7 @@ fn window_handle() -> NativeHandle {
 }
 
 fn menu_ref(context: &MenuContext) -> agent_desktop_core::RefEntry {
-    let mut entry = crate::tree::live::test_support::ref_entry("button");
+    let mut entry = crate::tree::test_support::helpers::ref_entry("button");
     entry.identity.retained_object = Some(context.encode(":1.1/menu/open"));
     entry
 }

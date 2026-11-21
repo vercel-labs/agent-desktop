@@ -3,9 +3,9 @@ use crate::input::clipboard::set_content;
 use crate::system::capture::capture_test_support::{
     HomeIsolation, install_windows_private_file, sample_png, with_restored_clipboard,
 };
-use crate::system::fixture::test_time::deadline;
 use crate::system::private_file::WindowsPrivateFile;
-use crate::tree::fixture::bootstrap;
+use crate::system::test_support::apartment::bootstrap;
+use crate::system::test_support::test_time::deadline;
 use agent_desktop_core::commands::clipboard_get::{self, ClipboardGetArgs};
 use agent_desktop_core::commands::screenshot::{self, ScreenshotArgs};
 use agent_desktop_core::{

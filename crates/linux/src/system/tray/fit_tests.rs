@@ -9,7 +9,7 @@ use super::node_evidence::SEPARATOR_ROLE;
 use super::tray_item::TrayItem;
 use super::view::TrayView;
 use super::{TrayTarget, owns, resolve};
-use crate::tree::live::test_support::ref_entry;
+use crate::tree::test_support::helpers::ref_entry;
 
 fn raw(id: i32, label: &str, extra: &[(&str, Prop)], children: Vec<RawEntry>) -> RawEntry {
     let mut props: std::collections::HashMap<String, Prop> = extra

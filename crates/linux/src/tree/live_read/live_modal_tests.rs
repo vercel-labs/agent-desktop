@@ -3,8 +3,8 @@ use std::process::{Command, Stdio};
 
 use super::*;
 use crate::tree::element::ancestry;
-use crate::tree::live::test_support::{read_of, words};
 use crate::tree::observe::node_evidence::evidence_for;
+use crate::tree::test_support::helpers::{read_of, words};
 use crate::tree::vocabulary::role_numbers::{FRAME, PUSH_BUTTON};
 use crate::tree::vocabulary::state_bits::{MODAL, SHOWING};
 use crate::tree::{Field, ObservedRead};

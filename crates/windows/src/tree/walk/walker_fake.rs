@@ -11,10 +11,6 @@ use crate::tree::properties::{ElementProperties, PropertyOutcome};
 use crate::tree::walk::walker::{
     NodeKey, TreeSource, WalkBudget, WalkOutcome, walk_from_root, walk_vocabulary,
 };
-#[cfg(target_os = "windows")]
-use crate::tree::{element::UIAElement, walk::walker_source::UiaTreeSource};
-#[cfg(target_os = "windows")]
-use std::ops::ControlFlow;
 
 /// The benign end-of-list pair A14-3 measured: `code() == 0` with `result()`
 /// `None`, on both build 17763 and build 26100.
@@ -248,82 +244,4 @@ pub(crate) fn walk_expecting_failure(fake: &FakeTree, budget: WalkBudget) -> Ada
     walk_from_root(fake, &1, &ObservationRoot::Window(&window), budget)
         .err()
         .expect("the walk was expected to fail")
-}
-
-#[cfg(target_os = "windows")]
-#[derive(Clone, Copy)]
-struct ScanLimits<'a> {
-    budget: &'a WalkBudget,
-    max_depth: u8,
-}
-
-/// Depth-first, index-path-tracked search for the first node whose evidence
-/// `visit` accepts, stopping there and reporting the path that reaches it.
-///
-/// Every resolver test that needs to locate one fixture node by predicate
-/// re-implemented this recursion by hand; only the predicate and the value
-/// built on a match differ between them, so both live here once. A child
-/// enumeration failure anywhere aborts the whole search, as it does in the
-/// production path walk this mirrors ([`fake_children`] propagates the error
-/// with `?`).
-#[cfg(target_os = "windows")]
-pub(crate) fn scan_subtree<T>(
-    source: &UiaTreeSource,
-    root: &UIAElement,
-    budget: &WalkBudget,
-    max_depth: u8,
-    visit: &mut impl FnMut(&[usize], ElementProperties, LocatorEvidence, u64) -> ControlFlow<T>,
-) -> Result<Option<T>, AdapterError> {
-    scan_at(
-        source,
-        root,
-        ScanLimits { budget, max_depth },
-        &mut Vec::new(),
-        visit,
-    )
-}
-
-#[cfg(target_os = "windows")]
-fn scan_at<T>(
-    source: &UiaTreeSource,
-    element: &UIAElement,
-    limits: ScanLimits<'_>,
-    prefix: &mut Vec<usize>,
-    visit: &mut impl FnMut(&[usize], ElementProperties, LocatorEvidence, u64) -> ControlFlow<T>,
-) -> Result<Option<T>, AdapterError> {
-    if prefix.len() >= limits.max_depth as usize {
-        return Ok(None);
-    }
-    let (properties, evidence, failed) = source.evidence(element);
-    if let ControlFlow::Break(value) = visit(prefix, properties, evidence, failed) {
-        return Ok(Some(value));
-    }
-    let children = fake_children(source, element, limits.budget)?;
-    for (index, child) in children.iter().enumerate() {
-        prefix.push(index);
-        let found = scan_at(source, child, limits, prefix, visit)?;
-        prefix.pop();
-        if found.is_some() {
-            return Ok(found);
-        }
-    }
-    Ok(None)
-}
-
-/// The fake walk's child list, enumerated under the same bounded loop and
-/// policy the anchor descends with: a settled absence is a whole empty list,
-/// and any other read failure aborts the scan rather than inventing children.
-#[cfg(target_os = "windows")]
-fn fake_children(
-    source: &UiaTreeSource,
-    element: &UIAElement,
-    budget: &WalkBudget,
-) -> Result<Vec<UIAElement>, AdapterError> {
-    crate::tree::resolve::resolve_search::descent::read_children(
-        source,
-        element,
-        budget,
-        &crate::tree::resolve::resolve_anchor::ANCHOR_DESCENT,
-        None,
-    )
 }

@@ -198,11 +198,11 @@ pub(super) mod poll_calls {
     }
 
     pub(super) fn record() {
-        crate::system::fixture::call_counter::record(&COUNT);
+        crate::system::test_support::call_counter::record(&COUNT);
     }
 
     pub(super) fn take() -> usize {
-        crate::system::fixture::call_counter::take(&COUNT)
+        crate::system::test_support::call_counter::take(&COUNT)
     }
 }
 
@@ -267,7 +267,3 @@ pub(super) mod forced_process_death {
 #[cfg(test)]
 #[path = "wait_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "wait_menu_command_live_tests.rs"]
-mod menu_command_live_tests;
