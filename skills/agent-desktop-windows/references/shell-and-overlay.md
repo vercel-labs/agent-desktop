@@ -5,7 +5,9 @@ Open this file to raise shell surfaces, read or drive notifications, use the cur
 ## Shell Surfaces
 
 `open-system-surface --surface <kind>` raises a shell surface and returns the
-`w-<hwnd>` identity of the window it presents. Windows kinds: `start-menu`,
+`w-<hwnd>` identity of the window it presents. `data.disposition` is
+`not_delivered` when the surface was already presented and `delivered_verified`
+when it was raised and then observed presented. Windows kinds: `start-menu`,
 `taskbar`, `system-tray`, `system-tray-overflow`, `action-center`. Read the
 surface with `snapshot --surface <kind>`. `snapshot --window-id` refuses that
 handle with `WINDOW_NOT_FOUND`, because the window inventory excludes shell

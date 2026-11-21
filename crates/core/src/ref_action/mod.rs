@@ -189,9 +189,7 @@ pub(crate) fn mark_pre_dispatch_resolution_failure(error: AdapterError) -> Adapt
         crate::DeliverySemantics::Unknown | crate::DeliverySemantics::NotDelivered => {
             error.with_disposition(crate::DeliverySemantics::not_delivered())
         }
-        crate::DeliverySemantics::DeliveryUncertain
-        | crate::DeliverySemantics::DeliveredUnverified
-        | crate::DeliverySemantics::DeliveredVerified => error,
+        _ => error,
     }
 }
 

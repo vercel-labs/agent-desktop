@@ -3,6 +3,8 @@ use agent_desktop_core::{
     NotificationIdentity, NotificationInfo, verify_notification_identity,
 };
 
+use crate::actions::DeliveryTracker;
+
 use super::nc_session::{NcSession, close_session};
 
 #[cfg(test)]
@@ -26,7 +28,7 @@ pub fn dismiss_all(
     app_filter: Option<&str>,
     policy: InteractionPolicy,
     deadline: Deadline,
-) -> Result<(Vec<NotificationInfo>, Vec<String>), AdapterError> {
+) -> Result<(Vec<NotificationInfo>, Vec<AdapterError>), AdapterError> {
     require_foreground_policy(policy)?;
     let session = NcSession::open(policy, deadline)?;
     let result = dismiss_all_impl(app_filter, policy, session.pid(), deadline);
@@ -76,7 +78,7 @@ fn dismiss_all_impl(
     policy: InteractionPolicy,
     pid: i32,
     deadline: Deadline,
-) -> Result<(Vec<NotificationInfo>, Vec<String>), AdapterError> {
+) -> Result<(Vec<NotificationInfo>, Vec<AdapterError>), AdapterError> {
     let filter = build_filter(app_filter);
     let entries = super::list::list_entries(&filter, pid, deadline)?;
 
@@ -85,24 +87,58 @@ fn dismiss_all_impl(
 
     for original in entries.iter().rev() {
         let current_entries = super::list::list_entries(&filter, pid, deadline)?;
-        let Some(current) = current_entries
-            .iter()
-            .find(|entry| super::dismiss_verify::matches(original, entry))
-        else {
-            failures.push(format!(
-                "#{}: notification disappeared before dismissal was attempted",
-                original.info.index
-            ));
-            continue;
-        };
-        let matching_before = super::dismiss_verify::matching_count(&current_entries, current);
-        match dismiss_entry(current, policy, &filter, matching_before, pid, deadline) {
+        match dismiss_turn(original, &current_entries, |current, matching_before| {
+            dismiss_entry(current, policy, &filter, matching_before, pid, deadline)
+        }) {
             Ok(()) => dismissed.push(original.info.clone()),
-            Err(e) => failures.push(format!("#{}: {}", original.info.index, e)),
+            Err(message) => failures.push(message),
         }
     }
 
     Ok((dismissed, failures))
+}
+
+/// Runs one captured entry's turn against a fresh listing. An entry the
+/// listing no longer holds already satisfies the dismissal, so it counts as
+/// dismissed without an attempt; a held entry is attempted, and its failure
+/// is reported against the captured index.
+#[cfg(target_os = "macos")]
+fn dismiss_turn(
+    original: &super::list::NotificationEntry,
+    current_entries: &[super::list::NotificationEntry],
+    attempt: impl FnOnce(&super::list::NotificationEntry, usize) -> Result<(), AdapterError>,
+) -> Result<(), AdapterError> {
+    let Some(current) = current_entries
+        .iter()
+        .find(|entry| super::dismiss_verify::matches(original, entry))
+    else {
+        return Ok(());
+    };
+    let matching_before = super::dismiss_verify::matching_count(current_entries, current);
+    attempt(current, matching_before).map_err(|mut error| {
+        error.message = format!("#{}: {}", original.info.index, error.message);
+        error
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn tracked_attempt(
+    attempt: impl FnOnce(&mut DeliveryTracker) -> Result<(), AdapterError>,
+) -> Result<(), AdapterError> {
+    let mut delivery = DeliveryTracker::default();
+    attempt(&mut delivery).map_err(|error| delivery.annotate(error))
+}
+
+#[cfg(target_os = "macos")]
+fn tracked_ax_action(
+    element: &crate::tree::AXElement,
+    action: &str,
+    delivery: &mut DeliveryTracker,
+    deadline: Deadline,
+) -> Result<bool, AdapterError> {
+    let outcome = crate::actions::ax_helpers::try_ax_action_or_err(element, action, deadline);
+    delivery.mark_ax_attempt(&outcome);
+    outcome
 }
 
 #[cfg(target_os = "macos")]
@@ -114,56 +150,59 @@ fn dismiss_entry(
     pid: i32,
     deadline: Deadline,
 ) -> Result<(), AdapterError> {
-    for action in ["AXDismiss", "AXRemoveFromParent"] {
-        let outcome =
-            crate::actions::ax_helpers::try_ax_action_or_err(&entry.element, action, deadline);
-        if strategy_verified(outcome, entry, filter, matching_before, pid, deadline)? {
+    tracked_attempt(|delivery| {
+        for action in ["AXDismiss", "AXRemoveFromParent"] {
+            let outcome = tracked_ax_action(&entry.element, action, delivery, deadline);
+            if strategy_verified(outcome, entry, filter, matching_before, pid, deadline)? {
+                return Ok(());
+            }
+        }
+
+        let children = strategy_read(
+            crate::notifications::read::children(&entry.element, deadline),
+            deadline,
+        )?
+        .unwrap_or_default();
+        let pressed = try_dismiss_button(&children, delivery, deadline)?;
+        if strategy_verified(Ok(pressed), entry, filter, matching_before, pid, deadline)? {
             return Ok(());
         }
-    }
 
-    let children = strategy_read(
-        crate::notifications::read::children(&entry.element, deadline),
-        deadline,
-    )?
-    .unwrap_or_default();
-    let pressed = try_dismiss_button(&children, deadline)?;
-    if strategy_verified(Ok(pressed), entry, filter, matching_before, pid, deadline)? {
-        return Ok(());
-    }
+        if !crate::system::permissions::report(deadline)?.accessibility_granted() {
+            return Err(AdapterError::permission_denied());
+        }
 
-    if !crate::system::permissions::report(deadline)?.accessibility_granted() {
-        return Err(AdapterError::permission_denied());
-    }
+        if !policy.allow_cursor_move {
+            return Err(AdapterError::policy_denied_for_policy(
+                "Notification dismissal requires revealing its close control with the pointer",
+                policy,
+            ));
+        }
+        if let Err(error) = hover_over(&entry.element, deadline) {
+            strategy_succeeded(Err(error), deadline)?;
+            return Err(all_dismiss_strategies_failed());
+        }
+        delivery.mark_delivered();
+        std::thread::sleep(std::time::Duration::from_millis(300));
 
-    if !policy.allow_cursor_move {
-        return Err(AdapterError::policy_denied_for_policy(
-            "Notification dismissal requires revealing its close control with the pointer",
-            policy,
-        ));
-    }
-    if let Err(error) = hover_over(&entry.element, deadline) {
-        strategy_succeeded(Err(error), deadline)?;
-        return Err(all_dismiss_strategies_failed());
-    }
-    std::thread::sleep(std::time::Duration::from_millis(300));
+        let children = strategy_read(
+            crate::notifications::read::children(&entry.element, deadline),
+            deadline,
+        )?
+        .unwrap_or_default();
+        let pressed = try_dismiss_button(&children, delivery, deadline)?;
+        if strategy_verified(Ok(pressed), entry, filter, matching_before, pid, deadline)? {
+            return Ok(());
+        }
 
-    let children = strategy_read(
-        crate::notifications::read::children(&entry.element, deadline),
-        deadline,
-    )?
-    .unwrap_or_default();
-    let pressed = try_dismiss_button(&children, deadline)?;
-    if strategy_verified(Ok(pressed), entry, filter, matching_before, pid, deadline)? {
-        return Ok(());
-    }
-
-    Err(all_dismiss_strategies_failed())
+        Err(all_dismiss_strategies_failed())
+    })
 }
 
 #[cfg(target_os = "macos")]
 fn try_dismiss_button(
     children: &[crate::tree::AXElement],
+    delivery: &mut DeliveryTracker,
     deadline: Deadline,
 ) -> Result<bool, AdapterError> {
     for child in children {
@@ -186,13 +225,11 @@ fn try_dismiss_button(
         .to_lowercase();
         let is_dismiss =
             name.contains("close") || name.contains("clear") || name.contains("dismiss");
-        if is_dismiss
-            && strategy_succeeded(
-                crate::actions::ax_helpers::try_ax_action_or_err(child, "AXPress", deadline),
-                deadline,
-            )?
-        {
-            return Ok(true);
+        if is_dismiss {
+            let outcome = tracked_ax_action(child, "AXPress", delivery, deadline);
+            if strategy_succeeded(outcome, deadline)? {
+                return Ok(true);
+            }
         }
     }
     Ok(false)

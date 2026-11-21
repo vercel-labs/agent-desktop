@@ -128,7 +128,7 @@ fn a_bystander_that_leaves_with_a_target_is_recorded_against_it() {
     assert!(
         failures
             .iter()
-            .any(|line| line.contains("other than the target"))
+            .any(|failure| failure.message.contains("other than the target"))
     );
 }
 
@@ -145,6 +145,31 @@ fn a_press_error_is_a_per_entry_failure_not_an_abort() {
     .expect("outcome");
     assert!(dismissed.is_empty());
     assert_eq!(failures.len(), 2);
+}
+
+#[test]
+fn a_failure_after_a_sent_press_is_a_delivered_unverified_entry_failure() {
+    let log = log();
+    let mut world = FakeWorld::new(
+        &log,
+        vec![
+            reading(&[spec("Mail", "a1")]),
+            reading(&[spec("Mail", "a1")]),
+        ],
+    );
+    world.faults.click_refused_from = Some(1);
+    let (dismissed, failures) = dismiss_all_in(
+        &world,
+        request(None, InteractionPolicy::headed()),
+        &lease(600),
+    )
+    .expect("outcome");
+    assert!(dismissed.is_empty());
+    assert_eq!(failures.len(), 1);
+    assert_eq!(
+        failures[0].disposition,
+        agent_desktop_core::DeliverySemantics::delivered_unverified()
+    );
 }
 
 #[test]

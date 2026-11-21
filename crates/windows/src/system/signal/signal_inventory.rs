@@ -49,9 +49,9 @@ enum PassOutcome {
 /// The single-pass, mutually-coherent windows+apps observation `wait --event`
 /// polls. A mid-walk identity race is absorbed internally by the shared
 /// listing-retry helper, because surfacing it would abort the whole wait:
-/// core retries only `TIMEOUT`, `ELEMENT_NOT_FOUND` and `APP_UNRESPONSIVE`. A
-/// truncated walk is reported rather than retried, since retrying it would
-/// spend the same exhausted budget again.
+/// core's poll loop does not retry `WINDOW_NOT_FOUND`. A truncated walk is
+/// reported rather than retried, since retrying it would spend the same
+/// exhausted budget again.
 pub(crate) fn capture_windows_and_apps(
     deadline: Deadline,
 ) -> Result<SignalWindowInventory, AdapterError> {
@@ -83,6 +83,10 @@ fn mid_walk_race_signal() -> AdapterError {
 fn single_pass(deadline: Deadline) -> Result<PassOutcome, AdapterError> {
     #[cfg(test)]
     enum_windows_calls::record();
+    #[cfg(test)]
+    if let Some(error) = force_failure::take() {
+        return Err(error);
+    }
 
     let mut candidates = Vec::new();
     let mut truncated = false;
@@ -268,6 +272,8 @@ fn mid_walk_identity_race_error(attempts: u32) -> AdapterError {
 mod test_seams;
 #[cfg(test)]
 use test_seams::enum_windows_calls;
+#[cfg(test)]
+pub(super) use test_seams::force_failure;
 #[cfg(all(test, target_os = "windows"))]
 use test_seams::{force_race, force_truncation};
 

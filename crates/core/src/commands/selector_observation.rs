@@ -1,19 +1,14 @@
 use crate::{
-    AdapterError, AppError, Deadline, LocatorQuery, PlatformAdapter, RefEntry, SnapshotOwner,
-    SnapshotSurface,
+    AppError, Deadline, LocatorQuery, PlatformAdapter, RefEntry, SnapshotOwner, SnapshotSurface,
     locator::live_locator::{
-        LocatorMaterialization, LocatorResolveRequest, LocatorSelection, incomplete_locator_error,
-        resolve_query,
+        LocatorMaterialization, LocatorResolveRequest, LocatorSelection, resolve_query,
     },
     snapshot::{ref_owner_observation::RefOwnerObservation, surface_target, window_capture},
     system::process_state::ProcessState,
 };
 
 pub(crate) enum SelectorObservation {
-    Selector {
-        matches: bool,
-        incomplete: Option<AdapterError>,
-    },
+    Selector { matches: bool },
     OwnerUnavailable(ProcessState),
 }
 
@@ -32,10 +27,7 @@ impl SelectorObservation {
                 query,
                 deadline,
             ),
-            RefOwnerObservation::Absent(None) => Ok(Self::Selector {
-                matches: false,
-                incomplete: None,
-            }),
+            RefOwnerObservation::Absent(None) => Ok(Self::Selector { matches: false }),
             RefOwnerObservation::Absent(Some(state)) | RefOwnerObservation::Unavailable(state) => {
                 Ok(Self::OwnerUnavailable(state))
             }
@@ -50,10 +42,7 @@ impl SelectorObservation {
         deadline: Deadline,
     ) -> Result<Self, AppError> {
         if owners.is_empty() {
-            return Ok(Self::Selector {
-                matches: false,
-                incomplete: None,
-            });
+            return Ok(Self::Selector { matches: false });
         }
         let request = LocatorResolveRequest {
             selection: LocatorSelection::First,
@@ -67,14 +56,9 @@ impl SelectorObservation {
         }) {
             Ok((_, resolution)) => Ok(Self::Selector {
                 matches: resolution.meta.total_matches > 0,
-                incomplete: (!resolution.meta.selection_complete)
-                    .then(|| incomplete_locator_error(&resolution)),
             }),
             Err(error) if surface_target::is_confirmed_surface_absence(&error, surface) => {
-                Ok(Self::Selector {
-                    matches: false,
-                    incomplete: None,
-                })
+                Ok(Self::Selector { matches: false })
             }
             Err(error) => Err(error),
         }

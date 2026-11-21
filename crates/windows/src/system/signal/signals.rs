@@ -5,7 +5,6 @@ use agent_desktop_core::{
 use super::signal_filter_apply::apply_signal_filter;
 use super::signal_inventory::{SignalWindowInventory, capture_windows_and_apps};
 use super::signal_surfaces::app_scoped_surfaces;
-use crate::system::window::listing_retry::narrow_to_permitted_codes;
 
 /// Assembles the `SignalBaseline` `wait --event` diffs, composing the
 /// single-pass windows+apps inventory with the app-scoped surface scan under
@@ -13,18 +12,15 @@ use crate::system::window::listing_retry::narrow_to_permitted_codes;
 /// actually ran to completion rather than from whether any entity was
 /// excluded.
 ///
-/// Every failure this function or anything it calls can raise is narrowed to
-/// exactly `TIMEOUT` or `APP_UNRESPONSIVE` before it leaves this function,
-/// which is the boundary that closes the error set core's poll loop depends
-/// on: any other code aborts the whole wait instead of being retried.
+/// A failure this function or anything it calls raises leaves unchanged, with
+/// the code and the `complete`/`retryable` stamp its source gave it. Core's
+/// poll loop decides from those whether the wait reads again.
 pub(crate) fn capture_signal_baseline_impl(
     filter: &SignalFilter,
     deadline: Deadline,
 ) -> Result<SignalBaseline, AdapterError> {
-    deadline
-        .ensure_remaining()
-        .map_err(narrow_to_permitted_codes)?;
-    let inventory = capture_windows_and_apps(deadline).map_err(narrow_to_permitted_codes)?;
+    deadline.ensure_remaining()?;
+    let inventory = capture_windows_and_apps(deadline)?;
     assemble(inventory, filter, deadline)
 }
 
@@ -45,7 +41,7 @@ fn assemble(
 
     let scan_requested = filter.process.is_some() || filter.app.is_some();
     let surfaces = if scan_requested {
-        app_scoped_surfaces(&inventory.apps, deadline).map_err(narrow_to_permitted_codes)?
+        app_scoped_surfaces(&inventory.apps, deadline)?
     } else {
         Vec::new()
     };

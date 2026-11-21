@@ -178,10 +178,10 @@ D-Bus or X11 error.
 
 ## Commands that refuse by design
 
-- `key-down` and `key-up`: `ACTION_NOT_SUPPORTED`, `delivery: unknown`.
-  `mouse-down` and `mouse-up` are `POLICY_DENIED`, `not_delivered`, headless and
-  `ACTION_NOT_SUPPORTED` with `--headed`. No event is sent. Use `press` with
-  modifiers and `drag`.
+- `key-down` and `key-up`: `ACTION_NOT_SUPPORTED`, `not_delivered`.
+  `mouse-down` and `mouse-up` are `POLICY_DENIED` headless and
+  `ACTION_NOT_SUPPORTED` with `--headed`, `not_delivered` either way. No event
+  is sent. Use `press` with modifiers and `drag`.
 - `cursor-overlay` on Wayland: succeeds as a setting only. `enable` returns
   `data.rendered: false` and no overlay is drawn, so do not wait for one.
 - `open-system-surface --surface taskbar`: `INVALID_ARGS`. Use the

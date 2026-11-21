@@ -1,6 +1,7 @@
 use agent_desktop_core::{
-    AdapterError, Deadline, DeliverySemantics, ErrorCode, ProcessId, RendererKind, WindowFilter,
-    WindowInfo, system::launch_options::LaunchOptions, system::launch_result::LaunchResult,
+    AdapterError, Deadline, DeliverySemantics, ErrorCode, LaunchFacts, LaunchGuidance, ProcessId,
+    RendererKind, WindowFilter, WindowInfo, system::launch_options::LaunchOptions,
+    system::launch_result::LaunchResult,
 };
 #[cfg(test)]
 use std::collections::BTreeMap;
@@ -18,6 +19,18 @@ use super::process_identity;
 #[cfg(target_os = "windows")]
 use super::runtime::hresult::win32_last_error;
 use super::window::window_ops::list_windows_live;
+
+const ATTACHED: LaunchFacts = LaunchFacts {
+    attached: true,
+    activation_dispatched: false,
+    postcondition_observed: false,
+};
+
+const SPAWNED: LaunchFacts = LaunchFacts {
+    attached: false,
+    activation_dispatched: false,
+    postcondition_observed: true,
+};
 
 pub(crate) fn launch_app_impl(
     id: &str,
@@ -38,7 +51,7 @@ pub(crate) fn launch_app_impl(
     }
     let (pid, token) = create_process(&executable, options, deadline)?;
     let window = observe_window(pid, &token, options, deadline)?;
-    Ok(launch_result(id, pid, token, window))
+    Ok(launch_result(id, pid, token, window, SPAWNED))
 }
 
 /// The window a launch actually caused, or `None`. A process that presents no
@@ -72,6 +85,7 @@ fn launch_result(
     pid: ProcessId,
     process_instance: String,
     window: Option<WindowInfo>,
+    facts: LaunchFacts,
 ) -> LaunchResult {
     let renderer = window.as_ref().and_then(detect_renderer_from_window);
     LaunchResult {
@@ -82,9 +96,11 @@ fn launch_result(
         pid,
         process_instance: Some(process_instance),
         window,
-        cdp: None,
-        renderer,
-        suggestion: None,
+        guidance: LaunchGuidance {
+            renderer,
+            ..LaunchGuidance::default()
+        },
+        disposition: facts.disposition(),
     }
 }
 

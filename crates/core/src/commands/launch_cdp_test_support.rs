@@ -1,10 +1,19 @@
 use crate::adapter::{ActionOps, InputOps, ObservationOps, SystemOps};
 use crate::system::launch_options::LaunchOptions;
-use crate::{AdapterError, AppError, AppInfo, InteractionLease, ProcessId, RendererKind};
+use crate::{
+    AdapterError, AppError, AppInfo, InteractionLease, LaunchFacts, LaunchGuidance, ProcessId,
+    RendererKind,
+};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+pub(super) const FRESH_LAUNCH: LaunchFacts = LaunchFacts {
+    attached: false,
+    activation_dispatched: false,
+    postcondition_observed: true,
+};
 
 /// Mock adapter for the `--cdp` wiring: records the options `launch_app`
 /// actually received, and can optionally serve a canned `/json/version`
@@ -61,9 +70,11 @@ impl SystemOps for CdpAdapter {
             pid: ProcessId::new(42),
             process_instance: Some("42:1".into()),
             window: None,
-            cdp: None,
-            renderer: self.renderer,
-            suggestion: None,
+            guidance: LaunchGuidance {
+                renderer: self.renderer,
+                ..LaunchGuidance::default()
+            },
+            disposition: FRESH_LAUNCH.disposition(),
         })
     }
 

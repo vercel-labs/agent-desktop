@@ -2,7 +2,7 @@ use agent_desktop_core::{DeliverySemantics, ErrorCode, NotificationInfo};
 
 use super::{
     action_changed_state, dismiss_survived_error, entry_gone, matching_count, same_identity,
-    survivor_failures,
+    survivor_failure,
 };
 
 fn info(index: usize, app: &str, title: &str, body: Option<&str>) -> NotificationInfo {
@@ -62,72 +62,16 @@ fn an_entry_is_gone_only_when_no_identity_match_remains() {
 }
 
 #[test]
-fn an_ignored_clear_reports_every_captured_member_as_a_failure() {
-    let captured = vec![
-        info(1, "App A", "first", None),
-        info(2, "App B", "second", None),
-    ];
-    let after = vec![
-        info(1, "App A", "first", None),
-        info(2, "App B", "second", None),
-    ];
+fn a_survivor_without_a_recorded_invoke_error_is_delivered_unverified() {
+    let error = survivor_failure();
 
-    let failures = survivor_failures(&captured, &after);
-
-    assert_eq!(
-        failures.len(),
-        2,
-        "an ignored clear must report each captured member, which is exactly the case an emptiness check cannot tell from a full clear"
-    );
+    assert_eq!(error.code, ErrorCode::ActionFailed);
+    assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
+    assert!(error.message.contains("still present"));
     assert!(
-        failures
-            .iter()
-            .all(|failure| failure.contains("#1") || failure.contains("#2"))
+        !error.message.contains("Secret"),
+        "the survivor line is built from the index alone and must never carry entry content"
     );
-}
-
-#[test]
-fn a_repost_during_the_clear_reports_zero_failures() {
-    let captured = vec![
-        info(1, "App A", "first", None),
-        info(2, "App B", "second", None),
-    ];
-    let reposted = vec![info(1, "App A", "first", Some("new body arrives later"))];
-
-    let failures = survivor_failures(&captured, &reposted);
-
-    assert!(
-        failures.is_empty(),
-        "the new entry is an arrival outside the captured set, not a survivor"
-    );
-}
-
-#[test]
-fn a_partial_clear_reports_only_the_captured_survivors() {
-    let captured = vec![
-        info(1, "App A", "cleared", None),
-        info(2, "App B", "survivor", None),
-    ];
-    let after = vec![
-        info(1, "App B", "survivor", None),
-        info(2, "App C", "new arrival", None),
-    ];
-
-    let failures = survivor_failures(&captured, &after);
-
-    assert_eq!(failures.len(), 1);
-    assert!(failures[0].contains("#2"));
-}
-
-#[test]
-fn failure_strings_name_the_index_and_never_the_content() {
-    let captured = vec![info(4, "Secret App", "Secret Title", Some("Secret Body"))];
-    let after = vec![info(1, "Secret App", "Secret Title", Some("Secret Body"))];
-
-    let failures = survivor_failures(&captured, &after);
-
-    assert_eq!(failures.len(), 1);
-    assert!(!failures[0].contains("Secret"));
 }
 
 #[test]

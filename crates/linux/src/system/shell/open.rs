@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use agent_desktop_core::{
     AdapterError, Deadline, ErrorCode, InteractionLease, InteractionPolicy, MouseButton, Rect,
-    WindowInfo, WindowState,
+    SurfaceOpening, WindowInfo, WindowState,
 };
 use serde_json::json;
 
@@ -21,6 +21,15 @@ const POLL: Duration = Duration::from_millis(40);
 pub(crate) enum Opened {
     Adopted,
     Opened,
+}
+
+impl Opened {
+    pub(crate) fn opening(self, window: WindowInfo) -> SurfaceOpening {
+        match self {
+            Self::Adopted => SurfaceOpening::Present(window),
+            Self::Opened => SurfaceOpening::Raised(window),
+        }
+    }
 }
 
 fn opener_of(kind: ShellKind) -> Option<Anchor> {

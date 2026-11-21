@@ -84,7 +84,7 @@ agent-desktop find --app gnome-calculator --role button --name 7 --exact --first
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "find",
   "data": {
@@ -124,7 +124,7 @@ agent-desktop get <REF> [--property text|value|title|bounds|role|states]
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "get",
   "data": { "property": "value", "ref": "@s30sxlstqzdq8x:e19", "value": "entry" }
@@ -159,7 +159,7 @@ agent-desktop is @s30sxlstqzdq8x:e45 --property enabled
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "is",
   "data": { "applicable": true, "property": "enabled", "ref": "@s30sxlstqzdq8x:e45", "result": false }
@@ -194,7 +194,7 @@ agent-desktop screenshot --screen 0 screen.png
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "screenshot",
   "data": { "format": "png", "height": 900, "path": "/tmp/screen.png", "scale_factor": 1.0, "width": 1440 }
@@ -215,7 +215,7 @@ agent-desktop list-displays
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "list-displays",
   "data": [
@@ -262,15 +262,16 @@ agent-desktop --headed open-system-surface --surface KIND
   </tbody>
 </table>
 
-`data` is `surface` and, on Windows and Linux, `window`, with the same fields as a [`list-windows`](/desktop/commands/app-window#list-windows) entry. On macOS no window owns the surface, so `data` is only `{"surface": "dock"}` and `window` is left out. This shape comes from the command's unit test:
+`data` is `surface`, `disposition`, and on Windows and Linux `window`, with the same fields as a [`list-windows`](/desktop/commands/app-window#list-windows) entry. `disposition` is `not_delivered` when the surface was already presented and nothing was raised, and `delivered_verified` when the adapter raised it and then observed it presented; on macOS the surfaces are always presented, so it is always `not_delivered`. On macOS no window owns the surface, so `data` is `surface` and `disposition` only. This shape comes from the command's unit test:
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "open-system-surface",
   "data": {
     "surface": "action-center",
+    "disposition": { "delivery": "delivered_verified", "retry": "unsafe" },
     "window": { "app_name": "ShellExperienceHost.exe", "id": "w-4242", "is_focused": true, "pid": 99, "title": "Action center" }
   }
 }

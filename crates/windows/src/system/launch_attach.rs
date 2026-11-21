@@ -52,7 +52,13 @@ pub(super) fn prepare(
         let window = super::observe_window(row.pid, &token, options, deadline)?;
         return Ok((
             executable,
-            Some(super::launch_result(id, row.pid, token, window)),
+            Some(super::launch_result(
+                id,
+                row.pid,
+                token,
+                window,
+                super::ATTACHED,
+            )),
         ));
     }
     Ok((executable, None))

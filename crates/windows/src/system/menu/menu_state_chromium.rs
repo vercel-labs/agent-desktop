@@ -35,8 +35,7 @@ pub(super) fn chromium_dom_menu_reachable(
     if candidates.is_empty() {
         return Ok(false);
     }
-    let client =
-        crate::tree::automation::automation_client().map_err(super::narrow_to_permitted_codes)?;
+    let client = crate::tree::automation::automation_client()?;
     let condition = chromium_menu_condition(&client)?;
     for (index, handle) in candidates.into_iter().enumerate() {
         if index > 0 {
@@ -64,8 +63,7 @@ pub(super) fn locate_chromium_dom_menu(
     if candidates.is_empty() {
         return Ok(None);
     }
-    let client =
-        crate::tree::automation::automation_client().map_err(super::narrow_to_permitted_codes)?;
+    let client = crate::tree::automation::automation_client()?;
     let condition = chromium_menu_condition(&client)?;
     for (index, handle) in candidates.into_iter().enumerate() {
         if index > 0 {
@@ -114,8 +112,7 @@ fn chromium_menu_candidates(pid: ProcessId) -> Result<Vec<isize>, AdapterError> 
             handles.push(window.handle as isize);
         }
         true
-    })
-    .map_err(super::narrow_to_permitted_codes)?;
+    })?;
     Ok(handles)
 }
 
@@ -138,19 +135,16 @@ fn chromium_menu_condition(
             None,
         )
         .map_err(|error| {
-            super::narrow_to_permitted_codes(crate::tree::automation::uia_error(
+            crate::tree::automation::uia_error(
                 &error,
                 "build the Chromium framework gate condition",
-            ))
+            )
         })?;
     let menu_family_without_bar = menu_family_condition_without_bar(client)?;
     client
         .create_and_condition(framework_condition, menu_family_without_bar)
         .map_err(|error| {
-            super::narrow_to_permitted_codes(crate::tree::automation::uia_error(
-                &error,
-                "combine the Chromium menu search condition",
-            ))
+            crate::tree::automation::uia_error(&error, "combine the Chromium menu search condition")
         })
 }
 
@@ -165,9 +159,6 @@ fn menu_family_condition_without_bar(
     client
         .create_or_condition(menu, menu_item)
         .map_err(|error| {
-            super::narrow_to_permitted_codes(crate::tree::automation::uia_error(
-                &error,
-                "combine the menu-family search condition",
-            ))
+            crate::tree::automation::uia_error(&error, "combine the menu-family search condition")
         })
 }

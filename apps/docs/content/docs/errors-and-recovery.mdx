@@ -8,7 +8,7 @@ A failed command prints an envelope with `ok: false` and exits `1` (or `2` for a
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": false,
   "command": "click",
   "error": {
@@ -90,7 +90,7 @@ A macOS <code>TIMEOUT</code> with <code>details.kind: "focus_verification"</code
   </tbody>
 </table>
 
-`retry` follows from `delivery`: only `not_delivered` is `safe`, `unknown` stays `unknown`, and every other value is `unsafe`. A refusal that cannot have delivered anything is stamped `not_delivered`: an argument error, a failure before dispatch, and any error from a read-only command such as `snapshot` or `find`.
+`retry` follows from `delivery`: `not_delivered` is `safe`, `unknown` stays `unknown`, and every other pairing is `unsafe`. A batch mutation that verified part of its work while every failure was never dispatched still reports `delivered_verified` with `retry: "unsafe"`, because a re-run captures a fresh listing and could act on entries that arrived after the first run. A refusal that cannot have delivered anything is stamped `not_delivered`: an argument error, a failure before dispatch, and any error from a read-only command such as `snapshot` or `find`.
 
 **Retry or substitute an action only when `disposition.retry` is `safe`.** When it is `unsafe` or `unknown`, observe first: take a snapshot, read the element with `get` or `is`, or check the app, and decide from what you see. A repeated `click` can submit twice, and a repeated `toggle` undoes itself.
 

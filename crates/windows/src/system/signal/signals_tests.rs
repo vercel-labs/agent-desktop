@@ -1,6 +1,7 @@
 use super::*;
 use agent_desktop_core::{AppInfo, ErrorCode, ProcessId, WindowInfo, WindowState};
 
+use crate::system::signal::signal_inventory::force_failure;
 use crate::system::test_support::test_time::deadline;
 
 fn window(id: &str, app: &str, pid: u32, instance: &str) -> WindowInfo {
@@ -87,44 +88,69 @@ fn a_truncated_walk_reports_windows_and_apps_incomplete() {
     );
 }
 
-#[test]
-fn a_timeout_error_passes_through_the_boundary_narrowing_unchanged() {
-    let error = AdapterError::timeout("Operation exceeded its deadline");
+const CODES_OUTSIDE_THE_RESERVED_RACE_MARKER: [ErrorCode; 15] = [
+    ErrorCode::PermDenied,
+    ErrorCode::ElementNotFound,
+    ErrorCode::AppNotFound,
+    ErrorCode::ActionFailed,
+    ErrorCode::ActionNotSupported,
+    ErrorCode::StaleRef,
+    ErrorCode::AmbiguousTarget,
+    ErrorCode::PlatformNotSupported,
+    ErrorCode::Timeout,
+    ErrorCode::InvalidArgs,
+    ErrorCode::NotificationNotFound,
+    ErrorCode::SnapshotNotFound,
+    ErrorCode::PolicyDenied,
+    ErrorCode::AppUnresponsive,
+    ErrorCode::Internal,
+];
 
-    let narrowed = narrow_to_permitted_codes(error);
-
-    assert_eq!(narrowed.code, ErrorCode::Timeout);
+fn surfaced_by_the_baseline_boundary(failure: AdapterError) -> AdapterError {
+    force_failure::with(failure, || {
+        capture_signal_baseline_impl(&SignalFilter::default(), deadline(10_000))
+    })
+    .expect_err("a forced inventory failure must surface")
 }
 
 #[test]
-fn every_non_timeout_code_the_boundary_narrowing_sees_becomes_app_unresponsive() {
-    let every_code = [
-        ErrorCode::PermDenied,
-        ErrorCode::ElementNotFound,
-        ErrorCode::AppNotFound,
-        ErrorCode::ActionFailed,
-        ErrorCode::ActionNotSupported,
-        ErrorCode::StaleRef,
-        ErrorCode::AmbiguousTarget,
-        ErrorCode::WindowNotFound,
-        ErrorCode::PlatformNotSupported,
-        ErrorCode::InvalidArgs,
-        ErrorCode::NotificationNotFound,
-        ErrorCode::SnapshotNotFound,
-        ErrorCode::PolicyDenied,
-        ErrorCode::Internal,
-    ];
+fn every_code_crosses_the_baseline_boundary_unchanged() {
+    for code in CODES_OUTSIDE_THE_RESERVED_RACE_MARKER {
+        let surfaced = surfaced_by_the_baseline_boundary(AdapterError::new(
+            code.clone(),
+            "seam-forced failure",
+        ));
 
-    for code in every_code {
-        let label = code.as_str();
-        let narrowed = narrow_to_permitted_codes(AdapterError::new(code, "seam-forced failure"));
         assert_eq!(
-            narrowed.code,
-            ErrorCode::AppUnresponsive,
-            "code {label} must be narrowed to APP_UNRESPONSIVE rather than reaching core \
-             unchanged - core aborts the whole wait on any code outside the closed set"
+            surfaced.code,
+            code,
+            "code {} must reach core as itself, not as a different code",
+            code.as_str()
         );
     }
+}
+
+#[test]
+fn a_stamped_retryable_error_keeps_its_stamp_across_the_baseline_boundary() {
+    let stamped = AdapterError::new(ErrorCode::StaleRef, "seam-forced stamped failure")
+        .with_details(serde_json::json!({ "complete": false, "retryable": true }));
+
+    let surfaced = surfaced_by_the_baseline_boundary(stamped);
+
+    assert_eq!(surfaced.code, ErrorCode::StaleRef);
+    assert!(surfaced.is_explicitly_retryable());
+    assert!(surfaced.is_retryable_poll_failure());
+}
+
+#[test]
+fn a_terminal_error_stays_terminal_across_the_baseline_boundary() {
+    let terminal = AdapterError::new(ErrorCode::PermDenied, "seam-forced terminal failure")
+        .with_details(serde_json::json!({ "complete": true, "retryable": false }));
+
+    let surfaced = surfaced_by_the_baseline_boundary(terminal);
+
+    assert_eq!(surfaced.code, ErrorCode::PermDenied);
+    assert!(!surfaced.is_retryable_poll_failure());
 }
 
 #[cfg(target_os = "windows")]

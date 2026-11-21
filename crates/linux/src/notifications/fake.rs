@@ -3,8 +3,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use agent_desktop_core::{
-    AdapterError, Deadline, ErrorCode, InteractionLease, InteractionPolicy, MouseButton, Point,
-    ProcessId, WindowInfo, WindowState,
+    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionLease, InteractionPolicy,
+    MouseButton, Point, ProcessId, WindowInfo, WindowState,
 };
 
 use super::signal::{Held, Signal, SignalSource};
@@ -197,6 +197,7 @@ pub(crate) struct Faults {
     pub(crate) window_info: bool,
     pub(crate) close_sticks: bool,
     pub(crate) click: bool,
+    pub(crate) click_refused_from: Option<usize>,
     pub(crate) read_after_click: bool,
 }
 
@@ -354,6 +355,17 @@ impl ShellWorld for FakeWorld {
                 ErrorCode::ActionFailed,
                 "the click failed",
             ));
+        }
+        if self
+            .faults
+            .click_refused_from
+            .is_some_and(|from| self.counts.clicks.get() >= from)
+        {
+            return Err(AdapterError::new(
+                ErrorCode::ActionFailed,
+                "the click was refused before anything was sent",
+            )
+            .with_disposition(DeliverySemantics::not_delivered()));
         }
         self.counts.clicks.set(self.counts.clicks.get() + 1);
         Ok(Point { x: 0.0, y: 0.0 })

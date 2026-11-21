@@ -3,6 +3,7 @@ use crate::system::test_support::test_time::deadline;
 use agent_desktop_core::DeliveryOutcome;
 use agent_desktop_core::{AdapterError, DeliverySemantics, ErrorCode};
 use std::cell::Cell;
+use std::time::Duration;
 
 fn drive(
     goal: ToggleGoal,
@@ -99,6 +100,29 @@ fn a_flip_from_an_unreadable_state_is_not_verified() {
         outcome,
         DeliveryOutcome::Delivered(agent_desktop_core::DeliveryObservation::Unverified)
     );
+}
+
+#[test]
+fn an_expired_deadline_starts_no_second_flip() {
+    let state = Cell::new(ToggleKind::Indeterminate);
+    let flips = Cell::new(0u8);
+    let error = drive_toggle(
+        ToggleGoal::Checked(true),
+        deadline(100),
+        &mut || Some(state.get()),
+        &mut || {
+            flips.set(flips.get() + 1);
+            if flips.get() == 1 {
+                std::thread::sleep(Duration::from_millis(150));
+                state.set(ToggleKind::Off);
+            }
+            Ok(true)
+        },
+    )
+    .expect_err("the deadline stops the second flip");
+    assert_eq!(error.code, ErrorCode::Timeout);
+    assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
+    assert_eq!(flips.get(), 1);
 }
 
 #[test]

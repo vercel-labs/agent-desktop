@@ -1,1 +1,1 @@
-{"action":"test","disposition":{"delivery":"delivered_unverified","retry":"unsafe"},"target":{"kind":"clipboard"},"type":"text"}
+{"action":"clipboard-set","disposition":{"delivery":"delivered_unverified","retry":"unsafe"},"target":{"kind":"clipboard"},"type":"text"}

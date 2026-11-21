@@ -1,10 +1,11 @@
-use super::{legacy_refusal_is_absent, offered, rung};
+use super::{foreground_route_allowed, legacy_refusal_is_absent, offered, poll_until, rung};
 use crate::system::test_support::test_time::deadline;
 use agent_desktop_core::{
     ActionStepOutcome, AdapterError, DeliveryObservation, DeliveryOutcome, DeliverySemantics,
     ErrorCode, InteractionPolicy, execute_chain,
 };
 use std::cell::Cell;
+use std::time::Duration;
 
 const LEGACY: &str = "LegacyIAccessible.DoDefaultAction";
 const PATTERN: &str = "InvokePattern.Invoke";
@@ -199,6 +200,31 @@ fn nothing_offered_exhausts_not_delivered_with_the_suggestion() {
 }
 
 #[test]
+fn a_route_that_takes_the_foreground_is_allowed_exactly_where_the_chain_runs_it() {
+    assert!(!foreground_route_allowed(InteractionPolicy::headless()));
+    assert!(foreground_route_allowed(InteractionPolicy::focus_fallback()));
+    assert!(foreground_route_allowed(InteractionPolicy::headed()));
+    for policy in [
+        InteractionPolicy::headless(),
+        InteractionPolicy::focus_fallback(),
+        InteractionPolicy::headed(),
+    ] {
+        let calls = Cell::new((0, 0));
+        let result = run_two(
+            policy,
+            (false, DeliveryOutcome::NotDelivered),
+            (
+                true,
+                DeliveryOutcome::Delivered(DeliveryObservation::Verified),
+            ),
+            &calls,
+        );
+        assert_eq!(result.is_ok(), foreground_route_allowed(policy));
+        assert_eq!(calls.get().1 == 1, foreground_route_allowed(policy));
+    }
+}
+
+#[test]
 fn a_legacy_not_enabled_refusal_is_an_absent_route_only_on_an_enabled_element() {
     let not_enabled = 0x8004_0200_u32 as i32;
     assert!(legacy_refusal_is_absent(not_enabled, Some(true)));
@@ -256,4 +282,24 @@ fn a_pattern_that_cannot_be_obtained_stays_a_stale_reference_with_a_safe_retry()
     .expect_err("nothing was sent");
     assert_eq!(error.code, ErrorCode::StaleRef);
     assert_eq!(error.disposition.retry(), RetryDisposition::Safe);
+}
+
+#[test]
+fn an_expired_deadline_still_reads_once_instead_of_timing_out() {
+    let cap = Duration::from_millis(600);
+    let reads = Cell::new(0);
+    let reached = poll_until(deadline(0), cap, || {
+        reads.set(reads.get() + 1);
+        true
+    });
+    assert!(reached);
+    assert_eq!(reads.get(), 1);
+
+    reads.set(0);
+    let reached = poll_until(deadline(0), cap, || {
+        reads.set(reads.get() + 1);
+        false
+    });
+    assert!(!reached);
+    assert_eq!(reads.get(), 1);
 }

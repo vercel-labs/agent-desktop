@@ -45,8 +45,8 @@ fn launch_result_shapes() {
     golden!(
         include_str!("../../../../../../tests/fixtures/contract/types-launch-result.json"),
         json!({
-            "full": LaunchResult { app: "Fixture".into(), pid: ProcessId::new(4242), process_instance: Some("start-time:1700000000".into()), window: Some(WindowInfo { id: "w-3".into(), title: "Main".into(), app: "Fixture".into(), pid: ProcessId::new(4242), process_instance: None, bounds: None, state: WindowState::default() }), cdp: Some(CdpEndpoint { port: 9222, http_endpoint: "http://127.0.0.1:9222".into(), websocket_url: "ws://127.0.0.1:9222/devtools/browser/abc".into(), product: Some("Chrome/130.0.0.0".into()) }), renderer: Some(RendererKind::Chromium), suggestion: Some("Drive it through DevTools".into()) },
-            "minimal": LaunchResult { app: "Fixture".into(), pid: ProcessId::new(7), process_instance: None, window: None, cdp: None, renderer: None, suggestion: None },
+            "full": LaunchResult { app: "Fixture".into(), pid: ProcessId::new(4242), process_instance: Some("start-time:1700000000".into()), window: Some(WindowInfo { id: "w-3".into(), title: "Main".into(), app: "Fixture".into(), pid: ProcessId::new(4242), process_instance: None, bounds: None, state: WindowState::default() }), guidance: LaunchGuidance { cdp: Some(CdpEndpoint { port: 9222, http_endpoint: "http://127.0.0.1:9222".into(), websocket_url: "ws://127.0.0.1:9222/devtools/browser/abc".into(), product: Some("Chrome/130.0.0.0".into()) }), renderer: Some(RendererKind::Chromium), suggestion: Some("Drive it through DevTools".into()) }, disposition: DeliverySemantics::delivered_verified() },
+            "minimal": LaunchResult { app: "Fixture".into(), pid: ProcessId::new(7), process_instance: None, window: None, guidance: LaunchGuidance::default(), disposition: DeliverySemantics::unknown() },
             "cdp_without_product": CdpEndpoint { port: 9222, http_endpoint: "http://127.0.0.1:9222".into(), websocket_url: "ws://127.0.0.1:9222/devtools/browser/abc".into(), product: None },
         })
     );

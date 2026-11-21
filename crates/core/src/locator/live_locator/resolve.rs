@@ -1,8 +1,11 @@
+use super::incomplete_error::{
+    IncompleteLocator, has_deterministic_limit, has_transient_incompleteness,
+};
 use super::{
     LocatorResolution, LocatorResolveRequest, LocatorStats, ObservationRequest, ObservationRoot,
     ObservedObservation, validate_query, validate_request,
 };
-use crate::{AdapterError, AppError, ErrorCode, adapter::PlatformAdapter, locator::LocatorQuery};
+use crate::{AppError, adapter::PlatformAdapter, locator::LocatorQuery};
 use serde_json::json;
 use std::time::{Duration, Instant};
 
@@ -39,7 +42,11 @@ pub(crate) fn resolve_query_from(
     loop {
         let remaining = deadline.remaining();
         if remaining.is_zero() {
-            return Err(transient_incomplete_timeout(deadline, &aggregate, last_incomplete).into());
+            return Err(
+                IncompleteLocator::Deadline(deadline, &aggregate, last_incomplete)
+                    .error()
+                    .into(),
+            );
         }
         match observe(observation_deadline(request)).and_then(|observed| {
             resolve_observed_attempt(adapter, query, observed, request, &mut aggregate)
@@ -49,7 +56,7 @@ pub(crate) fn resolve_query_from(
                     resolution.stats.reads.counts.observation_attempts.max(1);
                 if !resolution.meta.selection_complete && has_deterministic_limit(&resolution.stats)
                 {
-                    return Err(deterministic_limit_error(&resolution).into());
+                    return Err(IncompleteLocator::Search(&resolution).error().into());
                 }
                 if !resolution.meta.selection_complete
                     && has_transient_incompleteness(&resolution.stats)
@@ -57,11 +64,12 @@ pub(crate) fn resolve_query_from(
                     last_incomplete = Some(incomplete_evidence(&resolution));
                     aggregate.merge_attempt(&resolution.stats);
                     if deadline.is_expired() {
-                        return Err(transient_incomplete_timeout(
+                        return Err(IncompleteLocator::Deadline(
                             deadline,
                             &aggregate,
                             last_incomplete,
                         )
+                        .error()
                         .into());
                     }
                     let remaining = deadline.remaining();
@@ -69,7 +77,7 @@ pub(crate) fn resolve_query_from(
                     continue;
                 }
                 if !resolution.meta.selection_complete && requires_authoritative_result(request) {
-                    return Err(super::incomplete_locator_error(&resolution).into());
+                    return Err(IncompleteLocator::Search(&resolution).error().into());
                 }
                 aggregate.merge_attempt(&resolution.stats);
                 aggregate.elapsed_us =
@@ -105,39 +113,6 @@ fn requires_authoritative_result(request: &LocatorResolveRequest) -> bool {
         )
 }
 
-pub(super) fn has_deterministic_limit(stats: &LocatorStats) -> bool {
-    let limits = &stats.traversal.limits;
-    limits.node_hits > 0
-        || limits.edge_hits > 0
-        || limits.child_hits > 0
-        || limits.text_hits > 0
-        || limits.depth_hits > 0
-}
-
-fn has_transient_incompleteness(stats: &LocatorStats) -> bool {
-    stats.traversal.limits.child_count_changes > 0
-        || stats.reads.health.cannot_complete > 0
-        || stats.reads.health.deadline_exhausted > 0
-}
-
-fn deterministic_limit_error(resolution: &LocatorResolution) -> AdapterError {
-    AdapterError::new(
-        ErrorCode::Timeout,
-        "Locator traversal reached a deterministic observation budget",
-    )
-    .with_suggestion(
-        "Use a narrower locator, a shallower scope, or increase the matching observation budget",
-    )
-    .with_details(json!({
-        "kind": "locator_budget_limit",
-        "retryable": false,
-        "observed_matches": resolution.meta.total_matches,
-        "limits": resolution.stats.traversal.limits,
-        "query_stats": resolution.stats,
-    }))
-    .with_disposition(crate::DeliverySemantics::not_delivered())
-}
-
 fn incomplete_evidence(resolution: &LocatorResolution) -> serde_json::Value {
     json!({
         "observed_matches": resolution.meta.total_matches,
@@ -145,26 +120,6 @@ fn incomplete_evidence(resolution: &LocatorResolution) -> serde_json::Value {
         "cannot_complete": resolution.stats.reads.health.cannot_complete,
         "deadline_exhausted": resolution.stats.reads.health.deadline_exhausted,
     })
-}
-
-fn transient_incomplete_timeout(
-    deadline: crate::Deadline,
-    stats: &LocatorStats,
-    last_incomplete: Option<serde_json::Value>,
-) -> AdapterError {
-    AdapterError::timeout("Locator observation did not stabilize before its deadline")
-        .with_suggestion(
-            "Retry with a larger timeout or narrow the locator to a more stable subtree",
-        )
-        .with_details(json!({
-            "kind": "locator_transient_incomplete",
-            "retryable": true,
-            "timeout_ms": deadline.timeout_ms(),
-            "observation_attempts": stats.reads.counts.observation_attempts,
-            "last_incomplete": last_incomplete,
-            "query_stats": stats,
-        }))
-        .with_disposition(crate::DeliverySemantics::not_delivered())
 }
 
 fn resolve_observed_attempt(

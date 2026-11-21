@@ -22,6 +22,12 @@ mod cursor_overlay_lifecycle_tests;
 #[cfg(test)]
 mod disposition_tests;
 
+#[cfg(test)]
+mod wait_contract_stub;
+
+#[cfg(test)]
+mod wait_contract_tests;
+
 use agent_desktop_core::{
     AppError, CursorOverlayControl, PermissionReport, PlatformAdapter, commands,
     context::CommandContext,

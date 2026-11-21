@@ -206,12 +206,12 @@ remain the transitive check.
 Every command prints one envelope. `docs/json-output.md` holds the full contract.
 
 ```json
-{ "version": "2.6", "ok": true, "command": "snapshot",
+{ "version": "2.7", "ok": true, "command": "snapshot",
   "data": { "app": "Finder", "snapshot_id": "s8f3k2p9", "ref_count": 14, "complete": true, "tree": { } } }
 ```
 
 ```json
-{ "version": "2.6", "ok": false, "command": "click",
+{ "version": "2.7", "ok": false, "command": "click",
   "error": { "code": "STALE_REF", "message": "...", "suggestion": "...",
              "recovery": { "strategy": "refresh_snapshot_then_retry_original", "retryable": true,
                            "requires_fresh_snapshot": true },

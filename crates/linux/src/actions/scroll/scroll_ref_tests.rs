@@ -1,3 +1,5 @@
+use agent_desktop_core::{Deadline, DeliverySemantics};
+
 use super::*;
 use crate::tree::Extents;
 
@@ -136,4 +138,20 @@ fn only_a_gtk_random_uuid_context_path_can_supply_the_lifecycle_witness() {
     ] {
         assert!(!uuid_context(path), "{path}");
     }
+}
+
+#[test]
+fn a_row_gone_stale_after_a_delivered_scroll_lets_the_caller_resolve_the_ref_again() {
+    let bus = SharedBus::default();
+    let handle = AtspiElement::new(":1.2", "/org/a11y/atspi/accessible/1", 40).into_native_handle();
+    let lease = InteractionLease::guarded(Deadline::after(2_000).unwrap(), ()).unwrap();
+    let entry = crate::tree::test_support::helpers::ref_entry("incrementor");
+    let stale =
+        |_: &SharedBus, _: &NativeHandle, _: &InteractionLease| -> Result<bool, AdapterError> {
+            Err(AdapterError::stale_ref_because("the row was recycled")
+                .with_disposition(DeliverySemantics::uncertain()))
+        };
+    let recovered = recover(&bus, &entry, &handle, &lease, stale)
+        .expect("a stale row after a delivered scroll is left for re-resolution");
+    assert!(recovered.is_none());
 }

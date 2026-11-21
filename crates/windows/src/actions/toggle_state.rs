@@ -76,14 +76,15 @@ pub(crate) fn drive_toggle(
         if !deliver()? {
             return Ok(DeliveryOutcome::NotDelivered);
         }
-        let reached = poll_until(deadline, VERIFY_TIMEOUT, || goal.satisfied_by(read()))
-            .map_err(after_delivery)?;
+        let reached = poll_until(deadline, VERIFY_TIMEOUT, || goal.satisfied_by(read()));
         return Ok(DeliveryOutcome::from_delivery(true, reached));
     };
     for attempt in 0..2 {
         let sent = if attempt == 0 {
+            deadline.ensure_remaining()?;
             deliver()?
         } else {
+            deadline.ensure_remaining().map_err(after_delivery)?;
             deliver().map_err(after_delivery)?
         };
         if !sent {
@@ -93,8 +94,7 @@ pub(crate) fn drive_toggle(
         let moved = poll_until(deadline, VERIFY_TIMEOUT, || {
             now = read();
             now.is_some_and(|state| state != before)
-        })
-        .map_err(after_delivery)?;
+        });
         if !moved {
             return Ok(DeliveryOutcome::observed(now.map(|_| false)));
         }

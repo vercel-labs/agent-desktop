@@ -226,6 +226,10 @@ fn cdp_launch_returns_a_verified_endpoint_when_the_process_answers() {
         cdp.get("product").and_then(Value::as_str),
         Some("Fixture/1.0")
     );
+    assert_eq!(
+        value["disposition"],
+        serde_json::json!({ "delivery": "delivered_verified", "retry": "unsafe" })
+    );
     assert!(
         cdp.get("websocket_url")
             .and_then(Value::as_str)
@@ -345,53 +349,13 @@ fn non_chromium_plain_launch_has_neither_renderer_nor_suggestion() {
     )
     .unwrap();
 
-    assert!(value.get("renderer").is_none());
-    assert!(value.get("suggestion").is_none());
-}
-
-struct SuggestingAdapter;
-
-impl crate::adapter::ObservationOps for SuggestingAdapter {}
-impl crate::adapter::ActionOps for SuggestingAdapter {}
-impl crate::adapter::InputOps for SuggestingAdapter {}
-
-impl crate::adapter::SystemOps for SuggestingAdapter {
-    fn acquire_interaction_lease(
-        &self,
-        deadline: crate::Deadline,
-    ) -> Result<crate::InteractionLease, crate::AdapterError> {
-        crate::InteractionLease::guarded(deadline, ())
-    }
-
-    fn launch_app(
-        &self,
-        _id: &str,
-        _options: &LaunchOptions,
-        _lease: &crate::InteractionLease,
-    ) -> Result<crate::system::launch_result::LaunchResult, crate::AdapterError> {
-        Ok(crate::system::launch_result::LaunchResult {
-            app: "Fixture".into(),
-            pid: crate::ProcessId::new(42),
-            process_instance: None,
-            window: None,
-            cdp: None,
-            renderer: Some(RendererKind::Chromium),
-            suggestion: Some("adapter guidance".into()),
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "app": "Fixture",
+            "pid": 42,
+            "process_instance": "42:1",
+            "disposition": { "delivery": "delivered_verified", "retry": "unsafe" },
         })
-    }
-}
-
-#[test]
-fn adapter_suggestion_survives_the_core_chromium_nudge() {
-    let value = execute(
-        LaunchArgs {
-            app: "Fixture".into(),
-            options: LaunchOptions::default(),
-        },
-        &SuggestingAdapter,
-        crate::InteractionPolicy::headed(),
-    )
-    .unwrap();
-
-    assert_eq!(value["suggestion"], "adapter guidance");
+    );
 }

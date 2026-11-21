@@ -86,6 +86,11 @@ agent-desktop launch gnome-text-editor --arg=/tmp/note.txt
   process still running outside the registry can be returned without a window,
   and may be a wrapper. When no window appears the result can be `ok` with no
   `window`.
+- `data.disposition` reports what the launch proved: `not_delivered` when it
+  attached and sent nothing — no `--activate`, or an `--activate` whose target
+  was already active — `delivered_verified` when the owner was read
+  back as a new instance or `--activate` was confirmed, and
+  `delivered_unverified` otherwise — including the unlisted-process case above.
 - A launcher that exits with no owner is `ACTION_FAILED`,
   `details.kind: exited` (`crashed` after a signal), `delivered_unverified`. An
   owner that exits before its window appears is `ACTION_FAILED`,
@@ -255,8 +260,8 @@ safe to repeat.
 - A minimized or hidden target is lifted first. A stopped target is
   `APP_UNRESPONSIVE` before anything is sent.
 - When a modal dialog holds the focus, `focus-window --app <name>` succeeds with
-  the dialog as `data.focused`. Read `data.focused.title` and act on the dialog,
-  not the window you named.
+  the dialog as `data.focused` and `disposition: delivered_verified`. Read
+  `data.focused.title` and act on the dialog, not the window you named.
 - A window the manager never activated can end `ACTION_FAILED` with cause
   `activation_not_granted` (under mutter, until a window has held focus once).
   Other timeouts end with `activation_refused` (another window stayed active) or

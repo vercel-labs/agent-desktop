@@ -21,6 +21,23 @@ pub(crate) fn focus_and_confirm(
     )
 }
 
+/// The window when it is already the focused one by `FOCUS_CONFIRMATIONS`
+/// consecutive reads, so a focus request has nothing to send.
+pub(crate) fn already_focused(
+    adapter: &dyn PlatformAdapter,
+    window: &WindowInfo,
+    deadline: crate::Deadline,
+) -> Option<WindowInfo> {
+    let mut focused = None;
+    for _ in 0..FOCUS_CONFIRMATIONS {
+        match observed_focused_window(adapter, Some(&window.app), deadline) {
+            Ok(Some(observed)) if observed.id == window.id => focused = Some(observed),
+            _ => return None,
+        }
+    }
+    focused
+}
+
 pub(crate) fn wait_for_focused_window_with_poll_interval(
     adapter: &dyn PlatformAdapter,
     window_id: &str,

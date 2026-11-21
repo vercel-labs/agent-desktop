@@ -99,6 +99,27 @@ pub(super) fn unavailable(request: &Request<'_>) -> AdapterError {
     .with_details(json!({ "app": request.name, "pid": request.pid }))
 }
 
+/// The dialogs drawn inside the process's windows could not be read, so
+/// whether a prompt is open is unknown. No close request is sent on a guess:
+/// one can answer the prompt for the user.
+pub(super) fn dialogs_unknown(request: &Request<'_>) -> AdapterError {
+    refused(
+        ErrorCode::ActionFailed,
+        format!(
+            "Process {} could not be checked for open dialogs, so no close request was sent",
+            request.pid
+        ),
+    )
+    .with_suggestion(
+        "The app's windows could not be read in full in time, so a save prompt could not be ruled out. Close its windows through their own controls, or use --force only if losing unsaved work is acceptable",
+    )
+    .with_details(json!({
+        "cause": "dialogs_unknown",
+        "app": request.name,
+        "pid": request.pid,
+    }))
+}
+
 pub(super) fn is_dialog(window: &Toplevel) -> bool {
     window.kind == WindowKind::Dialog || window.transient
 }
@@ -121,7 +142,7 @@ pub(super) fn dialog_pending(
         .iter()
         .filter(|window| is_dialog(window))
         .map(|window| window.title.as_str())
-        .chain(standing.nested.iter().map(String::as_str))
+        .chain(standing.nested_titles().iter().map(String::as_str))
         .collect();
     let dialogs = titles.len();
     let delivery = if sent {

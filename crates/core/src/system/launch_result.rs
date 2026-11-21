@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    ProcessId, WindowInfo, system::cdp_endpoint::CdpEndpoint, tree::renderer_kind::RendererKind,
-};
+use crate::{DeliverySemantics, LaunchGuidance, ProcessId, WindowInfo};
 
 /// What a launch can honestly report. The process starting and the application
 /// presenting a window are separate outcomes: a background application never
@@ -18,18 +16,18 @@ pub struct LaunchResult {
     pub process_instance: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window: Option<WindowInfo>,
-    /// The verified DevTools endpoint, present only when `--cdp` was
-    /// requested and the launched process answered `/json/version`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cdp: Option<CdpEndpoint>,
-    /// The application's renderer, detected best-effort from its bundle.
-    /// `Chromium` means Electron or CEF; absent means undetected, not
-    /// "not Chromium" — detection failure never fails the launch itself.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub renderer: Option<RendererKind>,
-    /// Guidance for the calling agent on how to drive this application,
-    /// set by core from `renderer` and whether `cdp` is present. Absent
-    /// when there is nothing more useful to say than the fields already do.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub suggestion: Option<String>,
+    #[serde(flatten)]
+    pub guidance: LaunchGuidance,
+    /// What the launch did to the system, set by the adapter that knows:
+    /// `not_delivered` when it attached and dispatched nothing,
+    /// `delivered_verified` when it read back its postcondition — a process
+    /// instance absent before the launch or the target frontmost after an
+    /// activation — and `delivered_unverified` otherwise. Payloads written
+    /// before the field existed deserialize as `unknown`.
+    #[serde(default)]
+    pub disposition: DeliverySemantics,
 }
+
+#[cfg(test)]
+#[path = "launch_result_tests.rs"]
+mod tests;

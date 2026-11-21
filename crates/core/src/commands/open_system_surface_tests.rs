@@ -1,6 +1,6 @@
 use super::*;
 use crate::adapter::{ActionOps, InputOps, ObservationOps, SystemOps};
-use crate::{AdapterError, InteractionLease, InteractionPolicy, WindowInfo};
+use crate::{AdapterError, InteractionLease, InteractionPolicy, SurfaceOpening, WindowInfo};
 use std::sync::Mutex;
 
 struct SurfaceAdapter {
@@ -26,19 +26,22 @@ impl SystemOps for SurfaceAdapter {
         surface: SnapshotSurface,
         policy: InteractionPolicy,
         _lease: &InteractionLease,
-    ) -> Result<WindowInfo, AdapterError> {
+    ) -> Result<SurfaceOpening, AdapterError> {
         self.opens.lock().unwrap().push((surface, policy));
-        if surface == SnapshotSurface::Dock {
-            return Ok(WindowInfo::for_process(&crate::AppInfo {
-                aliases: Vec::new(),
-                name: "Dock".into(),
-                pid: crate::ProcessId::new(7),
-                bundle_id: None,
-                process_instance: Some("instance-7".into()),
-                presentation: None,
-            }));
+        match surface {
+            SnapshotSurface::Dock => Ok(SurfaceOpening::Present(WindowInfo::for_process(
+                &crate::AppInfo {
+                    aliases: Vec::new(),
+                    name: "Dock".into(),
+                    pid: crate::ProcessId::new(7),
+                    bundle_id: None,
+                    process_instance: Some("instance-7".into()),
+                    presentation: None,
+                },
+            ))),
+            SnapshotSurface::Taskbar => Ok(SurfaceOpening::Present(shell_window())),
+            _ => Ok(SurfaceOpening::Raised(shell_window())),
         }
-        Ok(shell_window())
     }
 }
 
@@ -97,8 +100,23 @@ fn adapter() -> SurfaceAdapter {
     }
 }
 
+fn shell_window_data() -> serde_json::Value {
+    serde_json::json!({
+        "id": "w-4242",
+        "title": "Action center",
+        "app_name": "ShellExperienceHost.exe",
+        "pid": 99,
+        "process_instance": "instance-99",
+        "bounds": { "x": 1140.0, "y": 60.0, "width": 380.0, "height": 640.0 },
+        "is_focused": true,
+        "accessible": true,
+        "minimized": false,
+        "visible": true,
+    })
+}
+
 #[test]
-fn data_carries_the_snake_case_kind_and_the_full_window_identity() {
+fn a_raised_surface_reports_the_kind_the_window_and_delivered_verified() {
     let adapter = adapter();
 
     let value = execute(
@@ -110,15 +128,37 @@ fn data_carries_the_snake_case_kind_and_the_full_window_identity() {
     )
     .unwrap();
 
-    assert_eq!(value["surface"], "action-center");
-    assert_eq!(value["window"]["id"], "w-4242");
-    assert_eq!(value["window"]["title"], "Action center");
-    assert_eq!(value["window"]["app_name"], "ShellExperienceHost.exe");
-    assert_eq!(value["window"]["pid"], 99);
-    assert_eq!(value["window"]["process_instance"], "instance-99");
-    assert_eq!(value["window"]["bounds"]["width"], 380.0);
-    assert_eq!(value["window"]["is_focused"], true);
-    assert_eq!(value["window"]["visible"], true);
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "surface": "action-center",
+            "window": shell_window_data(),
+            "disposition": { "delivery": "delivered_verified", "retry": "unsafe" },
+        })
+    );
+}
+
+#[test]
+fn a_surface_that_was_already_present_reports_not_delivered() {
+    let adapter = adapter();
+
+    let value = execute(
+        OpenSystemSurfaceArgs {
+            surface: SnapshotSurface::Taskbar,
+        },
+        &adapter,
+        &headed(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "surface": "taskbar",
+            "window": shell_window_data(),
+            "disposition": { "delivery": "not_delivered", "retry": "safe" },
+        })
+    );
 }
 
 #[test]
@@ -217,5 +257,11 @@ fn a_surface_no_window_presents_leaves_the_window_out() {
     )
     .unwrap();
 
-    assert_eq!(value, serde_json::json!({ "surface": "dock" }));
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "surface": "dock",
+            "disposition": { "delivery": "not_delivered", "retry": "safe" },
+        })
+    );
 }

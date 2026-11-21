@@ -45,9 +45,9 @@ pub unsafe extern "C" fn ad_dismiss_all_notifications(
             policy: agent_desktop_core::actions::interaction_policy::InteractionPolicy::headless(),
         };
         match adapter.inner.dismiss_all_notifications(request, &lease) {
-            Ok((dismissed, failed_messages)) => {
+            Ok((dismissed, failed)) => {
                 if let Err(error) = crate::resource::validate_list_len(
-                    dismissed.len().max(failed_messages.len()),
+                    dismissed.len().max(failed.len()),
                     "Notification mutation result",
                 ) {
                     set_last_error(&error);
@@ -60,15 +60,15 @@ pub unsafe extern "C" fn ad_dismiss_all_notifications(
                 });
                 *dismissed_out = Box::into_raw(dismissed_list);
 
-                let failed_items: Vec<AdNotificationInfo> = failed_messages
+                let failed_items: Vec<AdNotificationInfo> = failed
                     .into_iter()
                     .enumerate()
-                    .map(|(i, msg)| {
+                    .map(|(i, error)| {
                         let info = agent_desktop_core::NotificationInfo {
                             index: i,
                             app_name: String::new(),
                             title: String::from("dismiss failed"),
-                            body: Some(msg),
+                            body: Some(error.message),
                             actions: Vec::new(),
                         };
                         notification_info_to_c(&info)

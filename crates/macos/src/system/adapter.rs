@@ -139,14 +139,15 @@ impl SystemOps for MacOSAdapter {
 
     /// The Dock and the menu bar extras are always presented, so opening one
     /// returns it without raising anything or moving the foreground, which is
-    /// why no policy floor applies.
+    /// why no policy floor applies and every answer is `Present`.
     fn open_system_surface(
         &self,
         surface: SnapshotSurface,
         _policy: agent_desktop_core::InteractionPolicy,
         lease: &InteractionLease,
-    ) -> Result<WindowInfo, AdapterError> {
+    ) -> Result<agent_desktop_core::SurfaceOpening, AdapterError> {
         crate::tree::shell_surface::resolve_surface(surface, lease.deadline())
+            .map(agent_desktop_core::SurfaceOpening::Present)
     }
 
     fn capture_signal_baseline(
@@ -286,7 +287,7 @@ impl SystemOps for MacOSAdapter {
         &self,
         request: DismissAllNotificationsRequest<'_>,
         _lease: &InteractionLease,
-    ) -> Result<(Vec<NotificationInfo>, Vec<String>), AdapterError> {
+    ) -> Result<(Vec<NotificationInfo>, Vec<AdapterError>), AdapterError> {
         crate::notifications::actions::dismiss_all(
             request.app_filter,
             request.policy,

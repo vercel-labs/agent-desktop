@@ -15,9 +15,10 @@
 //! its effect.
 
 use agent_desktop_core::{
-    AdapterError, ChainRung, Deadline, DeliveryOutcome, DeliverySemantics, Effect, StepMechanism,
+    AdapterError, ChainRung, Deadline, DeliveryOutcome, DeliverySemantics, Effect,
+    InteractionPolicy, StepMechanism,
 };
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[cfg(target_os = "windows")]
 use crate::actions::mutation::{classify_success, classify_write};
@@ -40,43 +41,25 @@ pub(crate) const ALREADY_LABEL: &str = "AlreadyInState";
 const POLL_SLICE: Duration = Duration::from_millis(25);
 const SELFLAG_TAKESELECTION: i32 = 0x2;
 
-/// Caps a verification poll window by the remaining action budget.
-pub(crate) fn capped_verification_end(
-    deadline: Deadline,
-    cap: Duration,
-) -> Result<Instant, AdapterError> {
-    let remaining = deadline.remaining();
-    if remaining.is_zero() {
-        return Err(deadline.timeout_error());
-    }
-    let local = Instant::now() + cap;
-    Ok(Instant::now()
-        .checked_add(remaining)
-        .map_or(local, |end| end.min(local)))
-}
-
 /// Re-reads until `reached` holds or `cap`, bounded by the deadline, passes.
-pub(crate) fn poll_until(
-    deadline: Deadline,
-    cap: Duration,
-    mut reached: impl FnMut() -> bool,
-) -> Result<bool, AdapterError> {
-    let end = capped_verification_end(deadline, cap)?;
-    loop {
-        if reached() {
-            return Ok(true);
-        }
-        if Instant::now() >= end {
-            return Ok(false);
-        }
-        std::thread::sleep(deadline.remaining_slice(POLL_SLICE)?);
-    }
+/// It reads at least once, so an expired deadline still reports what it saw.
+pub(crate) fn poll_until(deadline: Deadline, cap: Duration, reached: impl FnMut() -> bool) -> bool {
+    deadline.poll_until(cap, POLL_SLICE, reached, |reached| *reached)
 }
 
 /// What a UI Automation control pattern call does to the desktop: it
 /// activates the target's window on every provider measured (W-W0-6,
 /// W-W0-7). The LegacyIAccessible and Win32 message rungs declare nothing.
 const TAKES_FOREGROUND: &[Effect] = &[Effect::FocusSteal];
+
+/// Whether `policy` lets a route that takes the foreground run: the check
+/// `execute_chain` applies to a rung built with `takes_foreground`, for a
+/// caller that gates a route outside a chain.
+pub(crate) fn foreground_route_allowed(policy: InteractionPolicy) -> bool {
+    TAKES_FOREGROUND
+        .iter()
+        .all(|effect| policy.require(*effect, "a foreground route").is_ok())
+}
 
 /// One rung of a Windows chain, or none when the live element does not offer
 /// the mechanism, so a mechanism the element lacks records no step.

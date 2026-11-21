@@ -27,6 +27,11 @@ pub fn execute(
         &lease,
     )?;
     Ok(json!({
+        "disposition": crate::DeliverySemantics::delivered_verified(),
         "dismissed": dismissed,
     }))
 }
+
+#[cfg(test)]
+#[path = "dismiss_notification_tests.rs"]
+mod tests;

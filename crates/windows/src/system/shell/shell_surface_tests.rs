@@ -3,6 +3,7 @@ use super::{SnapshotSurface, WindowInfo};
 use crate::system::test_support::helpers::{settles_to, wait_for_foreground_to_settle};
 use crate::system::window::window_enum::{EnumeratedWindow, enumerate_top_level, is_cloaked};
 use crate::system::window::window_ops::passes_filter;
+use agent_desktop_core::SurfaceOpening;
 
 use crate::system::shell::raise_oracle::{responded_since, witness_desktop};
 use crate::system::test_support::helpers::{SHELL_SURFACE_LOCK, or_skip_shell};
@@ -110,7 +111,15 @@ fn already_open_surface_returns_without_additional_raise() {
         raises, 0,
         "the resolve-first path must return without raising"
     );
-    assert_eq!(first.id, second.id);
+    assert!(
+        matches!(first, SurfaceOpening::Raised(_)),
+        "the open that raised the closed surface reports it raised"
+    );
+    assert!(
+        matches!(second, SurfaceOpening::Present(_)),
+        "the open that found the surface up reports it present"
+    );
+    assert_eq!(first.window().id, second.window().id);
 
     let _cleanup = CloseOnDrop(SnapshotSurface::ActionCenter);
 }
@@ -125,7 +134,8 @@ fn action_center_opens_roots_and_closes_cloaked() {
 
     let Some(info) = or_skip_shell(
         "action center open",
-        open_surface(SnapshotSurface::ActionCenter, headed(), deadline(10_000)),
+        open_surface(SnapshotSurface::ActionCenter, headed(), deadline(10_000))
+            .map(SurfaceOpening::into_window),
         || responded_since(&witness),
     ) else {
         return;
@@ -164,7 +174,8 @@ fn start_menu_opens_and_identity_roots_a_tree() {
 
     let Some(info) = or_skip_shell(
         "the start accelerator raises its surface",
-        open_surface(SnapshotSurface::StartMenu, headed(), deadline(10_000)),
+        open_surface(SnapshotSurface::StartMenu, headed(), deadline(10_000))
+            .map(SurfaceOpening::into_window),
         || responded_since(&witness),
     ) else {
         return;
@@ -257,7 +268,8 @@ fn immersive_surface_absent_from_enumeration_but_yielded_by_uia_root() {
 
     let Some(info) = or_skip_shell(
         "action center open",
-        open_surface(SnapshotSurface::ActionCenter, headed(), deadline(10_000)),
+        open_surface(SnapshotSurface::ActionCenter, headed(), deadline(10_000))
+            .map(SurfaceOpening::into_window),
         || responded_since(&witness),
     ) else {
         return;
@@ -288,7 +300,8 @@ fn overflow_opens_via_chevron_and_closes_via_escape() {
             SnapshotSurface::SystemTrayOverflow,
             headed(),
             deadline(10_000),
-        ),
+        )
+        .map(SurfaceOpening::into_window),
         || responded_since(&witness),
     ) else {
         return;

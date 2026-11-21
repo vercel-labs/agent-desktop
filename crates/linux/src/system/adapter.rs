@@ -6,7 +6,7 @@ use agent_desktop_core::{
     DismissNotificationRequest, DisplayInfo, ImageBuffer, InteractionLease, InteractionPolicy,
     KeyCombo, NotificationActionRequest, NotificationFilter, NotificationInfo, OperationReport,
     PermissionReport, ProcessIdentity, ScreenshotTarget, SessionAffinity, SignalBaseline,
-    SignalFilter, SnapshotSurface, SystemOps, WindowInfo, WindowOp,
+    SignalFilter, SnapshotSurface, SurfaceOpening, SystemOps, WindowInfo, WindowOp,
 };
 
 use crate::adapter::LinuxAdapter;
@@ -76,7 +76,7 @@ impl SystemOps for LinuxAdapter {
     }
 
     fn focus_window(&self, win: &WindowInfo, lease: &InteractionLease) -> Result<(), AdapterError> {
-        crate::system::focus::focus_window::focus_window(self.bus(), win, lease)
+        crate::system::focus::focus_window::focus_window(self.bus(), win, lease).map(|_| ())
     }
 
     fn close_app(
@@ -231,7 +231,7 @@ impl SystemOps for LinuxAdapter {
         &self,
         request: DismissAllNotificationsRequest<'_>,
         lease: &InteractionLease,
-    ) -> Result<(Vec<NotificationInfo>, Vec<String>), AdapterError> {
+    ) -> Result<(Vec<NotificationInfo>, Vec<AdapterError>), AdapterError> {
         notifications::dismiss_all(self.bus(), request, lease)
     }
 
@@ -270,7 +270,7 @@ impl SystemOps for LinuxAdapter {
         surface: SnapshotSurface,
         policy: InteractionPolicy,
         lease: &InteractionLease,
-    ) -> Result<WindowInfo, AdapterError> {
+    ) -> Result<SurfaceOpening, AdapterError> {
         shell::open_surface(self.bus(), surface, policy, lease)
     }
 }

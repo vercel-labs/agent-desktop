@@ -1,40 +1,12 @@
 use super::ref_stub::{RefStub, save_run_button};
-use super::stub::{args, golden, mode, payload, stable};
+use super::stub::{golden, payload};
 use crate::commands::helpers::{RefArgs, execute_ref_action_with_context};
-use crate::commands::wait::execute;
 use crate::ref_action::{
     ref_action_wait::execute_with_auto_wait, ref_action_wait_context::RefActionWaitContext,
 };
 use crate::refs::refs_test_support::HomeGuard;
 use crate::{adapter::live_element::incomplete_live_evidence, adapter::minimal_ref_entry, *};
 use serde_json::{Value, json};
-
-#[test]
-fn element_wait_reports_the_actionability_and_the_last_observed_error() {
-    let _home = HomeGuard::new();
-    let id = save_run_button(None);
-    let wait = |stub: &RefStub| {
-        let mut wait = args(mode!(element, format!("@{id}:e1")), None, 150);
-        wait.predicate.predicate = Some("actionable".into());
-        execute(wait, stub, &CommandContext::default())
-    };
-    let missing = AdapterError::new(
-        ErrorCode::ElementNotFound,
-        "The element is not on screen yet",
-    );
-    let missing = RefStub {
-        element_error: Some(missing),
-        ..Default::default()
-    };
-
-    let data =
-        json!({"found": wait(&RefStub::default()).unwrap(), "timeout": payload(wait(&missing))});
-
-    golden!(
-        stable(data, std::slice::from_ref(&id)),
-        include_str!("../../../../../../tests/fixtures/contract/waits-element.json")
-    );
-}
 
 fn auto_wait_error(stub: &RefStub) -> Value {
     let mut entry = minimal_ref_entry("button", Some("Run"));

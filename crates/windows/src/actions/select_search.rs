@@ -1,6 +1,6 @@
 //! Bounded SelectionItem descendant search and scroll-to-realize (A19-7).
 
-use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode, normalize_search_text};
 
 use crate::tree::element::UIAElement;
 
@@ -10,6 +10,10 @@ const MAX_REALIZE_SCROLLS: u32 = 16;
 
 fn select_node_budget_has_room(visited: usize, pending: usize, staged: usize) -> bool {
     visited.saturating_add(pending).saturating_add(staged) < MAX_SELECT_NODES
+}
+
+fn names_equal(left: &str, right: &str) -> bool {
+    normalize_search_text(left) == normalize_search_text(right)
 }
 
 /// One realize scroll attempt: either expose a searchable window or stop.
@@ -74,7 +78,7 @@ pub(crate) fn admit_selection_match<T: Clone>(
 mod imp {
     use super::{
         AdapterError, Deadline, ErrorCode, MAX_REALIZE_SCROLLS, MAX_SELECT_DEPTH, MAX_SELECT_NODES,
-        RealizeScrollStep, UIAElement, admit_selection_match, drive_realize_scrolls,
+        RealizeScrollStep, UIAElement, admit_selection_match, drive_realize_scrolls, names_equal,
         select_node_budget_has_room,
     };
     use crate::actions::mutation::{classify_success, classify_write};
@@ -182,7 +186,7 @@ mod imp {
         let (name, _) = name_fields(&properties, &label);
         matches!(
             name,
-            LocatorField::Known(text) if text.eq_ignore_ascii_case(value)
+            LocatorField::Known(text) if names_equal(&text, value)
         )
     }
 
@@ -274,10 +278,18 @@ pub(crate) use imp::{
 mod tests {
     use super::{
         MAX_SELECT_DEPTH, MAX_SELECT_NODES, RealizeScrollStep, accept_selection_match,
-        drive_realize_scrolls, select_node_budget_has_room,
+        drive_realize_scrolls, names_equal, select_node_budget_has_room,
     };
     use agent_desktop_core::{AdapterError, ErrorCode};
     use std::cell::Cell;
+
+    #[test]
+    fn names_compare_by_the_one_core_name_form() {
+        assert!(names_equal("Éa", "éa"));
+        assert!(names_equal("  a \t b ", "A b"));
+        assert!(!names_equal("a", "b"));
+        assert!(!names_equal("a b", "ab"));
+    }
 
     #[test]
     fn select_search_depth_budget_is_eight() {

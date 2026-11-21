@@ -113,19 +113,17 @@ fn menus_open_for_takes_one_snapshot_regardless_of_target_count() {
 /// the wrong guard survive three reviews.
 #[test]
 fn a_failed_snapshot_open_is_an_error_not_an_empty_enumeration() {
-    let outcome = crate::system::runtime::thread_walk::force_open_failure::with(|| {
+    let outcome = crate::system::runtime::thread_walk::force_open_failure::with(5, || {
         menu_is_open(ProcessId::from(std::process::id()), deadline(10_000))
     });
 
     let error = outcome.expect_err(
         "a snapshot the OS refused to open must surface as an error, never as          a walk that completed and found no menu",
     );
-    assert!(
-        matches!(
-            error.code,
-            ErrorCode::AppUnresponsive | ErrorCode::Timeout | ErrorCode::ElementNotFound
-        ),
-        "the failure must stay inside the closed set the poll loop retries, got {:?}",
+    assert_eq!(
+        error.code,
+        ErrorCode::PermDenied,
+        "the native failure's own code must reach the caller unchanged, got {:?}",
         error.code
     );
 }

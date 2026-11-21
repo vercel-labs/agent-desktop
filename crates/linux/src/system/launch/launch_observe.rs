@@ -10,6 +10,7 @@ use agent_desktop_core::{AdapterError, Deadline, DeliverySemantics, ErrorCode, P
 use super::baseline::Baseline;
 use super::launch_attach::matches;
 use super::launch_handoff;
+use super::launch_target::Plan;
 use crate::system::SharedBus;
 use crate::system::process::running_app::Running;
 use crate::system::registry::Registry;
@@ -186,7 +187,7 @@ fn after_spawn(error: AdapterError) -> AdapterError {
 pub(super) fn find_owner(
     bus: &SharedBus,
     spawned: &mut Spawned,
-    identity: &Option<crate::system::process::executable_identity::ExecutableIdentity>,
+    plan: &Plan,
     before: &Baseline,
     deadline: Deadline,
 ) -> Result<Option<Running>, AdapterError> {
@@ -211,7 +212,7 @@ pub(super) fn find_owner(
             child,
             apps: &apps,
             before: &before.processes,
-            identity,
+            identity: &plan.identity,
             settled: expired,
         };
         let mut next = step(&sample);
@@ -219,7 +220,7 @@ pub(super) fn find_owner(
             && status.success()
             && matches!(next, Step::Wait | Step::Failed(_))
         {
-            next = launch_handoff::observe(bus, before, &apps, deadline);
+            next = launch_handoff::observe(bus, before, &apps, &plan.aliases, deadline);
             if next == Step::Wait && expired {
                 next = Step::Failed(status);
             }

@@ -8,6 +8,7 @@ pub mod native_handle;
 pub(crate) mod observation;
 #[cfg(test)]
 mod saved_ref_test_support;
+pub(crate) mod surface_opening;
 pub(crate) mod system;
 #[cfg(test)]
 mod test_support;

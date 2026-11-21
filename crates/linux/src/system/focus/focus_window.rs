@@ -34,6 +34,22 @@ pub(in crate::system) enum Session {
     NoDisplay,
 }
 
+/// Whether `run` sent the window manager an activation request. `Quiet`
+/// covers every success that sent nothing: a window already active by both
+/// measures, an open menu holding the grab, or a shell surface that takes
+/// no activation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::system) enum Activation {
+    Sent,
+    Quiet,
+}
+
+impl Activation {
+    pub(in crate::system) const fn dispatched(self) -> bool {
+        matches!(self, Self::Sent)
+    }
+}
+
 /// Everything `focus_window` reads and writes, so the decision can be driven
 /// by a fixed desktop.
 pub(in crate::system) trait FocusWorld: ClientWorld {
@@ -169,7 +185,7 @@ fn ask_and_wait(
     before: Option<u32>,
     deadline: Deadline,
     untimed: bool,
-) -> Result<(), AdapterError> {
+) -> Result<Activation, AdapterError> {
     world.arm_wake();
     let sent = if untimed {
         world.send_untimed(client)
@@ -190,7 +206,7 @@ fn ask_and_wait(
         deadline.capped(FRAME_REPORT_GRACE),
     );
     match wait_for_focus(world, client, before, deadlines, first_look) {
-        Ok(()) => Ok(()),
+        Ok(()) => Ok(Activation::Sent),
         Err(cause) => Err(match world.modal_over(client) {
             Some(dialog) => modal_refusal(&dialog),
             None => refusal(overview_aware(world, cause)),
@@ -211,12 +227,14 @@ fn was_ignored(error: &AdapterError) -> bool {
 }
 
 /// Makes the window active through the window manager and returns only when
-/// the display server and the window's own frame both say it is.
+/// the display server and the window's own frame both say it is. The answer
+/// says whether an activation request was really sent, so a caller never
+/// claims a dispatch the already-active shortcut skipped.
 pub(in crate::system) fn run(
     world: &impl FocusWorld,
     win: &WindowInfo,
     deadline: Deadline,
-) -> Result<(), AdapterError> {
+) -> Result<Activation, AdapterError> {
     window_id::decode(&win.id).map_err(|error| {
         error.with_disposition(agent_desktop_core::DeliverySemantics::not_delivered())
     })?;
@@ -260,7 +278,7 @@ pub(in crate::system) fn run(
                     return Err(lift_refusal(cause, &manager));
                 }
                 if is_active(world, client).1 {
-                    return Ok(());
+                    return Ok(Activation::Sent);
                 }
                 world.active()
             }
@@ -270,7 +288,7 @@ pub(in crate::system) fn run(
                     || world.app_frame_active()
                     || world.menu_open()) =>
             {
-                return Ok(());
+                return Ok(Activation::Quiet);
             }
             None => active,
         };
@@ -298,13 +316,13 @@ pub(in crate::system) fn run(
     })
 }
 
-pub(crate) fn focus_window(
+pub(in crate::system) fn focus_window(
     bus: &SharedBus,
     win: &WindowInfo,
     lease: &InteractionLease,
-) -> Result<(), AdapterError> {
+) -> Result<Activation, AdapterError> {
     if shell::is_shell_window(win) {
-        return Ok(());
+        return Ok(Activation::Quiet);
     }
     let deadline = lease.deadline();
     crate::system::display::display_server::require(deadline)

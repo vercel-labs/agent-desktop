@@ -5,6 +5,7 @@ use agent_desktop_core::{
 use super::inventory::scan_windows;
 use super::inventory_reader::Inventory;
 use super::menu_surface;
+use super::nested_dialogs::NestedDialogs;
 use super::surface_scan::NestedScan;
 use crate::system::SharedBus;
 use crate::system::process::process_facts;
@@ -89,21 +90,40 @@ fn windows_of_process(
     scoped_windows_of(bus, &registry, |app| app.root.pid() == pid, deadline)
 }
 
+/// The dialogs a scan found, or the deadline's timeout when the scan stopped
+/// because the deadline ran out with nothing found: the command's own
+/// timeout, not an unknown dialog state. A scan cut short for another reason
+/// stays incomplete, and a dialog it saw is still reported.
+fn dialogs_or_timeout(scan: NestedScan, deadline: Deadline) -> Result<NestedDialogs, AdapterError> {
+    let NestedScan {
+        found, complete, ..
+    } = scan;
+    if !complete && found.is_empty() && deadline.is_expired() {
+        return Err(deadline.timeout_error());
+    }
+    Ok(NestedDialogs {
+        titles: found
+            .into_iter()
+            .map(|nested| nested.title.unwrap_or_default())
+            .collect(),
+        complete,
+    })
+}
+
 /// The titles of the dialogs drawn inside the windows of one process, which
-/// no list of its top-level windows holds. A blank title is an empty string.
+/// no list of its top-level windows holds, and whether the scan read every
+/// window to the end. A scan that did not read every window to the end still
+/// reports what it found: a dialog it saw is present, and only a scan that
+/// found nothing leaves a dialog unproven.
 pub(crate) fn nested_dialog_titles(
     bus: &SharedBus,
     pid: u32,
     deadline: Deadline,
-) -> Result<Vec<String>, AdapterError> {
+) -> Result<NestedDialogs, AdapterError> {
     let windows = windows_of_process(bus, pid, deadline)?;
     let mut inventory = Inventory::structural(bus, deadline);
     let scan = scan_windows(&windows, |window| inventory.read(window));
-    Ok(scan
-        .found
-        .into_iter()
-        .map(|nested| nested.title.unwrap_or_default())
-        .collect())
+    dialogs_or_timeout(scan, deadline)
 }
 
 /// Lists the surfaces the named process presents. The process identity is

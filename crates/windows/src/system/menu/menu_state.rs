@@ -2,9 +2,6 @@ use agent_desktop_core::{AdapterError, Deadline, ErrorCode, ProcessId};
 
 use crate::system::window::window_enum::{enumerate_top_level, window_is_responsive};
 
-#[cfg(target_os = "windows")]
-use crate::system::window::listing_retry::narrow_to_permitted_codes;
-
 #[cfg(all(test, target_os = "windows"))]
 use crate::system::runtime::thread_walk::{thread_snapshot_calls, thread_snapshot_closes};
 
@@ -158,7 +155,7 @@ fn uia_menu_reachable(pid: ProcessId, deadline: Deadline) -> Result<bool, Adapte
     if candidates.is_empty() {
         return Ok(false);
     }
-    let client = crate::tree::automation::automation_client().map_err(narrow_to_permitted_codes)?;
+    let client = crate::tree::automation::automation_client()?;
     let condition = menu_family_condition(&client)?;
     for (index, handle) in candidates.into_iter().enumerate() {
         if index > 0 {
@@ -193,8 +190,7 @@ fn tool_window_candidates(pid: ProcessId) -> Result<Vec<isize>, AdapterError> {
             handles.push(window.handle as isize);
         }
         true
-    })
-    .map_err(narrow_to_permitted_codes)?;
+    })?;
     Ok(handles)
 }
 
@@ -212,10 +208,7 @@ fn control_type_condition(
     client
         .create_property_condition(UIProperty::ControlType, Variant::from(control as i32), None)
         .map_err(|error| {
-            narrow_to_permitted_codes(crate::tree::automation::uia_error(
-                &error,
-                "build the menu-family search condition",
-            ))
+            crate::tree::automation::uia_error(&error, "build the menu-family search condition")
         })
 }
 
@@ -231,18 +224,12 @@ fn menu_family_condition(
     let menu_or_bar = client
         .create_or_condition(menu, menu_bar)
         .map_err(|error| {
-            narrow_to_permitted_codes(crate::tree::automation::uia_error(
-                &error,
-                "combine the menu-family search condition",
-            ))
+            crate::tree::automation::uia_error(&error, "combine the menu-family search condition")
         })?;
     client
         .create_or_condition(menu_or_bar, menu_item)
         .map_err(|error| {
-            narrow_to_permitted_codes(crate::tree::automation::uia_error(
-                &error,
-                "combine the menu-family search condition",
-            ))
+            crate::tree::automation::uia_error(&error, "combine the menu-family search condition")
         })
 }
 
@@ -304,9 +291,7 @@ fn probe_step(error: &uiautomation::Error, context: &str) -> Result<bool, Adapte
     if failure.is_absence() {
         return Ok(false);
     }
-    Err(narrow_to_permitted_codes(
-        crate::tree::automation::uia_failure_error(failure, context),
-    ))
+    Err(crate::tree::automation::uia_failure_error(failure, context))
 }
 
 #[cfg(test)]

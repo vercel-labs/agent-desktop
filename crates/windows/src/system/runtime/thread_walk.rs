@@ -22,7 +22,7 @@ pub(crate) fn walk_gui_threads<T>(
     deadline: Deadline,
     mut on_thread: impl FnMut(&THREADENTRY32) -> Option<T>,
 ) -> Result<Option<T>, AdapterError> {
-    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE, SetLastError};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, Thread32First, Thread32Next,
     };
@@ -30,7 +30,8 @@ pub(crate) fn walk_gui_threads<T>(
     #[cfg(test)]
     thread_snapshot_calls::record();
 
-    let snapshot = if force_open_failure::is_active() {
+    let snapshot = if let Some(code) = force_open_failure::failure() {
+        unsafe { SetLastError(code) };
         INVALID_HANDLE_VALUE
     } else {
         unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) }
@@ -71,9 +72,7 @@ pub(crate) fn walk_gui_threads<T>(
 /// table, the convention every native-failure module in this crate uses for
 /// its own local errors.
 fn open_failure_error() -> AdapterError {
-    crate::system::window::listing_retry::narrow_to_permitted_codes(win32_last_error(
-        "CreateToolhelp32Snapshot failed for classic menu-mode detection",
-    ))
+    win32_last_error("CreateToolhelp32Snapshot failed for classic menu-mode detection")
 }
 
 /// Counts snapshot handle opens so a test can prove every `ToolHelp`
@@ -128,20 +127,25 @@ pub(in crate::system) mod force_open_failure {
 
     thread_local! {
         static ACTIVE: Cell<bool> = const { Cell::new(false) };
+        static CODE: Cell<u32> = const { Cell::new(0) };
     }
 
-    pub(super) fn is_active() -> bool {
-        ACTIVE.with(Cell::get)
+    pub(super) fn failure() -> Option<u32> {
+        ACTIVE.with(Cell::get).then(|| CODE.with(Cell::get))
     }
 
-    pub(crate) fn with<R>(run: impl FnOnce() -> R) -> R {
-        crate::system::test_support::helpers::with_flag(&ACTIVE, true, run)
+    pub(crate) fn with<R>(code: u32, run: impl FnOnce() -> R) -> R {
+        ACTIVE.with(|active| active.set(true));
+        CODE.with(|slot| slot.set(code));
+        let result = run();
+        ACTIVE.with(|active| active.set(false));
+        result
     }
 }
 
 #[cfg(not(test))]
 mod force_open_failure {
-    pub(super) fn is_active() -> bool {
-        false
+    pub(super) fn failure() -> Option<u32> {
+        None
     }
 }

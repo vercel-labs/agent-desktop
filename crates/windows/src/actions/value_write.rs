@@ -89,8 +89,7 @@ mod imp {
                     None => gated_pattern_value_equals(element, value),
                 };
                 !matches!(last, Ok(Some(false)))
-            })
-            .map_err(after_delivery)?;
+            });
             Ok(DeliveryOutcome::observed(last.map_err(after_delivery)?))
         };
         let mut text = || observe(invoke_value_set(element, value)?);

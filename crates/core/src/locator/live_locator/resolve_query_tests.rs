@@ -173,6 +173,9 @@ fn persistent_cannot_complete_exhausts_one_deadline_with_last_evidence() {
     assert_eq!(error.code, ErrorCode::Timeout);
     let details = error.details.unwrap();
     assert_eq!(details["kind"], "locator_transient_incomplete");
+    assert_eq!(details["cause"], "deadline");
+    assert_eq!(details["retryable"], true);
+    assert!(error.suggestion.unwrap().contains("larger --timeout-ms"));
     let observation_attempts = details["observation_attempts"].as_u64().unwrap();
     assert_eq!(observation_attempts, 4);
     assert_eq!(adapter.builds.load(Ordering::SeqCst), 4);
@@ -223,7 +226,16 @@ fn deterministic_observation_limit_fails_without_retrying() {
         panic!("expected adapter error");
     };
     assert_eq!(error.code, ErrorCode::Timeout);
-    assert_eq!(error.details.unwrap()["kind"], "locator_budget_limit");
+    let details = error.details.unwrap();
+    assert_eq!(details["kind"], "locator_budget_limit");
+    assert_eq!(details["cause"], "traversal_limit");
+    assert_eq!(details["retryable"], false);
+    assert!(
+        error
+            .suggestion
+            .unwrap()
+            .contains("More time will not help")
+    );
     assert_eq!(adapter.builds.load(Ordering::SeqCst), 1);
 }
 

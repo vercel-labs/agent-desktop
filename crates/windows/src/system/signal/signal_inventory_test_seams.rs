@@ -57,3 +57,24 @@ pub(super) mod force_truncation {
         ACTIVE.with(Cell::get)
     }
 }
+
+pub(in crate::system::signal) mod force_failure {
+    use std::cell::RefCell;
+
+    use agent_desktop_core::AdapterError;
+
+    thread_local! {
+        static ARMED: RefCell<Option<AdapterError>> = const { RefCell::new(None) };
+    }
+
+    pub(in crate::system::signal) fn with<R>(error: AdapterError, run: impl FnOnce() -> R) -> R {
+        ARMED.with(|cell| *cell.borrow_mut() = Some(error));
+        let outcome = run();
+        ARMED.with(|cell| cell.borrow_mut().take());
+        outcome
+    }
+
+    pub(in crate::system::signal) fn take() -> Option<AdapterError> {
+        ARMED.with(|cell| cell.borrow_mut().take())
+    }
+}

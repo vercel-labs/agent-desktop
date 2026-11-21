@@ -9,9 +9,10 @@ use crate::commands::tests::golden::assert_golden;
 use crate::context::CommandContext;
 use crate::system::{launch_options::LaunchOptions, launch_result::LaunchResult};
 use crate::{
-    ActionResult, AdapterError, DismissAllNotificationsRequest, DismissNotificationRequest,
-    InteractionLease, InteractionPolicy, NotificationActionRequest, NotificationInfo,
-    ProcessIdentity, SnapshotSurface, WindowInfo,
+    ActionResult, AdapterError, DeliverySemantics, DismissAllNotificationsRequest,
+    DismissNotificationRequest, ErrorCode, InteractionLease, InteractionPolicy,
+    NotificationActionRequest, NotificationInfo, ProcessIdentity, SnapshotSurface, SurfaceOpening,
+    WindowInfo,
 };
 use serde_json::{Value, json};
 use std::io::{Read, Write};
@@ -22,6 +23,7 @@ struct Stub {
     failures: Vec<&'static str>,
     window: Option<WindowInfo>,
     launched: Option<LaunchResult>,
+    focus_sent: std::sync::atomic::AtomicBool,
 }
 
 impl ObservationOps for Stub {
@@ -59,10 +61,16 @@ impl SystemOps for Stub {
         &self,
         _request: DismissAllNotificationsRequest<'_>,
         _lease: &InteractionLease,
-    ) -> Result<(Vec<NotificationInfo>, Vec<String>), AdapterError> {
+    ) -> Result<(Vec<NotificationInfo>, Vec<AdapterError>), AdapterError> {
         Ok((
             vec![notification()],
-            self.failures.iter().map(ToString::to_string).collect(),
+            self.failures
+                .iter()
+                .map(|message| {
+                    AdapterError::new(ErrorCode::ActionFailed, *message)
+                        .with_disposition(DeliverySemantics::not_delivered())
+                })
+                .collect(),
         ))
     }
 
@@ -106,11 +114,15 @@ impl SystemOps for Stub {
 
     fn open_system_surface(
         &self,
-        _surface: SnapshotSurface,
+        surface: SnapshotSurface,
         _policy: InteractionPolicy,
         _lease: &InteractionLease,
-    ) -> Result<WindowInfo, AdapterError> {
-        Ok(self.window.clone().unwrap())
+    ) -> Result<SurfaceOpening, AdapterError> {
+        let window = self.window.clone().unwrap();
+        Ok(match surface {
+            SnapshotSurface::Dock | SnapshotSurface::Taskbar => SurfaceOpening::Present(window),
+            _ => SurfaceOpening::Raised(window),
+        })
     }
 
     fn focus_window(
@@ -118,6 +130,8 @@ impl SystemOps for Stub {
         _window: &WindowInfo,
         _lease: &InteractionLease,
     ) -> Result<(), AdapterError> {
+        self.focus_sent
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 
@@ -125,6 +139,9 @@ impl SystemOps for Stub {
         &self,
         _deadline: crate::Deadline,
     ) -> Result<Option<WindowInfo>, AdapterError> {
+        if !self.focus_sent.load(std::sync::atomic::Ordering::SeqCst) {
+            return Ok(None);
+        }
         let mut focused = self.window.clone().unwrap();
         focused.state.is_focused = true;
         Ok(Some(focused))
@@ -236,7 +253,7 @@ fn notification_action_reports_the_full_action_result() {
 
 #[test]
 fn launch_with_cdp_reports_instance_window_renderer_endpoint_and_connect_hint() {
-    let result = json!({"app": "Fixture", "pid": 42, "process_instance": "42:1", "renderer": "chromium", "window": window_json("w-1")});
+    let result = json!({"app": "Fixture", "pid": 42, "process_instance": "42:1", "renderer": "chromium", "window": window_json("w-1"), "disposition": {"delivery": "delivered_verified", "retry": "unsafe"}});
     let options = LaunchOptions {
         cdp_port: Some(0),
         ..LaunchOptions::default()
@@ -255,8 +272,8 @@ fn launch_with_cdp_reports_instance_window_renderer_endpoint_and_connect_hint() 
 
 #[test]
 fn launch_without_facts_is_bare_and_a_chromium_app_without_cdp_gets_the_hint() {
-    let bare = json!({"app": "Fixture", "pid": 42});
-    let chromium = json!({"app": "Fixture", "pid": 42, "renderer": "chromium"});
+    let bare = json!({"app": "Fixture", "pid": 42, "disposition": {"delivery": "delivered_verified", "retry": "unsafe"}});
+    let chromium = json!({"app": "Fixture", "pid": 42, "renderer": "chromium", "disposition": {"delivery": "delivered_verified", "retry": "unsafe"}});
     let v = json!([
         launch(bare, LaunchOptions::default()),
         launch(chromium, LaunchOptions::default())

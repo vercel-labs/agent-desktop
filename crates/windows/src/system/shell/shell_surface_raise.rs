@@ -154,7 +154,6 @@ fn invoke_overflow_chevron(_deadline: Deadline) -> Result<(), AdapterError> {
     use uiautomation::types::{Handle, TreeScope, UIProperty};
     use uiautomation::variants::Variant;
 
-    let narrow = crate::system::window::listing_retry::narrow_to_permitted_codes;
     let Some(tray) = shell_tray_handle() else {
         return Err(AdapterError::new(
             ErrorCode::WindowNotFound,
@@ -162,14 +161,11 @@ fn invoke_overflow_chevron(_deadline: Deadline) -> Result<(), AdapterError> {
         )
         .with_disposition(DeliverySemantics::not_delivered()));
     };
-    let client = crate::tree::automation::automation_client().map_err(narrow)?;
+    let client = crate::tree::automation::automation_client()?;
     let tray_element = client
         .element_from_handle(Handle::from(tray as isize))
         .map_err(|error| {
-            narrow(crate::tree::automation::uia_error(
-                &error,
-                "resolve the taskbar window's element",
-            ))
+            crate::tree::automation::uia_error(&error, "resolve the taskbar window's element")
         })?;
     let condition = client
         .create_property_condition(
@@ -178,10 +174,7 @@ fn invoke_overflow_chevron(_deadline: Deadline) -> Result<(), AdapterError> {
             None,
         )
         .map_err(|error| {
-            narrow(crate::tree::automation::uia_error(
-                &error,
-                "build the chevron condition",
-            ))
+            crate::tree::automation::uia_error(&error, "build the chevron condition")
         })?;
     let chevron = match tray_element.find_first(TreeScope::Descendants, &condition) {
         Ok(element) => element,
@@ -193,23 +186,17 @@ fn invoke_overflow_chevron(_deadline: Deadline) -> Result<(), AdapterError> {
             .with_disposition(DeliverySemantics::not_delivered()));
         }
         Err(error) => {
-            return Err(narrow(crate::tree::automation::uia_error(
+            return Err(crate::tree::automation::uia_error(
                 &error,
                 "search the taskbar for the notification chevron",
-            )));
+            ));
         }
     };
     let invoke: UIInvokePattern = chevron.get_pattern().map_err(|error| {
-        narrow(crate::tree::automation::uia_error(
-            &error,
-            "read the chevron's invoke pattern",
-        ))
+        crate::tree::automation::uia_error(&error, "read the chevron's invoke pattern")
     })?;
     invoke.invoke().map_err(|error| {
-        narrow(crate::tree::automation::uia_error(
-            &error,
-            "invoke the notification chevron",
-        ))
+        crate::tree::automation::uia_error(&error, "invoke the notification chevron")
     })
 }
 
