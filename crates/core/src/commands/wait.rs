@@ -6,7 +6,7 @@ use crate::{
         wait_element::{ElementWaitInput, wait_for_element},
         wait_mode::WaitMode,
         wait_notification,
-        wait_surface::SurfaceWait,
+        wait_surface::{self, SurfaceWait},
         wait_text_match, wait_timeout,
     },
     context::CommandContext,
@@ -64,6 +64,7 @@ pub fn execute(
             Ok(json!({ "waited_ms": ms }))
         }
         WaitMode::Menu { app, open } => wait_for_menu(app, open, timeout_ms, adapter),
+        WaitMode::Surface { app, kind } => wait_for_surface(app, kind, timeout_ms, adapter),
         WaitMode::Notification { app, text } => {
             wait_notification::wait_for_notification(app, text, timeout_ms, adapter, context)
         }
@@ -131,6 +132,60 @@ fn wait_for_menu(
         })?;
     let elapsed = start.elapsed().as_millis();
     Ok(json!({ "found": true, "elapsed_ms": elapsed }))
+}
+
+/// Polls the application's surface list until one of the asked kind is open.
+/// A kind the platform cannot show is refused before the wait starts.
+fn wait_for_surface(
+    app: Option<String>,
+    kind: Option<crate::SnapshotSurface>,
+    timeout_ms: u64,
+    adapter: &dyn PlatformAdapter,
+) -> Result<Value, AppError> {
+    if let Some(kind) = kind {
+        adapter.check_surface_support(kind)?;
+    }
+    let start = Instant::now();
+    let deadline = crate::Deadline::at(start, timeout_ms)?;
+    let target = resolve_app(app.as_deref(), adapter, deadline)?;
+    let process = crate::commands::helpers::process_identity(&target)?;
+    let open = |surfaces: &[crate::SurfaceInfo]| {
+        surfaces
+            .iter()
+            .find(|surface| wait_surface::is_kind(surface, kind))
+            .cloned()
+    };
+    let mut last_observed = None;
+    let mut last_error = None;
+    loop {
+        match adapter.list_surfaces(process.clone(), deadline) {
+            Ok(surfaces) => {
+                if let Some(surface) = open(&surfaces) {
+                    return Ok(json!({
+                        "found": true,
+                        "surface": surface,
+                        "elapsed_ms": start.elapsed().as_millis(),
+                    }));
+                }
+                last_observed = Some(surfaces);
+            }
+            Err(error) if wait_timeout::is_deadline_expired(&error) => break,
+            Err(error) if error.is_retryable_poll_failure() => {
+                last_error = Some(json!({ "code": error.code.as_str(), "message": error.message }));
+            }
+            Err(error) => return Err(error.into()),
+        }
+        if deadline.is_expired() {
+            break;
+        }
+        deadline.pause(Duration::from_millis(100));
+    }
+    wait_timeout::surface(
+        kind.map_or("any", |kind| kind.as_str()),
+        timeout_ms,
+        last_observed.as_deref(),
+        last_error,
+    )
 }
 
 fn wait_for_window(

@@ -190,6 +190,7 @@ fn listed(
 ) -> crate::system::registry::listed_window::ListedWindow {
     use agent_desktop_core::{WindowInfo, WindowState};
     crate::system::registry::listed_window::ListedWindow {
+        alert: false,
         app: 0,
         info: WindowInfo {
             id: format!("{:?}", frame.extents),

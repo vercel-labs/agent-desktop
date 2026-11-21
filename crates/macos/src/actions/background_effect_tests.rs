@@ -6,7 +6,27 @@ fn target(role: &str, label: &str) -> Option<PressTarget> {
     Some(PressTarget {
         role: Some(role.into()),
         labels: vec![label.into()],
+        in_popover: false,
     })
+}
+
+#[test]
+fn headless_refuses_a_click_on_a_button_a_popover_holds() {
+    let in_popover = || {
+        Some(PressTarget {
+            in_popover: true,
+            ..target("AXButton", "AirDrop")?
+        })
+    };
+    assert_eq!(
+        action_effect(&Action::Click, in_popover),
+        Some("popover_command")
+    );
+    assert_eq!(action_effect(&Action::Toggle, in_popover), None);
+    assert_eq!(
+        action_effect(&Action::Click, || target("AXButton", "Share")),
+        None
+    );
 }
 
 #[test]

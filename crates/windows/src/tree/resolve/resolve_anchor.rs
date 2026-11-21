@@ -59,6 +59,31 @@ pub(crate) fn resolve_locator_anchor(
     Err(stale_ref_error(entry))
 }
 
+/// A popover ref's path starts at the application's open popover, and the
+/// popover is no listed window: the process generation is checked and the
+/// popover found by the same predicate the inventory uses.
+#[cfg(target_os = "windows")]
+fn popover_root(entry: &RefEntry, deadline: Deadline) -> Result<Option<UIAElement>, AdapterError> {
+    if entry.source.source_surface != agent_desktop_core::SnapshotSurface::Popover {
+        return Ok(None);
+    }
+    let alive = entry
+        .process
+        .process_instance
+        .as_deref()
+        .map(|instance| {
+            crate::system::process_identity::matches_instance(entry.process.pid, instance)
+        })
+        .transpose()?
+        == Some(true);
+    if !alive {
+        return Err(stale_ref_error(entry));
+    }
+    let popover = crate::tree::surface_inventory::first_popover(entry.process.pid, deadline)?
+        .ok_or_else(|| stale_ref_error(entry))?;
+    crate::tree::automation::root_from_hwnd(popover as isize, deadline).map(Some)
+}
+
 /// The one pure gate runs first, before any of `resolve_window_root`,
 /// `UiaTreeSource::for_root` or `prepare_root` - three cross-process calls a
 /// verdict the stored ref alone can settle should never pay for.
@@ -79,7 +104,10 @@ fn resolve_locator_anchor_once(
         return Err(stale_ref_error(entry));
     }
 
-    let window = crate::tree::resolve::resolve_window_root(entry, deadline)?;
+    let window = match popover_root(entry, deadline)? {
+        Some(popover) => popover,
+        None => crate::tree::resolve::resolve_window_root(entry, deadline)?,
+    };
     let root = match base {
         Some(handle) => handle
             .downcast_ref::<UIAElement>()

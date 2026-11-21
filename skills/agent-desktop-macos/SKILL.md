@@ -46,9 +46,13 @@ may report `unknown` when consent would require a prompt.
   cancel action when no focused element takes Escape, and reads that it closed. A
   popover can appear a moment after the click that opens it: read it with
   `snapshot --app <app> --surface popover`.
+- `list-surfaces` lists the sheets, dialogs and popovers of every window, not only
+  the focused one. A system service panel, such as AirDrop from a share, is a dialog.
 - Headless menu-opening and dialog-opening actions can refuse before delivery.
   A label ending in an ellipsis predicts a dialog; it does not prove one exists.
-  Stop on a headed-only refusal rather than changing mode.
+  A click on a button inside a popover refuses with `kind: popover_command`: a
+  share item starts a service whose window takes the front. Stop on a headed-only
+  refusal rather than changing mode.
 - A file-name text field is not a file-system rename interface. Value-write
   actions refuse it because a changed field could falsely imply a renamed file.
 - A tab button (`AXRadioButton`, subrole `AXTabButton`) is selected by press
@@ -91,3 +95,4 @@ Read the disposition before applying a fix. Match both the code and message.
 | `PERM_DENIED`: `private file parent is accessible by group or other users` | The state root is not private. Run `chmod 700 "${AGENT_DESKTOP_HOME:-$HOME/.agent-desktop}"`, or use a new state root and let the tool create it. |
 | `PERM_DENIED`: `private file parent is not owned by the effective user` | The directory belongs to another user. Point `AGENT_DESKTOP_HOME` at a new directory under your home and let the tool create it; do not take over someone else's state. |
 | `needs_setup` from `sandbox status` for a sandbox that worked before | The guest agent, `agent-desktop-guest`, is not running in the guest, or Accessibility is off for it. Run `sandbox stop <name>`, then `sandbox start <name> --window`. In the guest, turn on automatic login, run `sh "/Volumes/My Shared Files/guest-setup.sh"` in Terminal, and switch on **agent-desktop-guest** in System Settings > Privacy & Security > Accessibility. Then check `status` on the host. A sandbox set up by agent-desktop 1.3.0 needs this once. |
+| `ACTION_NOT_SUPPORTED`: `The packaged macOS clipboard helper is missing or invalid` | Every clipboard command runs the packaged `agent-desktop-macos-helper` beside the binary, and it is checked before launch: a regular file (not a symlink) owned by you, executable, one link, no group or world write, no ACL that lets someone else change it, under directories owned by you or root that are not group or world writable unless sticky. `details.kind` is `clipboard_helper_invalid` or `clipboard_helper_not_found`, and `platform_detail` names the failed rule. Repair the install; the clipboard is not empty. |

@@ -20,6 +20,7 @@ fn bounds(x: i32) -> Extents {
 
 fn window(pid: u32, x: i32) -> ListedWindow {
     ListedWindow {
+        alert: false,
         app: 0,
         info: WindowInfo {
             id: format!("window-{pid}"),

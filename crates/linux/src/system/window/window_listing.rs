@@ -64,6 +64,7 @@ fn listed(
             global_position,
         },
         sheet: crate::tree::surfaces::is_sheet(node),
+        alert: crate::tree::surfaces::is_surface(node, agent_desktop_core::SnapshotSurface::Alert),
         unshown: state.visible == Some(false) && state.minimized == Some(false),
     })
 }

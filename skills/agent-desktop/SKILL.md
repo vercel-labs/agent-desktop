@@ -70,8 +70,8 @@ agent-desktop get '@s8f3k2p9:e4' --property value
 agent-desktop close-app "<app>"                # a save prompt keeps the app open; see --force below
 ```
 
-If an action reports `data.surfaces`, inspect the overlay before acting on the
-window behind it. A menu, sheet, or alert needs its own surface observation.
+If an action reports `data.surfaces`, inspect the overlay before acting on the window behind it. A menu, sheet, or alert needs its own surface observation.
+`data.details.surfaces: "not_read"` means that read failed, so run `list-surfaces` before assuming no overlay opened.
 Attached selector waits usually observe the parent window, not a separate popup.
 A gone match cannot prove that popup closed, and matching text elsewhere can satisfy an appearance wait.
 Use `launch` with a program name or path accepted by the platform. A running
@@ -88,8 +88,8 @@ Request `--cdp` only for the step that needs it. `close-app` ends the exposure.
   and exit 0 can include failures. Read each entry's `ok`, even with `--stop-on-error`,
   which stops later steps after a failure.
 - Lifecycle verification: put an action immediately before its event `wait` in the same
-  batch so the baseline is captured before the action. A standalone event wait starts
-  its baseline when it observes and can miss an already-completed transition.
+  batch so the baseline is captured before the action; a later event wait can miss an
+  already-completed transition. A surface a click opens late is a state: `wait --surface <kind> --app <app>`.
 - Targeting: use `find` when the role or name is known; explore a large window with
   a skeleton snapshot and a `--root` drill.
 - Tables: a table node reports `row_count` and `column_count`; a skeleton keeps it as one

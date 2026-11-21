@@ -150,7 +150,7 @@ agent-desktop list-surfaces --app gtk3-widget-factory
 }
 ```
 
-`list-surfaces` returns the overlays an app presents now, which are the kinds `snapshot --surface` accepts for it. Shell surfaces belong to the OS and never appear here. An entry can carry `"unclassified": ["sheet"]` or `["menu"]` when the check could not read that window, often because the app was busy. Treat the missing entry as unknown, not absent.
+`list-surfaces` returns the overlays an app presents now, which are the kinds `snapshot --surface` accepts for it. Shell surfaces belong to the OS and never appear here. An entry can carry `"unclassified": ["sheet"]`, `["menu"]` or `["popover"]` when the check could not read that window, often because the app was busy or a search stopped at its bound. Treat the missing entry as unknown, not absent.
 
 ## Open an OS shell surface
 

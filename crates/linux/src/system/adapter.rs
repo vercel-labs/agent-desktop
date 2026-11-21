@@ -193,33 +193,24 @@ impl SystemOps for LinuxAdapter {
     }
 
     fn supported_surfaces(&self) -> Vec<SnapshotSurface> {
-        let Ok(deadline) = Deadline::after(SURFACE_PROBE_MS) else {
-            return Vec::new();
-        };
-        if !permissions::accessibility_answers(self.bus(), deadline) {
-            return Vec::new();
+        let mut surfaces = answering_app_surfaces(self.bus());
+        if !surfaces.is_empty() {
+            surfaces.extend(shell::supported(self.bus()));
         }
-        let mut surfaces = vec![
-            SnapshotSurface::Window,
-            SnapshotSurface::Sheet,
-            SnapshotSurface::Alert,
-        ];
-        surfaces.extend(menu_surface::supported());
-        surfaces.extend(shell::supported(self.bus()));
         surfaces
     }
 
+    /// An application surface needs no probe. A kind that no shell surface
+    /// can be is refused without the shell probe, which takes up to its
+    /// budget on a session whose shell tree answers slowly.
     fn check_surface_support(&self, requested: SnapshotSurface) -> Result<(), AdapterError> {
-        if matches!(
-            requested,
-            SnapshotSurface::Window
-                | SnapshotSurface::Sheet
-                | SnapshotSurface::Alert
-                | SnapshotSurface::Menu
-        ) {
+        if app_surfaces().contains(&requested) {
             return Ok(());
         }
-        let supported = self.supported_surfaces();
+        let supported = match shell::kinds::kind_of(requested) {
+            Some(_) => self.supported_surfaces(),
+            None => answering_app_surfaces(self.bus()),
+        };
         if supported.contains(&requested) {
             return Ok(());
         }
@@ -280,4 +271,24 @@ impl SystemOps for LinuxAdapter {
     ) -> Result<SurfaceOpening, AdapterError> {
         shell::open_surface(self.bus(), surface, policy, lease)
     }
+}
+
+/// The application surfaces, or none when the session's accessibility bus
+/// does not answer.
+fn answering_app_surfaces(bus: &crate::system::SharedBus) -> Vec<SnapshotSurface> {
+    match Deadline::after(SURFACE_PROBE_MS) {
+        Ok(deadline) if permissions::accessibility_answers(bus, deadline) => app_surfaces(),
+        _ => Vec::new(),
+    }
+}
+
+/// The surfaces of an application window that every session reads.
+fn app_surfaces() -> Vec<SnapshotSurface> {
+    let mut surfaces = vec![
+        SnapshotSurface::Window,
+        SnapshotSurface::Sheet,
+        SnapshotSurface::Alert,
+    ];
+    surfaces.extend(menu_surface::supported());
+    surfaces
 }

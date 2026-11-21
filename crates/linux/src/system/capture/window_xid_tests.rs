@@ -72,6 +72,7 @@ fn the_server_states_without_a_client_list_keep_their_cause() {
 
 fn listed(id: &str, title: &str, active: bool) -> ListedWindow {
     ListedWindow {
+        alert: false,
         app: 0,
         info: WindowInfo {
             id: id.to_owned(),

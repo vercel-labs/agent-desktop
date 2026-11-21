@@ -94,6 +94,21 @@ impl ActionResult {
         self
     }
 
+    /// Records the overlays read once the action settled. A read that failed
+    /// is not "no overlay": it is reported as `details.surfaces: "not_read"`.
+    pub(crate) fn with_surfaces_read(
+        mut self,
+        read: Result<Vec<crate::SurfaceInfo>, crate::AdapterError>,
+    ) -> Self {
+        match read {
+            Ok(surfaces) => {
+                self.surfaces = surfaces;
+                self
+            }
+            Err(_) => self.with_details(serde_json::json!({ "surfaces": "not_read" })),
+        }
+    }
+
     pub fn with_verified_delivery(mut self) -> Self {
         if self.disposition == DeliverySemantics::delivered_unverified() {
             self.disposition = DeliverySemantics::delivered_verified();

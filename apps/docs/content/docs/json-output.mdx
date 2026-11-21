@@ -100,7 +100,7 @@ A snapshot that runs out of budget still returns `ok: true`, with `"complete": f
 
 ## Action results and disposition
 
-A ref action such as `click`, `type`, or `toggle` returns `data.action` and `data.disposition`, and can add `steps` (each mechanism tried), `post_state`, `surfaces` (surfaces open once the action settled), and `details`. `disposition` has two fields, `delivery` and `retry`; on success, `delivery` is `delivered_verified`, `delivered_unverified`, or `not_delivered` (already satisfied). What each value proves, and when a retry is safe, is in [Errors and recovery](/desktop/errors-and-recovery#disposition).
+A ref action such as `click`, `type`, or `toggle` returns `data.action` and `data.disposition`, and can add `steps` (each mechanism tried), `post_state`, `surfaces` (surfaces open once the action settled), and `details`. When the read of `surfaces` fails, `details.surfaces` is `"not_read"`: an absent `surfaces` then does not mean that no overlay opened. `disposition` has two fields, `delivery` and `retry`; on success, `delivery` is `delivered_verified`, `delivered_unverified`, or `not_delivered` (already satisfied). What each value proves, and when a retry is safe, is in [Errors and recovery](/desktop/errors-and-recovery#disposition).
 
 ### Post-action observation
 

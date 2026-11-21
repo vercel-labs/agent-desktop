@@ -10,6 +10,10 @@ pub(crate) struct TreeBuildContext {
 }
 
 impl TreeBuildContext {
+    /// The focused element only marks one node as focused. An application
+    /// whose focus sits in a view another process draws (a share or an AirDrop
+    /// panel) answers its read with an error, and its tree is still readable,
+    /// so the tree is built without the mark.
     pub(crate) fn for_pid_with_deadline(
         pid: i32,
         include_bounds: bool,
@@ -17,7 +21,9 @@ impl TreeBuildContext {
     ) -> Result<Self, agent_desktop_core::AdapterError> {
         let app = super::element_for_pid(pid);
         let focused =
-            super::resolve::resolve_ax_read::read_element(&app, "AXFocusedUIElement", deadline)?;
+            super::resolve::resolve_ax_read::read_element(&app, "AXFocusedUIElement", deadline)
+                .ok()
+                .flatten();
         Ok(Self {
             focused,
             window_bounds: None,

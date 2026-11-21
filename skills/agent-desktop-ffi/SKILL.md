@@ -102,8 +102,8 @@ ABI. A bare `@eN` ref returns
   only as fields embedded in the exact structs. `ad_list_surfaces_exact` keeps the
   surface `id`. From `AD_EXACT_SURFACE_INFO_VERSION` 2, `AdExactSurfaceInfo.unclassified`
   names the surface kinds its probe could not read (for example `sheet,menu`), or
-  is null. A missing `sheet` or `menu` next to a listed kind is unknown, not
-  absent. Only the Windows adapter fills it; macOS and Linux return null.
+  is null. A missing `sheet`, `menu` or `popover` next to a listed kind is
+  unknown, not absent.
 
 - **Entries with no policy input.** `ad_mouse_event`, `ad_mouse_event_with_modifiers`,
   `ad_mouse_wheel`, `ad_drag`, `ad_set_clipboard`, `ad_clear_clipboard`,

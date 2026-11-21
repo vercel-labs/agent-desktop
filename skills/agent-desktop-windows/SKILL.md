@@ -58,7 +58,8 @@ Use `$env:NAME = 'value'` for environment variables.
   `focus_returned: true`. A window you switched to is never touched.
 - Chromium/Electron trees can be thin while accessibility settles. Finish a
   bounded observation before concluding that content is absent.
-- An open application menu is the `menu` surface; there is no `menubar` surface.
+- An open application menu is the `menu` surface; there is no `menubar` surface. An owned popup window
+  of the app (a ribbon drop-down) is a `popover`: `list-surfaces` lists it, `snapshot --surface popover` reads it.
   Shell surfaces are separate from ordinary window inventory. `quick-settings`
   refuses with `INVALID_ARGS` naming `action-center`.
 - Notification reads adopt an already-open Action Center headless; opening it

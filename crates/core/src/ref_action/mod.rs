@@ -158,7 +158,11 @@ pub(crate) fn dispatch_resolved_landing(
     );
     let mut result = dispatch_result?;
     if raises_surface {
-        result.surfaces = settled_surfaces(&final_target, expected_process);
+        result = result.with_surfaces_read(final_target.adapter.surfaces_raised_by(
+            expected_process,
+            final_target.handle,
+            final_target.deadline,
+        ));
     }
     final_target
         .context
@@ -168,20 +172,6 @@ pub(crate) fn dispatch_resolved_landing(
         )
         .map_err(trace_error_after_delivery)?;
     Ok((result, handle))
-}
-
-/// An action that opens a sheet, menu, or alert leaves the caller staring at a
-/// success envelope with no hint that the application is now waiting on a
-/// dialog. Reporting the overlays saves a round of window archaeology. Purely
-/// informational, so a failed read never disturbs delivered work.
-fn settled_surfaces(
-    target: &ResolvedRefAction<'_>,
-    process: crate::ProcessIdentity,
-) -> Vec<crate::SurfaceInfo> {
-    target
-        .adapter
-        .surfaces_raised_by(process, target.handle, target.deadline)
-        .unwrap_or_default()
 }
 
 pub(crate) fn mark_pre_dispatch_resolution_failure(error: AdapterError) -> AdapterError {

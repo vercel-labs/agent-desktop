@@ -42,6 +42,7 @@ pub(crate) fn of_stopped_apps(
                 continue;
             }
             found.push(ListedWindow {
+                alert: false,
                 app: index,
                 info: WindowInfo {
                     id,

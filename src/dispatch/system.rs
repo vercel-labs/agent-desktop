@@ -29,6 +29,7 @@ pub(super) fn wait(
                     args.mode.menu,
                     args.mode.menu_closed,
                     args.mode.notification,
+                    args.event.surface.as_deref(),
                 )?,
                 event: args.event.event,
                 window_id: args.event.window_id,

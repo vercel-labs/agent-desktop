@@ -9,6 +9,7 @@ use crate::system::x11::{FrameExtents, FrameFacts, X11Client, X11State};
 
 fn window(title: &str, active: bool, modal: bool) -> ListedWindow {
     ListedWindow {
+        alert: false,
         app: 0,
         info: WindowInfo {
             id: format!("w-1.1-{title}"),

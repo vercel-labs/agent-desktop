@@ -114,6 +114,7 @@ fn an_old_frame_omitted_by_an_incomplete_baseline_cannot_be_a_launch_window() {
     pass.recovered.push(0);
     pass.windows
         .push(crate::system::registry::listed_window::ListedWindow {
+            alert: false,
             app: 0,
             info: agent_desktop_core::WindowInfo {
                 id: "w-1.5-stopped-x42".to_owned(),

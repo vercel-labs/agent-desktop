@@ -116,6 +116,7 @@ impl ObservationOps for MacOSAdapter {
         deadline: Deadline,
     ) -> Result<Vec<SurfaceInfo>, AdapterError> {
         let mut anchored = Vec::new();
+        let mut window = None;
         #[cfg(target_os = "macos")]
         if let Ok(anchor) = ax_element(raised_by) {
             crate::tree::surface_inventory::collect_anchored_surfaces(
@@ -123,11 +124,20 @@ impl ObservationOps for MacOSAdapter {
                 deadline,
                 &mut anchored,
             );
+            window = crate::tree::surface_read::element(anchor, "AXWindow", deadline)
+                .ok()
+                .flatten();
         }
-        crate::tree::surface_inventory::with_anchored(
-            self.list_surfaces(process, deadline),
-            anchored,
-        )
+        let inventory = match window {
+            Some(window) => crate::system::process::process_identity::require_core(&process)
+                .and_then(|identity| {
+                    crate::tree::surface_inventory::list_surfaces_in_window(
+                        identity, &window, deadline,
+                    )
+                }),
+            None => self.list_surfaces(process, deadline),
+        };
+        crate::tree::surface_inventory::with_anchored(inventory, anchored)
     }
 
     fn hit_test(

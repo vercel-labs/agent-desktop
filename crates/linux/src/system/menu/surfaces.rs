@@ -40,15 +40,23 @@ fn surface(id: &str, kind: &str, title: &Option<String>) -> SurfaceInfo {
     }
 }
 
-/// The surfaces of one listed window: a `window` entry always, a `sheet`
-/// entry alongside it when the window is a modal dialog.
+/// The kinds a listed window adds beside its `window` entry: `alert` when the
+/// frame is a showing alert, the predicate `snapshot --surface alert` roots
+/// at, and `sheet` when it is a modal dialog. A modal alert is both.
+fn extra_kinds(window: &ListedWindow) -> impl Iterator<Item = &'static str> {
+    let alert = window.alert.then_some("alert");
+    alert.into_iter().chain(window.sheet.then_some("sheet"))
+}
+
+/// The surfaces of one listed window: a `window` entry always, and an `alert`
+/// and a `sheet` entry alongside it when the window is one.
 pub(crate) fn surfaces_of(windows: &[ListedWindow]) -> Vec<SurfaceInfo> {
     windows
         .iter()
         .flat_map(|window| {
             let title = (!window.info.title.is_empty()).then(|| window.info.title.clone());
             std::iter::once("window")
-                .chain(window.sheet.then_some("sheet"))
+                .chain(extra_kinds(window))
                 .map(move |kind| surface(&window.info.id, kind, &title))
         })
         .collect()

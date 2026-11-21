@@ -5,6 +5,7 @@ use crate::system::x11::{FrameFacts, X11Client};
 
 fn listed(pid: u32, title: &str, active: bool) -> ListedWindow {
     ListedWindow {
+        alert: false,
         app: 0,
         info: WindowInfo {
             id: format!("w-{pid}-{title}-{active}"),

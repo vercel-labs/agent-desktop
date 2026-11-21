@@ -77,6 +77,7 @@ pub unsafe extern "C" fn ad_wait(
             ffi_args.mode.surfaces.menu,
             ffi_args.mode.surfaces.menu_closed,
             ffi_args.mode.surfaces.notification,
+            None,
         )
         .and_then(|surface| {
             wait_args.mode.surface = surface;

@@ -56,6 +56,12 @@ impl Default for WindowsAdapter {
 }
 
 impl ObservationOps for WindowsAdapter {
+    /// A popover belongs to the application, not to one window: its refs resolve
+    /// against the application's open popover.
+    fn is_application_surface(&self, surface: SnapshotSurface) -> bool {
+        surface == SnapshotSurface::Popover
+    }
+
     fn observe_tree(
         &self,
         root: ObservationRoot<'_>,

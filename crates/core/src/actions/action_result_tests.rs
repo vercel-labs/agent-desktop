@@ -185,3 +185,16 @@ fn an_annotation_keeps_the_details_an_inner_layer_set() {
     assert_eq!(details["pointer"], "verified");
     assert_eq!(details["delivered_events"], 2);
 }
+
+#[test]
+fn a_failed_surface_read_is_reported_and_not_shown_as_no_overlay() {
+    let result = ActionResult::delivered_unverified("click").with_surfaces_read(Err(
+        crate::AdapterError::new(crate::ErrorCode::Timeout, "surface read timed out"),
+    ));
+
+    assert!(result.surfaces.is_empty());
+    assert_eq!(
+        result.details,
+        Some(serde_json::json!({ "surfaces": "not_read" }))
+    );
+}

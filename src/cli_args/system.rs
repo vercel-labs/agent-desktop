@@ -231,9 +231,9 @@ pub(crate) struct WaitArgs {
     pub app: Option<String>,
 }
 
-/// The `--event`/`--window-id` pair, grouped out of [`WaitModeArgs`] to keep
-/// it under the repo's field-count limit. `window_id` only ever narrows an
-/// `--event` wait, so the two travel together.
+/// The desktop-wide waits, grouped out of [`WaitModeArgs`] to keep it under
+/// the repo's field-count limit: `--event` with its `--window-id` narrowing,
+/// and `--surface`.
 #[derive(Args, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct WaitEventArgs {
@@ -248,6 +248,12 @@ pub(crate) struct WaitEventArgs {
         help = "Optional: narrow --event window-opened/window-closed/focus-changed to one window ID"
     )]
     pub window_id: Option<String>,
+    #[arg(
+        long,
+        value_name = "KIND",
+        help = "Block until a surface of this kind is open in the app: popover, sheet, alert, menu, or any of them. A surface already open counts, so it also finds one that opened just after a click"
+    )]
+    pub surface: Option<String>,
 }
 
 #[derive(Args, Debug, Deserialize)]

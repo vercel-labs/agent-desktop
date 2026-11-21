@@ -24,6 +24,7 @@ fn app() -> RegistryApp {
 
 fn window(id: &str, title: &str, sheet: bool) -> ListedWindow {
     ListedWindow {
+        alert: false,
         app: 0,
         info: WindowInfo {
             id: id.to_owned(),

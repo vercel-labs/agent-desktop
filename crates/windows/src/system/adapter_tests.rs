@@ -149,7 +149,7 @@ fn screenshot_window_frame_is_wired_through_system_ops_to_the_exact_window_captu
 /// the "advertised" side of the advertise/resolve/emit equality the live
 /// tests pin.
 #[test]
-fn supported_surfaces_advertises_window_focused_sheet_menu_and_shell_kinds() {
+fn supported_surfaces_advertises_window_focused_sheet_menu_popover_and_shell_kinds() {
     let adapter = WindowsAdapter::new();
     assert_eq!(
         adapter.supported_surfaces(),
@@ -158,6 +158,7 @@ fn supported_surfaces_advertises_window_focused_sheet_menu_and_shell_kinds() {
             SnapshotSurface::Focused,
             SnapshotSurface::Sheet,
             SnapshotSurface::Menu,
+            SnapshotSurface::Popover,
             SnapshotSurface::StartMenu,
             SnapshotSurface::Taskbar,
             SnapshotSurface::SystemTray,

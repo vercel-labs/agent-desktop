@@ -104,3 +104,38 @@ fn a_failed_inventory_does_not_hide_the_surface_below_the_target() {
         ["menu", "target"]
     );
 }
+
+#[test]
+fn a_system_dialog_is_listed_as_an_alert_like_a_dialog() {
+    assert_eq!(
+        super::kind_of(Some("AXWindow"), Some("AXSystemDialog")),
+        Some("alert")
+    );
+    assert_eq!(
+        super::kind_of(Some("AXWindow"), Some("AXDialog")),
+        Some("alert")
+    );
+    assert_eq!(super::kind_of(Some("AXSheet"), None), Some("sheet"));
+    assert_eq!(
+        super::kind_of(Some("AXWindow"), Some("AXStandardWindow")),
+        None
+    );
+}
+
+#[test]
+fn a_cut_popover_search_names_popover_unread_on_the_window() {
+    let mut surfaces = vec![surface("windows/0", "sheet")];
+    mark_popover_unread(&mut surfaces, "windows/0", None);
+    mark_popover_unread(&mut surfaces, "windows/1", Some("Doc".into()));
+    assert_eq!(surfaces[0].unclassified, ["popover"]);
+    assert_eq!(surfaces[1].id, "windows/1");
+    assert_eq!(surfaces[1].kind, "window");
+    assert_eq!(surfaces[1].unclassified, ["popover"]);
+    let cut = AdapterError::new(agent_desktop_core::ErrorCode::ElementNotFound, "cut")
+        .with_details(serde_json::json!({ "complete": false }));
+    assert!(is_incomplete(&cut));
+    assert!(!is_incomplete(&AdapterError::new(
+        agent_desktop_core::ErrorCode::ElementNotFound,
+        "gone"
+    )));
+}

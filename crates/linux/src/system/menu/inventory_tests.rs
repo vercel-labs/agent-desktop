@@ -11,6 +11,7 @@ use crate::tree::{AtspiElement, Field, WalkedNode};
 
 fn window(id: &str, sheet: bool) -> ListedWindow {
     ListedWindow {
+        alert: false,
         app: 0,
         info: WindowInfo {
             id: id.to_owned(),
