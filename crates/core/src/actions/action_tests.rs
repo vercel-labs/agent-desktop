@@ -1,7 +1,6 @@
 use super::Action;
 use crate::{
     Direction, DragParams, KeyCombo, Modifier, MouseButton, MouseEvent, MouseEventKind, Point,
-    actions::interaction_policy::InteractionPolicy,
 };
 
 fn dummy_key() -> KeyCombo {
@@ -79,93 +78,6 @@ fn headed_requirements_distinguish_window_and_pointer_preconditions() {
             action.name()
         );
     }
-}
-
-#[test]
-fn pure_ax_actions_base_policy_is_headless() {
-    let headless = InteractionPolicy::headless();
-    let pure_ax: &[Action] = &[
-        Action::Click,
-        Action::DoubleClick,
-        Action::RightClick,
-        Action::TripleClick,
-        Action::SetFocus,
-        Action::Expand,
-        Action::Collapse,
-        Action::Toggle,
-        Action::Check,
-        Action::Uncheck,
-        Action::ScrollTo,
-        Action::Clear,
-        Action::Scroll(Direction::Down, 3),
-        Action::SetValue("v".into()),
-        Action::Select("s".into()),
-    ];
-    for action in pure_ax {
-        assert_eq!(
-            action.base_interaction_policy(),
-            headless,
-            "{} must use headless base policy",
-            action.name()
-        );
-    }
-}
-
-#[test]
-fn type_text_is_headless_but_explicit_press_allows_focus() {
-    let headless = InteractionPolicy::headless();
-    assert_eq!(
-        Action::PressKey(KeyCombo {
-            key: "a".into(),
-            modifiers: vec![Modifier::Meta],
-        })
-        .base_interaction_policy(),
-        InteractionPolicy::focus_fallback(),
-        "PressKey is an explicit physical-input command"
-    );
-    assert_eq!(
-        Action::TypeText("hello".into()).base_interaction_policy(),
-        headless,
-        "TypeText must not gain implicit focus or keyboard permission"
-    );
-}
-
-#[test]
-fn key_down_and_key_up_base_policy_is_headless_unlike_press_key() {
-    let headless = InteractionPolicy::headless();
-    assert_eq!(
-        Action::KeyDown(dummy_key()).base_interaction_policy(),
-        headless,
-        "KeyDown must be headless; raw key-down events do not need focus theft"
-    );
-    assert_eq!(
-        Action::KeyUp(dummy_key()).base_interaction_policy(),
-        headless,
-        "KeyUp must be headless"
-    );
-}
-
-#[test]
-fn hover_and_drag_base_policy_is_headless_independent_of_cursor_requirement() {
-    let headless = InteractionPolicy::headless();
-    assert_eq!(
-        Action::Hover.base_interaction_policy(),
-        headless,
-        "Hover base_interaction_policy is headless even though requires_cursor_policy is true"
-    );
-    assert_eq!(
-        Action::Drag(dummy_drag()).base_interaction_policy(),
-        headless,
-        "Drag base_interaction_policy is headless even though requires_cursor_policy is true"
-    );
-    assert!(
-        Action::Hover.requires_cursor_policy(),
-        "Hover.requires_cursor_policy() must still be true"
-    );
-    assert!(
-        Action::Drag(dummy_drag()).requires_cursor_policy(),
-        "Drag.requires_cursor_policy() must still be true"
-    );
 }
 
 #[test]

@@ -282,6 +282,15 @@ impl LinuxAdapter {
 }
 
 impl ActionOps for LinuxAdapter {
+    fn headed_requirement(
+        &self,
+        handle: &NativeHandle,
+        request: &ActionRequest,
+        deadline: Deadline,
+    ) -> Result<agent_desktop_core::HeadedRequirement, AdapterError> {
+        crate::actions::foreground::headed_requirement(self.bus(), handle, request, deadline)
+    }
+
     fn scroll_ref_into_view(
         &self,
         entry: &agent_desktop_core::RefEntry,

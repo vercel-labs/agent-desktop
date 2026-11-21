@@ -256,7 +256,7 @@ fn a_selection_failure_after_clear_is_returned_with_partial_delivery() {
             element: &element,
             deadline: deadline(),
         };
-        let outcome = crate::actions::select::select(&target, "wanted", None);
+        let outcome = crate::actions::select::select(&target, "wanted", None, false);
         if replacement != "done" {
             let error = outcome.expect_err("clear succeeded and replacement failed");
             let (code, disposition) = match replacement {

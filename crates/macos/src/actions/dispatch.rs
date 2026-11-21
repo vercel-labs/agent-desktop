@@ -26,12 +26,18 @@ mod imp {
         crate::tree::properties::attributes::set_messaging_timeout(el, deadline)?;
         budget.ensure_budget()?;
         let action = &request.action;
+        crate::actions::background_effect::refuse_disturbing_action(
+            el,
+            action,
+            request.policy,
+            deadline,
+        )?;
         let label = action.name();
         let mut steps = Vec::new();
         tracing::debug!("action: perform {label}");
         match action {
             Action::Click => {
-                let native_menu = crate::tree::native_menu::is_native_menu(el, deadline)?
+                let native_menu = crate::tree::native_menu::presses_like_a_menu(el, deadline)?
                     || (request.policy.is_headed()
                         && probe_click_role(el, deadline)?.as_deref() == Some("AXMenuBarItem"));
                 steps.extend(run_chain(
@@ -62,6 +68,7 @@ mod imp {
             }
 
             Action::SetValue(val) => {
+                crate::actions::chain::chain_value_write::refuse_file_name_field(el, deadline)?;
                 steps.extend(run_chain(
                     el,
                     &chain_defs::SET_VALUE_CHAIN,
@@ -82,6 +89,9 @@ mod imp {
             }
 
             Action::TypeText(text) => {
+                if !request.policy.is_headed() {
+                    crate::actions::chain::chain_value_write::refuse_file_name_field(el, deadline)?;
+                }
                 steps.push(crate::actions::type_text::execute_type(
                     el,
                     text.as_str(),
@@ -120,7 +130,12 @@ mod imp {
             }
 
             Action::Select(value) => {
-                let verified = crate::actions::extras::select_value(el, value.as_str(), deadline)?;
+                let verified = crate::actions::extras::select_value(
+                    el,
+                    value.as_str(),
+                    request.policy,
+                    deadline,
+                )?;
                 steps.push(
                     ActionStep::succeeded("Select")
                         .with_mechanism(StepMechanism::SemanticApi)
@@ -176,6 +191,7 @@ mod imp {
             }
 
             Action::Clear => {
+                crate::actions::chain::chain_value_write::refuse_file_name_field(el, deadline)?;
                 steps.extend(run_chain(
                     el,
                     &chain_defs::CLEAR_CHAIN,
@@ -238,20 +254,6 @@ mod imp {
             Err(error) if error.code == ErrorCode::AppUnresponsive => Ok(None),
             result => result,
         }
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use super::*;
-    use crate::tree::AXElement;
-
-    pub fn perform_action(
-        _el: &AXElement,
-        _request: &ActionRequest,
-        _deadline: Deadline,
-    ) -> Result<ActionResult, AdapterError> {
-        Err(AdapterError::not_supported("perform_action"))
     }
 }
 

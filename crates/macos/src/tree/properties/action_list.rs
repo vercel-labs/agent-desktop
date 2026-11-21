@@ -115,6 +115,8 @@ pub(crate) fn read_platform_available_actions(
     if (role_may_expand(role)
         && read_settable(el, "AXExpanded", deadline, &mut read).unwrap_or(false))
         || (has("AXPress") && agent_desktop_core::tree::roles::is_expandable_role(role))
+        || (role == "treeitem"
+            && read_settable(el, "AXDisclosing", deadline, &mut read).unwrap_or(false))
     {
         push_unique(&mut read.actions, capability::EXPAND);
         push_unique(&mut read.actions, capability::COLLAPSE);
@@ -207,23 +209,6 @@ fn role_may_expand(role: &str) -> bool {
 
 fn role_may_insert_text(role: &str) -> bool {
     matches!(role, "textfield" | "combobox")
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn read_platform_available_actions(
-    _el: &AXElement,
-    _role: &str,
-    _attrs: &crate::tree::NodeAttrs,
-    _deadline: Deadline,
-    _usage: &mut crate::tree::observation_usage::ObservationUsage,
-) -> (AvailableActionsRead, bool) {
-    (
-        AvailableActionsRead {
-            complete: false,
-            ..AvailableActionsRead::default()
-        },
-        false,
-    )
 }
 
 fn push_unique(actions: &mut Vec<String>, action: &str) {

@@ -1,5 +1,5 @@
 use crate::{
-    AdapterError, AppError, Point, actionability, adapter::PlatformAdapter,
+    AppError, Point, actionability, adapter::PlatformAdapter,
     commands::helpers::resolve_ref_with_context, context::CommandContext,
 };
 
@@ -23,15 +23,9 @@ pub(crate) fn require_cursor_policy(
     context: &CommandContext,
     command: &str,
 ) -> Result<(), AppError> {
-    let policy = context.physical_input_policy();
-    if policy.allow_cursor_move {
-        return Ok(());
-    }
-    Err(AdapterError::policy_denied_for_policy(
-        format!("{command} moves the cursor and is disabled in headless mode"),
-        policy,
-    )
-    .into())
+    Ok(context
+        .physical_input_policy()
+        .require(crate::Effect::CursorMove, command)?)
 }
 
 /// Refuses a pointer gesture the session cannot deliver before any target is

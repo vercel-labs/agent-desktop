@@ -375,5 +375,9 @@ mod window_tests;
 mod context_tests;
 
 #[cfg(test)]
+#[path = "resolve_saved_ref_label_tests.rs"]
+mod label_tests;
+
+#[cfg(test)]
 #[path = "resolve_saved_ref_test_support.rs"]
 mod test_support;

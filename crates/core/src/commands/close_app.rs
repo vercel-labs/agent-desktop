@@ -4,7 +4,10 @@ use serde_json::{Value, json};
 pub struct CloseAppArgs {
     pub app: String,
     pub force: bool,
+    pub policy: crate::InteractionPolicy,
 }
+
+const MAY_PROMPT_SUGGESTION: &str = "Use --force to end the app without a prompt (it discards unsaved work), or --headed to send the close request (a save prompt may appear over your window).";
 
 pub fn execute(args: CloseAppArgs, adapter: &dyn PlatformAdapter) -> Result<Value, AppError> {
     if adapter.is_protected_process(&args.app) {
@@ -20,6 +23,15 @@ pub fn execute(args: CloseAppArgs, adapter: &dyn PlatformAdapter) -> Result<Valu
             .is_some_and(|bundle| adapter.is_protected_process(bundle));
     if protected {
         return Err(protected_process_error(&args.app));
+    }
+    if !args.force && !args.policy.allow_focus_steal && adapter.graceful_close_may_prompt() {
+        return Err(crate::foreground_denied(
+            "A close request can make the app open a save prompt that takes the foreground, which the interaction policy does not allow",
+            "may_prompt",
+            args.policy,
+        )
+        .with_suggestion(MAY_PROMPT_SUGGESTION)
+        .into());
     }
     let lease = adapter.acquire_interaction_lease(deadline)?;
     let live = crate::commands::helpers::revalidate_app_for_mutation(

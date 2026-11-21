@@ -22,7 +22,7 @@ Windows has no grant dialog for UI Automation; access is controlled by integrity
 
 ## What works headless
 
-Ref actions are semantic UIA calls headless and under `--headed`, except the ones that are physical or take focus. See [Headed mode](/desktop/guides/headed-mode).
+Headless ref actions never move the user's foreground. Every UI Automation control pattern call activates the target's window, so headless uses the LegacyIAccessible default action, `Select` and `SetValue`, and native combo box and list box messages instead. A target that offers only a pattern returns `POLICY_DENIED` with `details.foreground_effect: true` headless; rerun it with `--headed`. See [Headed mode](/desktop/guides/headed-mode).
 
 <table>
   <thead>
@@ -30,7 +30,7 @@ Ref actions are semantic UIA calls headless and under `--headed`, except the one
   </thead>
   <tbody>
     <tr><td>Observation and capture</td><td><code>snapshot</code>, <code>find</code>, <code>get</code>, <code>is</code>, <code>screenshot</code>, <code>list-surfaces</code>, <code>list-displays</code></td><td></td><td></td></tr>
-    <tr><td>Ref actions</td><td><code>click</code>, <code>set-value</code>, <code>clear</code>, <code>select</code>, <code>toggle</code>, <code>check</code>, <code>uncheck</code>, <code>expand</code>, <code>collapse</code>, <code>scroll</code>, <code>scroll-to</code></td><td><code>right-click</code>, <code>type</code>, <code>focus</code></td><td>Headless <code>right-click</code> and <code>type</code>: <code>POLICY_DENIED</code>. Use <code>set-value</code> to write text headless</td></tr>
+    <tr><td>Ref actions</td><td><code>click</code>, <code>set-value</code>, <code>clear</code>, <code>select</code>, <code>toggle</code>, <code>check</code>, <code>uncheck</code>, <code>expand</code>, <code>collapse</code>, <code>scroll</code>, <code>scroll-to</code></td><td><code>right-click</code>, <code>type</code>, <code>focus</code></td><td>Headless <code>right-click</code> and <code>type</code>: <code>POLICY_DENIED</code>. Use <code>set-value</code> to write text headless. Headless <code>expand</code> on a combo box or menu, <code>select</code> in a WPF or Ribbon combo box, <code>set-value</code> in a DirectUI field, and <code>scroll-to</code> off screen outside WPF and list boxes: <code>POLICY_DENIED</code></td></tr>
     <tr><td>Multi-click and pointer</td><td></td><td><code>double-click</code>, <code>triple-click</code>, <code>hover</code>, <code>drag</code>, <code>mouse-click</code>, <code>mouse-move</code>, <code>mouse-wheel</code></td><td>Headless: <code>POLICY_DENIED</code></td></tr>
     <tr><td>Keyboard</td><td><code>press</code></td><td>A scoped <code>press --app</code> to an app that is not frontmost</td><td>Blocked shortcuts without <code>--force</code></td></tr>
     <tr><td>Held input</td><td></td><td></td><td><code>key-down</code>, <code>key-up</code>, <code>mouse-down</code>, <code>mouse-up</code></td></tr>
@@ -93,6 +93,7 @@ Chromium 138 and later exposes a full UIA tree with no flag, but the first read 
     <tr><td>A Chromium or Electron app returns far fewer nodes than it shows</td><td>The first read came before the renderer settled</td><td><code>snapshot --timeout-ms 30000</code></td></tr>
     <tr><td><code>PERM_DENIED</code> with <code>E_ACCESSDENIED</code></td><td>The target runs at a higher integrity level</td><td>Run the terminal elevated to the target's level</td></tr>
     <tr><td><code>INVALID_ARGS</code> on a ref in PowerShell</td><td>An unquoted <code>@</code> ref was eaten as splatting</td><td>Quote the ref in single quotes</td></tr>
+    <tr><td><code>POLICY_DENIED</code> with <code>details.foreground_effect</code> from a ref action</td><td>The target offers only a UI Automation pattern, which activates its window</td><td>Pass <code>--headed</code>; <code>details.mechanisms</code> names the pattern</td></tr>
     <tr><td><code>POLICY_DENIED</code> from <code>open-system-surface</code> or a notification command</td><td>The command raises shell chrome, which takes the foreground</td><td>Pass <code>--headed</code>, or open the surface yourself first</td></tr>
     <tr><td><code>wait --notification</code> times out while toasts are posted</td><td>The Action Center collects a toast only while open</td><td>Hold the center open, or confirm with <code>list-notifications</code> while it is open</td></tr>
     <tr><td>A hosted app reads as <code>ApplicationFrameHost</code></td><td>The app is suspended</td><td>Activate the app so it resumes, then list again</td></tr>

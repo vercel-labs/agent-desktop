@@ -198,7 +198,16 @@ pub(crate) fn read_node(
         } else {
             LocatorField::Unknown
         },
-        identifiers: crate::tree::resolve::retained::evidence(element, identifiers),
+        identifiers: crate::tree::resolve::retained::evidence(element, identifiers)
+            .with_borrowed_name(
+                requirements.name
+                    && super::evidence_fields::name_borrowed(
+                        &name_evidence,
+                        &read.status,
+                        attrs.role.as_deref(),
+                        children_complete,
+                    ),
+            ),
         states: if !requirements.states || read.status.states_unknown() {
             LocatorField::Unknown
         } else {

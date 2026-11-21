@@ -114,32 +114,6 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use super::NativeRead;
-    use crate::tree::AXElement;
-
-    pub(crate) fn is_attr_settable_with_status(
-        _el: &AXElement,
-        _attr: &str,
-        _deadline: agent_desktop_core::Deadline,
-    ) -> NativeRead<bool> {
-        NativeRead::failure(i32::MIN)
-    }
-
-    pub(crate) fn copy_action_names_with_status(
-        _el: &AXElement,
-        _deadline: agent_desktop_core::Deadline,
-        _usage: &mut crate::tree::observation_usage::ObservationUsage,
-    ) -> NativeRead<Vec<String>> {
-        NativeRead::failure(i32::MIN)
-    }
-
-    pub fn same_element(_a: &AXElement, _b: &AXElement) -> bool {
-        false
-    }
-}
-
 pub(crate) use imp::same_element;
 pub(crate) use imp::{copy_action_names_with_status, is_attr_settable_with_status};
 

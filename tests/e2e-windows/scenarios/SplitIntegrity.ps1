@@ -96,7 +96,7 @@ function Invoke-LeaseAdoptionPreconditionLeg {
     param([Parameter(Mandatory = $true)][string]$WindowId, [Parameter(Mandatory = $true)][long]$LeaseHandle)
 
     $adopted = Invoke-StagedAgentDesktop -IntegrityLevel Medium -FilePath (Get-SplitIntegrityStagedBinary) -InheritLeaseHandle $LeaseHandle `
-        -Arguments @('focus-window', '--window-id', $WindowId) -TimeoutSeconds 20
+        -Arguments @('focus-window', '--headed', '--window-id', $WindowId) -TimeoutSeconds 20
     $adoptedKind = $null
     if ($adopted.Envelope['ok'] -eq $false) { $adoptedKind = $adopted.Envelope['error']['details']['kind'] }
     if ($adoptedKind -eq 'lock_timeout' -or $adoptedKind -eq 'interaction_process_lock_timeout') {
@@ -104,7 +104,7 @@ function Invoke-LeaseAdoptionPreconditionLeg {
     }
 
     $selfAcquired = Invoke-StagedAgentDesktop -IntegrityLevel Medium -FilePath (Get-SplitIntegrityStagedBinary) `
-        -Arguments @('focus-window', '--window-id', $WindowId) -TimeoutSeconds 20
+        -Arguments @('focus-window', '--headed', '--window-id', $WindowId) -TimeoutSeconds 20
     $selfAcquiredKind = $null
     if ($selfAcquired.Envelope['ok'] -eq $false) { $selfAcquiredKind = $selfAcquired.Envelope['error']['details']['kind'] }
     if ($selfAcquiredKind -ne 'lock_timeout' -and $selfAcquiredKind -ne 'interaction_process_lock_timeout') {
@@ -275,7 +275,7 @@ function Invoke-SplitIntegrityActivationLeg {
         }
 
         $medium = Invoke-StagedAgentDesktop -IntegrityLevel Medium -FilePath (Get-SplitIntegrityStagedBinary) -InheritLeaseHandle $LeaseHandle `
-            -Arguments @('focus-window', '--window-id', $windowId) -TimeoutSeconds 20
+            -Arguments @('focus-window', '--headed', '--window-id', $windowId) -TimeoutSeconds 20
         Assert-StagingConfirmedMedium -Staging $medium.Staging
         if ($medium.Envelope['ok'] -ne $true) {
             throw "Invoke-SplitIntegrityActivationLeg: expected Medium focus-window to succeed (measured behavior), got ok=false code=$($medium.Envelope['error']['code'])"

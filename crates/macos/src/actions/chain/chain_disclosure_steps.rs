@@ -62,8 +62,87 @@ mod imp {
                     return Ok(delivered);
                 }
             }
+            if let Some(triangle) = disclosure_triangle(element, deadline)? {
+                return press_triangle(element, &triangle, expanded, deadline);
+            }
         }
         Ok(DeliveryOutcome::NotDelivered)
+    }
+
+    /// An outline row publishes its disclosure state but no action that
+    /// changes it (`AXDisclosing` write -25200, `AXExpanded` -25205,
+    /// M-W0-9); the triangle in its first cell expands it with `AXPress`.
+    fn disclosure_triangle(
+        row: &AXElement,
+        deadline: Deadline,
+    ) -> Result<Option<AXElement>, AdapterError> {
+        use crate::tree::surface_read;
+        let is_triangle = |element: &AXElement| -> Result<bool, AdapterError> {
+            Ok(
+                surface_read::string(element, "AXRole", deadline)?.as_deref()
+                    == Some("AXDisclosureTriangle"),
+            )
+        };
+        for cell in surface_read::elements(row, "AXChildren", deadline)?
+            .into_iter()
+            .take(8)
+        {
+            if is_triangle(&cell)? {
+                return Ok(Some(cell));
+            }
+            for child in surface_read::elements(&cell, "AXChildren", deadline)?
+                .into_iter()
+                .take(8)
+            {
+                if is_triangle(&child)? {
+                    return Ok(Some(child));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// The triangle answers -25205 to a press that expands the row (M-W0-8,
+    /// 5/5), so the row's own state decides delivery, not the return code.
+    fn press_triangle(
+        row: &AXElement,
+        triangle: &AXElement,
+        expanded: bool,
+        deadline: Deadline,
+    ) -> Result<DeliveryOutcome, AdapterError> {
+        use core_foundation::{base::TCFType, string::CFString};
+        prepare(triangle, deadline)?;
+        let action = CFString::new("AXPress");
+        let error = crate::tree::properties::ax_ipc::perform_action(
+            triangle,
+            action.as_concrete_TypeRef(),
+            deadline,
+        )?;
+        triangle_outcome(
+            crate::actions::ax_mutation::classify_perform("AXPress", error),
+            || verify_disclosure(row, expanded, deadline),
+            error,
+        )
+    }
+
+    fn triangle_outcome(
+        signal: Result<crate::actions::ax_mutation::PerformSignal, AdapterError>,
+        verify: impl FnOnce() -> Result<DeliveryOutcome, AdapterError>,
+        error: i32,
+    ) -> Result<DeliveryOutcome, AdapterError> {
+        use crate::actions::ax_mutation::PerformSignal;
+        let signal = match signal {
+            Ok(PerformSignal::ReportedUnsupported) => return Ok(DeliveryOutcome::NotDelivered),
+            Ok(signal) => signal,
+            Err(failure) => return Err(failure),
+        };
+        match verify() {
+            Ok(DeliveryOutcome::DeliveredVerified) => Ok(DeliveryOutcome::DeliveredVerified),
+            outcome if signal == PerformSignal::ReportedDelivered => {
+                outcome.map_err(after_delivery)
+            }
+            _ => crate::actions::ax_mutation::settle_uninformative_perform("AXPress", error, false),
+        }
     }
 
     fn stop_if_delivered(outcome: DeliveryOutcome) -> Option<DeliveryOutcome> {
@@ -155,7 +234,31 @@ mod imp {
 
     #[cfg(test)]
     mod tests {
-        use super::{DeliveryOutcome, disclosure_plan, stop_if_delivered, unobserved_delivery};
+        use super::{
+            DeliveryOutcome, disclosure_plan, stop_if_delivered, triangle_outcome,
+            unobserved_delivery,
+        };
+        use crate::actions::ax_mutation::PerformSignal;
+
+        #[test]
+        fn a_row_expanded_through_its_triangle_is_verified_by_the_row_whatever_the_code() {
+            let verified = || Ok(DeliveryOutcome::DeliveredVerified);
+            let unchanged = || Ok(DeliveryOutcome::DeliveredUnverified);
+            assert_eq!(
+                triangle_outcome(Ok(PerformSignal::Uninformative), verified, -25205).unwrap(),
+                DeliveryOutcome::DeliveredVerified
+            );
+            assert_eq!(
+                triangle_outcome(Ok(PerformSignal::ReportedUnsupported), verified, -25206).unwrap(),
+                DeliveryOutcome::NotDelivered
+            );
+            assert_eq!(
+                triangle_outcome(Ok(PerformSignal::Uninformative), unchanged, -25205)
+                    .unwrap_err()
+                    .disposition,
+                agent_desktop_core::DeliverySemantics::uncertain()
+            );
+        }
 
         #[test]
         fn disclosure_plan_never_blindly_toggles_unknown_state() {

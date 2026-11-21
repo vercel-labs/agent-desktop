@@ -178,7 +178,11 @@ impl ActionOps for FocusAdapter {
             assert_eq!(request.verified_point().map(|point| point.x), Some(110.0));
         }
         if self.application_menu && self.pointer_menu.is_none() {
-            assert_eq!(request.policy, crate::InteractionPolicy::headless());
+            assert!(!request.policy.allow_cursor_move);
+            assert_eq!(
+                request.policy.allow_focus_steal,
+                self.focused.load(Ordering::SeqCst)
+            );
             assert!(request.verified_point().is_none());
         }
         self.dispatched.fetch_add(1, Ordering::SeqCst);

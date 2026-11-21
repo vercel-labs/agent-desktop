@@ -203,6 +203,14 @@ pub trait SystemOps: Send + Sync {
         Err(AdapterError::not_supported("capture_signal_baseline"))
     }
 
+    /// Whether a graceful close request can make the application open a prompt
+    /// (a save dialog) that takes the foreground. Core refuses a graceful
+    /// `close-app` whose policy forbids focus when it can. The default is
+    /// `false`: no prompt was measured.
+    fn graceful_close_may_prompt(&self) -> bool {
+        false
+    }
+
     fn close_app(
         &self,
         _app: &AppInfo,

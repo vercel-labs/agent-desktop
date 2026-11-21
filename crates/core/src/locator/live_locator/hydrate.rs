@@ -54,7 +54,7 @@ pub(super) fn selected_matches(
             return Err(anchor_missing(&preliminary).into());
         }
         if matched.fully_observed {
-            let name = preliminary.identity.name.clone().unwrap_or_default();
+            let name = matched.data.name.clone();
             let value = preliminary.identity.value.clone();
             record_match(matched, preliminary, name, value, &mut refmap)?;
             continue;

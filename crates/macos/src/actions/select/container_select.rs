@@ -16,6 +16,30 @@ pub(crate) fn role_activates_by_selection(role: &str) -> bool {
     )
 }
 
+/// A selection write is applied asynchronously: the application answers at
+/// once and updates the attribute a moment later (Xcode's Settings sidebar
+/// reads the old row for the first read after the pane switch). The wait is
+/// bounded by the settle budget and the caller's deadline.
+pub(crate) fn settled(
+    deadline: agent_desktop_core::Deadline,
+    mut holds: impl FnMut() -> bool,
+) -> bool {
+    let settle = deadline.capped(std::time::Duration::from_millis(imp::SELECTION_SETTLE_MS));
+    loop {
+        if holds() {
+            return true;
+        }
+        if settle.is_expired() {
+            return false;
+        }
+        std::thread::sleep(
+            settle
+                .remaining()
+                .min(std::time::Duration::from_millis(imp::SELECTION_POLL_MS)),
+        );
+    }
+}
+
 #[cfg(any(target_os = "macos", test))]
 fn verify_selection(
     delivered: bool,
@@ -133,8 +157,10 @@ mod imp {
         let delivered =
             crate::actions::ax_helpers::set_ax_bool_or_err(member, SELECTED, true, deadline)?;
         super::verify_selection(delivered, || {
-            crate::tree::properties::attributes::copy_bool_attr(member, SELECTED, deadline)
-                == Some(true)
+            super::settled(deadline, || {
+                crate::tree::properties::attributes::copy_bool_attr(member, SELECTED, deadline)
+                    == Some(true)
+            })
         })
     }
 
@@ -191,11 +217,6 @@ mod imp {
             .flatten()
     }
 
-    /// A selection write is applied asynchronously. The application answers the
-    /// write at once and updates the attribute a moment later, so a single read
-    /// reports failure for a selection the user can already see, and the chain
-    /// then goes on writing selections that have nothing left to fix. The wait
-    /// is bounded, and it only runs after a write the application accepted.
     fn holds_selection(
         container: &AXElement,
         member: &AXElement,
@@ -203,21 +224,9 @@ mod imp {
         deadline: Deadline,
     ) -> bool {
         let targets = selection_targets(container, member, deadline);
-        let settle_end =
-            std::time::Instant::now() + std::time::Duration::from_millis(SELECTION_SETTLE_MS);
-        loop {
-            if selection_contains(container, &targets, attribute, deadline) {
-                return true;
-            }
-            if deadline.is_expired() || std::time::Instant::now() >= settle_end {
-                return false;
-            }
-            std::thread::sleep(
-                deadline
-                    .remaining()
-                    .min(std::time::Duration::from_millis(SELECTION_POLL_MS)),
-            );
-        }
+        super::settled(deadline, || {
+            selection_contains(container, &targets, attribute, deadline)
+        })
     }
 
     /// A container that selects rows reports the row around the cell that was
@@ -266,31 +275,7 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use agent_desktop_core::{AdapterError, Deadline};
-
-    use crate::actions::chain::chain_delivery::DeliveryOutcome;
-    use crate::tree::AXElement;
-
-    pub(crate) fn select_within_container(
-        _element: &AXElement,
-        _deadline: Deadline,
-    ) -> Result<DeliveryOutcome, AdapterError> {
-        Ok(DeliveryOutcome::NotDelivered)
-    }
-
-    pub(crate) fn element_activates_by_selection(
-        _element: &AXElement,
-        _deadline: Deadline,
-    ) -> bool {
-        false
-    }
-}
-
-pub(crate) use imp::{
-    SELECTION_POLL_MS, SELECTION_SETTLE_MS, element_activates_by_selection, select_within_container,
-};
+pub(crate) use imp::{element_activates_by_selection, select_within_container};
 
 #[cfg(test)]
 mod tests {
@@ -304,6 +289,17 @@ mod tests {
         for role in ["button", "textfield", "checkbox", "group", "table"] {
             assert!(!role_activates_by_selection(role));
         }
+    }
+
+    #[test]
+    fn a_selection_that_appears_after_the_write_is_verified_and_one_that_never_does_is_not() {
+        let deadline = agent_desktop_core::Deadline::standard().unwrap();
+        let mut reads = 0;
+        assert!(super::settled(deadline, || {
+            reads += 1;
+            reads == 3
+        }));
+        assert!(!super::settled(deadline, || false));
     }
 
     #[test]

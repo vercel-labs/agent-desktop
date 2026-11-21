@@ -22,7 +22,10 @@ fn a_true_set_with_the_wrong_read_back_is_terminal_and_never_tries_rung_two() {
     let mut fake = Fake::holding("old");
     fake.landing = Some("hell".to_owned());
     let (_, outcome) = replace(&fake, "hello").expect("delivered");
-    assert_eq!(outcome, DeliveryOutcome::Delivered(Observed::Unchanged));
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(DeliveryObservation::Unverified)
+    );
     assert_eq!(fake.logged(), ["set(hello)"]);
 }
 
@@ -32,7 +35,10 @@ fn an_absent_set_falls_to_delete_then_insert() {
     fake.set = Script::Absent;
     let (label, outcome) = replace(&fake, "hi").expect("delivered");
     assert_eq!(label, REWRITE_LABEL);
-    assert_eq!(outcome, DeliveryOutcome::Delivered(Observed::Matched));
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(DeliveryObservation::Verified)
+    );
     assert_eq!(fake.logged(), ["set(hi)", "delete(0,3)", "insert(0,2,hi)"]);
 }
 
@@ -83,7 +89,10 @@ fn clear_by_deleting_issues_no_insert() {
     fake.set = Script::Absent;
     let (label, outcome) = replace(&fake, "").expect("delivered");
     assert_eq!(label, REWRITE_LABEL);
-    assert_eq!(outcome, DeliveryOutcome::Delivered(Observed::Matched));
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(DeliveryObservation::Verified)
+    );
     assert_eq!(fake.logged(), ["set()", "delete(0,3)"]);
 }
 
@@ -101,7 +110,10 @@ fn type_inserts_once_at_the_caret_with_no_delete() {
     let mut fake = Fake::holding("abcdef");
     fake.caret = Ok(Some((3, vec![])));
     let (_, outcome) = typed(&fake, "XY").expect("delivered");
-    assert_eq!(outcome, DeliveryOutcome::Delivered(Observed::Matched));
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(DeliveryObservation::Verified)
+    );
     assert_eq!(fake.logged(), ["insert(3,2,XY)"]);
 }
 
@@ -110,7 +122,10 @@ fn type_over_a_selection_deletes_it_then_inserts_at_its_start() {
     let mut fake = Fake::holding("abcdef");
     fake.caret = Ok(Some((2, span(1, 2))));
     let (_, outcome) = typed(&fake, "Z").expect("delivered");
-    assert_eq!(outcome, DeliveryOutcome::Delivered(Observed::Matched));
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(DeliveryObservation::Verified)
+    );
     assert_eq!(fake.logged(), ["delete(1,2)", "insert(1,1,Z)"]);
 }
 
@@ -165,7 +180,10 @@ fn an_unreadable_field_leaves_the_insert_unobserved() {
     fake.caret = Ok(Some((1, vec![])));
     *fake.text.borrow_mut() = None;
     let (_, outcome) = typed(&fake, "Z").expect("delivered");
-    assert_eq!(outcome, DeliveryOutcome::Delivered(Observed::Unread));
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(DeliveryObservation::Unread)
+    );
 }
 
 #[test]
@@ -193,7 +211,10 @@ fn an_unreadable_old_value_cannot_prove_the_write_ignored() {
     let rungs = &mut replace_rungs(&fake, "new", false);
     *fake.text.borrow_mut() = None;
     let (_, outcome) = drive(rungs).expect("delivered");
-    assert_eq!(outcome, DeliveryOutcome::Delivered(Observed::Unread));
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(DeliveryObservation::Unread)
+    );
 }
 
 fn assert_ignored(error: &AdapterError) {

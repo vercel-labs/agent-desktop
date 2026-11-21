@@ -135,6 +135,7 @@ agent-desktop close-app <APP> [--force]
 - `APP_NOT_FOUND` when no running app matches, `AMBIGUOUS_TARGET` when several instances share the name.
 - `INVALID_ARGS` for a protected system process, with or without `--force`.
 - A save prompt keeps the app open. Read it with `snapshot --surface sheet`, answer it, then close again.
+- On Linux a headless graceful close is `POLICY_DENIED` (`details.check: foreground`, `details.kind: may_prompt`) before any close request, because an app with unsaved work answers it with a save prompt over the user's window. Use `--force` (it discards unsaved work) or `agent-desktop --headed close-app`; the graceful example above is the `--headed` form there.
 
 Platform limits: graceful close needs an X11 client on Linux, and the protected processes differ by OS. See [macOS](/desktop/platforms/macos), [Windows](/desktop/platforms/windows), and [Linux](/desktop/platforms/linux).
 
@@ -223,10 +224,10 @@ agent-desktop list-windows [--app NAME] [--timeout-ms MS]
 
 ## focus-window
 
-Brings a window to the front and succeeds only when the OS reports that window as focused on two consecutive reads.
+Brings a window to the front and succeeds only when the OS reports that window as focused on two consecutive reads. It needs `--headed`, because raising a window takes focus; without it the command returns `POLICY_DENIED` and sends nothing.
 
 ```bash
-agent-desktop focus-window [--window-id ID] [--app NAME] [--title TEXT]
+agent-desktop --headed focus-window [--window-id ID] [--app NAME] [--title TEXT]
 ```
 
 <table>
@@ -258,7 +259,7 @@ Pass at least one flag; with none the command fails with `INVALID_ARGS`. `data.f
 }
 ```
 
-The example above is trimmed to four fields. Errors: `WINDOW_NOT_FOUND` when nothing matches, `AMBIGUOUS_TARGET` when several windows still match, and `ACTION_FAILED` when the OS never reports the window focused. The command takes the foreground but does not need `--headed`.
+The example above is trimmed to four fields. Errors: `WINDOW_NOT_FOUND` when nothing matches, `AMBIGUOUS_TARGET` when several windows still match, and `ACTION_FAILED` when the OS never reports the window focused.
 
 Platform limits: Linux needs X11. See [Linux](/desktop/platforms/linux) and [Windows](/desktop/platforms/windows).
 

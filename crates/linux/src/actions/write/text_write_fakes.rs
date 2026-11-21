@@ -1,10 +1,7 @@
+use agent_desktop_core::{AdapterError, ChainRung, DeliveryOutcome};
 use std::cell::{Cell, RefCell};
 
-use agent_desktop_core::AdapterError;
-
 use super::{TextPort, WriteReply};
-use crate::actions::chain::chain_delivery_outcome::DeliveryOutcome;
-use crate::actions::chain::chain_rung::Rung;
 use crate::tree::capabilities::text_selection::CaretAndSelection;
 use crate::tree::capabilities::text_units::LengthUnit;
 
@@ -120,7 +117,7 @@ impl TextPort for Fake {
 }
 
 pub(crate) fn drive(
-    rungs: &mut [Rung<'_>],
+    rungs: &mut [ChainRung<'_>],
 ) -> Result<(&'static str, DeliveryOutcome), AdapterError> {
     for rung in rungs.iter_mut() {
         let outcome = (rung.run)()?;

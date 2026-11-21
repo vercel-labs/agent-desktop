@@ -28,12 +28,3 @@ pub(crate) fn wait_for_menu(
         std::thread::sleep(pause);
     }
 }
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn wait_for_menu(
-    _process: ProcessIdentity,
-    _open: bool,
-    _deadline: Deadline,
-) -> Result<(), AdapterError> {
-    Err(AdapterError::not_supported("wait_for_menu"))
-}

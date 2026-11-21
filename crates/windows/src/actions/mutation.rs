@@ -169,7 +169,7 @@ fn platform_hresult(api: &str, operation: &str, hresult: i32) -> String {
 /// `value_write_gate_tests.rs` so a 13th action file needs one edit, not
 /// three.
 #[cfg(test)]
-pub(crate) fn action_scan_sources() -> [(&'static str, &'static str); 12] {
+pub(crate) fn action_scan_sources() -> [(&'static str, &'static str); 16] {
     [
         ("actions/mutation.rs", include_str!("mutation.rs")),
         (
@@ -180,10 +180,20 @@ pub(crate) fn action_scan_sources() -> [(&'static str, &'static str); 12] {
         ("actions/dispatch.rs", include_str!("dispatch.rs")),
         ("actions/focus.rs", include_str!("focus.rs")),
         ("actions/chain.rs", include_str!("chain.rs")),
+        ("actions/click.rs", include_str!("click.rs")),
         ("actions/value_write.rs", include_str!("value_write.rs")),
         ("actions/toggle_state.rs", include_str!("toggle_state.rs")),
         ("actions/disclosure.rs", include_str!("disclosure.rs")),
         ("actions/select.rs", include_str!("select.rs")),
+        ("actions/select_combo.rs", include_str!("select_combo.rs")),
+        (
+            "actions/native_message.rs",
+            include_str!("native_message.rs"),
+        ),
+        (
+            "actions/scroll_list_box.rs",
+            include_str!("scroll_list_box.rs"),
+        ),
         ("actions/select_search.rs", include_str!("select_search.rs")),
         ("actions/scroll.rs", include_str!("scroll.rs")),
     ]

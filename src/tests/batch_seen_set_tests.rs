@@ -116,7 +116,7 @@ fn batch_pre_seed_baseline_lets_seen_set_report_a_window_close_not_a_timeout() {
         Commands::Batch(args),
         &adapter,
         &PermissionReport::default(),
-        &CommandContext::default(),
+        &CommandContext::default().with_headed(true),
     )
     .unwrap();
 

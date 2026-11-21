@@ -33,7 +33,9 @@ mod imp {
         for (i, step) in def.steps.iter().enumerate() {
             ctx.ensure_budget()
                 .map_err(|error| after_steps(&steps, error))?;
-            if !step_allowed(step, policy) {
+            if step_mechanism(step) == StepMechanism::PhysicalSynthetic
+                && !crate::actions::background_effect::Effect::PhysicalInput.permitted(policy)
+            {
                 continue;
             }
             let label = step_label(step);
@@ -128,19 +130,12 @@ mod imp {
             ChainStep::CGClick { .. } => "CGClick",
         }
     }
-
-    pub(crate) fn step_allowed(step: &ChainStep, policy: InteractionPolicy) -> bool {
-        !matches!(
-            step,
-            ChainStep::CGClick { .. } | ChainStep::FocusThenClearByKeyboard
-        ) || policy.is_headed()
-    }
 }
 
 #[cfg(all(test, target_os = "macos"))]
 pub(crate) use imp::{
     after_steps, build_step, exhaustion_disposition, exhaustion_error, record_step_outcome,
-    step_allowed, step_mechanism,
+    step_mechanism,
 };
 
 pub(crate) mod activate_descendant;
@@ -162,23 +157,5 @@ mod tests;
 #[cfg(test)]
 #[path = "chain_outcome_tests.rs"]
 mod outcome_tests;
-
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use super::*;
-
-    pub fn execute_chain(
-        _el: &AXElement,
-        def: &ChainDef,
-        _ctx: &ChainContext,
-        _policy: InteractionPolicy,
-    ) -> Result<Vec<ActionStep>, AdapterError> {
-        Err(AdapterError::new(
-            ErrorCode::ActionFailed,
-            "Chain execution not supported on this platform",
-        )
-        .with_suggestion(def.suggestion))
-    }
-}
 
 pub(crate) use imp::execute_chain;

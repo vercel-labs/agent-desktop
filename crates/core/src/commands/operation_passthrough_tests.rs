@@ -118,6 +118,7 @@ fn close_of_an_already_gone_app_reports_not_delivered_without_a_closed_claim() {
         CloseAppArgs {
             app: "Notes".into(),
             force: false,
+            policy: crate::InteractionPolicy::headless(),
         },
         &adapter,
     )
@@ -170,7 +171,7 @@ fn clipboard_clear_reports_the_adapter_disposition() {
         ),
     };
 
-    let value = clipboard_clear::execute(&adapter).unwrap();
+    let value = clipboard_clear::execute(&adapter, crate::InteractionPolicy::headed()).unwrap();
 
     assert_eq!(value["disposition"]["delivery"], "delivered_unverified");
     assert_eq!(value["target"]["kind"], "clipboard");

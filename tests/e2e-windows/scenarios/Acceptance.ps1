@@ -215,7 +215,7 @@ function Invoke-DuplicateTitleLeg {
                    never a title match, which is the property this leg
                    exists to prove focus-window does not fall back to. #>
                 $anyId = Get-WindowId -Where { $_['title'] -eq 'Duplicate Window' } -TimeoutSeconds 10
-                Invoke-AgentDesktop -Arguments @('focus-window', '--window-id', $anyId) -RequireOk -Description "focus-window $anyId" | Out-Null
+                Invoke-AgentDesktop -Arguments @('focus-window', '--headed', '--window-id', $anyId) -RequireOk -Description "focus-window $anyId" | Out-Null
                 $deadline = [System.Diagnostics.Stopwatch]::StartNew()
                 $matched = $false
                 while ($deadline.Elapsed.TotalSeconds -lt 10 -and -not $matched) {

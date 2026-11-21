@@ -1,5 +1,6 @@
 use agent_desktop_core::{
-    Action, ActionResult, AdapterError, DeliverySemantics, ErrorCode, NativeHandle,
+    Action, ActionResult, AdapterError, DeliveryObservation, DeliveryOutcome, DeliverySemantics,
+    ErrorCode, NativeHandle,
 };
 use serde_json::json;
 
@@ -7,9 +8,6 @@ use super::select_exclusive::selected_child;
 use super::select_identity::with_current_row;
 use super::select_search::{Hit, Search, name_matches, search};
 use crate::actions::action_call::resolve_verb;
-use crate::actions::chain::chain_delivery_outcome::DeliveryOutcome;
-use crate::actions::chain::chain_observed::Observed;
-use crate::actions::chain::chain_step::satisfied_step;
 use crate::actions::click::{
     POLL_STEP, deliver, invoke_verb, names_of, opens_popup, poll_until, popup_inner, refusal,
     run_single_rung,
@@ -182,7 +180,7 @@ pub(in crate::actions) fn commit(
             committed,
             Ok(crate::actions::write::mutation::WriteReply::Absent)
         ) {
-            return Ok(DeliveryOutcome::Delivered(Observed::Unread));
+            return Ok(DeliveryOutcome::Delivered(DeliveryObservation::Unread));
         }
         deliver(committed, || {
             poll_until(
@@ -198,20 +196,28 @@ pub(in crate::actions) fn commit(
         })
         .and_then(unchanged_is_ignored)
     };
-    run_single_rung(action.name(), target.deadline, run)
+    run_single_rung(&action, target.deadline, run)
 }
 
-fn value_already_shown(shown: Option<String>, display_value: &str) -> bool {
+pub(in crate::actions) fn value_already_shown(shown: Option<String>, display_value: &str) -> bool {
     shown.is_some_and(|shown| name_matches(&shown, display_value))
 }
 
 pub(in crate::actions) fn select_in_popup(
     target: &Target<'_>,
     display_value: &str,
+    may_take_focus: bool,
 ) -> Result<ActionResult, AdapterError> {
     if value_already_shown(displayed_value(target), display_value) {
         return Ok(ActionResult::satisfied_without_delivery("select")
-            .with_steps(vec![satisfied_step("Action.DoAction")]));
+            .with_steps(vec![DeliveryOutcome::Satisfied.step("Action.DoAction")]));
+    }
+    if !may_take_focus {
+        return Err(agent_desktop_core::foreground_denied(
+            "Opening this drop-down takes the keyboard, which the interaction policy does not allow",
+            "popup",
+            agent_desktop_core::InteractionPolicy::headless(),
+        ));
     }
     set_expanded(target, true)?;
     let outcome = choose(target, display_value);

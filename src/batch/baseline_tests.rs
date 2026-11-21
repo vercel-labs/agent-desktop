@@ -102,7 +102,7 @@ fn action_then_event_wait_uses_a_pre_action_baseline() {
         args,
         &adapter,
         &PermissionReport::default(),
-        &agent_desktop_core::CommandContext::default(),
+        &agent_desktop_core::CommandContext::default().with_headed(true),
     )
     .unwrap();
 

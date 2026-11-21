@@ -1,21 +1,18 @@
-//! Headed `SetFocus` with focused-element verification.
+//! `SetFocus` with focused-element verification.
 //!
-//! UIA `SetFocus` moves the desktop foreground window (A3-4, A19-5), so
-//! headless dispatch fails with `POLICY_DENIED`. Headed dispatch invokes
-//! `set_focus` through the mutation classifier and verifies by comparing the
-//! automation client's focused element to the target.
+//! UIA `SetFocus` moves the desktop foreground window (A3-4, A19-5), so it is
+//! a headed rung and headless dispatch is refused with `POLICY_DENIED`.
+//! Headed dispatch verifies by comparing the automation client's focused
+//! element to the target.
 
 use agent_desktop_core::{
-    Action, ActionResult, ActionStep, AdapterError, Deadline, DeliverySemantics, ErrorCode,
-    InteractionPolicy, StepMechanism, actions::action_request::ActionRequest,
+    Action, ActionResult, AdapterError, Deadline, actions::action_request::ActionRequest,
 };
 
 #[cfg(target_os = "windows")]
 mod imp {
-    use super::{
-        Action, ActionRequest, ActionResult, ActionStep, AdapterError, Deadline, DeliverySemantics,
-        ErrorCode, InteractionPolicy, StepMechanism,
-    };
+    use super::{Action, ActionRequest, ActionResult, AdapterError, Deadline};
+    use crate::actions::chain::{ChainRung, DeliveryOutcome, execute_chain};
     use crate::actions::mutation::{classify_mutation, classify_success};
     use crate::tree::automation::{automation_client, failure_of};
     use crate::tree::element::UIAElement;
@@ -25,22 +22,32 @@ mod imp {
 
     const SET_FOCUS_API: &str = "UIElement.SetFocus";
     const SET_FOCUS_OP: &str = "SetFocus";
+    const FOCUS_SUGGESTION: &str = "SetFocus is not available on this element.";
 
     pub(crate) fn focus_element(
         element: &UIAElement,
         request: &ActionRequest,
         deadline: Deadline,
     ) -> Result<ActionResult, AdapterError> {
-        if !request.policy.is_headed() {
-            return Err(headless_denied(request.policy));
-        }
-        deadline.ensure_remaining()?;
-        let delivered = invoke_focus(element)?;
-        focus_from_delivery(
+        let mut set_focus = || {
+            let delivered = invoke_focus(element)?;
+            Ok(DeliveryOutcome::from_delivery(
+                delivered,
+                delivered && focus_matches_target(element)?,
+            ))
+        };
+        let steps = execute_chain(
+            deadline,
+            FOCUS_SUGGESTION,
             request.policy,
-            Ok(delivered),
-            focus_matches_target(element)?,
-        )
+            &mut [ChainRung {
+                label: SET_FOCUS_API,
+                available: true,
+                requires_headed: true,
+                run: &mut set_focus,
+            }],
+        )?;
+        Ok(ActionResult::from_execution(&Action::SetFocus, steps))
     }
 
     fn invoke_focus(element: &UIAElement) -> Result<bool, AdapterError> {
@@ -64,47 +71,6 @@ mod imp {
         }
         focus_matches_target(element)
     }
-
-    /// Builds the SetFocus result from a delivery/verification pair.
-    ///
-    /// Injected seam for unit tests that pin both compare outcomes without a
-    /// live automation client.
-    pub(crate) fn focus_from_delivery(
-        policy: InteractionPolicy,
-        delivery: Result<bool, AdapterError>,
-        verified: bool,
-    ) -> Result<ActionResult, AdapterError> {
-        if !policy.is_headed() {
-            return Err(headless_denied(policy));
-        }
-        let delivered = delivery?;
-        if !delivered {
-            return Err(AdapterError::new(
-                ErrorCode::ActionFailed,
-                "SetFocus is not available on this element",
-            )
-            .with_disposition(DeliverySemantics::not_delivered()));
-        }
-        Ok(ActionResult::from_execution(
-            &Action::SetFocus,
-            vec![
-                ActionStep::succeeded(SET_FOCUS_API)
-                    .with_mechanism(StepMechanism::SemanticApi)
-                    .with_verified(verified),
-            ],
-        ))
-    }
-
-    pub(crate) fn headless_denied(policy: InteractionPolicy) -> AdapterError {
-        AdapterError::policy_denied_for_policy(
-            "SetFocus moves the desktop foreground window on Windows",
-            policy,
-        )
-        .with_details(serde_json::json!({
-            "foreground_effect": true,
-            "evidence": ["A3-4", "A19-5"],
-        }))
-    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -125,10 +91,3 @@ pub(crate) use imp::focus_element;
 
 #[cfg(target_os = "windows")]
 pub(crate) use imp::keyboard_focus_ready;
-
-#[cfg(all(test, target_os = "windows"))]
-pub(crate) use imp::{focus_from_delivery, headless_denied};
-
-#[cfg(all(test, target_os = "windows"))]
-#[path = "focus_tests.rs"]
-mod tests;

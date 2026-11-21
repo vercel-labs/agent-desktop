@@ -109,3 +109,13 @@ fn a_permission_denied_io_error_keeps_its_own_code_and_others_do_not() {
         );
     }
 }
+
+#[test]
+fn an_unsent_error_is_not_delivered_unless_it_already_carries_stronger_evidence() {
+    let plain = AdapterError::internal("x").unsent();
+    assert_eq!(plain.disposition, crate::DeliverySemantics::not_delivered());
+    let kept = AdapterError::internal("x")
+        .with_disposition(crate::DeliverySemantics::uncertain())
+        .unsent();
+    assert_eq!(kept.disposition, crate::DeliverySemantics::uncertain());
+}

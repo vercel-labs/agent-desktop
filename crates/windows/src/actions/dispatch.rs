@@ -1,6 +1,6 @@
 //! `execute_action` match over every `Action` variant.
 //!
-//! Click routes through the Invoke + Legacy chain. SetValue / Clear route
+//! Click routes through `click`. SetValue / Clear route
 //! through `value_write`. Toggle / Check / Uncheck and Expand / Collapse route
 //! through `toggle_state` and `disclosure`. Select and Scroll route through
 //! their dedicated modules. SetFocus routes through `focus`.
@@ -9,30 +9,20 @@
 //! click legs route through `physical_keyboard` and `physical_click`.
 
 use agent_desktop_core::{
-    Action, ActionResult, ActionStep, AdapterError, Deadline, ErrorCode, InteractionLease,
-    InteractionPolicy, NativeHandle, actions::action_request::ActionRequest,
+    Action, ActionResult, AdapterError, Deadline, ErrorCode, InteractionLease, NativeHandle,
+    actions::action_request::ActionRequest,
 };
-
-/// Availability flags for the Click chain's two rungs, bundled so
-/// `click_chain_judged_for` stays within the 5-parameter cap.
-pub(crate) struct ClickAvailability {
-    pub(crate) invoke_available: bool,
-    pub(crate) legacy_available: bool,
-}
 
 #[cfg(target_os = "windows")]
 mod imp {
     use super::{
-        Action, ActionRequest, ActionResult, ActionStep, AdapterError, ClickAvailability, Deadline,
-        ErrorCode, InteractionLease, InteractionPolicy, NativeHandle,
+        Action, ActionRequest, ActionResult, AdapterError, Deadline, ErrorCode, InteractionLease,
+        NativeHandle,
     };
-    use crate::actions::chain::{
-        CLICK_CHAIN, ChainRung, DeliveryOutcome, INVOKE_LABEL, build_step, execute_chain, gated,
-        invoke_available, invoke_pattern_delivered,
-    };
-    use crate::actions::disclosure::{collapse_steps, expand_steps};
+    use crate::actions::chain::build_step;
+    use crate::actions::click::click_steps;
+    use crate::actions::disclosure::disclosure_steps;
     use crate::actions::focus::focus_element;
-    use crate::actions::mutation::{classify_success, classify_write};
     use crate::actions::physical_click::{
         double_click_steps, right_click_steps, triple_click_steps,
     };
@@ -42,16 +32,10 @@ mod imp {
     use crate::actions::scroll::scroll_steps;
     use crate::actions::scroll_into_view::scroll_into_view_outcome;
     use crate::actions::select::select_steps;
-    use crate::actions::toggle_state::{check_steps, toggle_steps, uncheck_steps};
+    use crate::actions::toggle_state::{ToggleGoal, toggle_steps};
     use crate::actions::value_write::{clear_steps, set_value_steps};
-    use crate::tree::element::{UIAElement, uia_element};
+    use crate::tree::element::uia_element;
     use crate::tree::live_read::corroborate_verified_process;
-    use crate::tree::properties::property_ids::TreeProperty;
-    use crate::tree::properties::read_one;
-    use agent_desktop_core::LocatorField;
-    use uiautomation::patterns::UILegacyIAccessiblePattern;
-
-    const LEGACY_LABEL: &str = "LegacyIAccessible.DoDefaultAction";
 
     pub(crate) fn execute_action_impl(
         handle: &NativeHandle,
@@ -66,9 +50,12 @@ mod imp {
         deadline.ensure_remaining()?;
         corroborate_verified_process(element)?;
         match &request.action {
-            Action::Click => execute_click(element, request.policy, deadline),
+            Action::Click => {
+                let steps = click_steps(element, request.policy, deadline)?;
+                Ok(ActionResult::from_execution(&request.action, steps))
+            }
             Action::SetFocus => focus_element(element, &request, deadline),
-            Action::ScrollTo => execute_scroll_to(handle, lease),
+            Action::ScrollTo => execute_scroll_to(handle, lease, request.policy),
             Action::TypeText(text) => {
                 let steps = type_text_steps(element, text, request.policy, deadline)?;
                 Ok(ActionResult::from_execution(&request.action, steps))
@@ -116,27 +103,33 @@ mod imp {
                 Ok(ActionResult::from_execution(&request.action, steps))
             }
             Action::Toggle => {
-                let steps = toggle_steps(element, request.policy, deadline)?;
+                let steps = toggle_steps(element, ToggleGoal::Flip, request.policy, deadline)?;
                 Ok(ActionResult::from_execution(&request.action, steps))
             }
             Action::Check => {
-                let steps = check_steps(element, request.policy, deadline)?;
+                let steps =
+                    toggle_steps(element, ToggleGoal::Checked(true), request.policy, deadline)?;
                 Ok(ActionResult::from_execution(&request.action, steps))
             }
             Action::Uncheck => {
-                let steps = uncheck_steps(element, request.policy, deadline)?;
+                let steps = toggle_steps(
+                    element,
+                    ToggleGoal::Checked(false),
+                    request.policy,
+                    deadline,
+                )?;
                 Ok(ActionResult::from_execution(&request.action, steps))
             }
             Action::Expand => {
-                let steps = expand_steps(element, request.policy, deadline)?;
+                let steps = disclosure_steps(element, true, request.policy, deadline)?;
                 Ok(ActionResult::from_execution(&request.action, steps))
             }
             Action::Collapse => {
-                let steps = collapse_steps(element, request.policy, deadline)?;
+                let steps = disclosure_steps(element, false, request.policy, deadline)?;
                 Ok(ActionResult::from_execution(&request.action, steps))
             }
             Action::Select(value) => {
-                let steps = select_steps(element, value, deadline)?;
+                let steps = select_steps(element, value, request.policy, deadline)?;
                 Ok(ActionResult::from_execution(&request.action, steps))
             }
             Action::Scroll(direction, amount) => {
@@ -181,82 +174,13 @@ mod imp {
     fn execute_scroll_to(
         handle: &NativeHandle,
         lease: &InteractionLease,
+        policy: agent_desktop_core::InteractionPolicy,
     ) -> Result<ActionResult, AdapterError> {
-        let done = scroll_into_view_outcome(handle, lease)?;
+        let done = scroll_into_view_outcome(handle, lease, policy)?;
         Ok(ActionResult::from_execution(
             &Action::ScrollTo,
             vec![build_step(done.label, done.outcome)],
         ))
-    }
-
-    fn execute_click(
-        element: &UIAElement,
-        policy: InteractionPolicy,
-        deadline: Deadline,
-    ) -> Result<ActionResult, AdapterError> {
-        let steps = click_chain_judged_for(
-            deadline,
-            policy,
-            ClickAvailability {
-                invoke_available: invoke_available(element),
-                legacy_available: click_legacy_available(element),
-            },
-            || {
-                Ok(DeliveryOutcome::from_delivery(
-                    invoke_pattern_delivered(element)?,
-                    false,
-                ))
-            },
-            || legacy_default_action(element),
-        )?;
-        Ok(ActionResult::from_execution(&Action::Click, steps))
-    }
-
-    pub(crate) fn click_legacy_available(element: &UIAElement) -> bool {
-        matches!(
-            read_one(element, TreeProperty::LegacyDefaultAction).text(),
-            LocatorField::Known(text) if !text.trim().is_empty()
-        )
-    }
-
-    /// Click chain with injected rungs — unit-test seam and live path.
-    pub(crate) fn click_chain_judged_for(
-        deadline: Deadline,
-        policy: InteractionPolicy,
-        availability: ClickAvailability,
-        mut invoke: impl FnMut() -> Result<DeliveryOutcome, AdapterError>,
-        mut legacy: impl FnMut() -> Result<DeliveryOutcome, AdapterError>,
-    ) -> Result<Vec<ActionStep>, AdapterError> {
-        let mut invoke_run = gated(availability.invoke_available, &mut invoke);
-        let mut legacy_run = gated(availability.legacy_available, &mut legacy);
-        execute_chain(
-            deadline,
-            &CLICK_CHAIN,
-            policy,
-            &mut [
-                ChainRung {
-                    label: INVOKE_LABEL,
-                    requires_headed: false,
-                    run: &mut invoke_run,
-                },
-                ChainRung {
-                    label: LEGACY_LABEL,
-                    requires_headed: false,
-                    run: &mut legacy_run,
-                },
-            ],
-        )
-    }
-
-    fn legacy_default_action(element: &UIAElement) -> Result<DeliveryOutcome, AdapterError> {
-        let delivered = match element.0.get_pattern::<UILegacyIAccessiblePattern>() {
-            Ok(pattern) => match pattern.do_default_action() {
-                Ok(()) => classify_success()?,
-                Err(error) => classify_write("DoDefaultAction", LEGACY_LABEL, &error)?,
-            },
-            Err(error) => classify_write("get_pattern", LEGACY_LABEL, &error)?,
-        };
-        Ok(DeliveryOutcome::from_delivery(delivered, false))
     }
 }
 
@@ -276,12 +200,5 @@ mod imp {
 pub(crate) use imp::execute_action_impl;
 
 #[cfg(all(test, target_os = "windows"))]
-pub(crate) use imp::click_chain_judged_for;
-
-#[cfg(all(test, target_os = "windows"))]
 #[path = "dispatch_tests.rs"]
 mod tests;
-
-#[cfg(all(test, target_os = "windows"))]
-#[path = "dispatch_r2_tests.rs"]
-mod r2_tests;

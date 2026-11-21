@@ -49,9 +49,4 @@ mod tests {
             )
         })
     }
-
-    #[cfg(not(target_os = "macos"))]
-    fn null_element() -> AXElement {
-        AXElement(std::ptr::null())
-    }
 }

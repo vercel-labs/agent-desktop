@@ -74,6 +74,20 @@ differently:
   No download path or launch mode avoids it. Turn Smart App Control off or use
   a signed build.
 
+## POLICY_DENIED from a Ref Action
+
+Symptom: a headless `click`, `toggle`, `expand`, `set-value`, `select` or
+`scroll-to` returns `POLICY_DENIED` with `details.foreground_effect: true`.
+
+Cause: the target offers only a UI Automation control pattern, and every pattern
+call activates the target's window. `details.mechanisms` names the pattern that
+was held back, for example `ExpandCollapsePattern.Expand` for a combo box.
+
+Fix: pass global `--headed` if taking the foreground is acceptable. Otherwise
+reach the same state another way: a native combo box selects headless by name
+with `select`, a list box item scrolls into view headless, and a value field
+that refuses `set-value` headless still accepts it under `--headed`.
+
 ## POLICY_DENIED from a Shell-Surface or Notification Command
 
 Symptom: `open-system-surface`, `list-notifications`, `wait --notification` or a
@@ -167,7 +181,8 @@ format means the write succeeded. Numeric tolerance is role-scoped: only
 ## Saving a document, headless, without keyboard input
 
 No `save` command exists. Saving is a menu path plus a dialog, and the whole
-chain is semantic, so it needs no `--headed` and no keystrokes. The same shape
+chain is semantic, so it needs no keystrokes. Opening the menu draws it over
+other windows, so that one step needs `--headed`. The same shape
 fits any app whose save flow is File, then Save As.
 
 The script runs as written against an open Notepad. Each ref comes from the JSON
@@ -181,7 +196,7 @@ $doc = (agent-desktop find --app notepad.exe --role textfield | ConvertFrom-Json
 agent-desktop set-value $doc.ref_id "the document body"
 
 $file = (agent-desktop find --app notepad.exe --role menuitem --name "File" | ConvertFrom-Json).data.matches[0]
-agent-desktop expand $file.ref_id
+agent-desktop --headed expand $file.ref_id
 agent-desktop wait --menu --app notepad.exe             # the open menu is its own surface
 $menu = (agent-desktop snapshot --app notepad.exe --surface menu | ConvertFrom-Json).data.tree
 agent-desktop click ($menu.children | Where-Object name -eq 'Save As...').ref_id
@@ -211,6 +226,6 @@ Three things that surprise a first-time caller:
   change with `wait --window`. A fixed sleep of a second or two reads as a
   missing file.
 
-The dialog's Save button returns `delivered_unverified`, because a synthesized
-invoke cannot confirm what the shell dialog did with it. Verify by reading the
+The dialog's Save button returns `delivered_unverified`, because its default
+action cannot confirm what the shell dialog did with it. Verify by reading the
 file back from disk.

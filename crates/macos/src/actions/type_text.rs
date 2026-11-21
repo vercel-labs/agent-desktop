@@ -78,16 +78,6 @@ fn prepare(element: &AXElement, deadline: Deadline) -> Result<(), AdapterError> 
     crate::tree::properties::attributes::set_messaging_timeout(element, deadline)
 }
 
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn execute_type(
-    _element: &crate::tree::AXElement,
-    _text: &str,
-    _policy: agent_desktop_core::InteractionPolicy,
-    _deadline: Deadline,
-) -> Result<agent_desktop_core::ActionStep, AdapterError> {
-    Err(AdapterError::not_supported("type_text"))
-}
-
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;

@@ -41,11 +41,9 @@ pub fn execute_with_timeout(
         caller_policy,
     } = args;
     let timeout_ms = normalize_action_timeout_ms(timeout_ms);
-    let base = action.base_interaction_policy();
-    let effective = base.join(caller_policy);
     let request = ActionRequest {
         action,
-        policy: effective,
+        policy: caller_policy,
         timeout_ms,
         verified_point: None,
         expected_process: None,

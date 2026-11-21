@@ -15,17 +15,18 @@ incomplete scan marks `menu` in the window entry's `unclassified` list, so an
 absent menu in that result does not prove it is closed.
 
 This example needs a running Calculator and `jq`, and finds a fresh opener ref.
-On Mutter X11, first close Overview and focus Calculator with the recovery
-below: while Overview covers the app, a click can report success without opening
-its menu. Inspect each command's JSON result, waits included.
+Opening a GTK4 popover takes the keyboard, so the click is `--headed`; headless
+it is `POLICY_DENIED`, check `foreground`. On Mutter X11, first close Overview
+and focus Calculator with the recovery below: while Overview covers the app, a
+click can report success without opening its menu. Inspect each command's JSON result, waits included.
 
 ```bash
 menu_ref=$(agent-desktop snapshot --app gnome-calculator -i | jq -r '.. | objects | select(.role? == "switch" and .name? == "Main Menu") | .ref_id // empty')
-test -n "$menu_ref" && agent-desktop click "$menu_ref"
+test -n "$menu_ref" && agent-desktop --headed click "$menu_ref"
 agent-desktop wait --menu --app gnome-calculator --timeout 5000
 agent-desktop list-surfaces --app gnome-calculator
 agent-desktop snapshot --surface menu --app gnome-calculator -i
-agent-desktop press escape
+agent-desktop press escape --headed
 agent-desktop wait --menu-closed --app gnome-calculator --timeout 5000
 ```
 
@@ -126,7 +127,7 @@ prove it. Advertised surfaces require a resolvable structural container.
   still requires headed permission.
 - Overview is not a `--surface` value (`INVALID_ARGS`). On Mutter X11, while
   Activities Overview is open, headed app focus returns `ACTION_FAILED`, cause
-  `overview_open`. Send global `agent-desktop press escape`, then
+  `overview_open`. Send global `agent-desktop press escape --headed`, then
   `agent-desktop --headed focus-window --app gnome-calculator` before the app
   action. This X11 recovery does not establish Wayland window-control support.
 - Native shell clicks need headed permission and, on X11, a tree hit test before

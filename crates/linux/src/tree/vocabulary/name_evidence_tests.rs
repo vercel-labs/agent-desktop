@@ -13,7 +13,8 @@ fn name_fields(
     label: &LabelOutcome,
 ) -> (LocatorField<String>, LocatorField<String>) {
     let placeholder = read_placeholder(properties, role, attributes);
-    resolve_names(properties, role, &placeholder, label)
+    let (name, description, _) = resolve_names(properties, role, &placeholder, label);
+    (name, description)
 }
 
 fn properties(name: Field<String>, description: Field<String>) -> NodeProperties {

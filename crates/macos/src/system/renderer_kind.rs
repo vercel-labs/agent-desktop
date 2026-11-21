@@ -37,11 +37,6 @@ fn is_chromium_framework_marker(entry_name: &str) -> bool {
     CHROMIUM_FRAMEWORK_MARKERS.contains(&entry_name)
 }
 
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn detect_chromium(_pid: i32) -> Option<RendererKind> {
-    None
-}
-
 #[cfg(target_os = "macos")]
 pub(crate) fn executable_path(pid: i32) -> Option<PathBuf> {
     let mut buffer = [0_u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];

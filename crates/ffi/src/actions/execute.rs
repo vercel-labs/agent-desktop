@@ -99,6 +99,15 @@ pub unsafe extern "C" fn ad_execute_action_with_policy(
             error::set_last_error(&error);
             return error::last_error_code();
         }
+        if let Err(error) = agent_desktop_core::ensure_foreground_allowed(
+            adapter.inner.as_ref(),
+            native_handle.as_ref(),
+            &request,
+            lease.deadline(),
+        ) {
+            error::set_last_error(&error);
+            return error::last_error_code();
+        }
         match agent_desktop_core::execute_verified_action(
             adapter.inner.as_ref(),
             native_handle.as_ref(),

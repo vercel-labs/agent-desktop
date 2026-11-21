@@ -113,7 +113,7 @@ pub(crate) fn set_expanded(
         )
     };
     super::popup_verify::run(target, &view, Some(expanded), || {
-        run_single_rung(action.name(), target.deadline, run)
+        run_single_rung(&action, target.deadline, run)
     })
 }
 

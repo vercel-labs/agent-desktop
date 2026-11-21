@@ -6,6 +6,11 @@ use crate::tree::AXElement;
 
 const MAX_SCROLL_AMOUNT: u32 = 1_000;
 
+/// Headless scroll moves a scroll bar and never performs the page actions an
+/// `AXScrollArea` advertises: in Finder and in a System Settings pane,
+/// `AXScrollDownByPage` moves the content one page toward the top and
+/// `AXScrollUpByPage` one page toward the bottom, while the call returns
+/// -25205 or -25204.
 pub(crate) fn ax_scroll(
     element: &AXElement,
     direction: &Direction,
@@ -33,9 +38,6 @@ pub(crate) fn ax_scroll(
             return Ok((StepMechanism::SemanticApi, false));
         }
     }
-    if perform_repeated_action(target, page_action(direction), amount, deadline)? {
-        return Ok((StepMechanism::SemanticApi, false));
-    }
     Err(AdapterError::new(
         ErrorCode::ActionNotSupported,
         "Element advertises Scroll but no scroll mechanism moved its content",
@@ -43,8 +45,9 @@ pub(crate) fn ax_scroll(
     .with_details(serde_json::json!({
         "kind": "scroll_advertised_but_inert",
     }))
+    .with_disposition(agent_desktop_core::DeliverySemantics::not_delivered())
     .with_suggestion(
-        "The application publishes the scroll actions without implementing them. \
+        "No scroll bar of this element moved. \
          Try the parent container, or use '--headed' for a physical wheel scroll.",
     ))
 }
@@ -65,15 +68,6 @@ fn scroll_bar_action(direction: &Direction) -> (&'static str, &'static str) {
         Direction::Up => ("AXVerticalScrollBar", "AXDecrement"),
         Direction::Right => ("AXHorizontalScrollBar", "AXIncrement"),
         Direction::Left => ("AXHorizontalScrollBar", "AXDecrement"),
-    }
-}
-
-fn page_action(direction: &Direction) -> &'static str {
-    match direction {
-        Direction::Down => "AXScrollDownByPage",
-        Direction::Up => "AXScrollUpByPage",
-        Direction::Right => "AXScrollRightByPage",
-        Direction::Left => "AXScrollLeftByPage",
     }
 }
 

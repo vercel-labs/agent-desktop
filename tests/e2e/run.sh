@@ -74,7 +74,7 @@ ready=""
 tries=0
 for _ in $(seq 1 20); do
     tries=$((tries + 1))
-    "$bin" focus-window --app "$app" >/dev/null 2>&1 || true
+    "$bin" focus-window --app "$app" --headed >/dev/null 2>&1 || true
     if find_target button primary-button >/dev/null; then
         ready=1
         break

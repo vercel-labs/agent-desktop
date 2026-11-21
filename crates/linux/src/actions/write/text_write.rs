@@ -1,12 +1,12 @@
 use std::ops::Range;
 
-use agent_desktop_core::{AdapterError, DeliverySemantics, ErrorCode, InteractionPolicy};
+use agent_desktop_core::{
+    AdapterError, ChainRung, DeliveryObservation, DeliveryOutcome, DeliverySemantics, ErrorCode,
+    InteractionPolicy,
+};
 
 use super::mutation::{WriteReply, with_value_chars};
 use super::secure_write::{guarded_read, scrub};
-use crate::actions::chain::chain_delivery_outcome::DeliveryOutcome;
-use crate::actions::chain::chain_observed::Observed;
-use crate::actions::chain::chain_rung::Rung;
 use crate::tree::capabilities::text_selection::CaretAndSelection;
 use crate::tree::capabilities::text_units::{LengthUnit, insert_length};
 
@@ -80,12 +80,12 @@ fn judge(
     secure: bool,
     before: Option<&str>,
     expected: &str,
-) -> Result<Observed, AdapterError> {
+) -> Result<DeliveryObservation, AdapterError> {
     match guarded_read(port, secure) {
-        None => Ok(Observed::Unread),
-        Some(read) if read == expected => Ok(Observed::Matched),
+        None => Ok(DeliveryObservation::Unread),
+        Some(read) if read == expected => Ok(DeliveryObservation::Verified),
         Some(read) if before == Some(read.as_str()) => Err(write_ignored()),
-        Some(_) => Ok(Observed::Unchanged),
+        Some(_) => Ok(DeliveryObservation::Unverified),
     }
 }
 
@@ -114,7 +114,7 @@ pub(crate) fn replace_rungs<'a>(
     port: &'a dyn TextPort,
     text: &'a str,
     secure: bool,
-) -> Vec<Rung<'a>> {
+) -> Vec<ChainRung<'a>> {
     let set = move || {
         let before = guarded_read(port, secure);
         match port
@@ -132,12 +132,14 @@ pub(crate) fn replace_rungs<'a>(
     };
     let rewrite = move || rewrite(port, text, secure);
     vec![
-        Rung {
+        ChainRung {
             label: REPLACE_LABEL,
+            effects: &[],
             run: Box::new(set),
         },
-        Rung {
+        ChainRung {
             label: REWRITE_LABEL,
+            effects: &[],
             run: Box::new(rewrite),
         },
     ]
@@ -201,9 +203,10 @@ pub(crate) fn insert_rungs<'a>(
     port: &'a dyn TextPort,
     text: &'a str,
     secure: bool,
-) -> Vec<Rung<'a>> {
-    vec![Rung {
+) -> Vec<ChainRung<'a>> {
+    vec![ChainRung {
         label: INSERT_LABEL,
+        effects: &[],
         run: Box::new(move || insert_at_caret(port, text, secure)),
     }]
 }
@@ -241,7 +244,7 @@ fn insert_at_caret(
     match sent {
         Ok(WriteReply::Done) => Ok(DeliveryOutcome::Delivered(match expected {
             Some(expected) => judge(port, secure, before.as_deref(), &expected)?,
-            None => Observed::Unread,
+            None => DeliveryObservation::Unread,
         })),
         Ok(WriteReply::Absent) if removed => Err(after_delete(None)),
         Ok(WriteReply::Absent) => Ok(DeliveryOutcome::NotDelivered),

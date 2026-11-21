@@ -79,7 +79,7 @@ function Invoke-ContendedFocusStealLeg {
                     try {
                         Set-NativeForegroundWindow -WindowHandle $contenderHandle | Out-Null
                         Wait-NativeForegroundToSettle -RequiredStableReads 3 -BudgetSeconds 5 | Out-Null
-                        Invoke-AgentDesktop -Arguments @('focus-window', '--window-id', $targetWindowId) | Out-Null
+                        Invoke-AgentDesktop -Arguments @('focus-window', '--headed', '--window-id', $targetWindowId) | Out-Null
                         Start-Sleep -Milliseconds 200
                         if ((Get-NativeForegroundWindowHandle) -eq $targetHandle) { $landed++ }
                         $completed++

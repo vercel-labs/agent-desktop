@@ -139,31 +139,3 @@ pub(super) fn is_alert(element: &AXElement, deadline: Deadline) -> Result<bool, 
 pub(crate) fn is_menu_open(pid: i32, deadline: Deadline) -> Result<bool, AdapterError> {
     Ok(menu_element_for_pid(pid, deadline)?.is_some())
 }
-
-#[cfg(not(target_os = "macos"))]
-macro_rules! unsupported_surface {
-    ($name:ident) => {
-        pub(crate) fn $name(
-            _pid: i32,
-            _deadline: Deadline,
-        ) -> Result<Option<AXElement>, AdapterError> {
-            Ok(None)
-        }
-    };
-}
-
-#[cfg(not(target_os = "macos"))]
-unsupported_surface!(focused_surface_for_pid);
-#[cfg(not(target_os = "macos"))]
-unsupported_surface!(menu_element_for_pid);
-#[cfg(not(target_os = "macos"))]
-unsupported_surface!(sheet_for_pid);
-#[cfg(not(target_os = "macos"))]
-unsupported_surface!(popover_for_pid);
-#[cfg(not(target_os = "macos"))]
-unsupported_surface!(alert_for_pid);
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn is_menu_open(_pid: i32, _deadline: Deadline) -> Result<bool, AdapterError> {
-    Ok(false)
-}

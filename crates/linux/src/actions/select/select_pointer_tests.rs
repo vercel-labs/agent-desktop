@@ -60,7 +60,7 @@ fn unproven() -> AdapterError {
 
 fn clicked_and_matched(pointer: &dyn Pointer) -> Result<ActionResult, AdapterError> {
     let steps = pointer.click(&row())?;
-    by_pointer_result(steps, Observed::Matched)
+    by_pointer_result(steps, DeliveryObservation::Verified)
 }
 
 #[test]
@@ -124,19 +124,19 @@ fn a_semantic_select_that_delivered_is_never_repeated_by_pointer() {
 #[test]
 fn a_pointer_select_is_verified_only_by_the_read_back() {
     let steps = || vec![ActionStep::succeeded("XTEST.click")];
-    let matched = by_pointer_result(steps(), Observed::Matched).expect("matched");
+    let matched = by_pointer_result(steps(), DeliveryObservation::Verified).expect("matched");
     assert_eq!(
         matched.disposition().delivery(),
         DeliveryDisposition::DeliveredVerified
     );
     assert_eq!(matched.steps[0].verified(), Some(true));
-    let unread = by_pointer_result(steps(), Observed::Unread).expect("unread");
+    let unread = by_pointer_result(steps(), DeliveryObservation::Unread).expect("unread");
     assert_eq!(
         unread.disposition().delivery(),
         DeliveryDisposition::DeliveredUnverified
     );
     assert_eq!(unread.steps[0].verified(), None);
-    let error = by_pointer_result(steps(), Observed::Unchanged).expect_err("unchanged");
+    let error = by_pointer_result(steps(), DeliveryObservation::Unverified).expect_err("unchanged");
     assert_eq!(error.code, ErrorCode::ActionFailed);
     assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
     assert_eq!(error.details.expect("details")["cause"], "write_ignored");

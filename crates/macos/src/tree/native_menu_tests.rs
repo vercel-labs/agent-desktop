@@ -145,3 +145,51 @@ fn menu_roles_cannot_substitute_for_the_applications_actual_menubar() {
         }
     }
 }
+
+fn classify_item_roles(roles: &[Option<&str>]) -> Result<bool, AdapterError> {
+    classify_menu_item(
+        0,
+        Deadline::standard().unwrap(),
+        |index| Ok(roles[*index].map(str::to_owned)),
+        |index| Ok((index + 1 < roles.len()).then_some(index + 1)),
+    )
+}
+
+#[test]
+fn an_item_of_any_open_menu_presses_like_a_menu_but_web_content_does_not() {
+    for roles in [
+        vec![
+            Some("AXMenuItem"),
+            Some("AXMenu"),
+            Some("AXPopUpButton"),
+            Some("AXToolbar"),
+            Some("AXWindow"),
+            Some("AXApplication"),
+        ],
+        vec![
+            Some("AXMenuItem"),
+            Some("AXMenu"),
+            Some("AXMenuItem"),
+            Some("AXMenu"),
+            Some("AXTextField"),
+            Some("AXApplication"),
+        ],
+        vec![Some("AXMenuItem"), Some("AXMenu")],
+    ] {
+        assert!(classify_item_roles(&roles).unwrap(), "{roles:?}");
+    }
+    for roles in [
+        vec![
+            Some("AXMenuItem"),
+            Some("AXMenu"),
+            Some("AXGroup"),
+            Some("AXWebArea"),
+            Some("AXApplication"),
+        ],
+        vec![Some("AXMenuItem"), Some("AXWindow"), Some("AXApplication")],
+        vec![Some("AXButton"), Some("AXMenu"), Some("AXApplication")],
+        vec![Some("AXMenuItem")],
+    ] {
+        assert!(!classify_item_roles(&roles).unwrap(), "{roles:?}");
+    }
+}

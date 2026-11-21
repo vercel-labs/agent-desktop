@@ -55,6 +55,10 @@ pub fn execute(
             adapter.press_key_for_app(process, &combo, context.physical_input_policy(), &lease)?
         }
     } else {
+        context.physical_input_policy().require(
+            crate::Effect::FocusSteal,
+            "press without --app or --window-id",
+        )?;
         let lease = adapter.acquire_interaction_lease(deadline)?;
         let handle = crate::adapter::NativeHandle::null();
         adapter.execute_action(

@@ -2,19 +2,18 @@
 
 use std::collections::HashMap;
 
-use agent_desktop_core::{ActionResult, AdapterError, DeliverySemantics, ErrorCode};
+use agent_desktop_core::{
+    Action, ActionResult, AdapterError, ChainRung, DeliveryObservation, DeliveryOutcome,
+    DeliverySemantics, ErrorCode,
+};
 use futures_util::future::join_all;
 use serde_json::json;
 use zbus::proxy::MethodFlags;
 use zbus::zvariant::{OwnedValue, Signature};
 
-use super::chain::chain_def::ChainDef;
-use super::chain::chain_delivery_outcome::DeliveryOutcome;
-use super::chain::chain_observed::Observed;
-use super::chain::chain_rung::Rung;
-use super::chain::execute_chain;
 use super::context::Target;
 use super::process_check::judge_owner;
+use crate::actions::chain::run_semantic_chain;
 use crate::system::x11::map::{ClientMatch, match_client};
 use crate::system::x11::stacking::stacking_source::StackingSource;
 use crate::system::x11::{DisplayReader, FrameFacts, X11State, menu_export};
@@ -163,12 +162,9 @@ pub(super) fn try_click(
     }
     let parameters: Vec<OwnedValue> = resolved.target.into_iter().collect();
     let platform = HashMap::<String, OwnedValue>::new();
-    let def = ChainDef {
-        action: "click",
-        suggestion: "Refresh the snapshot to inspect the action's result before retrying.",
-    };
-    let mut rungs = [Rung {
+    let mut rungs = [ChainRung {
         label: "org.gtk.Actions.Activate",
+        effects: &[],
         run: Box::new(|| {
             within(target.deadline, async {
                 proxy
@@ -179,12 +175,18 @@ pub(super) fn try_click(
                     )
                     .await
                     .map_err(read_error)?;
-                Ok(DeliveryOutcome::Delivered(Observed::Unread))
+                Ok(DeliveryOutcome::Delivered(DeliveryObservation::Unread))
             })
             .map_err(|error| error.with_disposition(DeliverySemantics::delivered_unverified()))
         }),
     }];
-    execute_chain(&def, &mut rungs, target.deadline).map(Some)
+    run_semantic_chain(
+        &Action::Click,
+        &mut rungs,
+        target.deadline,
+        "Refresh the snapshot to inspect the action's result before retrying.",
+    )
+    .map(Some)
 }
 
 pub(crate) mod native_menu_action;

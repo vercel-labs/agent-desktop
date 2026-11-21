@@ -20,15 +20,6 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use crate::tree::ax_element::AXElement;
-
-    pub fn element_for_pid(_pid: i32) -> AXElement {
-        AXElement(std::ptr::null())
-    }
-}
-
 pub(crate) use crate::tree::properties::node_attribute_fetch::fetch_node_attrs_with_status_for;
 pub(crate) use imp::element_for_pid;
 

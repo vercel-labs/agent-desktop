@@ -1,5 +1,5 @@
 #[cfg(target_os = "macos")]
-use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode, InteractionPolicy};
 
 #[cfg(target_os = "macos")]
 use crate::tree::AXElement;
@@ -8,13 +8,16 @@ use crate::tree::AXElement;
 pub(crate) fn select_value(
     element: &AXElement,
     value: &str,
+    policy: InteractionPolicy,
     deadline: Deadline,
 ) -> Result<bool, AdapterError> {
     prepare(element, deadline)?;
     let role = crate::actions::ax_helpers::element_role(element, deadline)?;
     match select_role_family(role.as_deref()) {
-        Some("value_or_menu") => select_combobox(element, value, deadline),
-        Some("menu") => crate::actions::select::select_menu::select_from_menu(element, value, deadline),
+        Some("value_or_menu") => select_combobox(element, value, policy, deadline),
+        Some("menu") => {
+            crate::actions::select::select_menu::select_from_menu(element, value, policy, deadline)
+        }
         Some("collection") => {
             crate::actions::select::select_menu::select_collection_item(element, value, deadline)
         }
@@ -35,6 +38,7 @@ pub(crate) fn select_value(
 fn select_combobox(
     element: &AXElement,
     value: &str,
+    policy: InteractionPolicy,
     deadline: Deadline,
 ) -> Result<bool, AdapterError> {
     prepare(element, deadline)?;
@@ -42,9 +46,9 @@ fn select_combobox(
         match crate::actions::ax_helpers::set_ax_value_coerced(element, value, deadline) {
             Ok(()) => match verify_value(element, value, deadline) {
                 Ok(verified) => return Ok(verified),
-                Err(error) if should_fallback_after_value_verification(&error) => {
+                Err(error) if should_fallback_after_value_verification(&error, policy) => {
                     return crate::actions::select::select_menu::select_from_menu(
-                        element, value, deadline,
+                        element, value, policy, deadline,
                     )
                     .map_err(after_delivery);
                 }
@@ -55,11 +59,17 @@ fn select_combobox(
             Err(error) => return Err(error),
         }
     }
-    crate::actions::select::select_menu::select_from_menu(element, value, deadline)
+    crate::actions::select::select_menu::select_from_menu(element, value, policy, deadline)
 }
 
-fn should_fallback_after_value_verification(error: &AdapterError) -> bool {
-    error.code == ErrorCode::ActionFailed
+/// Headless keeps the verification failure of a completed write instead of
+/// opening the menu, which would show it over the user's window.
+fn should_fallback_after_value_verification(
+    error: &AdapterError,
+    policy: InteractionPolicy,
+) -> bool {
+    crate::actions::background_effect::Effect::ShowsMenu.permitted(policy)
+        && error.code == ErrorCode::ActionFailed
         && error
             .details
             .as_ref()
@@ -71,7 +81,7 @@ fn should_fallback_after_value_verification(error: &AdapterError) -> bool {
 fn select_role_family(role: Option<&str>) -> Option<&'static str> {
     match role {
         Some("combobox") => Some("value_or_menu"),
-        Some("popupbutton" | "menubutton") => Some("menu"),
+        Some("menubutton") => Some("menu"),
         Some("list" | "table" | "outline") => Some("collection"),
         _ => None,
     }
@@ -128,7 +138,6 @@ mod tests {
     #[test]
     fn native_select_roles_keep_their_specialized_paths() {
         assert_eq!(select_role_family(Some("combobox")), Some("value_or_menu"));
-        assert_eq!(select_role_family(Some("popupbutton")), Some("menu"));
         assert_eq!(select_role_family(Some("menubutton")), Some("menu"));
         assert_eq!(select_role_family(Some("list")), Some("collection"));
         assert_eq!(select_role_family(Some("table")), Some("collection"));
@@ -137,7 +146,7 @@ mod tests {
     }
 
     #[test]
-    fn completed_combobox_write_with_verify_miss_uses_menu_fallback() {
+    fn completed_combobox_write_with_verify_miss_opens_the_menu_only_when_headed() {
         let error = AdapterError::new(
             ErrorCode::ActionFailed,
             "Selection write completed but the exact requested value was not observed",
@@ -145,10 +154,15 @@ mod tests {
         .with_details(serde_json::json!({
             "kind": "selected_value_not_observed",
         }));
-
-        assert!(should_fallback_after_value_verification(&error));
+        let headed = agent_desktop_core::InteractionPolicy::headed();
+        assert!(should_fallback_after_value_verification(&error, headed));
         assert!(!should_fallback_after_value_verification(
-            &AdapterError::timeout("verification timed out")
+            &error,
+            agent_desktop_core::InteractionPolicy::headless()
+        ));
+        assert!(!should_fallback_after_value_verification(
+            &AdapterError::timeout("verification timed out"),
+            headed
         ));
     }
 }

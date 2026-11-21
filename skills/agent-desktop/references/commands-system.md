@@ -6,7 +6,7 @@ App lifecycle, windows, notifications, clipboard, wait, batch, sessions, health.
 
 ```bash
 agent-desktop launch "System Settings"       # macOS display name
-agent-desktop launch "TextEdit" --activate
+agent-desktop launch "TextEdit" --activate --headed
 agent-desktop launch "MyTool" --arg /tmp/notes.txt --env KEY=VALUE --no-attach
 agent-desktop launch "Obsidian" --cdp
 ```
@@ -20,7 +20,7 @@ The process running and the app showing a window are separate facts:
 ```
 
 - `window` is present when the app already has one, and omitted when it has none. Its absence is not a failure. `launch` still returns `ok: true`.
-- A document-based app may open its first window only when brought forward. Use `--activate`: it asks the app to present a window and waits for it up to `--timeout` (default 30000). This brings the app forward, so it is not headless. Or trigger the window yourself and use `wait --event window-opened`.
+- A document-based app may open its first window only when brought forward. Use `--activate`: it asks the app to present a window and waits for it up to `--timeout` (default 30000). This brings the app forward, so it needs `--headed`; headless, `--activate` returns `POLICY_DENIED` and nothing is launched. Or trigger the window yourself and use `wait --event window-opened`.
 - A process that exits before it shows a window returns `APP_UNRESPONSIVE`.
 - Windowless and menu-bar-only apps report no `window`. Use `list-apps` and read `presentation`.
 - An app built on Chromium may return `renderer: "chromium"` and a `suggestion`. These are hints. The accessibility path still works. A missing `renderer` never proves the app is native.
@@ -55,6 +55,9 @@ and click its own Close button ref, then confirm the close with a `batch` of the
 click and `wait --event window-closed`. Answer any save prompt through its
 sheet. For the last window, use `close-app` if you intend to exit the app.
 Ctrl+W may close only a tab or document, leaving the window open.
+On Linux a headless graceful `close-app` is `POLICY_DENIED`, `details.kind:
+may_prompt`, because a save prompt would take the foreground; use `--force`
+(discards unsaved work) or `--headed`.
 The Linux windows reference includes a Bash recipe that selects a fresh Close ref.
 
 ```bash
@@ -72,7 +75,7 @@ Lists running GUI apps as `{ name, pid, bundle_id, presentation }`. `--app` filt
 
 ```bash
 agent-desktop list-windows --app "Finder"
-agent-desktop focus-window --window-id w-4521
+agent-desktop focus-window --window-id w-4521 --headed
 agent-desktop resize-window --app "TextEdit" --width 800 --height 600
 agent-desktop move-window --app "TextEdit" --x 0 --y 0
 agent-desktop minimize --app "TextEdit"   # maximize, restore likewise
@@ -80,7 +83,7 @@ agent-desktop minimize --app "TextEdit"   # maximize, restore likewise
 
 - `list-windows` returns `{ id, title, app_name, pid, bounds, is_focused, accessible }`. Use a `w-<id>` with `--window-id` when an app has several windows.
 - `accessible: false` means semantic commands cannot reach that window. Targeting it returns `ACTION_NOT_SUPPORTED` with `kind: "window_without_accessibility_element"`. It still accepts screenshots and coordinate input. Choose another window. Wait polling treats this error as transient. In particular, `--wait-for-gone` does not count it as absence; it keeps polling until the window disappears from the inventory or the wait times out.
-- `focus-window` needs at least one identifier. It confirms the OS reports that window as focused. Otherwise it returns `ACTION_FAILED`.
+- `focus-window` needs at least one identifier and `--headed`, because it raises the window and takes key focus. Headless, it returns `POLICY_DENIED` before any window is read. It confirms the OS reports that window as focused. Otherwise it returns `ACTION_FAILED`.
 - `restore` undoes a minimize and returns the window to its earlier placement. It does not promise to un-maximize.
 
 ## Notifications
@@ -100,15 +103,16 @@ Commands: `list-notifications`, `dismiss-notification`, `dismiss-all-notificatio
 ```bash
 agent-desktop clipboard-get --format auto
 agent-desktop clipboard-get --format image --out /tmp/clip.png
-agent-desktop clipboard-set "Hello"
-printf '%s' 'Hello' | agent-desktop clipboard-set --stdin
-agent-desktop clipboard-set --image /tmp/a.png
-agent-desktop clipboard-set --file-url /tmp/a.txt --file-url /tmp/b.txt
-agent-desktop clipboard-clear
+agent-desktop clipboard-set "Hello" --headed
+printf '%s' 'Hello' | agent-desktop clipboard-set --stdin --headed
+agent-desktop clipboard-set --image /tmp/a.png --headed
+agent-desktop clipboard-set --file-url /tmp/a.txt --file-url /tmp/b.txt --headed
+agent-desktop clipboard-clear --headed
 ```
 
 - Formats: `text` (default), `auto` (file references, then image, then text), `image`, `file-urls`. Output is `{ "type": "text", "text": ... }`, `{ "type": "file_urls", ... }`, or `{ "type": "image", "path", "width", "height" }`. When the clipboard has nothing in that form: `{ "type": "<format>", "found": false }`.
 - Image bytes go to `--out`, or to a private file under the active session directory (or `~/.agent-desktop/tmp`).
+- `clipboard-set` and `clipboard-clear` write the user's clipboard, so they need `--headed`. Headless, they return `POLICY_DENIED` with `details.effect: "clipboard_write"` and the clipboard is not touched. `clipboard-get` stays headless.
 - `clipboard-set` writes one representation per call. `--file-url` and `--image` win over the positional text. Every `--file-url` path must exist, or `INVALID_ARGS`.
 - Use `clipboard-set --stdin` to read up to 128 KiB from a pipe or redirected file without putting it in process arguments. Terminal input is rejected. It cannot be combined with a command-line value, `--image`, or `--file-url`.
 - The command waits until the input ends. Empty input and all line breaks are kept, including a final newline. Use `printf '%s'` to avoid adding one. Input must be valid UTF-8 without NUL bytes (`\0`).

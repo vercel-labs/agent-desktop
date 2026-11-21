@@ -18,16 +18,12 @@ fn unless_gone(world: &impl World, error: AdapterError) -> Result<bool, AdapterE
     }
 }
 
-fn not_delivered(error: AdapterError) -> AdapterError {
-    error.with_disposition(DeliverySemantics::not_delivered())
-}
-
 fn failure_of(world: &impl World, request: &Request<'_>, error: ControlError) -> AdapterError {
     match error {
-        ControlError::TimedOut => not_delivered(world.timeout_error()),
-        ControlError::StaleWindow => not_delivered(AdapterError::stale_ref_because(
+        ControlError::TimedOut => world.timeout_error().unsent(),
+        ControlError::StaleWindow => AdapterError::stale_ref_because(
             "The close target's window owner or process instance changed or could not be verified",
-        )),
+        ),
         ControlError::SendFailed => {
             refusal::send_failed(request, error).with_disposition(DeliverySemantics::uncertain())
         }
@@ -89,7 +85,7 @@ fn request_close(world: &impl World, request: &Request<'_>) -> Result<bool, Adap
             return unless_gone(world, refusal::no_route(request));
         }
         ControlRead::Unavailable if world.remaining().is_zero() => {
-            return Err(not_delivered(world.timeout_error()));
+            return Err(world.timeout_error().unsent());
         }
         ControlRead::Unavailable => {
             return unless_gone(world, refusal::unavailable(request));

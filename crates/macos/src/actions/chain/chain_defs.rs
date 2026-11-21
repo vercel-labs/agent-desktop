@@ -213,9 +213,6 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-mod imp {}
-
 #[cfg(target_os = "macos")]
 pub(crate) use imp::{
     CLEAR_CHAIN, COLLAPSE_CHAIN, EXPAND_CHAIN, FOCUS_CHAIN, RIGHT_CLICK_CHAIN, SCROLL_TO_CHAIN,

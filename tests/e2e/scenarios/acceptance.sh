@@ -114,7 +114,7 @@ if [ -z "$duplicate_ids" ]; then
 fi
 first_duplicate="${duplicate_ids%%$'\t'*}"
 second_duplicate="${duplicate_ids#*$'\t'}"
-focus_output="$("$bin" focus-window --window-id "$second_duplicate" 2>/dev/null)"
+focus_output="$("$bin" focus-window --headed --window-id "$second_duplicate" 2>/dev/null)"
 sleep 0.3
 focused_windows="$("$bin" list-windows --app "$app" 2>/dev/null)"
 second_focused="$(printf '%s' "$focused_windows" | python3 "$json_tool" window-focused "$second_duplicate" 2>/dev/null)" || second_focused=""
@@ -122,7 +122,7 @@ assert "AE4 exact second window id is focused despite duplicate titles" \
     "$([ "$(json_field "$open_output" ok)" = "True" ] && \
         [ "$(json_field "$focus_output" ok)" = "True" ] && [ "$second_focused" = "True" ] && echo 1 || echo 0)" \
     "first=$first_duplicate second=$second_duplicate second_focused=$second_focused"
-"$bin" focus-window --app "$app" --title "AgentDesk Fixture" >/dev/null 2>&1
+"$bin" focus-window --headed --app "$app" --title "AgentDesk Fixture" >/dev/null 2>&1
 require_target close_duplicates button close-duplicate-windows
 act_target "$close_duplicates" click >/dev/null 2>&1
 
@@ -140,7 +140,7 @@ if [ "$(json_field "$permission_json" ok)" != "True" ] || [ -z "$automation_stat
 elif [ "$automation_state" = "denied" ]; then
     nc_probe="$("$bin" list-notifications 2>/dev/null)"
     if [ "$(json_field "$nc_probe" ok)" = "True" ]; then
-        "$bin" focus-window --app NotificationCenter >/dev/null 2>&1 || true
+        "$bin" focus-window --headed --app NotificationCenter >/dev/null 2>&1 || true
         "$bin" --headed press escape >/dev/null 2>&1 || true
         sleep 0.3
         nc_probe="$("$bin" list-notifications 2>/dev/null)"

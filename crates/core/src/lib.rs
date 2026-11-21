@@ -21,12 +21,18 @@ pub mod trace;
 pub mod tree;
 mod wait;
 
+pub use actionability::foreground::{ensure_foreground_allowed, foreground_denied};
 pub use actions::action::Action;
 pub use actions::action_request::ActionRequest;
 pub use actions::action_result::ActionResult;
 pub use actions::action_step::ActionStep;
 pub use actions::action_step_outcome::ActionStepOutcome;
+pub use actions::chain_rung::ChainRung;
+pub use actions::delivery_chain::execute_chain;
+pub use actions::delivery_observation::DeliveryObservation;
+pub use actions::delivery_outcome::DeliveryOutcome;
 pub use actions::delivery_semantics::DeliverySemantics;
+pub use actions::effect::Effect;
 pub use actions::headed_focus::saved_ref_focus_window;
 pub use actions::headed_requirement::HeadedRequirement;
 pub use actions::interaction_policy::InteractionPolicy;
@@ -143,7 +149,9 @@ pub use system::window_op::WindowOp;
 pub use system::window_readback::WindowReadback;
 pub use system::window_state::WindowState;
 pub use trace::trace_sanitize::sanitize_trace_value;
-pub use tree::accname::{compute_description, compute_name, resolve_description, resolve_name};
+pub use tree::accname::{
+    compute_description, compute_name, name_is_borrowed, resolve_description, resolve_name,
+};
 pub use tree::bounds_space::BoundsSpace;
 pub use tree::element_identifier::ElementIdentifier;
 pub use tree::element_state::ElementState;

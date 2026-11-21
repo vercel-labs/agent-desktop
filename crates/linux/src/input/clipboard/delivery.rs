@@ -2,10 +2,6 @@ use agent_desktop_core::{AdapterError, Deadline, DeliverySemantics, ErrorCode};
 
 const VERIFY_GRACE_MS: u64 = 1_000;
 
-pub(super) fn not_delivered(error: AdapterError) -> AdapterError {
-    error.with_disposition(DeliverySemantics::not_delivered())
-}
-
 pub(super) fn unresponsive(message: &str) -> AdapterError {
     AdapterError::new(ErrorCode::AppUnresponsive, message)
         .with_disposition(DeliverySemantics::delivered_unverified())

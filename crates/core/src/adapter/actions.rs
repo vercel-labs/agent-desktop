@@ -13,6 +13,9 @@ pub trait ActionOps: Send + Sync {
         Ok(request.headed_requirement())
     }
 
+    /// What the action on this element needs from the foreground. Core
+    /// refuses a request whose policy denies that focus or cursor use with
+    /// `POLICY_DENIED`, before any other actionability check.
     fn headed_requirement(
         &self,
         _handle: &NativeHandle,

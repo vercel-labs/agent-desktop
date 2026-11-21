@@ -185,58 +185,6 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use crate::tree::ax_element::AXElement;
-
-    pub(crate) fn copy_ax_array_result(
-        _el: &AXElement,
-        _attr: &str,
-    ) -> Result<Option<Vec<AXElement>>, i32> {
-        Ok(None)
-    }
-
-    pub fn copy_bool_attr(
-        _el: &AXElement,
-        _attr: &str,
-        _deadline: agent_desktop_core::Deadline,
-    ) -> Option<bool> {
-        None
-    }
-
-    pub(crate) fn copy_bool_attr_result(
-        _el: &AXElement,
-        _attr: &str,
-        _deadline: agent_desktop_core::Deadline,
-    ) -> Result<Option<bool>, i32> {
-        Ok(None)
-    }
-
-    pub(crate) fn copy_element_attr_result(
-        _el: &AXElement,
-        _attr: &str,
-        _deadline: agent_desktop_core::Deadline,
-    ) -> Result<Option<AXElement>, i32> {
-        Ok(None)
-    }
-
-    pub(crate) fn copy_ax_array_prefix_result(
-        _el: &AXElement,
-        _attr: &str,
-        _max_values: usize,
-        _deadline: agent_desktop_core::Deadline,
-    ) -> Result<Option<Vec<AXElement>>, i32> {
-        Ok(None)
-    }
-
-    pub fn set_messaging_timeout(
-        _el: &AXElement,
-        _deadline: agent_desktop_core::Deadline,
-    ) -> Result<(), agent_desktop_core::AdapterError> {
-        Ok(())
-    }
-}
-
 pub(crate) use super::text_attributes::{
     copy_string_attr_bounded_result, copy_string_attr_result, copy_value_typed,
     copy_value_typed_bounded_result, copy_value_typed_result,
@@ -245,9 +193,6 @@ pub(crate) use imp::{
     copy_ax_array_prefix_result, copy_bool_attr, copy_bool_attr_result, copy_element_attr_result,
     set_messaging_timeout,
 };
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) use imp::copy_ax_array_result;
 
 #[cfg(target_os = "macos")]
 pub(crate) use imp::selected_text_range;

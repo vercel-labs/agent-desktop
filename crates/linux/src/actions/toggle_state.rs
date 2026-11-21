@@ -1,10 +1,10 @@
 use std::time::Duration;
 
-use agent_desktop_core::{Action, ActionResult, AdapterError, ErrorCode};
+use agent_desktop_core::{
+    Action, ActionResult, AdapterError, DeliveryObservation, DeliveryOutcome, ErrorCode,
+};
 use serde_json::json;
 
-use super::chain::chain_delivery_outcome::DeliveryOutcome;
-use super::chain::chain_observed::Observed;
 use super::click::{POLL_STEP, invoke_verb, names_of, poll_until, refusal, run_single_rung};
 use super::context::Target;
 use super::write::mutation::WriteReply;
@@ -111,9 +111,9 @@ pub(super) fn drive_to(
     match invoke()? {
         WriteReply::Absent => Ok(DeliveryOutcome::NotDelivered),
         WriteReply::Done => Ok(DeliveryOutcome::Delivered(match read_after() {
-            after if after.is_wanted(wanted) => Observed::Matched,
-            Flag::Unknown => Observed::Unread,
-            _ => Observed::Unchanged,
+            after if after.is_wanted(wanted) => DeliveryObservation::Verified,
+            Flag::Unknown => DeliveryObservation::Unread,
+            _ => DeliveryObservation::Unverified,
         })),
     }
 }
@@ -165,11 +165,7 @@ pub(super) fn toggle_reporting(
     };
     super::popup_verify::run(target, &view, Some(wanted), || {
         run_single_rung(
-            if clicked {
-                Action::Click.name()
-            } else {
-                action.name()
-            },
+            if clicked { &Action::Click } else { &action },
             target.deadline,
             run,
         )

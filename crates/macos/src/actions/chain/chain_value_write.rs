@@ -241,6 +241,55 @@ mod imp {
     }
 }
 
+/// A text field that names a file (it publishes `AXFilename`, as a Finder name
+/// cell does) only displays the name. An `AXValue` or `AXSelectedText` write
+/// changes the display and every accessibility read of it, `AXFilename`
+/// included, while the file keeps its name (M-W0-10, M-W0-12; `AXConfirm`
+/// commits nothing). No read can see a commit, so the write is refused before
+/// it happens instead of being reported as delivered.
+pub(crate) fn refuse_file_name_field(
+    element: &crate::tree::AXElement,
+    deadline: agent_desktop_core::Deadline,
+) -> Result<(), agent_desktop_core::AdapterError> {
+    file_name_refusal(
+        crate::tree::properties::attributes::copy_string_attr_result(
+            element,
+            "AXFilename",
+            deadline,
+        ),
+    )
+    .map_or(Ok(()), Err)
+}
+
+/// An unreadable `AXFilename` cannot rule a file name out, so it refuses too.
+fn file_name_refusal(
+    filename: Result<Option<String>, i32>,
+) -> Option<agent_desktop_core::AdapterError> {
+    use agent_desktop_core::{AdapterError, DeliverySemantics, ErrorCode};
+    match filename {
+        Ok(None) => None,
+        Ok(Some(_)) => Some(
+            AdapterError::new(
+                ErrorCode::ActionNotSupported,
+                "The field shows a file's name; writing it changes the display, not the file",
+            )
+            .with_disposition(DeliverySemantics::not_delivered())
+            .with_suggestion(
+                "Rename the item with the application's own rename command, or through the file system.",
+            ),
+        ),
+        Err(ax_error) => Some(
+            AdapterError::new(
+                ErrorCode::ActionFailed,
+                "Could not read whether the field shows a file's name",
+            )
+            .with_details(serde_json::json!({ "ax_error": ax_error }))
+            .with_disposition(DeliverySemantics::not_delivered())
+            .with_suggestion("Retry; nothing was written."),
+        ),
+    }
+}
+
 #[cfg(target_os = "macos")]
 pub(crate) use imp::{increment_to_value, set_bool_verified, set_dynamic_verified};
 

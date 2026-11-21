@@ -27,6 +27,10 @@ use crate::system::{
 const SURFACE_PROBE_MS: u64 = 3_000;
 
 impl SystemOps for LinuxAdapter {
+    fn graceful_close_may_prompt(&self) -> bool {
+        true
+    }
+
     fn subscribe_wait(
         &self,
         filter: &SignalFilter,

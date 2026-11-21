@@ -173,16 +173,6 @@ fn read_error(attribute: &str, error: i32) -> AdapterError {
     .with_details(serde_json::json!({ "attribute": attribute, "ax_error": error }))
 }
 
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn press_for_app_impl(
-    _process: ProcessIdentity,
-    _combo: &KeyCombo,
-    _policy: InteractionPolicy,
-    _deadline: Deadline,
-) -> Result<ActionResult, AdapterError> {
-    Err(AdapterError::not_supported("press_for_app"))
-}
-
 #[cfg(test)]
 #[path = "key_dispatch_tests.rs"]
 mod tests;

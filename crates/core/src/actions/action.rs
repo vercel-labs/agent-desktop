@@ -159,15 +159,6 @@ impl Action {
     pub fn may_use_focus_fallback(&self) -> bool {
         matches!(self, Self::TypeText(_) | Self::PressKey(_))
     }
-
-    /// Returns the command's minimum interaction policy.
-    pub fn base_interaction_policy(&self) -> crate::actions::interaction_policy::InteractionPolicy {
-        if matches!(self, Self::PressKey(_)) {
-            crate::actions::interaction_policy::InteractionPolicy::focus_fallback()
-        } else {
-            crate::actions::interaction_policy::InteractionPolicy::headless()
-        }
-    }
 }
 
 #[cfg(test)]

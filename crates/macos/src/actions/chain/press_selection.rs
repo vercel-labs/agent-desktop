@@ -54,43 +54,21 @@ mod imp {
         ) {
             return None;
         }
-        let settle_end = std::time::Instant::now()
-            + std::time::Duration::from_millis(
-                crate::actions::select::container_select::SELECTION_SETTLE_MS,
-            );
-        loop {
-            let observed = crate::tree::properties::attributes::copy_bool_attr_result(
+        let read = || {
+            crate::tree::properties::attributes::copy_bool_attr_result(
                 element,
                 crate::actions::select::container_select::SELECTED,
                 deadline,
             )
             .ok()
-            .flatten();
-            if observed != Some(false)
-                || deadline.is_expired()
-                || std::time::Instant::now() >= settle_end
-            {
-                return observed;
-            }
-            std::thread::sleep(deadline.remaining().min(std::time::Duration::from_millis(
-                crate::actions::select::container_select::SELECTION_POLL_MS,
-            )));
-        }
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use agent_desktop_core::{AdapterError, Deadline};
-
-    use crate::actions::chain::chain_delivery::DeliveryOutcome;
-    use crate::tree::AXElement;
-
-    pub(crate) fn press_or_report_no_effect(
-        _element: &AXElement,
-        _deadline: Deadline,
-    ) -> Result<DeliveryOutcome, AdapterError> {
-        Ok(DeliveryOutcome::NotDelivered)
+            .flatten()
+        };
+        let mut observed = None;
+        crate::actions::select::container_select::settled(deadline, || {
+            observed = read();
+            observed != Some(false)
+        });
+        observed
     }
 }
 

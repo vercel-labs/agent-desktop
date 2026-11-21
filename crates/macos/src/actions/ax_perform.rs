@@ -76,22 +76,4 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use super::*;
-    use crate::tree::AXElement;
-
-    pub fn advertises_action(_el: &AXElement, _name: &str, _deadline: Deadline) -> Option<bool> {
-        None
-    }
-
-    pub fn perform_observed_action(
-        _el: &AXElement,
-        _name: &str,
-        _deadline: Deadline,
-    ) -> Result<crate::actions::chain::chain_delivery::DeliveryOutcome, AdapterError> {
-        Ok(crate::actions::chain::chain_delivery::DeliveryOutcome::NotDelivered)
-    }
-}
-
 pub(crate) use imp::{advertises_action, perform_observed_action};

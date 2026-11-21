@@ -1,29 +1,26 @@
-//! Toggle / Check / Uncheck via TogglePattern with Invoke fallback (A19-2).
+//! Toggle, Check and Uncheck.
+//!
+//! The toggle state is read first, and Check or Uncheck on a control already
+//! in the target state delivers nothing. Otherwise the LegacyIAccessible
+//! default action flips the control with no foreground change on Win32,
+//! WinForms and WPF (W-W0-7, C3). TogglePattern flips it too but activates
+//! the window, so it is the headed rung. Each flip is verified by re-reading
+//! the state.
 
-use agent_desktop_core::{ActionStep, AdapterError, Deadline, ErrorCode, InteractionPolicy};
-use std::time::{Duration, Instant};
+use agent_desktop_core::{ActionStep, AdapterError, Deadline, InteractionPolicy};
+use std::time::Duration;
 
-use crate::actions::chain::{
-    ALREADY_LABEL, ChainDef, ChainRung, DeliveryOutcome, INVOKE_LABEL, build_step,
-    capped_verification_end, execute_chain,
-};
+use crate::actions::chain::{DeliveryOutcome, after_delivery, poll_until};
 use crate::tree::element::UIAElement;
 
 pub(crate) const TOGGLE_LABEL: &str = "TogglePattern.Toggle";
 
-const TOGGLE_TIMEOUT: Duration = Duration::from_millis(600);
-const TOGGLE_STABLE: Duration = Duration::from_millis(200);
-const POLL_SLICE: Duration = Duration::from_millis(25);
+const VERIFY_TIMEOUT: Duration = Duration::from_millis(600);
 
-pub(crate) const TOGGLE_CHAIN: ChainDef = ChainDef {
-    suggestion: "Refresh the snapshot and retry, or target an element that advertises Toggle or Invoke.",
-    continue_after_unverified_delivery: false,
-};
-
-const CHECK_SUGGESTION: &str =
+const TOGGLE_SUGGESTION: &str =
     "Refresh the snapshot and inspect the checked state before deciding whether to retry.";
 
-/// UIA `ToggleState` values (A15-7 / A19-2).
+/// UIA `ToggleState` values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ToggleKind {
     Off,
@@ -46,31 +43,78 @@ impl ToggleKind {
     }
 }
 
-/// Availability flags for the Toggle chain's two rungs, bundled so
-/// `toggle_judged_for` stays within the 5-parameter cap.
-pub(crate) struct ToggleAvailability {
-    pub(crate) toggle_ok: bool,
-    pub(crate) invoke_ok: bool,
+/// What the command asks for: any change, or one checked state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ToggleGoal {
+    Flip,
+    Checked(bool),
 }
 
-/// Injected Check/Uncheck plan: target state plus rung availability,
-/// bundled so `check_uncheck_judged_for` stays within the 5-parameter cap.
-pub(crate) struct CheckUncheckPlan {
-    pub(crate) want_checked: bool,
-    pub(crate) toggle_ok: bool,
-    pub(crate) invoke_ok: bool,
+impl ToggleGoal {
+    fn satisfied_by(self, state: Option<ToggleKind>) -> bool {
+        matches!(self, Self::Checked(want) if state.is_some_and(|state| state.matches_checked(want)))
+    }
+}
+
+/// Flips toward `goal` and judges the flip from state re-reads.
+///
+/// A tri-state control needs two flips to reach checked from indeterminate.
+/// The second flip is sent only after the first was seen to move the state:
+/// flipping again when nothing moved could end back where it started while
+/// the step reported delivery. Without a readable starting state a flip is
+/// verified only when a re-read shows the requested checked state, and an
+/// error after a flip keeps the evidence that the control was mutated.
+pub(crate) fn drive_toggle(
+    goal: ToggleGoal,
+    deadline: Deadline,
+    read: &mut dyn FnMut() -> Option<ToggleKind>,
+    deliver: &mut dyn FnMut() -> Result<bool, AdapterError>,
+) -> Result<DeliveryOutcome, AdapterError> {
+    let Some(mut before) = read() else {
+        if !deliver()? {
+            return Ok(DeliveryOutcome::NotDelivered);
+        }
+        let reached = poll_until(deadline, VERIFY_TIMEOUT, || goal.satisfied_by(read()))
+            .map_err(after_delivery)?;
+        return Ok(DeliveryOutcome::from_delivery(true, reached));
+    };
+    for attempt in 0..2 {
+        let sent = if attempt == 0 {
+            deliver()?
+        } else {
+            deliver().map_err(after_delivery)?
+        };
+        if !sent {
+            return Ok(DeliveryOutcome::from_delivery(attempt > 0, false));
+        }
+        let mut now = None;
+        let moved = poll_until(deadline, VERIFY_TIMEOUT, || {
+            now = read();
+            now.is_some_and(|state| state != before)
+        })
+        .map_err(after_delivery)?;
+        if !moved {
+            return Ok(DeliveryOutcome::DeliveredUnverified);
+        }
+        if goal == ToggleGoal::Flip || goal.satisfied_by(now) {
+            return Ok(DeliveryOutcome::DeliveredVerified);
+        }
+        if let Some(state) = now {
+            before = state;
+        }
+    }
+    Ok(DeliveryOutcome::DeliveredUnverified)
 }
 
 #[cfg(target_os = "windows")]
 mod imp {
     use super::{
-        ALREADY_LABEL, ActionStep, AdapterError, CHECK_SUGGESTION, ChainRung, CheckUncheckPlan,
-        Deadline, DeliveryOutcome, ErrorCode, INVOKE_LABEL, Instant, InteractionPolicy, POLL_SLICE,
-        TOGGLE_CHAIN, TOGGLE_LABEL, TOGGLE_STABLE, TOGGLE_TIMEOUT, ToggleAvailability, ToggleKind,
-        UIAElement, build_step, capped_verification_end, execute_chain,
+        ActionStep, AdapterError, Deadline, InteractionPolicy, TOGGLE_LABEL, TOGGLE_SUGGESTION,
+        ToggleGoal, ToggleKind, UIAElement, drive_toggle,
     };
     use crate::actions::chain::{
-        after_delivery, delivery_occurred, gated, invoke_available, invoke_pattern_delivered,
+        ALREADY_LABEL, ChainRung, DeliveryOutcome, LEGACY_LABEL, build_step, execute_chain,
+        legacy_default_action, legacy_default_action_available,
     };
     use crate::actions::mutation::{classify_success, classify_write};
     use crate::tree::properties::property_ids::TreeProperty;
@@ -79,181 +123,52 @@ mod imp {
 
     pub(crate) fn toggle_steps(
         element: &UIAElement,
+        goal: ToggleGoal,
         policy: InteractionPolicy,
         deadline: Deadline,
     ) -> Result<Vec<ActionStep>, AdapterError> {
-        let toggle_ok = toggle_available(element);
-        let before = if toggle_ok {
-            read_toggle_state(element)
-        } else {
-            None
-        };
-        let invoke_ok = invoke_available(element);
-        toggle_judged_for(
-            deadline,
-            policy,
-            ToggleAvailability {
-                toggle_ok,
-                invoke_ok,
-            },
-            || delivered_with_observe(before, deadline, element, pattern_toggle),
-            || delivered_with_observe(before, deadline, element, invoke_pattern_delivered),
-        )
-    }
-
-    pub(crate) fn check_steps(
-        element: &UIAElement,
-        _policy: InteractionPolicy,
-        deadline: Deadline,
-    ) -> Result<Vec<ActionStep>, AdapterError> {
-        check_uncheck_steps(element, true, deadline)
-    }
-
-    pub(crate) fn uncheck_steps(
-        element: &UIAElement,
-        _policy: InteractionPolicy,
-        deadline: Deadline,
-    ) -> Result<Vec<ActionStep>, AdapterError> {
-        check_uncheck_steps(element, false, deadline)
-    }
-
-    fn check_uncheck_steps(
-        element: &UIAElement,
-        want_checked: bool,
-        deadline: Deadline,
-    ) -> Result<Vec<ActionStep>, AdapterError> {
-        check_uncheck_judged_for(
-            deadline,
-            CheckUncheckPlan {
-                want_checked,
-                toggle_ok: toggle_available(element),
-                invoke_ok: invoke_available(element),
-            },
-            || read_toggle_kind(element),
-            || pattern_toggle(element),
-            || invoke_pattern_delivered(element),
-        )
-    }
-
-    /// Injected Toggle chain — unit-test seam and live path.
-    pub(crate) fn toggle_judged_for(
-        deadline: Deadline,
-        policy: InteractionPolicy,
-        availability: ToggleAvailability,
-        mut toggle: impl FnMut() -> Result<DeliveryOutcome, AdapterError>,
-        mut invoke: impl FnMut() -> Result<DeliveryOutcome, AdapterError>,
-    ) -> Result<Vec<ActionStep>, AdapterError> {
-        let mut toggle_run = gated(availability.toggle_ok, &mut toggle);
-        let mut invoke_run = gated(availability.invoke_ok, &mut invoke);
-        execute_chain(
-            deadline,
-            &TOGGLE_CHAIN,
-            policy,
-            &mut [
-                ChainRung {
-                    label: TOGGLE_LABEL,
-                    requires_headed: false,
-                    run: &mut toggle_run,
-                },
-                ChainRung {
-                    label: INVOKE_LABEL,
-                    requires_headed: false,
-                    run: &mut invoke_run,
-                },
-            ],
-        )
-    }
-
-    /// Injected Check/Uncheck — unit-test seam and live path.
-    pub(crate) fn check_uncheck_judged_for(
-        deadline: Deadline,
-        plan: CheckUncheckPlan,
-        mut read_state: impl FnMut() -> Option<ToggleKind>,
-        mut toggle: impl FnMut() -> Result<bool, AdapterError>,
-        mut invoke: impl FnMut() -> Result<bool, AdapterError>,
-    ) -> Result<Vec<ActionStep>, AdapterError> {
-        let want_checked = plan.want_checked;
         deadline.ensure_remaining()?;
-        let before = read_state();
-        if before.is_some_and(|state| state.matches_checked(want_checked)) {
+        let toggle_ok = read_one(element, TreeProperty::ToggleAvailable).flag() == Some(true);
+        if goal.satisfied_by(read_toggle_state(element)) {
             return Ok(vec![build_step(
                 ALREADY_LABEL,
                 DeliveryOutcome::SatisfiedNoDelivery,
             )]);
         }
-        let mut steps = Vec::new();
-        if plan.toggle_ok {
-            for attempt in 0..2 {
-                deadline.ensure_remaining()?;
-                if !toggle()? {
-                    break;
-                }
-                let last = attempt == 1;
-                let verified = poll_checked(
-                    want_checked,
-                    deadline,
-                    &mut read_state,
-                    if last { None } else { before },
-                )
-                .map_err(after_delivery)?;
-                steps.push(build_step(
-                    TOGGLE_LABEL,
-                    DeliveryOutcome::from_delivery(true, verified),
-                ));
-                if verified || !observed_a_change(before, read_state()) {
-                    return Ok(steps);
-                }
-            }
-        }
-        if plan.invoke_ok && !delivery_occurred(&steps) {
-            deadline.ensure_remaining()?;
-            if invoke()? {
-                let verified = poll_checked(want_checked, deadline, &mut read_state, None)
-                    .map_err(after_delivery)?;
-                steps.push(build_step(
-                    INVOKE_LABEL,
-                    DeliveryOutcome::from_delivery(true, verified),
-                ));
-                return Ok(steps);
-            }
-            steps.push(build_step(INVOKE_LABEL, DeliveryOutcome::NotDelivered));
-        }
-        if delivery_occurred(&steps) {
-            return Ok(steps);
-        }
-        Err(exhausted())
-    }
-
-    fn delivered_with_observe(
-        before: Option<ToggleKind>,
-        deadline: Deadline,
-        element: &UIAElement,
-        deliver: impl FnOnce(&UIAElement) -> Result<bool, AdapterError>,
-    ) -> Result<DeliveryOutcome, AdapterError> {
-        if !deliver(element)? {
-            return Ok(DeliveryOutcome::NotDelivered);
-        }
-        Ok(DeliveryOutcome::from_delivery(
-            true,
-            observe_change(before, deadline, element).map_err(after_delivery)?,
-        ))
-    }
-
-    fn toggle_available(element: &UIAElement) -> bool {
-        read_one(element, TreeProperty::ToggleAvailable).flag() == Some(true)
+        let mut read = || read_toggle_state(element);
+        let mut legacy = || {
+            drive_toggle(goal, deadline, &mut read, &mut || {
+                legacy_default_action(element)
+            })
+        };
+        let mut read = || read_toggle_state(element);
+        let mut pattern =
+            || drive_toggle(goal, deadline, &mut read, &mut || pattern_toggle(element));
+        execute_chain(
+            deadline,
+            TOGGLE_SUGGESTION,
+            policy,
+            &mut [
+                ChainRung {
+                    label: LEGACY_LABEL,
+                    available: toggle_ok && legacy_default_action_available(element),
+                    requires_headed: false,
+                    run: &mut legacy,
+                },
+                ChainRung {
+                    label: TOGGLE_LABEL,
+                    available: toggle_ok,
+                    requires_headed: true,
+                    run: &mut pattern,
+                },
+            ],
+        )
     }
 
     fn read_toggle_state(element: &UIAElement) -> Option<ToggleKind> {
         read_one(element, TreeProperty::ToggleState)
             .number()
             .and_then(ToggleKind::from_i32)
-    }
-
-    fn read_toggle_kind(element: &UIAElement) -> Option<ToggleKind> {
-        if !toggle_available(element) {
-            return None;
-        }
-        read_toggle_state(element)
     }
 
     fn pattern_toggle(element: &UIAElement) -> Result<bool, AdapterError> {
@@ -265,130 +180,24 @@ mod imp {
             Err(error) => classify_write("get_pattern", TOGGLE_LABEL, &error),
         }
     }
-
-    /// `before` is only ever `Some` when the caller's own upfront
-    /// `toggle_available` read was true (`toggle_steps`), so this loop reads
-    /// `ToggleState` directly rather than re-issuing that availability
-    /// check on every tick the way `read_toggle_kind` would.
-    fn observe_change(
-        before: Option<ToggleKind>,
-        deadline: Deadline,
-        element: &UIAElement,
-    ) -> Result<bool, AdapterError> {
-        let Some(before) = before else {
-            return Ok(false);
-        };
-        let end = capped_verification_end(deadline, TOGGLE_TIMEOUT)?;
-        let mut candidate: Option<(ToggleKind, Instant)> = None;
-        loop {
-            if let Some(current) = read_toggle_state(element) {
-                if current != before {
-                    match &mut candidate {
-                        Some((value, since)) if *value == current => {
-                            if since.elapsed() >= TOGGLE_STABLE {
-                                return Ok(true);
-                            }
-                        }
-                        _ => candidate = Some((current, Instant::now())),
-                    }
-                } else {
-                    candidate = None;
-                }
-            }
-            if Instant::now() >= end {
-                return Ok(false);
-            }
-            sleep_poll(deadline)?;
-        }
-    }
-
-    /// Whether the control demonstrably moved, which is what licenses a
-    /// second toggle.
-    ///
-    /// A tri-state control needs two toggles to reach checked from
-    /// indeterminate, and after the first one the state has visibly changed -
-    /// the delivery is proven, and the second toggle continues toward the
-    /// target. A state that reads the same as it did before is the opposite
-    /// case: either the toggle did not land, or it landed and this provider
-    /// is not reporting it. Toggling again on that ambiguity is the one move
-    /// that can end with the control back where it started while the step
-    /// reports delivery, so the unverified delivery is returned instead and
-    /// the caller re-reads.
-    fn observed_a_change(before: Option<ToggleKind>, after: Option<ToggleKind>) -> bool {
-        before.is_some() && after.is_some() && before != after
-    }
-
-    fn poll_checked(
-        want_checked: bool,
-        deadline: Deadline,
-        read_state: &mut impl FnMut() -> Option<ToggleKind>,
-        early_exit_after_change_from: Option<ToggleKind>,
-    ) -> Result<bool, AdapterError> {
-        let end = capped_verification_end(deadline, TOGGLE_TIMEOUT)?;
-        loop {
-            match read_state() {
-                Some(state) if state.matches_checked(want_checked) => return Ok(true),
-                Some(state)
-                    if early_exit_after_change_from.is_some_and(|before| state != before) =>
-                {
-                    sleep_poll(deadline)?;
-                    return Ok(
-                        read_state().is_some_and(|state| state.matches_checked(want_checked))
-                    );
-                }
-                _ => {}
-            }
-            if Instant::now() >= end {
-                return Ok(false);
-            }
-            sleep_poll(deadline)?;
-        }
-    }
-
-    fn sleep_poll(deadline: Deadline) -> Result<(), AdapterError> {
-        std::thread::sleep(deadline.remaining_slice(POLL_SLICE)?);
-        Ok(())
-    }
-
-    fn exhausted() -> AdapterError {
-        AdapterError::new(ErrorCode::ActionFailed, "All chain steps exhausted")
-            .with_disposition(agent_desktop_core::DeliverySemantics::not_delivered())
-            .with_suggestion(CHECK_SUGGESTION)
-    }
 }
 
 #[cfg(not(target_os = "windows"))]
 mod imp {
-    use super::{ActionStep, AdapterError, Deadline, InteractionPolicy, UIAElement};
+    use super::{ActionStep, AdapterError, Deadline, InteractionPolicy, ToggleGoal, UIAElement};
 
     pub(crate) fn toggle_steps(
         _: &UIAElement,
+        _: ToggleGoal,
         _: InteractionPolicy,
         _: Deadline,
     ) -> Result<Vec<ActionStep>, AdapterError> {
         Err(AdapterError::not_supported("Toggle"))
     }
-    pub(crate) fn check_steps(
-        _: &UIAElement,
-        _: InteractionPolicy,
-        _: Deadline,
-    ) -> Result<Vec<ActionStep>, AdapterError> {
-        Err(AdapterError::not_supported("Check"))
-    }
-    pub(crate) fn uncheck_steps(
-        _: &UIAElement,
-        _: InteractionPolicy,
-        _: Deadline,
-    ) -> Result<Vec<ActionStep>, AdapterError> {
-        Err(AdapterError::not_supported("Uncheck"))
-    }
 }
 
-pub(crate) use imp::{check_steps, toggle_steps, uncheck_steps};
+pub(crate) use imp::toggle_steps;
 
-#[cfg(all(test, target_os = "windows"))]
-pub(crate) use imp::{check_uncheck_judged_for, toggle_judged_for};
-
-#[cfg(all(test, target_os = "windows"))]
+#[cfg(test)]
 #[path = "toggle_state_tests.rs"]
 mod tests;

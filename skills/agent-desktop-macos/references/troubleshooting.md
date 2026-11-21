@@ -52,7 +52,7 @@ For Automation, open Privacy & Security > Automation and allow the launching app
 
 **Symptom.** A command returns `POLICY_DENIED`.
 
-**Cause.** The semantic path could not finish, and the physical path is blocked because the command ran headless. Hover, drag, double-click, triple-click and cursor-moving mouse commands always need `--headed`. Coordinate `right-click` is also blocked headless.
+**Cause.** The semantic path could not finish, and the physical path is blocked because the command ran headless. Hover, drag, double-click, triple-click and cursor-moving mouse commands always need `--headed`. Coordinate `right-click` is also blocked headless. On macOS a headless action is also refused when it would show a menu or open a dialog: `right-click`, `select` through a menu, `click` or `expand` on a pop-up button, menu button or combo box, and `click`, `toggle`, `check` or `uncheck` on a label that ends in `…` or `...`. Add `--headed` when the menu or dialog is intended.
 
 **Fix.** Add the global `--headed` flag only if physical input is what you want. Example: `agent-desktop --headed mouse-click --xy 640,400 --button right`. Take coordinates from `get @ref --property bounds`.
 

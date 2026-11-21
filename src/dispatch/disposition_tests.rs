@@ -62,7 +62,7 @@ fn failure_of(adapter_failure: AdapterError, arguments: &[&str]) -> AdapterError
         command,
         &FailingAdapter(adapter_failure),
         &PermissionReport::default(),
-        &CommandContext::default(),
+        &CommandContext::default().with_headed(true),
     ) {
         Err(AppError::Adapter(error)) => error,
         other => panic!("expected an adapter error, got {other:?}"),
@@ -177,7 +177,7 @@ fn batch_entries_settle_their_failures_by_their_own_command() {
         },
         &FailingAdapter(AdapterError::timeout("stalled")),
         &PermissionReport::default(),
-        &CommandContext::default(),
+        &CommandContext::default().with_headed(true),
     )
     .expect("a batch reports the failure of each entry");
 

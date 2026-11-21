@@ -1,19 +1,16 @@
 use std::time::{Duration, Instant};
 
 use agent_desktop_core::{
-    Action, ActionResult, AdapterError, Deadline, DeliverySemantics, ErrorCode, NativeHandle,
+    Action, ActionResult, AdapterError, ChainRung, Deadline, DeliveryOutcome, DeliverySemantics,
+    ErrorCode, NativeHandle,
 };
 use serde_json::json;
 
 use super::action_call::{do_action, resolve_verb};
-use super::chain::chain_def::ChainDef;
-use super::chain::chain_delivery_outcome::DeliveryOutcome;
-use super::chain::chain_observed::Observed;
-use super::chain::chain_rung::Rung;
-use super::chain::execute_chain;
 use super::context::Target;
 use super::toggle_state::toggle_reporting;
 use super::write::mutation::WriteReply;
+use crate::actions::chain::run_semantic_chain;
 use crate::system::within;
 use crate::tree::capabilities::action_names::{click_verbs, toggle_verbs, verbs_for};
 use crate::tree::capabilities::action_read::{NodeView, read_node_view};
@@ -46,14 +43,6 @@ pub(super) fn poll_until<T>(
             return value;
         }
         std::thread::sleep(step.min(end - now));
-    }
-}
-
-pub(super) fn observed_of(change: Option<bool>) -> Observed {
-    match change {
-        Some(true) => Observed::Matched,
-        Some(false) => Observed::Unchanged,
-        None => Observed::Unread,
     }
 }
 
@@ -107,24 +96,21 @@ pub(super) fn deliver(
 ) -> Result<DeliveryOutcome, AdapterError> {
     match reply? {
         WriteReply::Absent => Ok(DeliveryOutcome::NotDelivered),
-        WriteReply::Done => Ok(DeliveryOutcome::Delivered(observed_of(observe()))),
+        WriteReply::Done => Ok(DeliveryOutcome::observed(observe())),
     }
 }
 
 pub(super) fn run_single_rung(
-    action: &'static str,
+    action: &Action,
     deadline: Deadline,
     run: impl FnMut() -> Result<DeliveryOutcome, AdapterError>,
 ) -> Result<ActionResult, AdapterError> {
-    let def = ChainDef {
-        action,
-        suggestion: SUGGESTION,
-    };
-    let mut rungs = [Rung {
+    let mut rungs = [ChainRung {
         label: CLICK_LABEL,
+        effects: &[],
         run: Box::new(run),
     }];
-    execute_chain(&def, &mut rungs, deadline)
+    run_semantic_chain(action, &mut rungs, deadline, SUGGESTION)
 }
 
 pub(super) struct Inner {
@@ -249,10 +235,10 @@ fn activate(target: &Target<'_>, action: &Action) -> Result<ActionResult, Adapte
     };
     if matches!(action, Action::Click) {
         super::popup_verify::run(target, &view, None, || {
-            run_single_rung(action.name(), target.deadline, run)
+            run_single_rung(action, target.deadline, run)
         })
     } else {
-        run_single_rung(action.name(), target.deadline, run)
+        run_single_rung(action, target.deadline, run)
     }
 }
 

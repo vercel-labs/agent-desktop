@@ -60,7 +60,7 @@ When the target is already in the requested state, nothing is delivered and the 
 
 ## Wait budget
 
-Every command on this page takes `--timeout-ms MS` (default `5000`; `type` adds 30 ms per character), the budget for resolving the ref and waiting for the element to become actionable. Core polls the transient checks (`visible`, `stable`, `enabled`, and, for pointer delivery, `receives_events`) until they pass. The terminal checks (`supported_action`, `policy`, `editable`) cannot be fixed by waiting and fail at once. `--timeout-ms 0` tries once without polling.
+Every command on this page takes `--timeout-ms MS` (default `5000`; `type` adds 30 ms per character), the budget for resolving the ref and waiting for the element to become actionable. Core polls the transient checks (`visible`, `stable`, `enabled`, and, for pointer delivery, `receives_events`) until they pass. The terminal checks (`foreground`, `supported_action`, `policy`, `editable`) cannot be fixed by waiting and fail at once. `foreground` fails alone, before any other check, when the platform reports that the action opens a popup, menu or dialog that takes the foreground and the policy forbids it. `--timeout-ms 0` tries once without polling.
 
 A failed check list appears in `error.details.checks`, each with a `status` of `pass`, `fail`, or `unknown` and a `reason`. This is `double-click` on a text entry without `--headed`:
 
@@ -243,7 +243,7 @@ Sets keyboard focus on an element without clicking it.
 agent-desktop --headed focus <REF> [--timeout-ms MS]
 ```
 
-Moving focus can change the foreground, so headless it returns `POLICY_DENIED` on Windows and Linux:
+Moving focus can change the foreground, so headless it returns `POLICY_DENIED` on Windows and Linux. On macOS, writing `AXFocused` moves focus only inside the target app, so `focus` is headless there:
 
 ```json
 {
@@ -280,7 +280,7 @@ agent-desktop select @s30sxlstqzdq8x:e21 Middle
 
 If the control already shows the value, nothing is delivered. A combo box whose accessible name is its current value gets a new identity when the value changes, so the old ref returns `STALE_REF` afterward: find the control again before the next action.
 
-Platform limits: on macOS, dismiss any open menu first. On Linux, a Qt combo refuses headless with `details.kind: pointer_required`, and a GTK4 list refuses with `selection_index_unproven`. See the platform pages.
+Platform limits: on macOS, `select` through a menu needs `--headed`, and a menu that another control opened must be dismissed first. On Linux, a Qt combo refuses headless with `details.kind: pointer_required`, and a GTK4 list refuses with `selection_index_unproven`. See the platform pages.
 
 ## toggle
 

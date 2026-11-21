@@ -1,7 +1,7 @@
 use super::*;
 use agent_desktop_core::{
-    Action, DeliveryDisposition, InteractionPolicy, KeyCombo, ProcessId, ProcessIdentity,
-    WindowInfo, WindowState,
+    DeliveryDisposition, InteractionPolicy, KeyCombo, ProcessId, ProcessIdentity, WindowInfo,
+    WindowState,
 };
 
 #[cfg(target_os = "windows")]
@@ -120,29 +120,6 @@ fn key_dispatch_never_calls_activation_apis() {
     assert!(
         !src.contains("SetForegroundWindow"),
         "verify-only path must not raise via SetForegroundWindow"
-    );
-}
-
-#[test]
-fn press_key_base_policy_is_focus_fallback_matching_ffi_default() {
-    let combo = KeyCombo {
-        key: "a".into(),
-        modifiers: vec![],
-    };
-    assert_eq!(
-        Action::PressKey(combo).base_interaction_policy(),
-        InteractionPolicy::focus_fallback(),
-        "FFI explicit PressKey joins this base; must remain focus_fallback"
-    );
-    let ffi_docs = include_str!("../../../ffi/src/commands/execute_by_ref.rs");
-    assert!(
-        ffi_docs.contains("Explicit `PressKey` defaults to `focus_fallback`"),
-        "FFI by-ref surface must still name focus_fallback as the PressKey default"
-    );
-    let execute = include_str!("../../../ffi/src/actions/execute.rs");
-    assert!(
-        execute.contains("ActionRequest::focus_fallback(action)"),
-        "FFI execute.rs must still map FocusFallback to InteractionPolicy::focus_fallback"
     );
 }
 

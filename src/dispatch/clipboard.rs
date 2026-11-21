@@ -30,6 +30,7 @@ pub(super) fn get(
 pub(super) fn set(
     args: ClipboardSetArgs,
     adapter: &dyn PlatformAdapter,
+    context: &CommandContext,
 ) -> Result<Value, AppError> {
     clipboard_set::execute(
         clipboard_set::ClipboardSetArgs {
@@ -38,5 +39,6 @@ pub(super) fn set(
             file_urls: args.file_url,
         },
         adapter,
+        context.physical_input_policy(),
     )
 }

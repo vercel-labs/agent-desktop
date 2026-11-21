@@ -11,9 +11,7 @@ use crate::tree::automation::{UiaFailure, automation_client};
 use crate::tree::element::UIAElement;
 use crate::tree::fixture::fixture_window;
 use crate::tree::fixture::{LocalFixture, ensure_test_apartment};
-use crate::tree::properties::property_ids::TreeProperty;
-use crate::tree::properties::property_outcome::{PropertyOutcome, PropertyValue};
-use crate::tree::properties::{read_one, rect_has_area};
+use crate::tree::properties::rect_has_area;
 use agent_desktop_core::{
     ActionOps, AdapterError, DeliveryDisposition, DeliverySemantics, ErrorCode, InteractionLease,
     Rect,
@@ -249,42 +247,21 @@ fn transport_failed_invoke_with_failed_observation_is_delivered_unverified() {
     assert_ne!(error.disposition, DeliverySemantics::uncertain());
 }
 
-/// Drives the shipped gate against a real provider instead of a fake.
-///
-/// Every other pin here injects an observation closure or calls the error
-/// constructor directly, so the production chain — the gated
-/// `ScrollItemAvailable` read, the invoke, and the observation loop behind it —
-/// was never executed by the suite at all. A Win32 `BUTTON` exposes no
-/// `ScrollItemPattern`, which is the arm the census says is the common case, so
-/// it proves the gate reads the property and refuses before invoking, and that
-/// the refusal is the honest not-delivered `ACTION_FAILED` rather than the
-/// trait default's `PLATFORM_NOT_SUPPORTED`.
+/// A Win32 `BUTTON` on an open fixture window is already in view, so a
+/// scroll-to through the adapter delivers nothing and calls no pattern,
+/// whatever the button offers.
 #[test]
-fn live_element_without_scroll_item_is_unsupported_through_the_adapter() {
+fn a_visible_element_is_already_in_view_through_the_adapter() {
     ensure_test_apartment();
     let fixture = LocalFixture::create().expect("a fixture window");
     let button = fixture_window::find_button(fixture.handle());
     assert!(!button.is_null(), "the fixture exposes its BUTTON control");
     let element = fixture_element(button).expect("a UI Automation element for the button");
-    assert_eq!(
-        read_one(&element, TreeProperty::ScrollItemAvailable),
-        PropertyOutcome::Known(PropertyValue::Flag(false)),
-        "the gate is a gated property read that genuinely answered false"
-    );
     let handle = element.into_native_handle();
     let lease = InteractionLease::guarded(deadline(2_000), ()).expect("an interaction lease");
-    let error = WindowsAdapter::new()
+    WindowsAdapter::new()
         .scroll_into_view(&handle, &lease)
-        .expect_err("a BUTTON carries no ScrollItemPattern");
-    assert_eq!(error.code, ErrorCode::ActionFailed);
-    assert_ne!(error.code, ErrorCode::PlatformNotSupported);
-    assert_eq!(error.disposition, DeliverySemantics::not_delivered());
-    assert_eq!(
-        error.disposition.delivery(),
-        DeliveryDisposition::NotDelivered
-    );
-    let details = error.details.expect("the unsupported arm carries details");
-    assert_eq!(details["kind"], "scroll_into_view_unsupported");
+        .expect("a visible element needs no scroll");
 }
 
 fn fixture_element(control: *mut c_void) -> Option<UIAElement> {

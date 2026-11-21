@@ -13,11 +13,11 @@ fn a_matching_label_with_no_route_is_not_supported_and_not_delivered() {
 
 #[test]
 fn a_select_whose_read_back_is_unchanged_is_a_write_ignored_failure() {
-    use super::super::chain::chain_delivery_outcome::DeliveryOutcome;
-    use super::super::chain::chain_observed::Observed;
     use super::unchanged_is_ignored;
+    use agent_desktop_core::DeliveryObservation;
+    use agent_desktop_core::DeliveryOutcome;
     use agent_desktop_core::ErrorCode;
-    let error = unchanged_is_ignored(DeliveryOutcome::Delivered(Observed::Unchanged))
+    let error = unchanged_is_ignored(DeliveryOutcome::Delivered(DeliveryObservation::Unverified))
         .expect_err("unchanged is ignored");
     assert_eq!(error.code, ErrorCode::ActionFailed);
     assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
@@ -26,8 +26,8 @@ fn a_select_whose_read_back_is_unchanged_is_a_write_ignored_failure() {
     assert!(hint.contains("fresh snapshot"), "{hint}");
     assert_eq!(error.details.expect("details")["cause"], "write_ignored");
     for kept in [
-        DeliveryOutcome::Delivered(Observed::Matched),
-        DeliveryOutcome::Delivered(Observed::Unread),
+        DeliveryOutcome::Delivered(DeliveryObservation::Verified),
+        DeliveryOutcome::Delivered(DeliveryObservation::Unread),
         DeliveryOutcome::NotDelivered,
     ] {
         assert!(unchanged_is_ignored(kept).is_ok());

@@ -157,9 +157,10 @@ pub(crate) fn execute_action(
                 &target,
                 display_value,
                 pointer.as_ref().map(|pointer| pointer as &dyn Pointer),
+                request.policy.allow_focus_steal,
             )
         }
-        Action::SetFocus => focus(&target, request.policy),
+        Action::SetFocus => focus(&target),
         Action::SetValue(text) => set_value(&target, text, request.policy),
         Action::Clear => clear(&target, request.policy),
         Action::TypeText(text) if request.policy.is_headed() => physical_first(

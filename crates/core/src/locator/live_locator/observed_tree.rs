@@ -269,6 +269,7 @@ impl ObservedTree {
                 value: node.evidence.value.meaningful_string(),
                 description: node.evidence.description.meaningful_string(),
                 native_id: node.evidence.identifiers.preferred_identifier().cloned(),
+                name_is_borrowed: node.evidence.identifiers.name_is_borrowed(),
             },
             presentation: crate::NodePresentation {
                 hint: None,

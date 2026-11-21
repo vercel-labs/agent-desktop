@@ -1,14 +1,12 @@
-use super::{ClickAvailability, click_chain_judged_for, execute_action_impl};
-use crate::actions::chain::DeliveryOutcome;
-use crate::system::fixture::test_time::deadline;
+use super::execute_action_impl;
 use crate::tree::automation::automation_client;
 use crate::tree::element::UIAElement;
 use crate::tree::fixture::fixture_window;
 use crate::tree::fixture::{LocalFixture, ensure_test_apartment};
 use agent_desktop_core::{
     Action, ActionRequest, ActionStepOutcome, AdapterError, Deadline, DeliveryDisposition,
-    Direction, DragParams, ErrorCode, InteractionLease, InteractionPolicy, KeyCombo, NativeHandle,
-    Point, StepMechanism,
+    Direction, DragParams, ErrorCode, InteractionLease, KeyCombo, NativeHandle, Point,
+    StepMechanism,
 };
 use uiautomation::types::Handle;
 
@@ -224,27 +222,7 @@ fn set_focus_call_site_lives_only_in_focus_rs() {
 }
 
 #[test]
-fn no_affordance_click_chain_exhausts_not_delivered() {
-    let error = click_chain_judged_for(
-        deadline(5_000),
-        InteractionPolicy::headless(),
-        ClickAvailability {
-            invoke_available: false,
-            legacy_available: false,
-        },
-        || Ok(DeliveryOutcome::DeliveredUnverified),
-        || Ok(DeliveryOutcome::DeliveredUnverified),
-    )
-    .expect_err("exhausted");
-    assert_eq!(error.code, ErrorCode::ActionFailed);
-    assert_eq!(
-        error.disposition.delivery(),
-        DeliveryDisposition::NotDelivered
-    );
-}
-
-#[test]
-fn live_fixture_click_delivers_invoke_or_legacy_unverified() {
+fn live_fixture_headless_click_presses_through_the_legacy_default_action() {
     ensure_test_apartment();
     let fixture = LocalFixture::create().expect("fixture");
     let handle = control_handle(fixture_window::find_button(fixture.handle())).expect("handle");
@@ -259,12 +237,7 @@ fn live_fixture_click_delivers_invoke_or_legacy_unverified() {
         .iter()
         .find(|step| matches!(step.outcome, ActionStepOutcome::Succeeded))
         .expect("a delivered step");
-    assert!(
-        succeeded.label() == "InvokePattern.Invoke"
-            || succeeded.label() == "LegacyIAccessible.DoDefaultAction",
-        "unexpected label {}",
-        succeeded.label()
-    );
+    assert_eq!(succeeded.label(), "LegacyIAccessible.DoDefaultAction");
     assert_eq!(succeeded.verified(), Some(false));
     assert_eq!(
         succeeded.mechanism(),

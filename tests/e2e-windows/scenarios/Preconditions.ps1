@@ -177,7 +177,7 @@ function Test-StagedIdsResolve {
                run over a single race. #>
             for ($attempt = 1; $attempt -le 3 -and -not $choice; $attempt++) {
                 try {
-                    Invoke-AgentDesktop -Arguments @('focus-window', '--window-id', $mainWindowId) -RequireOk -Description 'focus-window (main fixture window)' | Out-Null
+                    Invoke-AgentDesktop -Arguments @('focus-window', '--headed', '--window-id', $mainWindowId) -RequireOk -Description 'focus-window (main fixture window)' | Out-Null
                     Invoke-Target -Target $target -Action 'right-click' -Headed -RequireOk -Description 'context-target' | Out-Null
                     $popupWindowId = Get-WindowId -Where { $_['app_name'] -eq 'AgentDeskFixture.exe' -and $_['title'] -eq '' -and $_['visible'] -eq $true } -TimeoutSeconds 3
                     if ($popupWindowId) { $choice = Find-Target -WindowId $popupWindowId -NativeId 'context-choice' -TimeoutSeconds 3 }

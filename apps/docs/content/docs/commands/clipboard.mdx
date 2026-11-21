@@ -4,7 +4,7 @@ navTitle: Clipboard
 description: Reference for clipboard-get, clipboard-set, and clipboard-clear, including the text, image, and file-list formats and the result shapes.
 ---
 
-The clipboard commands read and write the system clipboard. They need no accessibility permission and no `--headed`. The examples are real output from Linux X11.
+The clipboard commands read and write the system clipboard. They need no accessibility permission. Reading needs no `--headed`; writing does, as described below. The examples are real output from Linux X11.
 
 ## clipboard-get
 
@@ -38,13 +38,13 @@ Check `found` before you read `text`. Errors: `INVALID_ARGS` for an unknown form
 
 ## clipboard-set
 
-Writes text, a PNG image, or a list of file paths.
+Writes text, a PNG image, or a list of file paths. Writing the clipboard needs `--headed`, because it replaces what the user copied; without it the command returns `POLICY_DENIED` and sends nothing.
 
 ```bash
-agent-desktop clipboard-set TEXT
-printf '%s' 'Hello' | agent-desktop clipboard-set --stdin
-agent-desktop clipboard-set --image /tmp/a.png
-agent-desktop clipboard-set --file-url /tmp/a.txt --file-url /tmp/b.txt
+agent-desktop --headed clipboard-set TEXT
+printf '%s' 'Hello' | agent-desktop --headed clipboard-set --stdin
+agent-desktop --headed clipboard-set --image /tmp/a.png
+agent-desktop --headed clipboard-set --file-url /tmp/a.txt --file-url /tmp/b.txt
 ```
 
 <table>
@@ -84,10 +84,10 @@ macOS reads the content back and reports `delivered_verified`; Windows and Linux
 
 ## clipboard-clear
 
-Empties the clipboard. It takes no arguments.
+Empties the clipboard, which needs `--headed` for the same reason as `clipboard-set`. It takes no arguments.
 
 ```bash
-agent-desktop clipboard-clear
+agent-desktop --headed clipboard-clear
 ```
 
 ```json

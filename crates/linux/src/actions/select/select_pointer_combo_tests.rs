@@ -1,11 +1,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use agent_desktop_core::{ActionStep, DeliveryDisposition, StepMechanism};
+use agent_desktop_core::{
+    ActionStep, DeliveryDisposition, DeliveryObservation, DeliveryOutcome, StepMechanism,
+};
 
 use super::*;
-use crate::actions::chain::chain_delivery_outcome::DeliveryOutcome;
-use crate::actions::chain::chain_observed::Observed;
 use crate::actions::select::unchanged_is_ignored;
 
 struct World {
@@ -107,10 +107,10 @@ impl Choices for Fake {
         }
         world.open = !world.commit_closes;
         if !world.selects_on_commit {
-            return Err(
-                unchanged_is_ignored(DeliveryOutcome::Delivered(Observed::Unchanged))
-                    .expect_err("an unchanged value is ignored"),
-            );
+            return Err(unchanged_is_ignored(DeliveryOutcome::Delivered(
+                DeliveryObservation::Unverified,
+            ))
+            .expect_err("an unchanged value is ignored"));
         }
         world.shown = name;
         let step = ActionStep::succeeded("Action.DoAction")

@@ -60,38 +60,6 @@ pub(crate) fn preflight_text(text: &str, deadline: Deadline) -> Result<(), Adapt
     crate::input::keyboard::keyboard_event::preflight_text(text, deadline)
 }
 
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn synthesize_key(
-    _combo: &KeyCombo,
-    _target_pid: Option<i32>,
-    _deadline: Deadline,
-) -> Result<(), AdapterError> {
-    Err(AdapterError::not_supported("synthesize_key"))
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn reject_standalone_key_state(
-    _combo: &KeyCombo,
-    _down: bool,
-) -> Result<(), AdapterError> {
-    Err(AdapterError::not_supported("key_state"))
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn synthesize_text(
-    _text: &str,
-    _target_pid: i32,
-    _deadline: Deadline,
-    _verify_target: impl FnMut(Deadline) -> Result<(), AdapterError>,
-) -> Result<(), AdapterError> {
-    Err(AdapterError::not_supported("synthesize_text"))
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn preflight_text(_text: &str, _deadline: Deadline) -> Result<(), AdapterError> {
-    Err(AdapterError::not_supported("synthesize_text"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -192,11 +192,6 @@ fn frontmost_app(deadline: Deadline) -> Result<Option<ProcessIdentity>, AdapterE
     )))
 }
 
-#[cfg(not(target_os = "macos"))]
-fn frontmost_app(_deadline: Deadline) -> Result<Option<ProcessIdentity>, AdapterError> {
-    Ok(None)
-}
-
 #[cfg(target_os = "macos")]
 fn reactivate_app(app: &ProcessIdentity, deadline: Deadline) -> Result<(), AdapterError> {
     let pid = crate::system::process::process_identity::to_pid_t(app.pid)?;
@@ -204,11 +199,6 @@ fn reactivate_app(app: &ProcessIdentity, deadline: Deadline) -> Result<(), Adapt
         return Ok(());
     }
     crate::system::focus::ensure_app_focused(pid, deadline)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn reactivate_app(_app: &ProcessIdentity, _deadline: Deadline) -> Result<(), AdapterError> {
-    Ok(())
 }
 
 fn merge_cleanup_results(
@@ -262,16 +252,6 @@ fn is_nc_open(pid: i32, deadline: Deadline) -> bool {
     !windows.is_empty()
 }
 
-#[cfg(not(target_os = "macos"))]
-fn nc_pid(_deadline: Deadline) -> Result<Option<i32>, AdapterError> {
-    Ok(None)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn is_nc_open(_pid: i32, _deadline: Deadline) -> bool {
-    false
-}
-
 #[cfg(target_os = "macos")]
 fn open_nc(deadline: Deadline) -> Result<(), AdapterError> {
     let script = r#"tell application "System Events" to tell its application process "ControlCenter"
@@ -293,11 +273,6 @@ fn open_nc(deadline: Deadline) -> Result<(), AdapterError> {
     }
     std::thread::sleep(std::time::Duration::from_millis(500));
     Ok(())
-}
-
-#[cfg(not(target_os = "macos"))]
-fn open_nc(_deadline: Deadline) -> Result<(), AdapterError> {
-    Err(AdapterError::not_supported("open_nc"))
 }
 
 #[cfg(target_os = "macos")]
@@ -323,11 +298,6 @@ fn close_nc(deadline: Deadline) -> Result<(), AdapterError> {
 #[path = "nc_session_tests.rs"]
 mod tests;
 
-#[cfg(not(target_os = "macos"))]
-fn close_nc(_deadline: Deadline) -> Result<(), AdapterError> {
-    Err(AdapterError::not_supported("close_nc"))
-}
-
 #[cfg(target_os = "macos")]
 fn wait_for_nc_ready(deadline: Deadline) -> Result<i32, AdapterError> {
     let poll = std::time::Duration::from_millis(50);
@@ -345,9 +315,4 @@ fn wait_for_nc_ready(deadline: Deadline) -> Result<i32, AdapterError> {
         }
         std::thread::sleep(poll.min(deadline.remaining()));
     }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn wait_for_nc_ready(_deadline: Deadline) -> Result<i32, AdapterError> {
-    Err(AdapterError::not_supported("wait_for_nc_ready"))
 }

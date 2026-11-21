@@ -96,3 +96,30 @@ fn join_never_downgrades_either_operand_on_any_field() {
         }
     }
 }
+
+#[test]
+fn each_effect_is_allowed_only_by_the_policies_that_grant_it() {
+    use crate::Effect::{ClipboardWrite, CursorMove, FocusSteal};
+    let cases = [
+        (InteractionPolicy::headless(), [false, false, false]),
+        (InteractionPolicy::focus_fallback(), [true, false, false]),
+        (cursor_only(), [false, true, false]),
+        (InteractionPolicy::headed(), [true, true, true]),
+    ];
+    for (policy, allowed) in cases {
+        for (effect, allowed) in [FocusSteal, CursorMove, ClipboardWrite]
+            .into_iter()
+            .zip(allowed)
+        {
+            let result = policy.require(effect, "probe");
+            assert_eq!(result.is_ok(), allowed, "{policy:?} {effect:?}");
+            if let Err(error) = result {
+                assert_eq!(error.code, crate::ErrorCode::PolicyDenied);
+                assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());
+                let suggestion = error.suggestion.unwrap_or_default();
+                assert!(suggestion.contains("--headed"), "{suggestion}");
+                assert!(!suggestion.contains("snapshot"), "{suggestion}");
+            }
+        }
+    }
+}

@@ -223,8 +223,7 @@ impl CommandContext {
     }
 
     pub fn request_base(&self, action: Action) -> ActionRequest {
-        let base = action.base_interaction_policy();
-        self.request(action, base)
+        self.request(action, InteractionPolicy::headless())
     }
 
     pub fn physical_input_policy(&self) -> InteractionPolicy {

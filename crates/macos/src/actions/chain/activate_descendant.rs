@@ -6,9 +6,13 @@ use agent_desktop_core::AdapterError;
 #[cfg(any(target_os = "macos", test))]
 fn activate_candidates<T>(
     children: &[T],
+    mut disturbs: impl FnMut(&T) -> bool,
     mut perform: impl FnMut(&T, &str) -> Result<DeliveryOutcome, AdapterError>,
 ) -> Result<DeliveryOutcome, AdapterError> {
     for child in children {
+        if disturbs(child) {
+            continue;
+        }
         for action in crate::tree::properties::action_list::PRIMARY_ACTIVATION_ACTIONS {
             let outcome = perform(child, action)?;
             if outcome.terminates_chain() {
@@ -61,24 +65,13 @@ mod imp {
         .flatten()
         .unwrap_or_default();
 
-        super::activate_candidates(&children, |child, action| {
-            crate::actions::ax_helpers::perform_observed_action(child, action, deadline)
-        })
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use agent_desktop_core::{AdapterError, Deadline};
-
-    use crate::actions::chain::chain_delivery::DeliveryOutcome;
-    use crate::tree::AXElement;
-
-    pub(crate) fn activate_descendant(
-        _element: &AXElement,
-        _deadline: Deadline,
-    ) -> Result<DeliveryOutcome, AdapterError> {
-        Ok(DeliveryOutcome::NotDelivered)
+        super::activate_candidates(
+            &children,
+            |child| crate::actions::background_effect::descendant_press_disturbs(child, deadline),
+            |child, action| {
+                crate::actions::ax_helpers::perform_observed_action(child, action, deadline)
+            },
+        )
     }
 }
 
@@ -91,30 +84,54 @@ mod tests {
     #[test]
     fn unverified_descendant_delivery_stops_before_another_action_or_sibling() {
         let mut attempts = Vec::new();
-        let outcome = activate_candidates(&[1, 2], |child, action| {
-            attempts.push((*child, action.to_owned()));
-            Ok(if attempts.len() == 1 {
-                DeliveryOutcome::NotDelivered
-            } else {
-                DeliveryOutcome::DeliveredUnverified
-            })
-        })
+        let outcome = activate_candidates(
+            &[1, 2],
+            |_| false,
+            |child, action| {
+                attempts.push((*child, action.to_owned()));
+                Ok(if attempts.len() == 1 {
+                    DeliveryOutcome::NotDelivered
+                } else {
+                    DeliveryOutcome::DeliveredUnverified
+                })
+            },
+        )
         .unwrap();
         assert_eq!(outcome, DeliveryOutcome::DeliveredUnverified);
         assert_eq!(attempts, [(1, "AXPress".into()), (1, "AXOpen".into())]);
     }
 
     #[test]
+    fn a_child_whose_press_would_show_a_menu_or_open_a_dialog_is_never_pressed() {
+        let mut pressed = Vec::new();
+        let outcome = activate_candidates(
+            &[1, 2],
+            |child| *child == 1,
+            |child, _| {
+                pressed.push(*child);
+                Ok(DeliveryOutcome::DeliveredVerified)
+            },
+        )
+        .unwrap();
+        assert_eq!(outcome, DeliveryOutcome::DeliveredVerified);
+        assert_eq!(pressed, [2]);
+    }
+
+    #[test]
     fn unsupported_descendant_actions_can_reach_a_verified_sibling() {
         let mut attempts = 0;
-        let outcome = activate_candidates(&[1, 2, 3], |child, _| {
-            attempts += 1;
-            Ok(if *child == 2 {
-                DeliveryOutcome::DeliveredVerified
-            } else {
-                DeliveryOutcome::NotDelivered
-            })
-        })
+        let outcome = activate_candidates(
+            &[1, 2, 3],
+            |_| false,
+            |child, _| {
+                attempts += 1;
+                Ok(if *child == 2 {
+                    DeliveryOutcome::DeliveredVerified
+                } else {
+                    DeliveryOutcome::NotDelivered
+                })
+            },
+        )
         .unwrap();
         assert_eq!(outcome, DeliveryOutcome::DeliveredVerified);
         assert_eq!(attempts, 4);

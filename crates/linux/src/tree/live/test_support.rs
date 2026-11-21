@@ -189,3 +189,15 @@ pub(crate) fn children_reply(entries: &[(&str, &str)]) -> Result<zbus::Message, 
         .collect::<Result<_, zbus::zvariant::Error>>()?;
     zbus::Message::method_return(&call.header())?.build(&body)
 }
+
+/// A live view of one read node, as a capability check sees it.
+pub(crate) fn view_of(read: ObservedRead) -> crate::tree::capabilities::action_read::NodeView {
+    let evidence = crate::tree::observe::node_evidence::evidence_for(&read, &read.node.element, "");
+    crate::tree::capabilities::action_read::NodeView::new(
+        crate::tree::observe::node_evidence::NodeEvidence {
+            read,
+            evidence,
+            liveness: crate::tree::properties::liveness::Liveness::Alive,
+        },
+    )
+}

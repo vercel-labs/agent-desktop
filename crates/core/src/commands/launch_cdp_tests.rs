@@ -20,6 +20,7 @@ fn cdp_launch_rejects_a_conflicting_remote_debugging_switch() {
                 options,
             },
             &adapter,
+            crate::InteractionPolicy::headed(),
         )
         .unwrap_err(),
     );
@@ -63,6 +64,7 @@ fn cdp_launch_rejects_an_already_running_instance() {
                 options,
             },
             &adapter,
+            crate::InteractionPolicy::headed(),
         )
         .unwrap_err(),
     );
@@ -105,6 +107,7 @@ fn cdp_launch_rejects_a_running_instance_named_by_its_path() {
                 options,
             },
             &adapter,
+            crate::InteractionPolicy::headed(),
         )
         .unwrap_err(),
     );
@@ -147,6 +150,7 @@ fn cdp_launch_ignores_a_name_matching_helper_process_without_presentation() {
             options,
         },
         &adapter,
+        crate::InteractionPolicy::headed(),
     )
     .expect("a presentation-less helper process must not block the launch");
 
@@ -172,6 +176,7 @@ fn cdp_launch_appends_the_switch_and_resolves_the_port_before_verification_fails
                 options,
             },
             &adapter,
+            crate::InteractionPolicy::headed(),
         )
         .unwrap_err(),
     );
@@ -207,6 +212,7 @@ fn cdp_launch_returns_a_verified_endpoint_when_the_process_answers() {
             options,
         },
         &adapter,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
 
@@ -244,6 +250,7 @@ fn cdp_launch_rejects_a_valid_devtools_response_from_an_unattributed_listener() 
                 options,
             },
             &adapter,
+            crate::InteractionPolicy::headed(),
         )
         .unwrap_err(),
     );
@@ -277,6 +284,7 @@ fn chromium_renderer_without_cdp_gets_the_relaunch_suggestion() {
             options: LaunchOptions::default(),
         },
         &adapter,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
 
@@ -307,6 +315,7 @@ fn cdp_success_gets_the_handoff_suggestion() {
             options,
         },
         &adapter,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
 
@@ -329,6 +338,7 @@ fn non_chromium_plain_launch_has_neither_renderer_nor_suggestion() {
             options: LaunchOptions::default(),
         },
         &adapter,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
 
@@ -376,6 +386,7 @@ fn adapter_suggestion_survives_the_core_chromium_nudge() {
             options: LaunchOptions::default(),
         },
         &SuggestingAdapter,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
 

@@ -9,7 +9,12 @@ pub struct FocusWindowArgs {
     pub title: Option<String>,
 }
 
-pub fn execute(args: FocusWindowArgs, adapter: &dyn PlatformAdapter) -> Result<Value, AppError> {
+pub fn execute(
+    args: FocusWindowArgs,
+    adapter: &dyn PlatformAdapter,
+    policy: crate::InteractionPolicy,
+) -> Result<Value, AppError> {
+    policy.require(crate::Effect::FocusSteal, "focus-window")?;
     let deadline = crate::Deadline::standard()?;
     let filter = WindowFilter {
         focused_only: false,

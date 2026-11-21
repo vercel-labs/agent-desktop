@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::{AdapterError, actions::effect::Effect};
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct InteractionPolicy {
     pub allow_focus_steal: bool,
@@ -32,12 +34,40 @@ impl InteractionPolicy {
         self.allow_focus_steal && self.allow_cursor_move
     }
 
+    /// Refuses `operation` with `POLICY_DENIED`, and nothing sent, when this
+    /// policy does not permit `effect`. A clipboard write needs the headed
+    /// policy: no narrower policy grants it.
+    pub fn require(self, effect: Effect, operation: &str) -> Result<(), AdapterError> {
+        let (allowed, what) = match effect {
+            Effect::FocusSteal => (self.allow_focus_steal, "takes key focus or raises a window"),
+            Effect::CursorMove => (self.allow_cursor_move, "moves the pointer"),
+            Effect::ClipboardWrite => (self.is_headed(), "writes the user's clipboard"),
+        };
+        if allowed {
+            return Ok(());
+        }
+        Err(AdapterError::policy_denied_for_policy(
+            format!("{operation} {what}, which the interaction policy does not allow"),
+            self,
+        )
+        .with_suggestion(headed_suggestion(what))
+        .with_details(serde_json::json!({ "effect": effect })))
+    }
+
     pub fn join(self, other: InteractionPolicy) -> InteractionPolicy {
         InteractionPolicy {
             allow_focus_steal: self.allow_focus_steal || other.allow_focus_steal,
             allow_cursor_move: self.allow_cursor_move || other.allow_cursor_move,
         }
     }
+}
+
+/// The suggestion for a refused effect: only headed mode grants it, and a
+/// different element cannot write the clipboard or raise a window.
+fn headed_suggestion(what: &str) -> String {
+    format!(
+        "This operation needs headed mode, which {what}. Use --headed only if the user explicitly asked for that; otherwise report this limitation to the user."
+    )
 }
 
 impl Default for InteractionPolicy {

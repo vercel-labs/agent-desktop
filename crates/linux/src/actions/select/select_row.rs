@@ -1,9 +1,9 @@
-use agent_desktop_core::{ActionResult, AdapterError, Deadline};
+use agent_desktop_core::{ActionResult, AdapterError, Deadline, DeliveryObservation};
 
 use super::select_pointer::{Pointer, already_satisfied, by_pointer_result};
 use super::select_search::Hit;
 use super::select_verify::read_verification;
-use crate::actions::click::{POLL_STEP, observed_of, poll_until};
+use crate::actions::click::{POLL_STEP, poll_until};
 use crate::actions::context::Target;
 use crate::actions::select::SELECT_SETTLE;
 use crate::tree::AtspiElement;
@@ -23,7 +23,7 @@ fn click_until_selected(
     let selected = poll_until(deadline, SELECT_SETTLE, POLL_STEP, read, |selected| {
         *selected == Some(true)
     });
-    by_pointer_result(steps, observed_of(selected))
+    by_pointer_result(steps, DeliveryObservation::of_read(selected))
 }
 
 /// Selects a row of a list by clicking it. The row is the child of the list

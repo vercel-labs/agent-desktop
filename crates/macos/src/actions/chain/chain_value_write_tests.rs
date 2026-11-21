@@ -67,3 +67,22 @@ fn increment_requires_the_requested_fractional_value() {
         "0.3"
     ));
 }
+
+#[test]
+fn a_write_to_a_field_that_names_or_may_name_a_file_is_refused_undelivered() {
+    let refusal = super::file_name_refusal(Ok(Some("bravo".into()))).expect("a file name field");
+    assert_eq!(
+        refusal.code,
+        agent_desktop_core::ErrorCode::ActionNotSupported
+    );
+    assert_eq!(
+        refusal.disposition,
+        agent_desktop_core::DeliverySemantics::not_delivered()
+    );
+    let unreadable = super::file_name_refusal(Err(-25204)).expect("unknown is refused");
+    assert_eq!(
+        unreadable.disposition,
+        agent_desktop_core::DeliverySemantics::not_delivered()
+    );
+    assert!(super::file_name_refusal(Ok(None)).is_none());
+}

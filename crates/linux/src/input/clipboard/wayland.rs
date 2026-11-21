@@ -7,7 +7,7 @@ use agent_desktop_core::{
 };
 
 use super::command_runner::{CommandRunner, RunOutcome, RunSpec};
-use super::delivery::{fresh_deadline, not_delivered, unresponsive};
+use super::delivery::{fresh_deadline, unresponsive};
 use super::formats::{PNG, TEXT_UTF8, URI_LIST};
 use super::owner::owner_spawn_spec::protect_lease_descriptor;
 use super::payload::payload_of;
@@ -64,10 +64,11 @@ fn not_started(reason: &str) -> AdapterError {
 }
 
 fn over_cap() -> AdapterError {
-    not_delivered(AdapterError::new(
+    AdapterError::new(
         ErrorCode::ActionFailed,
         "The clipboard holds more than the size cap",
-    ))
+    )
+    .unsent()
 }
 
 enum Ran {
@@ -157,7 +158,7 @@ impl Wayland<'_> {
                 return Err(failure_error(&failure, DeliverySemantics::not_delivered()));
             }
         };
-        match content_of(&wanted, bytes).map_err(not_delivered)? {
+        match content_of(&wanted, bytes).map_err(AdapterError::unsent)? {
             ClipboardContent::FileUrls(paths) if paths.is_empty() => Ok(None),
             content => Ok(Some(content)),
         }
@@ -169,7 +170,7 @@ impl Wayland<'_> {
             ClipboardContent::Image(_) => PNG,
             ClipboardContent::FileUrls(_) => URI_LIST,
         };
-        let payload = payload_of(content).map_err(not_delivered)?;
+        let payload = payload_of(content).map_err(AdapterError::unsent)?;
         let target = payload
             .targets
             .into_iter()
