@@ -3,6 +3,8 @@ use crate::AppError;
 use crate::trace::trace_artifacts::read_screenshot_for_embed;
 use base64::Engine;
 use serde_json::{Value, json};
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 #[cfg(test)]
@@ -15,6 +17,40 @@ const VIEWER_JS: &str = include_str!("viewer.js");
 pub const TRACE_EXPORT_DEFAULT_LIMIT: usize = 5000;
 const MAX_EMBED_SCREENSHOT_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_JSON_BYTES: u64 = 200 * 1024 * 1024;
+
+#[cfg(test)]
+thread_local! {
+    static TEST_MAX_EMBED_BYTES: Cell<Option<u64>> = const { Cell::new(None) };
+}
+
+#[cfg(test)]
+struct TestEmbedBudgetGuard {
+    previous: Option<u64>,
+    _not_send: std::marker::PhantomData<std::rc::Rc<()>>,
+}
+
+#[cfg(test)]
+impl Drop for TestEmbedBudgetGuard {
+    fn drop(&mut self) {
+        TEST_MAX_EMBED_BYTES.set(self.previous);
+    }
+}
+
+#[cfg(test)]
+fn with_test_embed_budget(limit: u64) -> TestEmbedBudgetGuard {
+    TestEmbedBudgetGuard {
+        previous: TEST_MAX_EMBED_BYTES.replace(Some(limit)),
+        _not_send: std::marker::PhantomData,
+    }
+}
+
+fn max_embed_screenshot_bytes() -> u64 {
+    #[cfg(test)]
+    if let Some(limit) = TEST_MAX_EMBED_BYTES.get() {
+        return limit;
+    }
+    MAX_EMBED_SCREENSHOT_BYTES
+}
 
 #[cfg(test)]
 static TEST_MAX_JSON_BYTES: AtomicU64 = AtomicU64::new(0);
@@ -186,7 +222,7 @@ fn embed_screenshots(
             continue;
         };
         let next = used_bytes.saturating_add(bytes.len() as u64);
-        if next > MAX_EMBED_SCREENSHOT_BYTES {
+        if next > max_embed_screenshot_bytes() {
             skipped += 1;
             continue;
         }

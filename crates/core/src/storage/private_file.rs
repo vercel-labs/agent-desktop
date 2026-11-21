@@ -1,7 +1,46 @@
+#[cfg(test)]
+use std::cell::Cell;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+
+#[cfg(test)]
+thread_local! {
+    static SKIP_FSYNC_FOR_TEST: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(test)]
+pub(crate) struct SkipFsyncGuard {
+    previous: bool,
+    _not_send: std::marker::PhantomData<std::rc::Rc<()>>,
+}
+
+#[cfg(test)]
+impl Drop for SkipFsyncGuard {
+    fn drop(&mut self) {
+        SKIP_FSYNC_FOR_TEST.set(self.previous);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn without_fsync_for_test() -> SkipFsyncGuard {
+    SkipFsyncGuard {
+        previous: SKIP_FSYNC_FOR_TEST.replace(true),
+        _not_send: std::marker::PhantomData,
+    }
+}
+
+#[cfg(test)]
+fn should_skip_fsync() -> bool {
+    SKIP_FSYNC_FOR_TEST.get()
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+fn should_skip_fsync() -> bool {
+    false
+}
 
 pub(crate) fn open_private_lock(path: &Path, create: bool) -> std::io::Result<File> {
     crate::storage::private_file_ops::with_active_ops(|ops| ops.open_private_lock(path, create))
@@ -124,14 +163,21 @@ fn write_atomic_with(
     ensure_parent(parent)?;
     validate_destination(path)?;
     let (temporary, mut file) = create_temporary(path)?;
-    let written = file.write_all(bytes).and_then(|()| file.sync_all());
+    let skip_fsync = should_skip_fsync();
+    let written = file
+        .write_all(bytes)
+        .and_then(|()| if skip_fsync { Ok(()) } else { file.sync_all() });
     drop(file);
     let result = written.and_then(|()| {
         #[cfg(test)]
         crash_before_rename_if_requested(path);
         replace_atomic(&temporary, path)?;
         validate_private_regular(&open_private_read(path)?)?;
-        sync_parent(parent)
+        if skip_fsync {
+            Ok(())
+        } else {
+            sync_parent(parent)
+        }
     });
     if result.is_err() {
         let _ = std::fs::remove_file(&temporary);

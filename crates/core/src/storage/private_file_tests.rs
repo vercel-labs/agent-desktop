@@ -9,6 +9,21 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::{Mutex, MutexGuard};
 
+#[test]
+fn fsync_is_enabled_by_default_and_restored_after_an_override() {
+    assert!(!should_skip_fsync());
+    {
+        let _no_fsync = without_fsync_for_test();
+        assert!(should_skip_fsync());
+        {
+            let _nested_no_fsync = without_fsync_for_test();
+            assert!(should_skip_fsync());
+        }
+        assert!(should_skip_fsync());
+    }
+    assert!(!should_skip_fsync());
+}
+
 static CURRENT_DIRECTORY_LOCK: Mutex<()> = Mutex::new(());
 
 struct CurrentDirectoryGuard {

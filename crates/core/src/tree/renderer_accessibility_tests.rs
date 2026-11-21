@@ -139,25 +139,24 @@ impl SystemOps for NeverActivatesAdapter {
 }
 
 #[test]
+fn renderer_retry_defaults_match_production() {
+    assert_eq!(
+        INITIAL_ACTIVATION_RETRY,
+        std::time::Duration::from_millis(25)
+    );
+    assert_eq!(MAX_ACTIVATION_RETRY, std::time::Duration::from_millis(400));
+}
+
+#[test]
 fn a_renderer_that_never_activates_is_not_re_walked_continuously() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let held = Arc::new(AtomicBool::new(false));
     let adapter = NeverActivatesAdapter {
         lease_held: Arc::clone(&held),
         observations: AtomicU32::new(0),
     };
-    let window = crate::WindowInfo {
-        id: "w-1".into(),
-        title: "Renderer".into(),
-        app: "Renderer".into(),
-        pid: crate::ProcessId::new(42),
-        process_instance: Some("instance-1".into()),
-        bounds: None,
-        state: Default::default(),
-    };
-    let deadline = crate::Deadline::after(3_000).unwrap();
-    let request = ObservationRequest::snapshot(&crate::TreeOptions::default(), deadline)
-        .validate()
-        .unwrap();
+    let window = renderer_window();
+    let request = snapshot_request(crate::Deadline::after(3_000).unwrap());
 
     observe_tree(&adapter, ObservationRoot::Window(&window), &request, None)
         .expect_err("a renderer that never activates must still fail at the deadline");
@@ -192,9 +191,9 @@ impl ObservationOps for SwitchAdapter {
         root: ObservationRoot<'_>,
         request: &ObservationRequest,
     ) -> Result<ObservedTree, crate::AdapterError> {
-        let before = std::time::Instant::now();
+        let before = crate::wait::deadline::now();
         let remaining = request.deadline.remaining();
-        let after = std::time::Instant::now();
+        let after = crate::wait::deadline::now();
         let mut walks = self.walks.lock().unwrap();
         walks.push(Walk {
             expires_no_earlier_than: before + remaining,
@@ -246,7 +245,7 @@ impl SystemOps for SwitchAdapter {
         if lease.deadline().remaining() <= self.needs {
             return Err(lease.deadline().timeout_error());
         }
-        std::thread::sleep(self.takes);
+        crate::wait::deadline::sleep(self.takes);
         self.switched.store(true, Ordering::SeqCst);
         Ok(())
     }
@@ -306,6 +305,7 @@ fn a_held_lease_is_reused_instead_of_acquired_again() {
 
 #[test]
 fn time_spent_switching_is_given_back_to_the_observation() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let adapter = switch(0, 300);
     let window = renderer_window();
     let request = snapshot_request(crate::Deadline::after(60_000).unwrap());

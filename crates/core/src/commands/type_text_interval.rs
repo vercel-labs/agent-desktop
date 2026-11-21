@@ -118,17 +118,17 @@ impl Clock {
     /// out in. The first keystroke goes at once.
     fn wait(&mut self) -> Instant {
         let Some(due) = self.due else {
-            return Instant::now();
+            return crate::wait::deadline::now();
         };
-        if let Some(wait) = due.checked_duration_since(Instant::now()) {
-            std::thread::sleep(wait);
+        if let Some(wait) = due.checked_duration_since(crate::wait::deadline::now()) {
+            crate::wait::deadline::sleep(wait);
         }
         due
     }
 
     /// Schedules the next keystroke once the one sent in `slot` has landed.
     fn delivered(&mut self, slot: Instant) {
-        self.due = Some(next_due(slot, Instant::now(), self.interval));
+        self.due = Some(next_due(slot, crate::wait::deadline::now(), self.interval));
     }
 }
 

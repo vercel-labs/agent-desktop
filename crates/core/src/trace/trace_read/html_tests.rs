@@ -1,4 +1,4 @@
-use super::escape_for_json_island;
+use super::{escape_for_json_island, max_embed_screenshot_bytes, with_test_embed_budget};
 use crate::refs::refs_test_support::HomeGuard;
 use crate::session::{SessionTraceMode, StartSessionOptions, start_session};
 use crate::trace::trace_read::{ExportOptions, export_html};
@@ -214,12 +214,27 @@ fn oversized_json_guard_returns_invalid_args() {
 }
 
 #[test]
+fn embed_budget_defaults_to_100_mib() {
+    assert_eq!(max_embed_screenshot_bytes(), 100 * 1024 * 1024);
+    {
+        let _budget = with_test_embed_budget(800);
+        {
+            let _nested_budget = with_test_embed_budget(0);
+            assert_eq!(max_embed_screenshot_bytes(), 0);
+        }
+        assert_eq!(max_embed_screenshot_bytes(), 800);
+    }
+    assert_eq!(max_embed_screenshot_bytes(), 100 * 1024 * 1024);
+}
+
+#[test]
 fn embed_budget_skips_later_screenshots() {
     let (_home, _lock, session_id, trace_dir) = setup_trace_session();
+    let _budget = with_test_embed_budget(800);
     fs::create_dir_all(trace_dir.join("screens")).unwrap();
-    let big = vec![0u8; 60 * 1024 * 1024];
-    write_screenshot_fixture(&trace_dir.join("screens/a.png"), &big);
-    write_screenshot_fixture(&trace_dir.join("screens/b.png"), &big);
+    let screenshot = [0u8; 512];
+    write_screenshot_fixture(&trace_dir.join("screens/a.png"), &screenshot);
+    write_screenshot_fixture(&trace_dir.join("screens/b.png"), &screenshot);
     write_segment(
         &trace_dir,
         "100-1000.jsonl",

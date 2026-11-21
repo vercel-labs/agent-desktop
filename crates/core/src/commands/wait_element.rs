@@ -7,7 +7,6 @@ use crate::{
     refs::resolve_attempt_outcome::ResolveAttemptOutcome,
 };
 use serde_json::{Value, json};
-use std::time::Instant;
 
 pub(crate) struct ElementWaitInput {
     pub(crate) ref_id: String,
@@ -25,8 +24,7 @@ pub(crate) fn wait_for_element(
         predicate,
         timeout_ms,
     } = input;
-    let start = Instant::now();
-    let deadline = crate::Deadline::at(start, timeout_ms)?;
+    let deadline = crate::Deadline::after(timeout_ms)?;
     let entry = load_ref_entry(&ref_id, context)?;
 
     let mut last_observed = json!(null);
@@ -62,7 +60,7 @@ pub(crate) fn wait_for_element(
                             expected_bounds_hash = Some(observed);
                         }
                         if wait_predicate::satisfied(&predicate, &last_observed) {
-                            let elapsed = start.elapsed().as_millis();
+                            let elapsed = deadline.elapsed().as_millis();
                             return Ok(json!({
                                 "found": true,
                                 "ref": ref_id,
@@ -95,7 +93,7 @@ pub(crate) fn wait_for_element(
         if remaining.is_zero() {
             return wait_timeout::element(ref_id, predicate, timeout_ms, last_observed);
         }
-        std::thread::sleep(remaining.min(POLL_INTERVAL));
+        crate::wait::deadline::sleep(remaining.min(POLL_INTERVAL));
     }
 }
 

@@ -95,6 +95,7 @@ fn execute(adapter: &Adapter, action: Action) -> Result<ActionResult, AdapterErr
 
 #[test]
 fn adapter_success_cannot_override_contradictory_fresh_state() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     for (action, before, after) in [
         (
             Action::TypeText("new".into()),

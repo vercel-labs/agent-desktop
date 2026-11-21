@@ -3,6 +3,7 @@ use super::*;
 #[test]
 fn save_new_snapshot_prunes_old_snapshots_without_removing_latest() {
     let _guard = HomeGuard::new();
+    let _no_fsync = crate::storage::private_file::without_fsync_for_test();
     let store = RefStore::new().unwrap();
     let first_id = store.save_new_snapshot(&map_with("First")).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(5));
@@ -71,6 +72,7 @@ fn duplicate_snapshot_id_across_sessions_remains_isolated() {
 #[test]
 fn snapshot_pruning_preserves_trace_segments_and_refmaps() {
     let _guard = HomeGuard::new();
+    let _no_fsync = crate::storage::private_file::without_fsync_for_test();
     let store = RefStore::for_session(Some("trace-retention")).unwrap();
     let trace_dir = store.trace_dir();
     crate::trace::ensure_trace_dir(&trace_dir).unwrap();
@@ -99,6 +101,7 @@ fn snapshot_pruning_preserves_trace_segments_and_refmaps() {
 #[test]
 fn eviction_sweeps_orphans_left_in_snapshots_this_process_never_touched() {
     let _guard = HomeGuard::new();
+    let _no_fsync = crate::storage::private_file::without_fsync_for_test();
     let store = RefStore::new().unwrap();
 
     let survivor = store.save_new_snapshot(&map_with("Survivor")).unwrap();
@@ -131,6 +134,7 @@ fn eviction_sweeps_orphans_left_in_snapshots_this_process_never_touched() {
 #[test]
 fn eviction_drops_to_the_low_water_mark_rather_than_the_cap() {
     let _guard = HomeGuard::new();
+    let _no_fsync = crate::storage::private_file::without_fsync_for_test();
     let store = RefStore::new().unwrap();
 
     for i in 0..=MAX_SAVED_SNAPSHOTS {

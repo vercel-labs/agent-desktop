@@ -46,12 +46,15 @@ impl ActionOps for SlowFirstKeystroke {
         _lease: &crate::InteractionLease,
     ) -> Result<ActionResult, AdapterError> {
         if self.landed.lock().unwrap().is_empty() {
-            std::thread::sleep(Duration::from_millis(600));
+            crate::wait::deadline::sleep(Duration::from_millis(600));
         }
         if let crate::Action::TypeText(text) = request.action {
             self.typed.lock().unwrap().push_str(&text);
         }
-        self.landed.lock().unwrap().push(Instant::now());
+        self.landed
+            .lock()
+            .unwrap()
+            .push(crate::wait::deadline::now());
         Ok(ActionResult::delivered_unverified("type_text"))
     }
 }
@@ -66,6 +69,7 @@ impl SystemOps for SlowFirstKeystroke {
 /// to catch up half an interval apart.
 #[test]
 fn a_slow_first_keystroke_does_not_rush_the_rest() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let _guard = HomeGuard::new();
     let snapshot_id =
         crate::commands::helpers::test_support::save_one_ref_snapshot("textfield", "SetValue");

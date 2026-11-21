@@ -31,6 +31,6 @@ impl WaitScheduler {
             self.wakeup = None;
             return;
         }
-        std::thread::sleep(poll.remaining());
+        crate::wait::deadline::sleep(poll.remaining());
     }
 }

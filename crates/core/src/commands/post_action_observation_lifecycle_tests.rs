@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn unresponsive_original_process_does_not_prove_selector_absence() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let mut adapter = windowless_adapter();
     adapter.process_state = ProcessState::Unresponsive;
     for gone in [false, true] {
@@ -284,6 +285,7 @@ fn absent_window_reconciliation_preserves_original_process_exit_and_crash() {
 
 #[test]
 fn incomplete_zero_match_reads_never_prove_presence_or_absence() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let _home = crate::refs::refs_test_support::HomeGuard::new();
     let mut adapter = ProbeAdapter {
         windows: vec![window(1, "test-instance")],

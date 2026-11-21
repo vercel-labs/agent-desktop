@@ -99,6 +99,7 @@ fn reports_focused_window_after_os_confirms_focus() {
 
 #[test]
 fn errors_when_focus_does_not_settle_on_requested_window() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let target = window("w1", false);
     let adapter = FocusAdapter {
         windows: vec![target.clone()],
