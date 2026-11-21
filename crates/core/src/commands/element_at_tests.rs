@@ -1,5 +1,13 @@
-use super::{attach_completeness, candidates_at, pick};
-use crate::{AccessibilityNode, AdapterError, HitTestResult, NodePresentation, Point, Rect};
+use std::sync::Mutex;
+
+use super::{ElementAtArgs, attach_completeness, candidates_at, execute, pick};
+use crate::{
+    AccessibilityNode, AdapterError, Deadline, HitTestResult, NativeHandle, NodeIdentity,
+    NodePresentation, Point, ProcessId, Rect, RefEntry, WindowInfo,
+    adapter::{ActionOps, InputOps, ObservationOps, SystemOps, WindowFilter},
+    context::CommandContext,
+    locator::live_locator::{ObservationRequest, ObservationRoot, ObservedTree},
+};
 
 fn rect(x: f64, y: f64, width: f64, height: f64) -> Rect {
     Rect {
@@ -150,4 +158,134 @@ fn a_partial_snapshot_is_reported_like_snapshot_reports_it() {
     assert_eq!(response["complete"], false);
     assert_eq!(response["truncated"], true);
     assert_eq!(response["nodes_observed"], 17);
+}
+
+struct TokenlessHitTestAdapter {
+    tree: AccessibilityNode,
+    tested: Mutex<Vec<String>>,
+}
+
+impl ObservationOps for TokenlessHitTestAdapter {
+    fn list_windows(
+        &self,
+        _filter: &WindowFilter,
+        _deadline: Deadline,
+    ) -> Result<Vec<WindowInfo>, AdapterError> {
+        Ok(vec![WindowInfo {
+            id: "w-1".into(),
+            title: "Fixture".into(),
+            app: "Fixture".into(),
+            pid: ProcessId::new(1),
+            process_instance: Some("inst-1".into()),
+            bounds: Some(rect(0.0, 0.0, 800.0, 600.0)),
+            state: crate::WindowState::default(),
+        }])
+    }
+
+    fn observe_tree(
+        &self,
+        root: ObservationRoot<'_>,
+        _request: &ObservationRequest,
+    ) -> Result<ObservedTree, AdapterError> {
+        match root {
+            ObservationRoot::Element { .. } => crate::adapter::saved_ref_element_tree(root),
+            _ => crate::adapter::observed_tree(&root, self.tree.clone()),
+        }
+    }
+
+    fn resolve_locator_anchor(
+        &self,
+        entry: &RefEntry,
+        _deadline: Deadline,
+    ) -> Result<NativeHandle, AdapterError> {
+        let name = entry.identity.name.clone().unwrap_or_default();
+        Ok(NativeHandle::new(name))
+    }
+
+    fn hit_test(
+        &self,
+        handle: &NativeHandle,
+        _point: Point,
+        _deadline: Deadline,
+    ) -> Result<HitTestResult, AdapterError> {
+        let name = handle.downcast_ref::<String>().cloned().unwrap_or_default();
+        self.tested.lock().unwrap().push(name.clone());
+        if name == "Outer" {
+            Ok(HitTestResult::ReachesTarget)
+        } else {
+            Ok(HitTestResult::InterceptedBy {
+                role: Some("button".into()),
+                name: Some("Outer".into()),
+                bounds: None,
+            })
+        }
+    }
+}
+
+impl ActionOps for TokenlessHitTestAdapter {}
+impl InputOps for TokenlessHitTestAdapter {}
+impl SystemOps for TokenlessHitTestAdapter {}
+
+fn named_button(name: &str, bounds: Rect, children: Vec<AccessibilityNode>) -> AccessibilityNode {
+    AccessibilityNode {
+        ref_id: None,
+        role: "button".into(),
+        identity: NodeIdentity {
+            name: Some(name.into()),
+            ..Default::default()
+        },
+        presentation: NodePresentation {
+            bounds: Some(bounds),
+            ..Default::default()
+        },
+        children_count: None,
+        subtree_truncated: false,
+        children,
+    }
+}
+
+#[test]
+fn tokenless_adapter_without_resolve_element_strict_still_hit_tests_candidates() {
+    let tree = AccessibilityNode {
+        ref_id: None,
+        role: "window".into(),
+        identity: NodeIdentity {
+            name: Some("Fixture".into()),
+            ..Default::default()
+        },
+        presentation: NodePresentation {
+            bounds: Some(rect(0.0, 0.0, 800.0, 600.0)),
+            ..Default::default()
+        },
+        children_count: None,
+        subtree_truncated: false,
+        children: vec![named_button(
+            "Outer",
+            rect(100.0, 100.0, 200.0, 120.0),
+            vec![named_button(
+                "Inner",
+                rect(120.0, 120.0, 80.0, 40.0),
+                vec![],
+            )],
+        )],
+    };
+    let adapter = TokenlessHitTestAdapter {
+        tree,
+        tested: Mutex::new(Vec::new()),
+    };
+    let response = execute(
+        ElementAtArgs {
+            app: Some("Fixture".into()),
+            window_id: None,
+            point: Point { x: 130.0, y: 130.0 },
+            max_depth: 50,
+            timeout_ms: Some(5_000),
+        },
+        &adapter,
+        &CommandContext::default(),
+    )
+    .expect("element-at succeeds on tokenless adapter");
+    assert_eq!(response["match"]["name"], "Outer");
+    assert_eq!(response["hit"], "reaches_target");
+    assert_eq!(*adapter.tested.lock().unwrap(), vec!["Inner", "Outer"]);
 }

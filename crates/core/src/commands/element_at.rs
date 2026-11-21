@@ -60,7 +60,7 @@ pub fn execute(
         let entry = result.refmap.get(&local_ref).ok_or_else(|| {
             AdapterError::new(crate::ErrorCode::StaleRef, "Ref is not in the snapshot")
         })?;
-        let handle = adapter.resolve_element_strict(entry, deadline)?;
+        let handle = crate::refs::resolve_saved_ref::land_saved_ref(adapter, entry, deadline)?;
         adapter.hit_test(&handle, args.point.clone(), deadline)
     });
     Ok(response(&result, &args.point, &candidates, chosen))
