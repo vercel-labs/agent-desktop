@@ -28,10 +28,7 @@ mod imp {
         ActionStep, AdapterError, Deadline, ErrorCode, InteractionPolicy, SELECT_LABEL,
         SELECT_SUGGESTION, UIAElement, VERIFY_TIMEOUT,
     };
-    use crate::actions::chain::{
-        ChainRung, DeliveryOutcome, after_delivery, build_step, execute_chain, foreground_denied,
-        legacy_select, poll_until,
-    };
+    use crate::actions::chain::{after_delivery, legacy_select, offered, poll_until, rung};
     use crate::actions::click::SELECT_ITEM_LABEL;
     use crate::actions::disclosure::{EXPAND_LABEL, ExpandKind};
     use crate::actions::mutation::{classify_success, classify_write};
@@ -41,6 +38,7 @@ mod imp {
     };
     use crate::tree::properties::property_ids::TreeProperty;
     use crate::tree::properties::read_one;
+    use agent_desktop_core::DeliveryOutcome;
     use agent_desktop_core::DeliverySemantics;
     use uiautomation::patterns::{UIExpandCollapsePattern, UISelectionItemPattern};
 
@@ -53,14 +51,17 @@ mod imp {
         deadline.ensure_remaining()?;
         if let Some(combo) = native_combo(element) {
             let outcome = select_native_combo(combo, value, deadline)?;
-            return Ok(vec![build_step(COMBO_SELECT_LABEL, outcome)]);
+            return Ok(vec![outcome.step(COMBO_SELECT_LABEL)]);
         }
         if selection_item_available(element) && name_matches(element, value) {
             return select_item(element, policy, deadline);
         }
         let collapsed = is_collapsed_container(element);
         if collapsed && !policy.is_headed() {
-            return Err(foreground_denied(&[EXPAND_LABEL], policy));
+            return Err(agent_desktop_core::mechanisms_denied(
+                &[EXPAND_LABEL],
+                policy,
+            ));
         }
         if collapsed {
             expand_container(element)?;
@@ -108,24 +109,19 @@ mod imp {
         };
         let mut legacy = || observe(legacy_select(item)?);
         let mut pattern = || observe(pattern_select(item)?);
-        execute_chain(
+        agent_desktop_core::execute_chain(
+            &mut offered([
+                rung(SELECT_ITEM_LABEL, true, false, &mut legacy),
+                rung(
+                    SELECT_LABEL,
+                    selection_item_available(item),
+                    true,
+                    &mut pattern,
+                ),
+            ]),
+            policy,
             deadline,
             SELECT_SUGGESTION,
-            policy,
-            &mut [
-                ChainRung {
-                    label: SELECT_ITEM_LABEL,
-                    available: true,
-                    requires_headed: false,
-                    run: &mut legacy,
-                },
-                ChainRung {
-                    label: SELECT_LABEL,
-                    available: selection_item_available(item),
-                    requires_headed: true,
-                    run: &mut pattern,
-                },
-            ],
         )
     }
 

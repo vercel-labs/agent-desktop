@@ -19,7 +19,7 @@ The process running and the app showing a window are separate facts:
 { "app": "TextEdit", "pid": 611, "window": { "id": "w-110407", "title": "Open", "visible": true } }
 ```
 
-- `window` is present when the app already has one, and omitted when it has none. Its absence is not a failure. `launch` still returns `ok: true`.
+- `window` is present when the app has exactly one window it can name. It is omitted when the app has none or when it has several and none is focused. `window.bounds` is omitted while the window server has not set them yet; it is never `0x0`. The absence of `window` is not a failure. `launch` still returns `ok: true`; run `list-windows --app` for every window.
 - A document-based app may open its first window only when brought forward. Use `--activate`: it asks the app to present a window and waits for it up to `--timeout` (default 30000). This brings the app forward, so it needs `--headed`; headless, `--activate` returns `POLICY_DENIED` and nothing is launched. Or trigger the window yourself and use `wait --event window-opened`.
 - A process that exits before it shows a window returns `APP_UNRESPONSIVE`.
 - Windowless and menu-bar-only apps report no `window`. Use `list-apps` and read `presentation`.

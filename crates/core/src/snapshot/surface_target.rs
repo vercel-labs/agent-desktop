@@ -300,6 +300,7 @@ pub(crate) fn resolve_ref_owner(
 
 pub(crate) fn application_from_ref(entry: &crate::RefEntry) -> Result<crate::AppInfo, AppError> {
     Ok(crate::AppInfo {
+        aliases: Vec::new(),
         name: entry.source.source_app.clone().ok_or_else(|| {
             AdapterError::stale_ref_because("root ref has no application identity")
         })?,

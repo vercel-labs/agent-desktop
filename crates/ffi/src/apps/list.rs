@@ -5,6 +5,23 @@ use crate::ffi_try::{trap_panic, trap_panic_void};
 use crate::types::{AdAppInfo, AdAppList};
 use std::ptr;
 
+/// The apps of a complete inventory. The list has no field for a skipped
+/// record, so an inventory that skipped one is refused instead of returned as
+/// the whole list.
+fn complete_apps(
+    inventory: agent_desktop_core::AppInventory,
+) -> Result<Vec<agent_desktop_core::AppInfo>, agent_desktop_core::AdapterError> {
+    match inventory.skipped.first() {
+        Some(skipped) => {
+            let subject = skipped
+                .get("pid")
+                .map_or_else(|| "unknown".to_owned(), ToString::to_string);
+            Err(inventory.incomplete_error(&subject))
+        }
+        None => Ok(inventory.apps),
+    }
+}
+
 /// # Safety
 /// `adapter` must be a valid pointer from `ad_adapter_create`.
 /// `out` must be a valid writable `*mut *mut AdAppList`.
@@ -21,7 +38,11 @@ pub unsafe extern "C" fn ad_list_apps(
         crate::pointer_guard::guard_non_null!(adapter, c"adapter is null");
         let adapter = crate::adapter::acquire_adapter!(adapter);
         let deadline = crate::operation::operation_deadline!();
-        match adapter.inner.list_apps(deadline) {
+        match adapter
+            .inner
+            .query_app_inventory(agent_desktop_core::AppInventoryQuery::All, deadline)
+            .and_then(complete_apps)
+        {
             Ok(apps) => {
                 if let Err(error) = crate::resource::validate_list_len(apps.len(), "App list") {
                     set_last_error(&error);
@@ -87,3 +108,7 @@ pub unsafe extern "C" fn ad_app_list_free(list: *mut AdAppList) {
         }
     })
 }
+
+#[cfg(test)]
+#[path = "list_tests.rs"]
+mod tests;

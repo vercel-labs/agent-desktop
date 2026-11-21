@@ -24,6 +24,34 @@ pub(crate) fn list_apps_inventory_until(
     Ok(agent_desktop_core::AppInventory { apps, skipped })
 }
 
+/// The applications `query` admits. A name listing combines the workspace
+/// records it admits with the exact scoped lookup, which also finds
+/// processes the workspace does not list.
+pub(crate) fn query_until(
+    query: agent_desktop_core::AppInventoryQuery<'_>,
+    deadline: Deadline,
+) -> Result<agent_desktop_core::AppInventory, AdapterError> {
+    use agent_desktop_core::AppInventoryQuery;
+    let name = match query {
+        AppInventoryQuery::All => return list_apps_inventory_until(deadline),
+        AppInventoryQuery::Exact { name, bundle_id } => {
+            return Ok(agent_desktop_core::AppInventory {
+                apps: list_apps_scoped_until(name, bundle_id, deadline)?,
+                skipped: Vec::new(),
+            });
+        }
+        AppInventoryQuery::NameOrAlias(name) => name,
+    };
+    let mut inventory = list_apps_inventory_until(deadline)?;
+    inventory.apps = query.select(inventory.apps);
+    for app in list_apps_scoped_until(name, None, deadline)? {
+        if !inventory.apps.iter().any(|kept| kept.pid == app.pid) {
+            inventory.apps.push(app);
+        }
+    }
+    Ok(inventory)
+}
+
 pub(crate) fn list_apps_scoped_until(
     name: &str,
     bundle_id: Option<&str>,
@@ -54,6 +82,7 @@ fn capture_scoped_apps(
         Ok(Vec::new())
     };
     let apps = scoped_apps_from_sources(
+        agent_desktop_core::AppInventoryQuery::Exact { name, bundle_id },
         workspace_apps::list_apps_scoped_until(name, bundle_id, deadline),
         process,
     )?;
@@ -61,12 +90,16 @@ fn capture_scoped_apps(
     validate_app_instances(apps)
 }
 
+/// Merges the workspace and process sources, then applies the core
+/// precedence once over the merged set, so a process-only record competes
+/// with workspace records on the same terms.
 pub(in crate::system) fn scoped_apps_from_sources(
+    query: agent_desktop_core::AppInventoryQuery<'_>,
     workspace: Result<agent_desktop_core::AppInventory, AdapterError>,
     process: Result<Vec<AppInfo>, AdapterError>,
 ) -> Result<Vec<AppInfo>, AdapterError> {
     let workspace = workspace?;
-    let apps = complete_apps_from_sources(Ok(workspace.apps), process)?;
+    let apps = query.select(complete_apps_from_sources(Ok(workspace.apps), process)?);
     if apps.is_empty() {
         workspace_apps::require_complete(&workspace.skipped)?;
     }

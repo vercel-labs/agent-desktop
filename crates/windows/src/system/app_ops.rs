@@ -171,6 +171,7 @@ pub(crate) fn list_apps_live(deadline: Deadline) -> Result<Vec<AppInfo>, Adapter
             }
         }
         apps.push(AppInfo {
+            aliases: Vec::new(),
             name: row.name.clone(),
             pid,
             bundle_id: None,
@@ -182,21 +183,13 @@ pub(crate) fn list_apps_live(deadline: Deadline) -> Result<Vec<AppInfo>, Adapter
     Ok(apps)
 }
 
-/// The owner pid + token for a window, reusing the identity path.
+/// The application pid and token for a window, by the rule list-windows uses.
 fn process_token_of(
     handle: super::window::window_enum::WindowHandle,
 ) -> Option<(ProcessId, Option<String>)> {
-    #[cfg(target_os = "windows")]
-    {
-        let pid = super::window::window_identity::live_window_owner(handle)?;
-        let token = process_identity::token_for_pid(pid).ok().flatten();
-        Some((pid, token))
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = handle;
-        None
-    }
+    let pid = super::window::frame_identity::application_pid(handle)?;
+    let token = process_identity::token_for_pid(pid).ok().flatten();
+    Some((pid, token))
 }
 
 #[cfg(test)]

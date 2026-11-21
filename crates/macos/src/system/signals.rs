@@ -71,12 +71,6 @@ fn matching_apps(filter: &SignalFilter, deadline: Deadline) -> Result<Vec<AppInf
 
 #[cfg(target_os = "macos")]
 fn filter_apps(filter: &SignalFilter, all: Vec<AppInfo>) -> Vec<AppInfo> {
-    if let Some(name) = &filter.app {
-        return all
-            .into_iter()
-            .filter(|app| app.matches_identifier(name))
-            .collect();
-    }
     if let Some(process) = &filter.process {
         return all
             .into_iter()

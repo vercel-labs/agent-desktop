@@ -53,19 +53,19 @@ impl RuleAdapter {
 }
 
 impl ObservationOps for RuleAdapter {
-    fn list_apps_scoped(
+    fn query_app_inventory(
         &self,
-        _name: &str,
-        _bundle_id: Option<&str>,
+        query: crate::AppInventoryQuery<'_>,
         _deadline: Deadline,
-    ) -> Result<Vec<crate::AppInfo>, AdapterError> {
-        Ok(vec![crate::AppInfo {
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(vec![crate::AppInfo {
+            aliases: Vec::new(),
             name: "Fixture".into(),
             pid: crate::ProcessId::new(1),
             bundle_id: None,
             process_instance: Some("test-instance".into()),
             presentation: None,
-        }])
+        }]))
     }
 
     fn list_windows(

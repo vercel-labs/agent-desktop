@@ -26,12 +26,13 @@ mod imp {
         UIAElement, VERIFY_TIMEOUT,
     };
     use crate::actions::chain::{
-        ChainRung, DeliveryOutcome, INVOKE_LABEL, LEGACY_LABEL, after_delivery, execute_chain,
-        invoke_available, invoke_pattern_delivered, legacy_default_action,
-        legacy_default_action_available, legacy_select, poll_until,
+        INVOKE_LABEL, LEGACY_LABEL, after_delivery, invoke_available, invoke_pattern_delivered,
+        legacy_default_action, legacy_default_action_available, legacy_select, offered, poll_until,
+        rung,
     };
     use crate::tree::properties::property_ids::TreeProperty;
     use crate::tree::properties::read_one;
+    use agent_desktop_core::DeliveryOutcome;
     use uiautomation::types::ControlType;
 
     pub(crate) fn click_steps(
@@ -62,30 +63,20 @@ mod imp {
                 false,
             ))
         };
-        execute_chain(
+        agent_desktop_core::execute_chain(
+            &mut offered([
+                rung(SELECT_ITEM_LABEL, item, false, &mut select),
+                rung(
+                    LEGACY_LABEL,
+                    !item && legacy_default_action_available(element),
+                    false,
+                    &mut press,
+                ),
+                rung(INVOKE_LABEL, invoke_available(element), true, &mut invoke),
+            ]),
+            policy,
             deadline,
             CLICK_SUGGESTION,
-            policy,
-            &mut [
-                ChainRung {
-                    label: SELECT_ITEM_LABEL,
-                    available: item,
-                    requires_headed: false,
-                    run: &mut select,
-                },
-                ChainRung {
-                    label: LEGACY_LABEL,
-                    available: !item && legacy_default_action_available(element),
-                    requires_headed: false,
-                    run: &mut press,
-                },
-                ChainRung {
-                    label: INVOKE_LABEL,
-                    available: invoke_available(element),
-                    requires_headed: true,
-                    run: &mut invoke,
-                },
-            ],
         )
     }
 

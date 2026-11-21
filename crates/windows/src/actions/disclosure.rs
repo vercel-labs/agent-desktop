@@ -63,12 +63,13 @@ mod imp {
         ExpandKind, InteractionPolicy, UIAElement, VERIFY_TIMEOUT,
     };
     use crate::actions::chain::{
-        ALREADY_LABEL, ChainRung, DeliveryOutcome, LEGACY_LABEL, after_delivery, build_step,
-        execute_chain, legacy_default_action, legacy_default_action_available, poll_until,
+        ALREADY_LABEL, LEGACY_LABEL, after_delivery, legacy_default_action,
+        legacy_default_action_available, offered, poll_until, rung,
     };
     use crate::actions::mutation::{classify_success, classify_write};
     use crate::tree::properties::property_ids::TreeProperty;
     use crate::tree::properties::read_one;
+    use agent_desktop_core::DeliveryOutcome;
     use uiautomation::patterns::UIExpandCollapsePattern;
     use uiautomation::types::ControlType;
 
@@ -83,10 +84,7 @@ mod imp {
             read_one(element, TreeProperty::ExpandCollapseAvailable).flag() == Some(true);
         let current = read_expand_state(element);
         if current.is_some_and(|state| state.is_target(want_expanded)) {
-            return Ok(vec![build_step(
-                ALREADY_LABEL,
-                DeliveryOutcome::SatisfiedNoDelivery,
-            )]);
+            return Ok(vec![DeliveryOutcome::Satisfied.step(ALREADY_LABEL)]);
         }
         let flips = current.is_some_and(|state| state.is_opposite(want_expanded))
             && read_one(element, TreeProperty::ControlType).number()
@@ -104,24 +102,19 @@ mod imp {
                 pattern_expand_collapse(element, want_expanded, label)
             })
         };
-        execute_chain(
+        agent_desktop_core::execute_chain(
+            &mut offered([
+                rung(LEGACY_LABEL, flips, false, &mut legacy),
+                rung(
+                    label,
+                    pattern_ok && current != Some(ExpandKind::LeafNode),
+                    true,
+                    &mut pattern,
+                ),
+            ]),
+            policy,
             deadline,
             DISCLOSURE_SUGGESTION,
-            policy,
-            &mut [
-                ChainRung {
-                    label: LEGACY_LABEL,
-                    available: flips,
-                    requires_headed: false,
-                    run: &mut legacy,
-                },
-                ChainRung {
-                    label,
-                    available: pattern_ok && current != Some(ExpandKind::LeafNode),
-                    requires_headed: true,
-                    run: &mut pattern,
-                },
-            ],
         )
     }
 

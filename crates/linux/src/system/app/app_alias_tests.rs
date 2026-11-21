@@ -9,7 +9,7 @@ fn file(id: &str, name: &str, exec: &str) -> (String, String) {
 }
 
 #[test]
-fn desktop_aliases_require_unique_verified_executable_identity() {
+fn every_shown_entry_whose_launcher_names_the_process_is_an_alias() {
     let actual = ExecutableIdentity::read(std::process::id()).expect("own identity");
     let command = actual
         .argv
@@ -37,8 +37,8 @@ fn desktop_aliases_require_unique_verified_executable_identity() {
     *invocation = std::path::Path::new(invocation).file_name().unwrap().into();
     assert_eq!(index.names_for(&path_launched), ["Owned App"]);
     let index = AliasIndex::build(&[entry, file("duplicate", "Another App", executable)], &[]);
-    assert!(index.names_for(&actual).is_empty());
-    assert!(index.ids_for(&actual).is_empty());
+    assert_eq!(index.names_for(&actual), ["Owned App", "Another App"]);
+    assert_eq!(index.ids_for(&actual), ["owned", "duplicate"]);
     let index = AliasIndex::build(&[file("wrong", "Wrong App", "/missing/elsewhere")], &[]);
     assert!(index.names_for(&actual).is_empty());
 }
@@ -75,7 +75,7 @@ fn a_sole_desktop_interpreter_never_aliases_another_script() {
 }
 
 #[test]
-fn a_desktop_name_shared_by_different_executables_has_no_alias() {
+fn a_desktop_name_another_executable_also_uses_stays_an_alias() {
     let actual = ExecutableIdentity::read(std::process::id()).unwrap();
     let command = actual
         .argv
@@ -101,7 +101,7 @@ fn a_desktop_name_shared_by_different_executables_has_no_alias() {
         ],
         &[],
     );
-    assert!(index.names_for(&actual).is_empty());
+    assert_eq!(index.names_for(&actual), ["Editor"]);
     assert_eq!(index.ids_for(&actual), ["one"]);
 }
 
@@ -142,4 +142,117 @@ fn an_in_place_desktop_edit_invalidates_the_previous_executable_alias() {
     assert_eq!(after.names_for(&replacement), ["After!"]);
     assert!(!Arc::ptr_eq(&before, &after));
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+fn running(argv: &[&str]) -> ExecutableIdentity {
+    ExecutableIdentity {
+        executable: std::fs::canonicalize("/bin/sleep").unwrap(),
+        argv: Some(argv.iter().map(std::ffi::OsString::from).collect()),
+    }
+}
+
+#[test]
+fn a_launcher_names_its_service_whatever_options_either_passes() {
+    let index = AliasIndex::build(
+        &[file(
+            "org.example.Files",
+            "Files",
+            "/bin/sleep --new-window %U",
+        )],
+        &[],
+    );
+
+    assert_eq!(
+        index.names_for(&running(&["sleep", "--gapplication-service"])),
+        ["Files"]
+    );
+    assert_eq!(
+        index.names_for(&running(&["/bin/sleep", "-n", "notes.txt"])),
+        ["Files"]
+    );
+}
+
+#[test]
+fn a_launcher_argument_must_lead_the_process_arguments() {
+    let index = AliasIndex::build(&[file("panel", "Wi-Fi", "/bin/sleep wifi")], &[]);
+
+    assert_eq!(
+        index.names_for(&running(&["sleep", "wifi", "--verbose"])),
+        ["Wi-Fi"]
+    );
+    assert!(
+        index
+            .names_for(&running(&["sleep", "--gapplication-service"]))
+            .is_empty()
+    );
+    assert!(
+        index
+            .names_for(&running(&["sleep", "bluetooth"]))
+            .is_empty()
+    );
+}
+
+#[test]
+fn only_entries_shown_in_this_desktop_name_a_process() {
+    let entry = |extra: &str| {
+        crate::system::launch::desktop_entry::parse(
+            "e",
+            &format!("[Desktop Entry]\nType=Application\nName=E\nExec=/bin/sleep\n{extra}\n"),
+        )
+        .unwrap()
+        .traits
+    };
+    let gnome = ["ubuntu", "GNOME"];
+
+    assert!(entry("").shown_in(&gnome));
+    assert!(!entry("NoDisplay=true").shown_in(&gnome));
+    assert!(!entry("Hidden=true").shown_in(&gnome));
+    assert!(entry("OnlyShowIn=GNOME;Unity;").shown_in(&gnome));
+    assert!(!entry("OnlyShowIn=KDE;").shown_in(&gnome));
+    assert!(!entry("NotShowIn=KDE;GNOME;").shown_in(&gnome));
+    assert!(entry("NotShowIn=KDE;").shown_in(&gnome));
+}
+
+#[test]
+fn an_option_that_carries_a_payload_is_compared_like_an_argument() {
+    let index = AliasIndex::build(&[file("idle", "IDLE", "/bin/sleep -midlelib")], &[]);
+
+    assert!(
+        index
+            .names_for(&running(&["sleep", "/opt/unrelated.py"]))
+            .is_empty()
+    );
+    assert_eq!(
+        index.names_for(&running(&["sleep", "-midlelib", "-n"])),
+        ["IDLE"]
+    );
+}
+
+#[test]
+fn an_interpreter_running_the_entry_script_is_named_by_it() {
+    let dir = std::env::temp_dir().join(crate::tree::live::live_launch::nonce("alias-script"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let script = dir.join("updater");
+    std::fs::write(&script, "#!/bin/sleep\n").unwrap();
+    let other = dir.join("other");
+    std::fs::write(&other, "#!/bin/sleep\n").unwrap();
+    let index = AliasIndex::build(&[file("updater", "Updater", script.to_str().unwrap())], &[]);
+
+    let named = index.names_for(&running(&[
+        "/bin/sleep",
+        script.to_str().unwrap(),
+        "--no-focus",
+    ]));
+    let unnamed = index.names_for(&running(&["/bin/sleep", other.to_str().unwrap()]));
+    let mut opened = running(&["gedit", script.to_str().unwrap()]);
+    opened.executable = std::fs::canonicalize("/bin/true").unwrap();
+    let opened_by_editor = index.names_for(&opened);
+    std::fs::write(&script, "#!/usr/bin/env sleep\n").unwrap();
+    let through_env = index.names_for(&running(&["/bin/sleep", script.to_str().unwrap()]));
+    std::fs::remove_dir_all(dir).unwrap();
+
+    assert_eq!(named, ["Updater"]);
+    assert!(unnamed.is_empty());
+    assert!(opened_by_editor.is_empty());
+    assert_eq!(through_env, ["Updater"]);
 }

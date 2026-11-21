@@ -1,7 +1,8 @@
-use super::{ChainRung, DeliveryOutcome, build_step, execute_chain, legacy_refusal_is_absent};
+use super::{legacy_refusal_is_absent, offered, rung};
 use crate::system::fixture::test_time::deadline;
 use agent_desktop_core::{
-    ActionStepOutcome, AdapterError, DeliverySemantics, ErrorCode, InteractionPolicy, StepMechanism,
+    ActionStepOutcome, AdapterError, DeliveryObservation, DeliveryOutcome, DeliverySemantics,
+    ErrorCode, InteractionPolicy, execute_chain,
 };
 use std::cell::Cell;
 
@@ -23,23 +24,13 @@ fn run_two(
         Ok(pattern.1)
     };
     execute_chain(
+        &mut offered([
+            rung(LEGACY, legacy.0, false, &mut legacy_run),
+            rung(PATTERN, pattern.0, true, &mut pattern_run),
+        ]),
+        policy,
         deadline(5_000),
         "retry",
-        policy,
-        &mut [
-            ChainRung {
-                label: LEGACY,
-                available: legacy.0,
-                requires_headed: false,
-                run: &mut legacy_run,
-            },
-            ChainRung {
-                label: PATTERN,
-                available: pattern.0,
-                requires_headed: true,
-                run: &mut pattern_run,
-            },
-        ],
     )
 }
 
@@ -48,8 +39,14 @@ fn headless_delivers_through_the_background_rung_and_never_runs_the_pattern() {
     let calls = Cell::new((0, 0));
     let steps = run_two(
         InteractionPolicy::headless(),
-        (true, DeliveryOutcome::DeliveredVerified),
-        (true, DeliveryOutcome::DeliveredVerified),
+        (
+            true,
+            DeliveryOutcome::Delivered(DeliveryObservation::Verified),
+        ),
+        (
+            true,
+            DeliveryOutcome::Delivered(DeliveryObservation::Verified),
+        ),
         &calls,
     )
     .expect("legacy delivers");
@@ -63,8 +60,14 @@ fn headless_with_only_a_foreground_rung_is_policy_denied_without_running_it() {
     let calls = Cell::new((0, 0));
     let error = run_two(
         InteractionPolicy::headless(),
-        (false, DeliveryOutcome::DeliveredVerified),
-        (true, DeliveryOutcome::DeliveredVerified),
+        (
+            false,
+            DeliveryOutcome::Delivered(DeliveryObservation::Verified),
+        ),
+        (
+            true,
+            DeliveryOutcome::Delivered(DeliveryObservation::Verified),
+        ),
         &calls,
     )
     .expect_err("only the pattern is offered");
@@ -82,7 +85,10 @@ fn headless_background_rung_that_does_not_deliver_ends_in_policy_denied() {
     let error = run_two(
         InteractionPolicy::headless(),
         (true, DeliveryOutcome::NotDelivered),
-        (true, DeliveryOutcome::DeliveredVerified),
+        (
+            true,
+            DeliveryOutcome::Delivered(DeliveryObservation::Verified),
+        ),
         &calls,
     )
     .expect_err("pattern withheld");
@@ -96,7 +102,10 @@ fn headed_falls_through_to_the_pattern_after_a_clean_miss() {
     let steps = run_two(
         InteractionPolicy::headed(),
         (true, DeliveryOutcome::NotDelivered),
-        (true, DeliveryOutcome::DeliveredUnverified),
+        (
+            true,
+            DeliveryOutcome::Delivered(DeliveryObservation::Unverified),
+        ),
         &calls,
     )
     .expect("pattern delivers");
@@ -107,12 +116,39 @@ fn headed_falls_through_to_the_pattern_after_a_clean_miss() {
 }
 
 #[test]
+fn headed_tries_the_pattern_after_a_legacy_write_that_had_no_effect() {
+    let calls = Cell::new((0, 0));
+    let steps = run_two(
+        InteractionPolicy::headed(),
+        (
+            true,
+            DeliveryOutcome::Delivered(DeliveryObservation::NoEffect),
+        ),
+        (
+            true,
+            DeliveryOutcome::Delivered(DeliveryObservation::Verified),
+        ),
+        &calls,
+    )
+    .expect("pattern delivers");
+    assert_eq!(calls.get(), (1, 1));
+    assert_eq!(steps[0].verified(), Some(false));
+    assert_eq!(steps[1].verified(), Some(true));
+}
+
+#[test]
 fn nothing_offered_exhausts_not_delivered_with_the_suggestion() {
     let calls = Cell::new((0, 0));
     let error = run_two(
         InteractionPolicy::headed(),
-        (false, DeliveryOutcome::DeliveredVerified),
-        (false, DeliveryOutcome::DeliveredVerified),
+        (
+            false,
+            DeliveryOutcome::Delivered(DeliveryObservation::Verified),
+        ),
+        (
+            false,
+            DeliveryOutcome::Delivered(DeliveryObservation::Verified),
+        ),
         &calls,
     )
     .expect_err("nothing offered");
@@ -120,58 +156,6 @@ fn nothing_offered_exhausts_not_delivered_with_the_suggestion() {
     assert_eq!(error.code, ErrorCode::ActionFailed);
     assert_eq!(error.disposition, DeliverySemantics::not_delivered());
     assert_eq!(error.suggestion.as_deref(), Some("retry"));
-}
-
-#[test]
-fn genuine_error_aborts_before_any_later_rung() {
-    let later = Cell::new(0u8);
-    let mut failing = || Err(AdapterError::new(ErrorCode::StaleRef, "gone"));
-    let mut second = || {
-        later.set(later.get() + 1);
-        Ok(DeliveryOutcome::DeliveredVerified)
-    };
-    let error = execute_chain(
-        deadline(5_000),
-        "retry",
-        InteractionPolicy::headed(),
-        &mut [
-            ChainRung {
-                label: LEGACY,
-                available: true,
-                requires_headed: false,
-                run: &mut failing,
-            },
-            ChainRung {
-                label: PATTERN,
-                available: true,
-                requires_headed: true,
-                run: &mut second,
-            },
-        ],
-    )
-    .expect_err("error aborts");
-    assert_eq!(error.code, ErrorCode::StaleRef);
-    assert_eq!(later.get(), 0);
-}
-
-#[test]
-fn build_step_records_delivery_and_verification_separately() {
-    let cases = [
-        (DeliveryOutcome::NotDelivered, false, None),
-        (DeliveryOutcome::SatisfiedNoDelivery, false, Some(true)),
-        (DeliveryOutcome::DeliveredUnverified, true, Some(false)),
-        (DeliveryOutcome::DeliveredVerified, true, Some(true)),
-        (DeliveryOutcome::from_observation(None), true, None),
-    ];
-    for (outcome, succeeded, verified) in cases {
-        let step = build_step(LEGACY, outcome);
-        assert_eq!(step.mechanism(), Some(StepMechanism::SemanticApi));
-        assert_eq!(
-            matches!(step.outcome, ActionStepOutcome::Succeeded),
-            succeeded
-        );
-        assert_eq!(step.verified(), verified);
-    }
 }
 
 #[test]

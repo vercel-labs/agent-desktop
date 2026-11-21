@@ -12,13 +12,14 @@ use agent_desktop_core::{
 #[cfg(target_os = "windows")]
 mod imp {
     use super::{Action, ActionRequest, ActionResult, AdapterError, Deadline};
-    use crate::actions::chain::{ChainRung, DeliveryOutcome, execute_chain};
+    use crate::actions::chain::{offered, rung};
     use crate::actions::mutation::{classify_mutation, classify_success};
     use crate::tree::automation::{automation_client, failure_of};
     use crate::tree::element::UIAElement;
     use crate::tree::properties::property_ids::TreeProperty;
     use crate::tree::properties::read_one;
     use crate::tree::walk::walker_source::same_element;
+    use agent_desktop_core::DeliveryOutcome;
 
     const SET_FOCUS_API: &str = "UIElement.SetFocus";
     const SET_FOCUS_OP: &str = "SetFocus";
@@ -36,16 +37,11 @@ mod imp {
                 delivered && focus_matches_target(element)?,
             ))
         };
-        let steps = execute_chain(
+        let steps = agent_desktop_core::execute_chain(
+            &mut offered([rung(SET_FOCUS_API, true, true, &mut set_focus)]),
+            request.policy,
             deadline,
             FOCUS_SUGGESTION,
-            request.policy,
-            &mut [ChainRung {
-                label: SET_FOCUS_API,
-                available: true,
-                requires_headed: true,
-                run: &mut set_focus,
-            }],
         )?;
         Ok(ActionResult::from_execution(&Action::SetFocus, steps))
     }

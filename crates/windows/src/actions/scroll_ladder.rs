@@ -9,8 +9,8 @@
 
 use agent_desktop_core::{AdapterError, Deadline, DeliverySemantics, Direction, ErrorCode, Rect};
 
-use crate::actions::chain::DeliveryOutcome;
 use crate::tree::element::UIAElement;
+use agent_desktop_core::DeliveryOutcome;
 
 pub(crate) const MAX_ANCESTOR_SCROLLS: usize = 10;
 pub(crate) const LADDER_SCROLL_LABEL: &str = "ScrollPattern";
@@ -147,9 +147,9 @@ pub(crate) fn ladder_judged_for(
             next_direction().map_err(|error| budget_disposition(scrolled, error))?
         else {
             return Ok(if attempt == 0 {
-                DeliveryOutcome::SatisfiedNoDelivery
+                DeliveryOutcome::Satisfied
             } else {
-                DeliveryOutcome::DeliveredVerified
+                DeliveryOutcome::Delivered(agent_desktop_core::DeliveryObservation::Verified)
             });
         };
         scroll_once(&direction).map_err(|error| budget_disposition(scrolled, error))?;

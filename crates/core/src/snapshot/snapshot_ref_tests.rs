@@ -1,11 +1,9 @@
 use super::*;
-use crate::AccessibilityNode;
-use crate::AdapterError;
 use crate::actions::action_request::ActionRequest;
 use crate::adapter::{ActionOps, InputOps, NativeHandle, ObservationOps, SystemOps};
 use crate::refs::ref_alloc::ref_entry_from_node;
 use crate::refs::refs_test_support::HomeGuard;
-use crate::{refs::RefMap, refs::refs_store::RefStore};
+use crate::{AccessibilityNode, AdapterError, refs::RefMap, refs::refs_store::RefStore};
 
 fn node(role: &str) -> AccessibilityNode {
     AccessibilityNode {
@@ -103,10 +101,7 @@ impl ObservationOps for StubAdapter {
         if let Some(error) = &self.subtree_error {
             return Err(error.clone());
         }
-        if matches!(
-            root,
-            crate::locator::live_locator::ObservationRoot::Element { .. }
-        ) {
+        if let crate::locator::live_locator::ObservationRoot::Element { .. } = root {
             return crate::adapter::observed_tree(&root, self.subtree.clone());
         }
         let mut drilled = self.subtree.clone();
@@ -116,14 +111,19 @@ impl ObservationOps for StubAdapter {
         crate::adapter::observed_tree(&root, window)
     }
 
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<crate::AppInfo>, AdapterError> {
-        Ok(vec![crate::AppInfo {
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(vec![crate::AppInfo {
+            aliases: Vec::new(),
             name: "TestApp".into(),
             pid: crate::ProcessId::new(42),
             bundle_id: None,
             process_instance: Some("test-instance".into()),
             presentation: Some(crate::AppPresentation::Background),
-        }])
+        }]))
     }
 
     fn list_windows(

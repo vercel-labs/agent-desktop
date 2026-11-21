@@ -15,10 +15,15 @@ pub(crate) struct AliasIndex {
 
 impl AliasIndex {
     pub(in crate::system) fn build(files: &[(String, String)], dirs: &[PathBuf]) -> Self {
+        let desktops = current_desktops();
+        let desktops: Vec<&str> = desktops
+            .split(':')
+            .filter(|name| !name.is_empty())
+            .collect();
         let entries = files
             .iter()
             .filter_map(|(id, text)| parse(id, text))
-            .filter(|entry| entry.traits.application && !entry.traits.hidden)
+            .filter(|entry| entry.traits.shown_in(&desktops))
             .map(|entry| {
                 let argv = entry
                     .exec
@@ -50,37 +55,28 @@ impl AliasIndex {
         Self { entries }
     }
 
-    /// Aliases require a single desktop entry whose resolved executable and
-    /// full argv match the verified process.
+    /// The `Name` of every shown entry that names the verified process. Two
+    /// applications may share a name; core reports that as ambiguous.
     pub(crate) fn names_for(&self, actual: &ExecutableIdentity) -> Vec<String> {
-        self.unique_entry(actual)
-            .filter(|entry| {
-                self.entries
-                    .iter()
-                    .filter(|other| other.name.eq_ignore_ascii_case(&entry.name))
-                    .count()
-                    == 1
-            })
-            .map(|entry| vec![entry.name.clone()])
-            .unwrap_or_default()
+        self.naming(actual)
+            .map(|entry| entry.name.clone())
+            .collect()
     }
 
+    /// The id of every shown entry that names the verified process.
     pub(crate) fn ids_for(&self, actual: &ExecutableIdentity) -> Vec<String> {
-        self.unique_entry(actual)
-            .map(|entry| vec![entry.id.clone()])
-            .unwrap_or_default()
+        self.naming(actual).map(|entry| entry.id.clone()).collect()
     }
 
-    fn unique_entry(&self, actual: &ExecutableIdentity) -> Option<&IndexedEntry> {
+    fn naming<'a>(
+        &'a self,
+        actual: &'a ExecutableIdentity,
+    ) -> impl Iterator<Item = &'a IndexedEntry> + 'a {
         let path = crate::system::launch::launch_search::Search::from_env().path_dirs;
-        let mut entries = self.entries.iter().filter(|entry| {
+        self.entries.iter().filter(move |entry| {
             ExecutableIdentity::requested(&entry.argv, &path)
-                .is_some_and(|wanted| wanted.matches(actual))
-        });
-        match (entries.next(), entries.next()) {
-            (Some(entry), None) => Some(entry),
-            _ => None,
-        }
+                .is_some_and(|wanted| wanted.names(actual))
+        })
     }
 
     /// The id of every entry whose `Name` equals `name`, ignoring case.
@@ -91,6 +87,12 @@ impl AliasIndex {
             .map(|entry| entry.id.clone())
             .collect()
     }
+}
+
+/// The desktops the user is in, which decide the entries `OnlyShowIn` and
+/// `NotShowIn` show; the cache rebuilds the index when they change.
+pub(crate) fn current_desktops() -> String {
+    std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default()
 }
 
 static CACHE: AliasCache = AliasCache::new();

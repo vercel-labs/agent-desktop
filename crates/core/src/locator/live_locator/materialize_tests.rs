@@ -249,6 +249,7 @@ fn a_process_owner_source_materializes_a_process_owned_ref() {
         panic!("fixture must use a window source");
     };
     *window = crate::WindowInfo::for_process(&crate::AppInfo {
+        aliases: Vec::new(),
         name: window.app.clone(),
         pid: window.pid,
         bundle_id: None,

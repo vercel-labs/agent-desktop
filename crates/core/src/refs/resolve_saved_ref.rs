@@ -265,6 +265,7 @@ fn observe_window(
 ) -> Result<ObservedTree, AdapterError> {
     let process_instance = window.process_instance.clone();
     let app = AppInfo {
+        aliases: Vec::new(),
         name: window.app.clone(),
         pid: window.pid,
         process_instance,

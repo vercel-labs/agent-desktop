@@ -25,13 +25,23 @@ pub struct AppInfo {
     pub process_instance: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub presentation: Option<AppPresentation>,
+    /// Other names the platform knows this process by, such as an executable
+    /// basename or a desktop entry name. Matching only; never serialized.
+    #[serde(skip)]
+    pub aliases: Vec<String>,
 }
 
 impl AppInfo {
     /// Whether `id` identifies this application, by exact case-insensitive
-    /// name or bundle identifier. The one predicate every launch-target
-    /// match uses, so a name match and a bundle match never drift apart.
+    /// name, bundle identifier or alias. The one predicate every application
+    /// match uses, so the name forms never drift apart between commands.
     pub fn matches_identifier(&self, id: &str) -> bool {
+        self.is_named(id) || self.aliases.iter().any(|alias| app_name_matches(alias, id))
+    }
+
+    /// Whether `id` is this application's own name or bundle identifier,
+    /// which outranks an alias another application also answers to.
+    pub fn is_named(&self, id: &str) -> bool {
         app_name_matches(&self.name, id)
             || self
                 .bundle_id
@@ -83,6 +93,7 @@ mod tests {
             bundle_id: bundle_id.map(str::to_owned),
             process_instance: None,
             presentation: None,
+            aliases: Vec::new(),
         }
     }
 

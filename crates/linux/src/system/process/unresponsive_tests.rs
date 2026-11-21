@@ -103,6 +103,7 @@ fn windows_are_returned_when_no_selected_app_is_stopped() {
 
 fn listed(pid: u32) -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: "chrome".to_owned(),
         pid: pid.into(),
         bundle_id: None,

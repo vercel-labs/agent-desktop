@@ -22,6 +22,7 @@ fn window(id: &str, app: &str, pid: u32, instance: &str) -> WindowInfo {
 
 fn app_info(name: &str, pid: u32, instance: &str) -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: name.to_string(),
         pid: ProcessId::from(pid),
         bundle_id: None,

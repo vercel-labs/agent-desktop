@@ -139,14 +139,18 @@ fn reject_if_already_running(
     adapter: &dyn PlatformAdapter,
     deadline: crate::Deadline,
 ) -> Result<(), AppError> {
-    let running = adapter.list_apps(deadline)?;
+    let running = adapter.query_app_inventory(crate::AppInventoryQuery::All, deadline)?;
     let stem = launch_path_stem(id);
     let pids: Vec<_> = running
+        .apps
         .iter()
         .filter(|app| app.presentation.is_some())
-        .filter(|app| app.matches_identifier(id) || stem.is_some_and(|s| app.matches_identifier(s)))
+        .filter(|app| app.is_named(id) || stem.is_some_and(|s| app.is_named(s)))
         .map(|app| app.pid)
         .collect();
+    if pids.is_empty() && !running.skipped.is_empty() {
+        return Err(running.incomplete_error(id).into());
+    }
     if pids.is_empty() {
         return Ok(());
     }

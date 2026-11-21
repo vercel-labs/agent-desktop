@@ -59,9 +59,15 @@ struct UnresponsiveProcessAdapter {
 }
 
 impl ObservationOps for UnresponsiveProcessAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        self.inventory_calls.fetch_add(1, Ordering::SeqCst);
-        Ok(vec![app("Original")])
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer({
+            self.inventory_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![app("Original")])
+        }?))
     }
 
     fn resolve_element_strict(
@@ -76,6 +82,7 @@ impl ObservationOps for UnresponsiveProcessAdapter {
 
 fn app(name: &str) -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: name.into(),
         pid: crate::ProcessId::new(1),
         bundle_id: None,
@@ -153,9 +160,15 @@ struct RecycledPidAdapter {
 }
 
 impl ObservationOps for RecycledPidAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        self.inventory_calls.fetch_add(1, Ordering::SeqCst);
-        Ok(vec![app("Replacement")])
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer({
+            self.inventory_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![app("Replacement")])
+        }?))
     }
 
     fn resolve_element_strict(

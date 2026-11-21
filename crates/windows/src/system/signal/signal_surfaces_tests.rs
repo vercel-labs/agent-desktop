@@ -35,6 +35,7 @@ fn app_for_pid(pid: u32, name: &str) -> AppInfo {
         .expect("a live process's token is readable")
         .expect("a live process has a readable generation token");
     AppInfo {
+        aliases: Vec::new(),
         name: name.to_string(),
         pid: process_id,
         bundle_id: None,

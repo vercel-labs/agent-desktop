@@ -15,7 +15,7 @@ use crate::system::menu::surface_scan::NestedScan;
 use crate::system::process::proc_stat;
 use crate::system::process::unresponsive::first_stopped;
 use crate::system::registry::listed_window::ListedWindow;
-use crate::system::registry::registry_app::RegistryApp;
+use crate::system::registry::registry_app::{RegistryApp, named_pids};
 use crate::system::registry::registry_frames::RootRead;
 use crate::system::registry::{Registry, read_registry_for};
 use agent_desktop_core::AppInfo;
@@ -67,10 +67,21 @@ fn scope_of(filter: &SignalFilter) -> Scope {
     }
 }
 
-pub(in crate::system) fn selector(filter: &SignalFilter) -> impl Fn(&RegistryApp) -> bool + '_ {
+/// The applications a filter selects: a pinned process by its pid, or the
+/// ones the app query names by the core rule over the whole registry read.
+pub(in crate::system) fn selector<'a>(
+    filter: &'a SignalFilter,
+    registry: &Registry,
+) -> impl Fn(&RegistryApp) -> bool + 'a {
+    let named = filter
+        .app
+        .as_deref()
+        .map(|query| named_pids(&registry.apps, query));
     move |app| match &filter.process {
         Some(process) => app.root.pid() == process.pid.get(),
-        None => filter.app.as_deref().is_none_or(|query| app.matches(query)),
+        None => named
+            .as_ref()
+            .is_none_or(|pids| pids.contains(&app.root.pid())),
     }
 }
 
@@ -136,7 +147,7 @@ fn capture(
     deadline.ensure_remaining()?;
     let scope = scope_of(filter);
     let registry = world.registry(filter.process.as_ref().map(|p| p.pid.get()), deadline)?;
-    let select = selector(filter);
+    let select = selector(filter, &registry);
     if scope == Scope::Scoped
         && let Some(error) = stopped_scoped_target(world, &registry, &select)
     {

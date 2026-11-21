@@ -29,8 +29,12 @@ impl ObservationOps for MenuAdapter {
         Ok(self.apps.first().cloned())
     }
 
-    fn list_apps(&self, _deadline: Deadline) -> Result<Vec<AppInfo>, crate::AdapterError> {
-        Ok(self.apps.clone())
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: Deadline,
+    ) -> Result<crate::AppInventory, crate::AdapterError> {
+        Ok(query.answer(self.apps.clone()))
     }
 
     fn list_windows(
@@ -82,6 +86,7 @@ impl SystemOps for MenuAdapter {
 
 fn app(pid: u32) -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: "MenuApp".into(),
         pid: crate::ProcessId::new(pid),
         bundle_id: Some("org.example.menu".into()),

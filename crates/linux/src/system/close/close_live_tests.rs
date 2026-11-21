@@ -278,6 +278,7 @@ fn close_live_the_private_sessions_own_processes_are_refused() {
     for pid in pids {
         let facts = process_facts::read(pid).unwrap();
         let app = AppInfo {
+            aliases: Vec::new(),
             name: "ordinary application".into(),
             pid: pid.into(),
             bundle_id: None,

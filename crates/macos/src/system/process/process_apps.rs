@@ -25,7 +25,13 @@ fn list_apps_with_filter(
     let mut apps = Vec::new();
     crate::system::process::process_arguments::visit_commands_until(deadline, |pid, command| {
         if let Some(app) = app_from_command(pid, command)?
-            && name.is_none_or(|name| agent_desktop_core::app_name_matches(&app.name, name))
+            && name.is_none_or(|name| {
+                agent_desktop_core::AppInventoryQuery::Exact {
+                    name,
+                    bundle_id: None,
+                }
+                .admits(&app)
+            })
         {
             apps.push(app);
         }
@@ -76,6 +82,7 @@ fn app_from_command(pid: i32, command: &[u8]) -> Result<Option<AppInfo>, Adapter
         return Ok(None);
     };
     Ok(Some(AppInfo {
+        aliases: Vec::new(),
         name,
         pid: crate::system::process::process_identity::from_pid_t(pid)?,
         bundle_id: None,

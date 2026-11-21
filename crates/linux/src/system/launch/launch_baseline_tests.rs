@@ -25,7 +25,7 @@ fn residents_require_the_same_canonical_executable_but_not_the_same_arguments() 
         name: "tool".to_owned(),
     };
     assert!(same_executable(Some(&requested), &owner));
-    assert!(!requested.matches(owner.executable.as_ref().unwrap()));
+    assert!(requested.is_running_as(owner.executable.as_ref().unwrap()));
     owner.executable.as_mut().unwrap().argv = None;
     assert!(same_executable(Some(&requested), &owner));
     owner.executable.as_mut().unwrap().executable = "/other/tool".into();
@@ -34,6 +34,21 @@ fn residents_require_the_same_canonical_executable_but_not_the_same_arguments() 
     owner.executable = None;
     assert!(!same_executable(Some(&requested), &owner));
     assert!(!same_executable(None, &owner));
+}
+
+#[test]
+fn a_launch_that_asks_for_a_mode_is_the_process_running_in_that_mode() {
+    use crate::system::process::executable_identity::ExecutableIdentity;
+    let identity = |argv: &[&str]| ExecutableIdentity {
+        executable: "/usr/bin/tool".into(),
+        argv: Some(argv.iter().map(|word| (*word).into()).collect()),
+    };
+    let gui = identity(&["tool", "--gui"]);
+
+    assert!(gui.is_running_as(&identity(&["tool", "--gui"])));
+    assert!(gui.is_running_as(&identity(&["tool", "--gui", "--daemon"])));
+    assert!(!gui.is_running_as(&identity(&["tool", "--cli"])));
+    assert!(!gui.is_running_as(&identity(&["tool"])));
 }
 
 #[test]

@@ -16,6 +16,7 @@ struct TwoInstancesAdapter {
 
 fn instance(pid: u32) -> crate::AppInfo {
     crate::AppInfo {
+        aliases: Vec::new(),
         name: "Electron".into(),
         pid: crate::ProcessId::new(pid),
         bundle_id: Some("com.github.Electron".into()),
@@ -40,8 +41,12 @@ fn window(pid: u32) -> crate::WindowInfo {
 }
 
 impl ObservationOps for TwoInstancesAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<crate::AppInfo>, AdapterError> {
-        Ok(vec![instance(41), instance(42)])
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(vec![instance(41), instance(42)]))
     }
 
     fn list_windows(

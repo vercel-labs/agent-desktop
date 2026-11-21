@@ -2,13 +2,15 @@ use super::{
     MAX_ANCESTOR_SCROLLS, apply_ladder_seam, centered_scroll_percent,
     direction_after_visibility_miss, direction_for_visibility, ladder_judged_for,
 };
-use crate::actions::chain::DeliveryOutcome;
 use crate::actions::scroll_into_view::{VisibilitySample, visibility_verified};
 use crate::system::fixture::test_time::deadline;
 use agent_desktop_core::{
-    AdapterError, Deadline, DeliveryDisposition, DeliverySemantics, Direction, ErrorCode, Rect,
+    AdapterError, Deadline, DeliveryDisposition, DeliveryObservation, DeliveryOutcome,
+    DeliverySemantics, Direction, ErrorCode, Rect,
 };
 use std::cell::Cell;
+
+const VERIFIED: DeliveryOutcome = DeliveryOutcome::Delivered(DeliveryObservation::Verified);
 
 fn rect(x: f64, y: f64, width: f64, height: f64) -> Rect {
     Rect {
@@ -63,7 +65,7 @@ fn visible_at_rung_zero_is_satisfied_no_delivery() {
         Ok(())
     };
     let outcome = ladder_judged_for(deadline(5_000), &mut next, &mut scroll).expect("visible");
-    assert_eq!(outcome, DeliveryOutcome::SatisfiedNoDelivery);
+    assert_eq!(outcome, DeliveryOutcome::Satisfied);
     assert_eq!(scrolls.get(), 0);
 }
 
@@ -82,7 +84,7 @@ fn visible_after_n_rungs_is_delivered_verified() {
         Ok(())
     };
     let outcome = ladder_judged_for(deadline(5_000), &mut next, &mut scroll).expect("ladder");
-    assert_eq!(outcome, DeliveryOutcome::DeliveredVerified);
+    assert_eq!(outcome, VERIFIED);
     assert_eq!(scrolls.get(), 3);
 }
 
@@ -148,7 +150,7 @@ fn delivered_verified_requires_intersection_signal() {
         Ok(())
     };
     let outcome = ladder_judged_for(deadline(5_000), &mut next, &mut scroll).expect("verified");
-    assert_eq!(outcome, DeliveryOutcome::DeliveredVerified);
+    assert_eq!(outcome, VERIFIED);
 }
 
 #[test]
@@ -278,9 +280,8 @@ fn seam_no_ancestor_keeps_unsupported_terminal() {
 #[test]
 fn seam_with_ancestor_ladders_instead_of_unsupported() {
     let fallback = crate::actions::scroll_into_view::unsupported_error();
-    let outcome =
-        apply_ladder_seam(fallback, Ok(Some(DeliveryOutcome::DeliveredVerified))).expect("ladder");
-    assert_eq!(outcome, DeliveryOutcome::DeliveredVerified);
+    let outcome = apply_ladder_seam(fallback, Ok(Some(VERIFIED))).expect("ladder");
+    assert_eq!(outcome, VERIFIED);
 }
 
 #[test]

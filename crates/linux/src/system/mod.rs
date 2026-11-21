@@ -28,6 +28,7 @@ pub(crate) use bus::{
 };
 pub(crate) use bus::{REGISTRY_ROOT_PATH, REGISTRY_SERVICE};
 
+#[cfg(test)]
 pub(crate) use app::app_ops::{inventory as app_inventory, scoped as apps_scoped};
 pub(crate) use display::{list_displays, list_wayland_displays};
 pub(crate) use menu::surfaces::list_surfaces;

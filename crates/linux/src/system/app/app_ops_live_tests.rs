@@ -67,16 +67,22 @@ sys.exit(1)
             orphan.pid,
             "attach only the independently ready fixture"
         );
+        let exact = |bundle_id| agent_desktop_core::AppInventoryQuery::Exact {
+            name: id,
+            bundle_id,
+        };
         let apps = adapter
-            .list_apps_scoped("", Some(id), lease.deadline())
-            .expect("select by bundle id");
+            .query_app_inventory(exact(Some(id)), lease.deadline())
+            .expect("select by bundle id")
+            .apps;
         assert_eq!(apps.len(), 1, "one app for {id}");
         let app = &apps[0];
         assert_eq!(app.pid, launched.pid);
         assert_eq!(app.bundle_id.as_deref(), Some(id));
         let by_name = adapter
-            .list_apps_scoped(id, None, lease.deadline())
-            .expect("same identifier as name");
+            .query_app_inventory(exact(None), lease.deadline())
+            .expect("same identifier as name")
+            .apps;
         assert_eq!(by_name.len(), 1);
         assert_eq!(by_name[0].pid, app.pid);
         assert_eq!(by_name[0].bundle_id, app.bundle_id);

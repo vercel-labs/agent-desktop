@@ -83,24 +83,12 @@ impl ObservationOps for MacOSAdapter {
         crate::system::app::app_inventory::list_windows_until(filter, deadline)
     }
 
-    fn list_apps(&self, deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        crate::system::app::app_inventory::list_apps_complete_until(deadline)
-    }
-
-    fn list_apps_inventory(
+    fn query_app_inventory(
         &self,
+        query: agent_desktop_core::AppInventoryQuery<'_>,
         deadline: Deadline,
     ) -> Result<agent_desktop_core::AppInventory, AdapterError> {
-        crate::system::app::app_inventory::list_apps_inventory_until(deadline)
-    }
-
-    fn list_apps_scoped(
-        &self,
-        name: &str,
-        bundle_id: Option<&str>,
-        deadline: Deadline,
-    ) -> Result<Vec<AppInfo>, AdapterError> {
-        crate::system::app::app_inventory::list_apps_scoped_until(name, bundle_id, deadline)
+        crate::system::app::app_inventory::query_until(query, deadline)
     }
 
     fn resolve_shell_surface(

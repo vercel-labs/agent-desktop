@@ -6,8 +6,8 @@
 
 use agent_desktop_core::{ActionStep, AdapterError, Deadline, Direction, ErrorCode, Rect};
 
-use crate::actions::chain::{DeliveryOutcome, build_step};
 use crate::tree::element::UIAElement;
+use agent_desktop_core::DeliveryOutcome;
 
 pub(crate) const SCROLL_LABEL: &str = "ScrollPattern.Scroll";
 
@@ -65,8 +65,8 @@ pub(crate) fn scroll_effect_verified(
 mod imp {
     use super::{
         ActionStep, AdapterError, Deadline, DeliveryOutcome, Direction, ErrorCode,
-        MAX_SCROLL_AMOUNT, SCROLL_LABEL, ScrollPlan, UIAElement, axis_name, build_step,
-        scroll_amounts, scroll_effect_verified,
+        MAX_SCROLL_AMOUNT, SCROLL_LABEL, ScrollPlan, UIAElement, axis_name, scroll_amounts,
+        scroll_effect_verified,
     };
     use crate::actions::mutation::{classify_success, classify_write};
     use crate::tree::properties::property_ids::TreeProperty;
@@ -163,10 +163,9 @@ mod imp {
             })?;
         }
         let verified = observe_effect();
-        Ok(vec![build_step(
-            SCROLL_LABEL,
-            DeliveryOutcome::from_delivery(true, verified),
-        )])
+        Ok(vec![
+            (DeliveryOutcome::from_delivery(true, verified)).step(SCROLL_LABEL),
+        ])
     }
 
     fn axis_is_scrollable(pattern: &UIScrollPattern, direction: &Direction) -> bool {

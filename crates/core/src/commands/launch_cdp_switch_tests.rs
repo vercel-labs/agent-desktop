@@ -103,6 +103,7 @@ fn cdp_launch_rejects_a_conflicting_remote_allow_origins_switch() {
 fn cdp_launch_rejects_an_already_running_instance_matched_by_bundle_id() {
     let adapter = CdpAdapter {
         running: vec![AppInfo {
+            aliases: Vec::new(),
             name: "Completely Different".into(),
             pid: ProcessId::new(9),
             bundle_id: Some("md.obsidian".into()),
@@ -142,6 +143,41 @@ fn cdp_launch_rejects_an_already_running_instance_matched_by_bundle_id() {
             .as_ref()
             .and_then(|details| details.get("pids")),
         Some(&serde_json::json!([9]))
+    );
+}
+
+#[test]
+fn cdp_launch_is_not_blocked_by_another_app_that_only_aliases_the_name() {
+    let adapter = CdpAdapter {
+        running: vec![AppInfo {
+            aliases: vec!["Editor".into()],
+            name: "Editor Beta".into(),
+            pid: ProcessId::new(9),
+            bundle_id: Some("org.example.editor-beta".into()),
+            process_instance: Some("9:1".into()),
+            presentation: Some(AppPresentation::Foreground),
+        }],
+        ..empty_cdp_adapter(false)
+    };
+    let options = LaunchOptions {
+        cdp_port: Some(0),
+        ..Default::default()
+    };
+
+    let _ = execute(
+        LaunchArgs {
+            app: "Editor".into(),
+            options,
+        },
+        &adapter,
+        crate::InteractionPolicy::headed(),
+    );
+
+    assert_eq!(
+        adapter
+            .launch_app_calls
+            .load(std::sync::atomic::Ordering::SeqCst),
+        1
     );
 }
 

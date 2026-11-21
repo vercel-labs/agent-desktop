@@ -4,6 +4,7 @@ use super::{missing_connection, one_entry_per_process, scoped_outcome};
 
 fn app() -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: "gnome-calculator".to_owned(),
         pid: 5.into(),
         bundle_id: None,
@@ -49,6 +50,7 @@ fn a_name_nothing_matches_is_the_ordinary_empty_answer() {
 
 fn entry(pid: u32, instance: &str, presentation: AppPresentation) -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         pid: pid.into(),
         process_instance: Some(instance.to_owned()),
         presentation: Some(presentation),

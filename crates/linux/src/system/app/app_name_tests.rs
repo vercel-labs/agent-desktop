@@ -34,20 +34,3 @@ fn an_executable_deleted_while_it_runs_keeps_its_name() {
     assert_eq!(app_name(&replaced), "gnome-calculator");
     assert_eq!(app_name(&facts("x", Some(" (deleted)"))), "x");
 }
-
-fn aliased(query: &str, process: &ProcessFacts, aliases: &[&str]) -> bool {
-    let aliases: Vec<String> = aliases.iter().map(|alias| (*alias).to_owned()).collect();
-    name_matches(query, &app_name(process), &aliases)
-}
-
-#[test]
-fn an_alias_matches_exactly_ignoring_case_and_never_renames_the_app() {
-    let files = facts("nautilus", Some("nautilus"));
-    assert!(aliased("Files", &files, &["Files"]));
-    assert!(aliased("files", &files, &["Files"]));
-    assert!(aliased("nautilus", &files, &["Files"]));
-    assert!(!aliased("Files", &files, &[]));
-    assert!(!aliased("File", &files, &["Files"]));
-    assert!(!aliased("Files Helper", &files, &["Files"]));
-    assert_eq!(app_name(&files), "nautilus");
-}

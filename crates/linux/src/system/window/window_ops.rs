@@ -10,7 +10,7 @@ use crate::system::process::unresponsive::{require_known_target, settle_scoped, 
 use crate::system::registry::app_outcome::AppOutcome;
 use crate::system::registry::app_query::AppQuery;
 use crate::system::registry::listed_window::ListedWindow;
-use crate::system::registry::registry_app::RegistryApp;
+use crate::system::registry::registry_app::{RegistryApp, named_pids};
 use crate::system::registry::registry_frames::RootRead;
 use crate::system::registry::{Registry, read_registry_for, read_registry_query};
 use crate::system::signal::signal_inventory::{Pass, read_selected, run_pass_with};
@@ -78,16 +78,25 @@ pub(crate) fn list_windows(
     let pending = x11::start(|| DisplayReader.read());
     let desktops = x11::start(desktops::read);
     let stack = x11::start(client_stack::read);
-    let select = |app: &RegistryApp| filter.app.as_deref().is_none_or(|query| app.matches(query));
+    let admits = |app: &RegistryApp| filter.app.as_deref().is_none_or(|query| app.matches(query));
     let registry = read_registry_query(
         bus,
         &AppQuery {
             pid: None,
-            select: &select,
+            select: &admits,
             enrich: true,
         },
         deadline,
     )?;
+    let named = filter
+        .app
+        .as_deref()
+        .map(|query| named_pids(&registry.apps, query));
+    let select = |app: &RegistryApp| {
+        named
+            .as_ref()
+            .is_none_or(|pids| pids.contains(&app.root.pid()))
+    };
     let stopped = match filter.app.as_deref() {
         Some(query) => {
             require_known_target(&registry, select, query, find_running)?;

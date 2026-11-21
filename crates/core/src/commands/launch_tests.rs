@@ -1,7 +1,7 @@
 use super::*;
 use crate::adapter::{ActionOps, InputOps, ObservationOps, SystemOps};
 use crate::system::launch_options::LaunchOptions;
-use crate::{AdapterError, AppInfo, InteractionLease, ProcessId, WindowInfo, WindowState};
+use crate::{AdapterError, InteractionLease, ProcessId, WindowInfo, WindowState};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 struct LaunchAdapter {
@@ -10,9 +10,15 @@ struct LaunchAdapter {
 }
 
 impl ObservationOps for LaunchAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        self.list_apps_calls.fetch_add(1, Ordering::SeqCst);
-        Ok(Vec::new())
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer({
+            self.list_apps_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(Vec::new())
+        }?))
     }
 }
 impl ActionOps for LaunchAdapter {}
@@ -152,4 +158,44 @@ fn headless_launch_with_activate_is_refused_before_anything_is_launched() {
     assert_eq!(error.code, ErrorCode::PolicyDenied);
     assert_eq!(error.details.unwrap()["effect"], "focus_steal");
     assert_eq!(adapter.lease_timeout_ms.load(Ordering::SeqCst), 0);
+}
+
+struct PartialInventoryAdapter;
+
+impl ObservationOps for PartialInventoryAdapter {
+    fn query_app_inventory(
+        &self,
+        _query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(crate::AppInventory {
+            apps: Vec::new(),
+            skipped: vec![serde_json::json!({ "pid": 11, "field": "application_name" })],
+        })
+    }
+}
+impl ActionOps for PartialInventoryAdapter {}
+impl InputOps for PartialInventoryAdapter {}
+impl SystemOps for PartialInventoryAdapter {}
+
+#[test]
+fn cdp_launch_refuses_when_a_skipped_record_may_be_the_running_app() {
+    let error = execute(
+        LaunchArgs {
+            app: "Fixture".into(),
+            options: LaunchOptions {
+                cdp_port: Some(0),
+                ..LaunchOptions::default()
+            },
+        },
+        &PartialInventoryAdapter,
+        crate::InteractionPolicy::headless(),
+    )
+    .unwrap_err();
+    let crate::AppError::Adapter(error) = error else {
+        panic!("an incomplete inventory is an adapter error");
+    };
+    assert_eq!(error.code, ErrorCode::AppUnresponsive);
+    assert_eq!(error.details.unwrap()["kind"], "app_inventory_incomplete");
+    assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());
 }

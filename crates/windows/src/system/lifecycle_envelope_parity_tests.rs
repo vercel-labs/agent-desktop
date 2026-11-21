@@ -50,6 +50,7 @@ fn class_b_windowless_close_escalation_is_action_failed_not_delivered() {
 fn windowless_close_live_error() -> AdapterError {
     let (_child, pid, token) = crate::system::lifecycle_test_support::spawn_windowless_child();
     let app = AppInfo {
+        aliases: Vec::new(),
         name: "cmd.exe".into(),
         pid,
         bundle_id: None,

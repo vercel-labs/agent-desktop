@@ -14,15 +14,16 @@ use crate::{
 
 /// Runs `rungs` in order and returns the steps it recorded.
 ///
-/// A rung whose effects `policy` does not permit is skipped and records no
+/// A rung whose effects `policy` does not permit is held back and records no
 /// step. A rung that sends nothing hands over to the next one. A rung that
 /// finds the element already in state, or that sends the action and sees its
 /// effect or cannot rule one out, ends the chain; only a settled read-back of
 /// no effect lets the next rung try, so no rung acts twice. An error stops
 /// the chain, and one raised after an earlier rung delivered keeps that
-/// delivery in its disposition. When every rung is skipped by the policy the
-/// refusal is returned; otherwise an exhausted chain is `ACTION_FAILED` with
-/// `suggestion` and the rungs it tried.
+/// delivery in its disposition. When nothing was delivered and a rung was
+/// held back, the chain is `POLICY_DENIED` naming the held-back mechanisms,
+/// so the caller learns that `--headed` would act; otherwise an exhausted
+/// chain is `ACTION_FAILED` with `suggestion` and the rungs it tried.
 pub fn execute_chain(
     rungs: &mut [ChainRung<'_>],
     policy: InteractionPolicy,
@@ -30,13 +31,13 @@ pub fn execute_chain(
     suggestion: &'static str,
 ) -> Result<Vec<ActionStep>, AdapterError> {
     let mut steps = Vec::new();
-    let mut refusal = None;
+    let mut withheld = Vec::new();
     for rung in rungs.iter_mut() {
         if let Err(expired) = deadline.ensure_remaining() {
             return Err(expired.with_disposition(settled_disposition(&steps)));
         }
-        if let Err(denied) = permitted(rung, policy) {
-            refusal.get_or_insert(denied);
+        if !permitted(rung, policy) {
+            withheld.push(rung.label);
             continue;
         }
         let outcome = match (rung.run)() {
@@ -57,16 +58,29 @@ pub fn execute_chain(
             DeliveryOutcome::Satisfied | DeliveryOutcome::Delivered(_) => return Ok(steps),
         }
     }
-    match refusal {
-        Some(refusal) if steps.is_empty() => Err(refusal),
-        _ => Err(exhausted(&steps, suggestion)),
+    if !withheld.is_empty() && !delivered(&steps) {
+        return Err(mechanisms_denied(&withheld, policy));
     }
+    Err(exhausted(&steps, suggestion))
 }
 
-fn permitted(rung: &ChainRung<'_>, policy: InteractionPolicy) -> Result<(), AdapterError> {
+fn permitted(rung: &ChainRung<'_>, policy: InteractionPolicy) -> bool {
     rung.effects
         .iter()
-        .try_for_each(|effect| policy.require(*effect, rung.label))
+        .all(|effect| policy.require(*effect, rung.label).is_ok())
+}
+
+/// The refusal for an action whose only mechanisms left, named by `labels`,
+/// take the foreground the interaction policy does not allow. Nothing was sent.
+pub fn mechanisms_denied(labels: &[&'static str], policy: InteractionPolicy) -> AdapterError {
+    AdapterError::policy_denied_for_policy(
+        format!(
+            "{} takes the foreground, which the interaction policy does not allow",
+            labels.join(" and ")
+        ),
+        policy,
+    )
+    .with_details(json!({ "foreground_effect": true, "mechanisms": labels }))
 }
 
 fn mechanism_of(effects: &[Effect]) -> StepMechanism {

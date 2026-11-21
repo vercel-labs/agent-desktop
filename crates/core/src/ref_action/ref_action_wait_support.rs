@@ -58,7 +58,9 @@ fn process_identity_matches(
     let Some(process) = entry.process.identity() else {
         return false;
     };
-    let Ok(apps) = adapter.list_apps(deadline) else {
+    let Ok(crate::AppInventory { apps, .. }) =
+        adapter.query_app_inventory(crate::AppInventoryQuery::All, deadline)
+    else {
         return false;
     };
     let mut same_pid = apps.iter().filter(|app| app.pid == process.pid);

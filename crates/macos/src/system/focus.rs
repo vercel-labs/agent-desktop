@@ -29,6 +29,7 @@ pub(crate) fn focused_app(
         ));
     }
     Ok(Some(agent_desktop_core::AppInfo {
+        aliases: Vec::new(),
         name: owner.name,
         pid: crate::system::process::process_identity::from_pid_t(owner.pid)?,
         bundle_id: owner.bundle_id,

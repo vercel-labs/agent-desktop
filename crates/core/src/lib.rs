@@ -28,7 +28,7 @@ pub use actions::action_result::ActionResult;
 pub use actions::action_step::ActionStep;
 pub use actions::action_step_outcome::ActionStepOutcome;
 pub use actions::chain_rung::ChainRung;
-pub use actions::delivery_chain::execute_chain;
+pub use actions::delivery_chain::{execute_chain, mechanisms_denied};
 pub use actions::delivery_observation::DeliveryObservation;
 pub use actions::delivery_outcome::DeliveryOutcome;
 pub use actions::delivery_semantics::DeliverySemantics;

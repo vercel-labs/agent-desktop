@@ -178,6 +178,7 @@ pub(crate) fn live_process_owner(
 ) -> Result<WindowInfo, AppError> {
     let stale = |reason| AppError::Adapter(AdapterError::stale_ref_because(reason));
     let expected = AppInfo {
+        aliases: Vec::new(),
         name: entry
             .source
             .source_app
@@ -254,12 +255,7 @@ fn exact_apps(
         deadline,
     )?;
     if !inventory.skipped.is_empty() {
-        return Err(AdapterError::app_unresponsive(name)
-            .with_details(
-                json!({ "kind": "app_inventory_incomplete", "skipped": inventory.skipped }),
-            )
-            .unsent()
-            .into());
+        return Err(inventory.incomplete_error(name).into());
     }
     Ok(inventory.apps)
 }

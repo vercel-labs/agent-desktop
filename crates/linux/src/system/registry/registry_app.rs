@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use crate::system::app::app_name::{aliases_of, app_name, name_matches};
+use crate::system::app::app_name::{aliases_of, app_name, desktop_id};
 use crate::system::process::process_facts::ProcessFacts;
 use crate::system::process::toolkit_id::ToolkitId;
 use crate::tree::AtspiElement;
@@ -50,10 +50,43 @@ impl RegistryApp {
         }
     }
 
-    /// Whether `query` names this application.
-    pub(crate) fn matches(&self, query: &str) -> bool {
-        name_matches(query, &self.name, &self.aliases)
+    /// The record core matches: the listed name, the desktop id when one
+    /// shown entry names the process, and the names and ids of every shown
+    /// entry that does. The accessibility root's `Name` is self-declared and
+    /// read only for selected applications, so it never selects one.
+    pub(crate) fn app_info(&self) -> agent_desktop_core::AppInfo {
+        agent_desktop_core::AppInfo {
+            name: self.name.clone(),
+            pid: self.root.pid().into(),
+            bundle_id: desktop_id(&self.facts),
+            process_instance: Some(self.facts.instance.clone()),
+            presentation: None,
+            aliases: self.aliases.clone(),
+        }
     }
+
+    /// Whether `query` admits this application by the core rule, before the
+    /// precedence between applications is applied.
+    pub(crate) fn matches(&self, query: &str) -> bool {
+        exact(query).admits(&self.app_info())
+    }
+}
+
+pub(crate) fn exact(query: &str) -> agent_desktop_core::AppInventoryQuery<'_> {
+    agent_desktop_core::AppInventoryQuery::Exact {
+        name: query,
+        bundle_id: None,
+    }
+}
+
+/// The pids `query` names among `apps`, after the core precedence between
+/// an application that carries the name and one that only aliases it.
+pub(crate) fn named_pids(apps: &[RegistryApp], query: &str) -> std::collections::HashSet<u32> {
+    exact(query)
+        .select(apps.iter().map(RegistryApp::app_info).collect())
+        .iter()
+        .map(|app| app.pid.get())
+        .collect()
 }
 
 pub(crate) fn skipped(bus: &str, pid: Option<u32>, reason: &str, confirmed_gone: bool) -> Value {

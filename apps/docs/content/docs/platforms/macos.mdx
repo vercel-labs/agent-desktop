@@ -67,7 +67,7 @@ Judge delivery by observation. AX return codes do not prove an effect: an app ca
 
 ## App naming
 
-`--app` takes the display name `list-apps` prints, such as `"System Settings"` or `"TextEdit"`. When no running app has that display name, it also matches a bundle ID or an executable name, such as `ControlCenter` for Control Center. `launch` also accepts a bundle ID such as `com.apple.TextEdit`. Window ids such as `w-4521` stay valid for the life of the window; find them with `list-windows`.
+`--app` takes the display name `list-apps` prints, such as `"System Settings"` or `"TextEdit"`, or a bundle ID such as `com.apple.TextEdit`; both rank equally. An executable name, such as `ControlCenter` for Control Center, counts only when no running app has it as its display name or bundle ID. When two running apps match equally, the command returns `AMBIGUOUS_TARGET`; target one by its bundle ID. `launch` accepts the same display name or bundle ID. Window ids such as `w-4521` stay valid for the life of the window; find them with `list-windows`.
 
 ## Surfaces
 

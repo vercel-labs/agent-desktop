@@ -6,6 +6,7 @@ use agent_desktop_core::{DeliveryDisposition, ProcessId};
 #[test]
 fn protected_process_is_refused_before_any_native_close() {
     let app = AppInfo {
+        aliases: Vec::new(),
         name: "explorer.exe".into(),
         pid: ProcessId::from(1u32),
         bundle_id: None,
@@ -22,6 +23,7 @@ fn protected_process_is_refused_before_any_native_close() {
 #[test]
 fn close_requires_a_creation_time_token() {
     let app = AppInfo {
+        aliases: Vec::new(),
         name: "notepad.exe".into(),
         pid: ProcessId::from(1u32),
         bundle_id: None,
@@ -46,6 +48,7 @@ fn app_for_pid(name: &str, pid: ProcessId) -> AppInfo {
         .expect("token read")
         .expect("live token");
     AppInfo {
+        aliases: Vec::new(),
         name: name.into(),
         pid,
         bundle_id: None,
@@ -172,6 +175,7 @@ fn race_windows_gone_because_process_died_is_benign_ok() {
 fn windowless_alive_graceful_is_action_failed_not_delivered_without_terminate() {
     let (_child, pid, token) = spawn_windowless_child();
     let app = AppInfo {
+        aliases: Vec::new(),
         name: "cmd.exe".into(),
         pid,
         bundle_id: None,
@@ -214,6 +218,7 @@ fn mismatched_creation_token_is_benign_ok_without_killing_live_pid() {
         .expect("token")
         .expect("live");
     let app = AppInfo {
+        aliases: Vec::new(),
         name: "fixture-host".into(),
         pid,
         bundle_id: None,
