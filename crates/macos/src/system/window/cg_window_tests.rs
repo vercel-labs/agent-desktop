@@ -373,3 +373,16 @@ fn persistent_capture_failure_is_not_window_churn() {
         "core_graphics_windows"
     );
 }
+
+#[test]
+fn a_raised_app_window_is_listed_only_while_on_screen() {
+    assert!(lists_window(0, true));
+    assert!(lists_window(0, false));
+    for raised in [3, 5, 8, 19] {
+        assert!(lists_window(raised, true), "{raised}");
+        assert!(!lists_window(raised, false), "{raised}");
+    }
+    for system in [-2147483624, -1, 20, 24, 25, 101, 2147483630] {
+        assert!(!lists_window(system, true), "{system}");
+    }
+}

@@ -1,7 +1,6 @@
-use super::{
-    CellEdit, CellTarget, Replacement, cell_target, left_open, nothing_typed, replacement,
-    write_through,
-};
+use super::{CellEdit, CellTarget, Replacement, cell_target, replacement, write_through};
+use crate::actions::cell_read_back::ReadBack;
+use crate::actions::cell_write_failure::{left_open, nothing_typed};
 use agent_desktop_core::{AdapterError, DeliveryOutcome, DeliverySemantics, ErrorCode};
 
 #[test]
@@ -65,6 +64,10 @@ fn unverified() -> DeliveryOutcome {
     DeliveryOutcome::from_delivery(true, false)
 }
 
+fn verified() -> DeliveryOutcome {
+    DeliveryOutcome::from_delivery(true, true)
+}
+
 /// A cell whose editor is open from the start, or opens on the press numbered
 /// `opens_on_press`, and that records every call made on it.
 struct ScriptedCell {
@@ -72,6 +75,7 @@ struct ScriptedCell {
     opens_on_press: usize,
     press: DeliveryOutcome,
     typed: Result<DeliveryOutcome, ErrorCode>,
+    read_back: ReadBack,
     keeps_focus: bool,
     presses: usize,
     calls: Vec<&'static str>,
@@ -83,6 +87,7 @@ fn scripted() -> ScriptedCell {
         opens_on_press: 1,
         press: unverified(),
         typed: Ok(unverified()),
+        read_back: ReadBack::Matches,
         keeps_focus: true,
         presses: 0,
         calls: Vec::new(),
@@ -124,6 +129,11 @@ impl CellEdit for ScriptedCell {
         self.calls.push("commit");
         Ok(())
     }
+
+    fn read_back(&mut self, _: &str) -> Result<ReadBack, AdapterError> {
+        self.calls.push("read_back");
+        Ok(self.read_back)
+    }
 }
 
 #[test]
@@ -133,8 +143,51 @@ fn an_open_editor_is_replaced_and_committed_without_a_press() {
         ..scripted()
     };
 
+    assert_eq!(write_through(&mut cell, "42").unwrap(), verified());
+    assert_eq!(
+        cell.calls,
+        ["editor", "replace", "holds_focus", "commit", "read_back"]
+    );
+}
+
+#[test]
+fn a_cell_that_stays_empty_after_the_commit_fails_as_delivered() {
+    let mut cell = ScriptedCell {
+        open: true,
+        read_back: ReadBack::Empty,
+        ..scripted()
+    };
+
+    let error = write_through(&mut cell, "42").unwrap_err();
+
+    assert_eq!(error.code, ErrorCode::ActionFailed);
+    assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
+    assert_eq!(
+        cell.calls,
+        ["editor", "replace", "holds_focus", "commit", "read_back"]
+    );
+}
+
+#[test]
+fn a_cell_that_shows_another_value_stays_unverified() {
+    let mut cell = ScriptedCell {
+        read_back: ReadBack::Differs,
+        ..scripted()
+    };
+
     assert_eq!(write_through(&mut cell, "42").unwrap(), unverified());
-    assert_eq!(cell.calls, ["editor", "replace", "holds_focus", "commit"]);
+    assert_eq!(cell.calls.last(), Some(&"read_back"));
+}
+
+#[test]
+fn an_unreadable_cell_stays_unverified_and_never_fails() {
+    let mut cell = ScriptedCell {
+        read_back: ReadBack::Unknown,
+        ..scripted()
+    };
+
+    assert_eq!(write_through(&mut cell, "42").unwrap(), unverified());
+    assert_eq!(cell.calls.last(), Some(&"read_back"));
 }
 
 #[test]
@@ -144,7 +197,7 @@ fn a_press_that_only_selects_the_cell_is_followed_by_one_more() {
         ..scripted()
     };
 
-    assert_eq!(write_through(&mut cell, "42").unwrap(), unverified());
+    assert_eq!(write_through(&mut cell, "42").unwrap(), verified());
     assert_eq!(
         cell.calls,
         [
@@ -155,7 +208,8 @@ fn a_press_that_only_selects_the_cell_is_followed_by_one_more() {
             "opened_editor",
             "replace",
             "holds_focus",
-            "commit"
+            "commit",
+            "read_back"
         ]
     );
 }

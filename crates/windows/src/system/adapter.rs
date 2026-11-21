@@ -10,6 +10,7 @@ use agent_desktop_core::{
 
 use crate::adapter::WindowsAdapter;
 use crate::system::close_outcome::CloseOutcome;
+use crate::system::escape_popup;
 
 #[cfg(target_os = "windows")]
 #[path = "tcp_listener.rs"]
@@ -145,10 +146,8 @@ impl SystemOps for WindowsAdapter {
         crate::system::shell::shell_surface_open::open_surface(surface, policy, lease.deadline())
     }
 
-    /// The focused window is the focused-only filter's first result, composed
-    /// from `list_windows` rather than a second native path (mirroring
-    /// `focused_window` in `crates/macos/src/system/adapter.rs`). Whatever HWND-shape a
-    /// host presents, it maps to the same identity `list_windows` reports.
+    /// The focused-only filter's first result over `list_windows`, as on macOS,
+    /// so any HWND shape maps to the identity `list_windows` reports.
     fn focused_window(&self, deadline: Deadline) -> Result<Option<WindowInfo>, AdapterError> {
         let filter = WindowFilter {
             focused_only: true,
@@ -270,9 +269,7 @@ impl SystemOps for WindowsAdapter {
         crate::system::capture::screenshot::capture_window(window, deadline)
     }
 
-    /// Verify-only composition over the keyboard primitive. Core's headed
-    /// path already activated; this never raises (A9-3: SendInput has no
-    /// per-pid targeting).
+    /// Key delivery, then `escape_popup` for a refused Escape (A9-3).
     fn press_key_for_app(
         &self,
         process: ProcessIdentity,
@@ -280,7 +277,17 @@ impl SystemOps for WindowsAdapter {
         policy: InteractionPolicy,
         lease: &InteractionLease,
     ) -> Result<ActionResult, AdapterError> {
-        crate::system::key_dispatch::press_for_app_impl(process, combo, policy, lease.deadline())
+        escape_popup::press_for_app(process, combo, policy, lease.deadline())
+    }
+
+    fn press_key_for_window(
+        &self,
+        window: &WindowInfo,
+        combo: &KeyCombo,
+        policy: InteractionPolicy,
+        lease: &InteractionLease,
+    ) -> Result<ActionResult, AdapterError> {
+        escape_popup::press_for_window(self, window, combo, policy, lease)
     }
 
     /// The core default blocks nothing; Windows ships its own dangerous-combo

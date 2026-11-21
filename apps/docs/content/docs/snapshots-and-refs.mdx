@@ -112,7 +112,7 @@ Every command accepts only this qualified form. A bare `@e6` fails with `INVALID
   "error": {
     "code": "INVALID_ARGS",
     "message": "Invalid ref_id '@e1': expected @<snapshot_id>:e<N>",
-    "suggestion": "Use the snapshot-qualified ref that snapshot prints, for example @s8f3k2p9:e1. A bare @eN ref is not accepted.",
+    "suggestion": "Use the snapshot-qualified ref that snapshot prints, for example @s8f3k2p9:e1. A bare @eN ref is not accepted. Pass ref_id as printed: it already holds the snapshot id. In zsh write \"@${SID}:e1\", because an unbraced @$SID:e1 reads :e as a modifier.",
     "disposition": { "delivery": "not_delivered", "retry": "safe" }
   }
 }

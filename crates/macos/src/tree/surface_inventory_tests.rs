@@ -84,3 +84,23 @@ fn only_a_control_with_few_children_is_read_for_an_anchored_surface() {
     assert!(!anchors_few_children(Some(ANCHOR_CHILD_LIMIT + 1)));
     assert!(!anchors_few_children(None));
 }
+
+#[test]
+fn a_failed_inventory_does_not_hide_the_surface_below_the_target() {
+    let failed = || Err(agent_desktop_core::AdapterError::timeout("inventory"));
+
+    let kept =
+        super::with_anchored(failed(), vec![surface("target/children/0", "popover")]).unwrap();
+    assert_eq!(kept.len(), 1);
+    assert!(super::with_anchored(failed(), Vec::new()).is_err());
+
+    let both = super::with_anchored(
+        Ok(vec![surface("menu", "menu")]),
+        vec![surface("target", "popover")],
+    )
+    .unwrap();
+    assert_eq!(
+        both.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+        ["menu", "target"]
+    );
+}

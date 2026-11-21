@@ -2,9 +2,6 @@ use super::{AXElement, properties::element::element_for_pid, surface_read};
 use agent_desktop_core::{AdapterError, Deadline, ErrorCode, SnapshotSurface};
 
 #[cfg(target_os = "macos")]
-const POPOVER_SEARCH_LIMIT: usize = 4_096;
-
-#[cfg(target_os = "macos")]
 pub(crate) fn focused_surface_for_pid(
     pid: i32,
     deadline: Deadline,
@@ -22,6 +19,19 @@ pub(crate) fn menu_element_for_pid(
         .ok_or_else(|| AdapterError::stale_ref_because("Menu application exited"))?;
     super::app_menu::observe(identity, deadline, || {
         super::app_menu::root_for_pid(pid, SnapshotSurface::Menu, deadline)
+    })
+}
+
+/// The menu or popover the application shows, read in one bounded pass.
+#[cfg(target_os = "macos")]
+pub(crate) fn transient_surface_for_pid(
+    pid: i32,
+    deadline: Deadline,
+) -> Result<Option<AXElement>, AdapterError> {
+    let identity = crate::system::process::process_identity::ProcessIdentity::capture(pid)?
+        .ok_or_else(|| AdapterError::stale_ref_because("Application exited"))?;
+    super::app_menu::observe(identity, deadline, || {
+        super::app_menu::open_transient_surface(pid, deadline)
     })
 }
 
@@ -60,38 +70,66 @@ pub(crate) fn surface_in_window(
     }
 }
 
-/// The first popover in `window`, nearest the window first. None only when
-/// every element was read: a search cut at `POPOVER_SEARCH_LIMIT` elements
-/// fails as not found and says it is incomplete.
+/// The first popover in `window`, nearest the window first, through the
+/// bounded search that finds an open menu. None only when the search opened
+/// every element: a search cut at its element limit, or one that left the
+/// items of a content container closed, fails as not found and says it is
+/// incomplete.
 #[cfg(target_os = "macos")]
 fn popover_in_window(
     window: &AXElement,
     deadline: Deadline,
 ) -> Result<Option<AXElement>, AdapterError> {
-    let mut level = vec![window.clone()];
-    let mut searched = 0;
-    while !level.is_empty() {
-        let mut below = Vec::new();
-        for element in level {
-            if role_or_subrole_matches(&element, "AXPopover", deadline)? {
-                return Ok(Some(element));
+    let mut skipped = false;
+    let found = super::app_menu::find_surface_descendant_with(
+        window.clone(),
+        "window".into(),
+        deadline,
+        |element, expand| {
+            if role_or_subrole_matches(element, "AXPopover", deadline)? {
+                return Ok((true, Vec::new()));
             }
-            searched += 1;
-            if searched >= POPOVER_SEARCH_LIMIT {
-                return Err(AdapterError::new(
-                    ErrorCode::ElementNotFound,
-                    format!("No popover among the first {searched} elements of the window; the rest was not searched"),
-                )
-                .with_details(serde_json::json!({
-                    "kind": "popover_search_limit",
-                    "complete": false,
-                })));
+            if !expand {
+                skipped = true;
+                return Ok((false, Vec::new()));
             }
-            below.extend(surface_read::elements(&element, "AXChildren", deadline)?);
-        }
-        level = below;
+            Ok((
+                false,
+                surface_read::elements(element, "AXChildren", deadline)?,
+            ))
+        },
+    )
+    .map_err(popover_search_error)?;
+    match found {
+        Some((_, popover)) => Ok(Some(popover)),
+        None if skipped => Err(popover_search_cut()),
+        None => Ok(None),
     }
-    Ok(None)
+}
+
+fn popover_search_error(error: AdapterError) -> AdapterError {
+    let cut = error
+        .details
+        .as_ref()
+        .is_some_and(|details| details["kind"] == "surface_search_limit");
+    if !cut {
+        return error;
+    }
+    popover_search_cut()
+}
+
+/// A popover search that did not read every element: the items of a content
+/// container are left closed to bound the search, and a popover anchored in
+/// one may be there.
+fn popover_search_cut() -> AdapterError {
+    AdapterError::new(
+        ErrorCode::ElementNotFound,
+        "No popover among the elements the search may read; the rest was not searched",
+    )
+    .with_details(serde_json::json!({
+        "kind": "popover_search_limit",
+        "complete": false,
+    }))
 }
 
 #[cfg(target_os = "macos")]

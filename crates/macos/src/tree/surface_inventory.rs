@@ -1,7 +1,9 @@
 use crate::tree::{AXElement, properties::element::element_for_pid};
 use agent_desktop_core::{AdapterError, Deadline, SurfaceInfo};
 
-const ANCHOR_CHILD_LIMIT: usize = 16;
+/// The most children an element that anchors a surface has. An element with
+/// more is a content container: a list, a table or a column of a browser.
+pub(crate) const ANCHOR_CHILD_LIMIT: usize = 16;
 
 pub(crate) fn list_surfaces_for_process(
     identity: crate::system::process::process_identity::ProcessIdentity,
@@ -86,6 +88,24 @@ pub(crate) fn collect_anchored_surfaces(
     );
     if anchors_few_children(count.ok()) {
         let _ = collect_window_surfaces(anchor, "target", deadline, surfaces);
+    }
+}
+
+/// The surfaces an action raised: the application's inventory, then the ones
+/// hanging below the element the action targeted. Those are read first and
+/// cost a few reads, so an inventory that fails does not hide them; the
+/// failure is returned only when no anchored surface was found.
+pub(crate) fn with_anchored(
+    inventory: Result<Vec<SurfaceInfo>, AdapterError>,
+    anchored: Vec<SurfaceInfo>,
+) -> Result<Vec<SurfaceInfo>, AdapterError> {
+    match inventory {
+        Ok(mut surfaces) => {
+            surfaces.extend(anchored);
+            Ok(surfaces)
+        }
+        Err(error) if anchored.is_empty() => Err(error),
+        Err(_) => Ok(anchored),
     }
 }
 

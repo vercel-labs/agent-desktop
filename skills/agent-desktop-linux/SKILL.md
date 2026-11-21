@@ -77,6 +77,10 @@ use a private session and runtime directory for isolated work.
   observations rather than guessing from a window title. Without `--activate`,
   a launch on X11 gives the focus back to the window that had it when the new
   window took it, and reports `focus_returned: true`.
+- `press escape --app <app> --window-id <id>` on a background window with a showing
+  native popup closes it only via a dismissal action (or GTK3 combo box `Press`)
+  and reports `delivered_verified` once gone. Web content and buttons without a
+  dismissal action keep the focus refusal; it never collapses a tree row.
 - Sandboxes are not available on Linux yet. To run agent-desktop in a container you manage yourself, see `agent-browser.dev/desktop/guides/docker-container`.
 
 ## Troubleshooting

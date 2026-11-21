@@ -1,5 +1,6 @@
 pub(crate) mod actions;
 pub(crate) mod adapter_session;
+pub(crate) mod focused_window_key;
 pub mod hit_test;
 pub(crate) mod input;
 pub mod live_element;

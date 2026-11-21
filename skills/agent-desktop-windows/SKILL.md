@@ -42,6 +42,10 @@ Use `$env:NAME = 'value'` for environment variables.
 - A ref must be unique in its window, or inside its nearest unique ancestor (a
   cell inside its row), at capture and resolution. A root drill cannot make
   identical twins unique. Choose a distinct control.
+- `press escape` with `--app` or `--window-id` on a window that is not in front is
+  refused as before, unless that window shows an open menu, combo box or split
+  button: then the innermost one is collapsed (`ExpandCollapsePattern.Collapse`),
+  `delivered_verified` once read back closed. A tree item is never collapsed.
 - A grid reports `row_count` and `column_count`. A row is a record: find it by its own
   name, and its cells through it. `agent-desktop click` on a grid cell that lists `Click`
   selects the row that holds it. A cell carries no grid position.

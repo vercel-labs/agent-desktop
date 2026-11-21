@@ -115,16 +115,19 @@ impl ObservationOps for MacOSAdapter {
         raised_by: &NativeHandle,
         deadline: Deadline,
     ) -> Result<Vec<SurfaceInfo>, AdapterError> {
-        let mut surfaces = self.list_surfaces(process, deadline)?;
+        let mut anchored = Vec::new();
         #[cfg(target_os = "macos")]
         if let Ok(anchor) = ax_element(raised_by) {
             crate::tree::surface_inventory::collect_anchored_surfaces(
                 anchor,
                 deadline,
-                &mut surfaces,
+                &mut anchored,
             );
         }
-        Ok(surfaces)
+        crate::tree::surface_inventory::with_anchored(
+            self.list_surfaces(process, deadline),
+            anchored,
+        )
     }
 
     fn hit_test(

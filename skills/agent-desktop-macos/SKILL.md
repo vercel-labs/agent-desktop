@@ -37,9 +37,15 @@ may report `unknown` when consent would require a prompt.
 - Native AX element tokens identify individual controls, including twins. A stale
   token never falls back to a look-alike search. Elements without a token follow
   the uniqueness rule of the core skill.
+- `list-windows` also lists a floating or panel window an app raises above the
+  normal level, as accessory apps do with settings and panels, while it is on screen.
 - `menu` and `menubar` observations are application-owned and can omit `data.window`.
   An app without an ordinary window may still expose process-owned surfaces.
   Inspect `supported_surfaces` rather than assuming every surface exists.
+- `agent-desktop press escape --app <app>` closes an open menu or popover with its
+  cancel action when no focused element takes Escape, and reads that it closed. A
+  popover can appear a moment after the click that opens it: read it with
+  `snapshot --app <app> --surface popover`.
 - Headless menu-opening and dialog-opening actions can refuse before delivery.
   A label ending in an ellipsis predicts a dialog; it does not prove one exists.
   Stop on a headed-only refusal rather than changing mode.
@@ -61,8 +67,11 @@ may report `unknown` when consent would require a prompt.
   Return go only to that editor. An application that moves a value into an editor of
   its own, as a spreadsheet does with a formula that starts with `=`, leaves it typed
   and open, and the write fails as `delivered_unverified`: commit it with
-  `press return --app <app>`. Such a cell publishes no value, so a committed write is
-  `delivered_unverified` too: read the cell's name to verify. The write also commits
+  `press return --app <app>`. The cell is read after the commit: a cell that still
+  shows nothing fails as `ACTION_FAILED` with `delivered_unverified`, and one that
+  shows another value stays `delivered_unverified`. An application that gives its
+  cell editor no keyboard input from a press always takes that failure; type there
+  with `--headed` only if the user explicitly asked for that. The write also commits
   an edit that is open in another cell.
 - AX success alone does not prove an application effect. Verify the task's
   result independently, especially after a menu action or a value write.

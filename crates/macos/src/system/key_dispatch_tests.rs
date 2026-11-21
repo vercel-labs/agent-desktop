@@ -114,3 +114,22 @@ fn an_unresolvable_key_fails_before_any_focus_change() {
         error.message
     );
 }
+
+#[test]
+fn escape_reaches_the_focus_holder_first_then_the_open_surface() {
+    use super::{SemanticKeyTarget, choose_key_target};
+
+    assert_eq!(
+        choose_key_target(Some(1), "AXCancel", || panic!("surface read")),
+        Some(SemanticKeyTarget::FocusHolder(1))
+    );
+    assert_eq!(
+        choose_key_target(None, "AXCancel", || Some(2)),
+        Some(SemanticKeyTarget::OpenSurface(2))
+    );
+    assert_eq!(choose_key_target::<u8>(None, "AXCancel", || None), None);
+    assert_eq!(
+        choose_key_target::<u8>(None, "AXConfirm", || panic!("surface read")),
+        None
+    );
+}

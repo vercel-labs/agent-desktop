@@ -43,9 +43,9 @@ fn press_for_app(
         }
     }
     if let Some(action) = simple_key_action(combo)
-        && try_simple_key_action(&app, action, deadline)?
+        && let Some(step) = deliver_semantic_key(pid, &app, action, deadline)?
     {
-        return post_delivery_process_result(&process, semantic_step(action));
+        return post_delivery_process_result(&process, step);
     }
 
     crate::input::keyboard::keyboard_map::key_name_to_code(&combo.key)?;
@@ -77,26 +77,112 @@ fn post_delivery_process_result(
 ) -> Result<ActionResult, AdapterError> {
     crate::system::process::process_identity::require_core(process)
         .map_err(|error| error.with_disposition(DeliverySemantics::delivered_unverified()))?;
-    Ok(ActionResult::delivered_unverified("press_key").with_steps(vec![step]))
+    let verified = step.verified == Some(true);
+    let result = ActionResult::delivered_unverified("press_key").with_steps(vec![step]);
+    Ok(if verified {
+        result.with_verified_delivery()
+    } else {
+        result
+    })
 }
 
-fn try_simple_key_action(
+/// Where a key without modifiers lands as an accessibility action.
+#[derive(Debug, PartialEq, Eq)]
+enum SemanticKeyTarget<T> {
+    /// The focus holder advertises the action the key stands for.
+    FocusHolder(T),
+    /// Escape while no focus holder takes it and the application shows a menu
+    /// or a popover: the surface the key would close.
+    OpenSurface(T),
+}
+
+/// The states in the order they are tried: the focus holder, then, for
+/// Escape only, the open surface. None leaves the key its event route.
+fn choose_key_target<T>(
+    focus_holder: Option<T>,
+    action: &str,
+    open_surface: impl FnOnce() -> Option<T>,
+) -> Option<SemanticKeyTarget<T>> {
+    if let Some(holder) = focus_holder {
+        return Some(SemanticKeyTarget::FocusHolder(holder));
+    }
+    (action == CANCEL)
+        .then(open_surface)
+        .flatten()
+        .map(SemanticKeyTarget::OpenSurface)
+}
+
+fn semantic_key_target(
+    pid: i32,
     app: &AXElement,
     action: &str,
     deadline: Deadline,
-) -> Result<bool, AdapterError> {
-    let Some(focused) = focused_element(app, deadline)? else {
-        return Ok(false);
+) -> Result<Option<SemanticKeyTarget<AXElement>>, AdapterError> {
+    let focus_holder = focused_element(app, deadline)?.filter(|focused| {
+        crate::actions::ax_helpers::advertises_action(focused, action, deadline) == Some(true)
+    });
+    Ok(choose_key_target(focus_holder, action, || {
+        open_transient_surface(pid, deadline)
+    }))
+}
+
+/// The menu or popover the application shows. A read that cannot finish finds
+/// none, and the key then takes the route it had before.
+fn open_transient_surface(pid: i32, deadline: Deadline) -> Option<AXElement> {
+    crate::tree::surfaces::transient_surface_for_pid(pid, deadline)
+        .ok()
+        .flatten()
+}
+
+/// Performs the action on the target the key reaches. A closed surface is
+/// verified by reading that it is gone.
+fn deliver_semantic_key(
+    pid: i32,
+    app: &AXElement,
+    action: &'static str,
+    deadline: Deadline,
+) -> Result<Option<ActionStep>, AdapterError> {
+    let Some(target) = semantic_key_target(pid, app, action, deadline)? else {
+        return Ok(None);
     };
-    if crate::actions::ax_helpers::advertises_action(&focused, action, deadline) != Some(true) {
-        return Ok(false);
+    let (element, closes_surface) = match &target {
+        SemanticKeyTarget::FocusHolder(element) => (element, false),
+        SemanticKeyTarget::OpenSurface(element) => (element, true),
+    };
+    if !crate::actions::ax_helpers::try_ax_action_or_err(element, action, deadline)? {
+        return Ok(None);
     }
-    crate::actions::ax_helpers::try_ax_action_or_err(&focused, action, deadline)
+    let closed = closes_surface && surface_closed(element, deadline);
+    Ok(Some(semantic_step(action).with_verified(closed)))
+}
+
+/// A closed surface leaves the tree: a popover's element becomes invalid, and
+/// a menu's element stays readable but is no longer a child of its parent.
+fn surface_closed(surface: &AXElement, deadline: Deadline) -> bool {
+    let gone = || match crate::tree::surface_read::element(surface, "AXParent", deadline) {
+        Err(error) => error.code == ErrorCode::StaleRef,
+        Ok(None) => true,
+        Ok(Some(parent)) => crate::tree::surface_read::elements(&parent, "AXChildren", deadline)
+            .is_ok_and(|children| {
+                !children
+                    .iter()
+                    .any(|child| crate::tree::same_element(child, surface))
+            }),
+    };
+    deadline.poll_until(
+        SURFACE_CLOSE_WAIT,
+        Duration::from_millis(10),
+        gone,
+        |gone| *gone,
+    )
 }
 
 fn uses_menu_shortcut(combo: &KeyCombo, policy: InteractionPolicy) -> bool {
     policy.allow_focus_steal && !combo.modifiers.is_empty()
 }
+
+const CANCEL: &str = "AXCancel";
+const SURFACE_CLOSE_WAIT: Duration = Duration::from_millis(500);
 
 fn simple_key_action(combo: &KeyCombo) -> Option<&'static str> {
     if !combo.modifiers.is_empty() {
@@ -104,7 +190,7 @@ fn simple_key_action(combo: &KeyCombo) -> Option<&'static str> {
     }
     match combo.key.as_str() {
         "return" | "enter" => Some("AXConfirm"),
-        "escape" | "esc" => Some("AXCancel"),
+        "escape" | "esc" => Some(CANCEL),
         _ => None,
     }
 }

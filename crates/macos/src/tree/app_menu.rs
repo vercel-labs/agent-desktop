@@ -114,6 +114,14 @@ pub(crate) fn open_menus_for_pid(
     pid: i32,
     deadline: Deadline,
 ) -> Result<Vec<(&'static str, String, AXElement)>, AdapterError> {
+    open_menus_for_pid_until(pid, Transient::Menu, deadline)
+}
+
+fn open_menus_for_pid_until(
+    pid: i32,
+    accept: Transient,
+    deadline: Deadline,
+) -> Result<Vec<(&'static str, String, AXElement)>, AdapterError> {
     let mut menus = Vec::new();
     if let Some(menubar) = menubar_for_pid(pid, deadline)? {
         menus.extend(
@@ -131,11 +139,33 @@ pub(crate) fn open_menus_for_pid(
         );
     }
     if menus.is_empty()
-        && let Some((id, menu)) = context_menu_from_app(pid, deadline)?
+        && let Some((id, menu)) = surface_from_app(pid, accept, deadline)?
     {
         menus.push(("context_menu", id, menu));
     }
     Ok(menus)
+}
+
+/// What a search below the application accepts as the open transient surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Transient {
+    Menu,
+    MenuOrPopover,
+}
+
+/// The menu or popover the application shows, in one pass: an open menu bar
+/// menu first, then the bounded search below the application.
+#[cfg(target_os = "macos")]
+pub(crate) fn open_transient_surface(
+    pid: i32,
+    deadline: Deadline,
+) -> Result<Option<AXElement>, AdapterError> {
+    Ok(
+        open_menus_for_pid_until(pid, Transient::MenuOrPopover, deadline)?
+            .into_iter()
+            .next()
+            .map(|(_, _, surface)| surface),
+    )
 }
 
 fn open_menubar_menus_with<T>(
@@ -162,8 +192,9 @@ fn open_menubar_menus_with<T>(
 }
 
 #[cfg(target_os = "macos")]
-fn context_menu_from_app(
+fn surface_from_app(
     pid: i32,
+    accept: Transient,
     deadline: Deadline,
 ) -> Result<Option<(String, AXElement)>, AdapterError> {
     let app = element_for_pid(pid);
@@ -176,7 +207,8 @@ fn context_menu_from_app(
         }
     }
     if let Some(focused) = surface_read::element(&app, "AXFocusedUIElement", deadline)?
-        && let Some(menu) = find_menu_descendant(focused, "app/focused-element".into(), deadline)?
+        && let Some(menu) =
+            find_menu_descendant(focused, "app/focused-element".into(), accept, deadline)?
     {
         return Ok(Some(menu));
     }
@@ -184,7 +216,8 @@ fn context_menu_from_app(
         .into_iter()
         .enumerate()
     {
-        if let Some(menu) = find_menu_descendant(child, format!("app/children/{index}"), deadline)?
+        if let Some(menu) =
+            find_menu_descendant(child, format!("app/children/{index}"), accept, deadline)?
         {
             return Ok(Some(menu));
         }
@@ -196,17 +229,24 @@ fn context_menu_from_app(
 fn find_menu_descendant(
     root: AXElement,
     source: String,
+    accept: Transient,
     deadline: Deadline,
 ) -> Result<Option<(String, AXElement)>, AdapterError> {
-    find_menu_descendant_with(root, source, deadline, |element| {
+    find_surface_descendant_with(root, source, deadline, |element, expand| {
         let role = surface_read::string(element, "AXRole", deadline)?;
         if role.as_deref() == Some("AXMenuBar") {
             return Ok((false, Vec::new()));
+        }
+        if accept == Transient::MenuOrPopover && role.as_deref() == Some("AXPopover") {
+            return Ok((true, Vec::new()));
         }
         if role.as_deref() == Some("AXMenu")
             && surface_read::boolean(element, "AXVisible", deadline)? != Some(false)
         {
             return Ok((true, Vec::new()));
+        }
+        if !expand {
+            return Ok((false, Vec::new()));
         }
         Ok((
             false,
@@ -215,22 +255,29 @@ fn find_menu_descendant(
     })
 }
 
-fn find_menu_descendant_with<T>(
+/// Breadth-first search below `root` for a transient surface: a menu, or a
+/// popover. Such a surface hangs directly below the element that shows it,
+/// so every child is checked, but the items of a content container (more than
+/// `ANCHOR_CHILD_LIMIT` children: a list, a table, a column of a browser) are
+/// not opened: what lies inside an item is that item's content, and reading it
+/// made the search grow with the content of every window. `inspect` gets
+/// whether it may return the element's children.
+pub(super) fn find_surface_descendant_with<T>(
     root: T,
     source: String,
     deadline: Deadline,
-    mut inspect: impl FnMut(&T) -> Result<(bool, Vec<T>), AdapterError>,
+    mut inspect: impl FnMut(&T, bool) -> Result<(bool, Vec<T>), AdapterError>,
 ) -> Result<Option<(String, T)>, AdapterError> {
-    let mut pending = std::collections::VecDeque::from([(source, root)]);
+    let mut pending = std::collections::VecDeque::from([(source, root, true)]);
     let mut incomplete = None;
     let mut visited = 0_usize;
-    while let Some((path, element)) = pending.pop_front() {
+    while let Some((path, element, expand)) = pending.pop_front() {
         surface_read::ensure_before_deadline(deadline)?;
         visited += 1;
         if visited > MAX_SURFACE_NODES {
             return Err(surface_limit_error());
         }
-        let (is_menu, children) = match inspect(&element) {
+        let (is_menu, children) = match inspect(&element, expand) {
             Ok(observed) => observed,
             Err(error) if error.code == ErrorCode::AppUnresponsive && !invalidated(&error) => {
                 incomplete.get_or_insert(error);
@@ -241,11 +288,12 @@ fn find_menu_descendant_with<T>(
         if is_menu {
             return Ok(Some((path, element)));
         }
+        let expand_children = children.len() <= super::surface_inventory::ANCHOR_CHILD_LIMIT;
         pending.extend(
             children
                 .into_iter()
                 .enumerate()
-                .map(|(index, child)| (format!("{path}/children/{index}"), child)),
+                .map(|(index, child)| (format!("{path}/children/{index}"), child, expand_children)),
         );
     }
     incomplete.map_or(Ok(None), Err)

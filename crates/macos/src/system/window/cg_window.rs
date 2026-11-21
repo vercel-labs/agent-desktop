@@ -119,6 +119,20 @@ fn stabilize_records_until(
     }
 }
 
+/// Whether the inventory lists a window. A normal-level window is listed on or
+/// off screen. A floating, panel or utility window an application raises
+/// itself (below the Dock level, 20), as accessory apps do, is listed while
+/// on screen; off screen it is a hidden helper. System levels stay out.
+fn lists_window(layer: i64, on_screen: bool) -> bool {
+    match layer {
+        0 => true,
+        1..DOCK_WINDOW_LEVEL => on_screen,
+        _ => false,
+    }
+}
+
+const DOCK_WINDOW_LEVEL: i64 = 20;
+
 pub(in crate::system) fn records_from_dictionaries(
     dictionaries: Vec<WindowDictionary>,
     scope: WindowRecordScope<'_>,
@@ -126,7 +140,8 @@ pub(in crate::system) fn records_from_dictionaries(
     let mut records = Vec::new();
     for dictionary in dictionaries {
         let layer = required_int_field(&dictionary, "kCGWindowLayer")?;
-        if layer != 0 {
+        let visible = bool_field(&dictionary, "kCGWindowIsOnscreen")?;
+        if !lists_window(layer, visible) {
             continue;
         }
         let pid = i32::try_from(required_int_field(&dictionary, "kCGWindowOwnerPID")?)
@@ -156,7 +171,7 @@ pub(in crate::system) fn records_from_dictionaries(
             title: string_field(&dictionary, "kCGWindowName").filter(|title| !title.is_empty()),
             window_number,
             bounds,
-            visible: bool_field(&dictionary, "kCGWindowIsOnscreen")?,
+            visible,
             process_instance: None,
         });
     }
