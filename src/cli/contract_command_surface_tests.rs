@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 const NON_COMMAND_MODULES: &[&str] = &[
     "combo",
+    "escape_route",
     "execute_by_ref",
     "find_live",
     "helpers",

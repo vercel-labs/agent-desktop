@@ -96,6 +96,19 @@ impl Action {
         matches!(self, Self::Hover | Self::Drag(_))
     }
 
+    /// Whether the action's effect lands outside the target's own state, so an
+    /// effect witness is read around it.
+    pub fn witnesses_effect(&self) -> bool {
+        matches!(
+            self,
+            Self::Click
+                | Self::DoubleClick
+                | Self::RightClick
+                | Self::TripleClick
+                | Self::Select(_)
+        )
+    }
+
     pub fn requires_hit_test(&self) -> bool {
         matches!(
             self,

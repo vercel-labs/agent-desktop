@@ -1,14 +1,8 @@
-use agent_desktop_core::{
-    ActionResult, AdapterError, DeliveryOutcome, DeliverySemantics, ErrorCode, KeyCombo, Modifier,
-};
-use serde_json::json;
+use agent_desktop_core::DeliveryOutcome;
 
-use super::{
-    close_verbs, deepest_open_owner, is_focus_refusal, is_open_owner, is_plain_escape,
-    popup_answer, popup_open, popup_outcome,
-};
+use super::{close_verbs, deepest_open_owner, is_open_owner, popup_open, popup_outcome};
 use crate::actions::action_call::resolve_verb;
-use crate::actions::write::mutation::{Abort, WriteKind, WriteReply, abort_error};
+use crate::actions::write::mutation::WriteReply;
 use crate::tree::properties::toolkit_trust::ToolkitKind;
 use crate::tree::test_support::helpers::{read_of, words};
 use crate::tree::vocabulary::role_numbers::{
@@ -37,37 +31,6 @@ fn node(
 fn names(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_owned()).collect()
 }
-
-fn combo(key: &str, modifiers: Vec<Modifier>) -> KeyCombo {
-    KeyCombo {
-        key: key.to_owned(),
-        modifiers,
-    }
-}
-
-#[test]
-fn only_a_plain_escape_is_an_escape() {
-    assert!(is_plain_escape(&combo("escape", Vec::new())));
-    assert!(is_plain_escape(&combo("Escape", Vec::new())));
-    assert!(!is_plain_escape(&combo("escape", vec![Modifier::Ctrl])));
-    assert!(!is_plain_escape(&combo("return", Vec::new())));
-}
-
-#[test]
-fn only_a_focus_refusal_is_answered_by_closing_a_popup() {
-    let refusal = |check: &str| {
-        AdapterError::new(ErrorCode::ActionFailed, "refused")
-            .with_details(json!({ "check": check }))
-    };
-    assert!(is_focus_refusal(&refusal("window_active")));
-    assert!(is_focus_refusal(&refusal("exact_window_focus")));
-    assert!(!is_focus_refusal(&refusal("process_state")));
-    assert!(!is_focus_refusal(&AdapterError::new(
-        ErrorCode::ActionFailed,
-        "no details"
-    )));
-}
-
 #[test]
 fn only_a_native_owner_with_a_showing_popup_is_an_open_owner() {
     let shown = || vec![node(MENU, &[SHOWING], Vec::new())];
@@ -171,39 +134,6 @@ fn a_rejected_owner_action_is_never_a_delivery() {
     assert_eq!(
         popup_outcome(WriteReply::Done, || Some(true)),
         DeliveryOutcome::observed(Some(true))
-    );
-}
-
-fn focus_refusal() -> AdapterError {
-    AdapterError::new(ErrorCode::ActionFailed, "refused")
-        .with_details(json!({ "check": "window_active" }))
-        .with_disposition(DeliverySemantics::not_delivered())
-}
-
-#[test]
-fn a_popup_attempt_that_may_have_landed_keeps_its_own_uncertain_error() {
-    let timed_out = abort_error(Abort::TimedOut, WriteKind::DoAction, None);
-    let answer = popup_answer(focus_refusal(), Err(timed_out)).expect_err("the popup's error");
-    assert_eq!(answer.code, ErrorCode::Timeout);
-    assert_eq!(answer.disposition, DeliverySemantics::uncertain());
-    assert!(!is_focus_refusal(&answer));
-}
-
-#[test]
-fn a_refused_escape_stays_refused_when_no_popup_owner_is_open() {
-    let answer = popup_answer(focus_refusal(), Ok(None)).expect_err("nothing closed a popup");
-    assert!(is_focus_refusal(&answer));
-    assert_eq!(answer.disposition, DeliverySemantics::not_delivered());
-}
-
-#[test]
-fn a_closed_popup_answers_the_refused_escape() {
-    let settled = ActionResult::delivered_unverified("close_popup");
-    let answer = popup_answer(focus_refusal(), Ok(Some(settled))).expect("the popup closed");
-    assert_eq!(answer.action, "close_popup");
-    assert_eq!(
-        answer.disposition(),
-        DeliverySemantics::delivered_unverified()
     );
 }
 

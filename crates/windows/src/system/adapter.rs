@@ -9,8 +9,7 @@ use agent_desktop_core::{
 };
 
 use crate::adapter::WindowsAdapter;
-use crate::system::close_outcome::CloseOutcome;
-use crate::system::escape_popup;
+use crate::system::{close_outcome::CloseOutcome, escape_popup};
 
 #[cfg(target_os = "windows")]
 #[path = "tcp_listener.rs"]
@@ -269,7 +268,8 @@ impl SystemOps for WindowsAdapter {
         crate::system::capture::screenshot::capture_window(window, deadline)
     }
 
-    /// Key delivery, then `escape_popup` for a refused Escape (A9-3).
+    /// Verify-only key delivery; core's headed path already activated and this
+    /// never raises (A9-3: SendInput has no per-pid targeting).
     fn press_key_for_app(
         &self,
         process: ProcessIdentity,
@@ -277,17 +277,17 @@ impl SystemOps for WindowsAdapter {
         policy: InteractionPolicy,
         lease: &InteractionLease,
     ) -> Result<ActionResult, AdapterError> {
-        escape_popup::press_for_app(process, combo, policy, lease.deadline())
+        crate::system::key_dispatch::press_for_app_impl(process, combo, policy, lease.deadline())
     }
 
-    fn press_key_for_window(
+    fn close_transient_surface(
         &self,
-        window: &WindowInfo,
-        combo: &KeyCombo,
+        process: &ProcessIdentity,
+        window: Option<&WindowInfo>,
         policy: InteractionPolicy,
         lease: &InteractionLease,
-    ) -> Result<ActionResult, AdapterError> {
-        escape_popup::press_for_window(self, window, combo, policy, lease)
+    ) -> Result<Option<ActionResult>, AdapterError> {
+        escape_popup::close_transient_surface(process, window, policy, lease.deadline())
     }
 
     /// The core default blocks nothing; Windows ships its own dangerous-combo

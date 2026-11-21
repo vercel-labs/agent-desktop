@@ -4,7 +4,6 @@ use agent_desktop_core::{
 };
 use serde_json::json;
 
-use super::escape_popup::{close_open_popup, is_focus_refusal, is_plain_escape, popup_answer};
 use crate::input::backend::Backend;
 use crate::input::physical::target_keyboard::press_for_process;
 use crate::input::physical::target_world::{LiveWorld, PhysicalWorld};
@@ -206,25 +205,6 @@ fn press_in(
     after_delivery(keys, process, result)
 }
 
-/// An Escape that the key route refused for focus closes the open popup of
-/// the target window through its owner; every other result is the key
-/// route's own.
-fn closing_popup_when_refused(
-    result: Result<ActionResult, AdapterError>,
-    bus: &SharedBus,
-    target: (u32, Option<&WindowInfo>),
-    combo: &KeyCombo,
-    deadline: Deadline,
-) -> Result<ActionResult, AdapterError> {
-    match result {
-        Err(error) if is_plain_escape(combo) && is_focus_refusal(&error) => {
-            let popup = close_open_popup(bus, target.0, target.1, combo, deadline);
-            popup_answer(error, popup)
-        }
-        other => other,
-    }
-}
-
 pub(crate) fn press_key_for_app(
     bus: &SharedBus,
     process: ProcessIdentity,
@@ -234,8 +214,7 @@ pub(crate) fn press_key_for_app(
 ) -> Result<ActionResult, AdapterError> {
     crate::system::display::display_server::require(lease.deadline())
         .map_err(|error| error.with_disposition(DeliverySemantics::not_delivered()))?;
-    let pid = process.pid.get();
-    let result = press_in(Press {
+    press_in(Press {
         physical: &LiveWorld { bus, lease },
         keys: &LiveKeys { bus },
         process: &process,
@@ -243,8 +222,7 @@ pub(crate) fn press_key_for_app(
         combo,
         policy,
         deadline: lease.deadline(),
-    });
-    closing_popup_when_refused(result, bus, (pid, None), combo, lease.deadline())
+    })
 }
 
 pub(crate) fn press_key_for_window(
@@ -261,7 +239,7 @@ pub(crate) fn press_key_for_window(
         .as_deref()
         .filter(|instance| !instance.is_empty())
         .ok_or_else(|| window_not_active(window))?;
-    let result = press_in(Press {
+    press_in(Press {
         physical: &LiveWorld { bus, lease },
         keys: &LiveKeys { bus },
         process: &ProcessIdentity::new(window.pid, instance),
@@ -269,14 +247,7 @@ pub(crate) fn press_key_for_window(
         combo,
         policy,
         deadline: lease.deadline(),
-    });
-    closing_popup_when_refused(
-        result,
-        bus,
-        (window.pid.get(), Some(window)),
-        combo,
-        lease.deadline(),
-    )
+    })
 }
 
 #[cfg(test)]

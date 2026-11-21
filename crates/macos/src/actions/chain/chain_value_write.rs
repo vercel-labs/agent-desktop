@@ -170,10 +170,8 @@ mod imp {
             return false;
         }
         crate::actions::activation_effect::focus_state(element, deadline)
-            .and_then(|state| state.focused_element())
-            .is_some_and(|focused| {
-                crate::actions::activation_effect::focus_reached(&focused, element, deadline)
-            })
+            .and_then(|witness| witness.focus.inside_target)
+            == Some(true)
     }
 
     pub(crate) fn increment_action(current: &str, target: &str) -> Option<&'static str> {

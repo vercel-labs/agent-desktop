@@ -48,9 +48,9 @@ mod imp {
         };
         match signal {
             PerformSignal::ReportedUnsupported => Ok(DeliveryOutcome::NotDelivered),
-            PerformSignal::ReportedDelivered => Ok(DeliveryOutcome::from_delivery(
-                true,
-                activation_effect::changed_now(&before, el, deadline),
+            PerformSignal::ReportedDelivered => Ok(DeliveryOutcome::Delivered(
+                activation_effect::changed_now(&before, el, deadline)
+                    .unwrap_or(agent_desktop_core::DeliveryObservation::Unverified),
             )),
             PerformSignal::Uninformative => ax_mutation::settle_uninformative_perform(
                 name,

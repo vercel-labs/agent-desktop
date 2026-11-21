@@ -231,6 +231,14 @@ impl ObservationOps for MacOSAdapter {
         crate::tree::properties::text_insertion::focused_insertion_caret(pid, deadline)
     }
 
+    fn read_effect_witness(
+        &self,
+        handle: &NativeHandle,
+        deadline: Deadline,
+    ) -> Result<agent_desktop_core::EffectWitness, AdapterError> {
+        crate::actions::effect_witness::read(ax_element(handle)?, deadline)
+    }
+
     fn get_live_element(
         &self,
         handle: &NativeHandle,

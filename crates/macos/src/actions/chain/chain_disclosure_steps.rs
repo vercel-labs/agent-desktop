@@ -137,7 +137,7 @@ mod imp {
             outcome if signal == PerformSignal::ReportedDelivered => {
                 outcome.map_err(after_delivery)
             }
-            _ => crate::actions::ax_mutation::settle_uninformative_perform("AXPress", error, false),
+            _ => crate::actions::ax_mutation::settle_uninformative_perform("AXPress", error, None),
         }
     }
 

@@ -1,4 +1,5 @@
 pub(crate) mod capabilities;
+pub(crate) mod effect_witness;
 pub(crate) mod element;
 pub(crate) mod hit_test;
 pub(crate) mod live_read;
@@ -13,6 +14,7 @@ pub(crate) mod test_support;
 pub(crate) mod vocabulary;
 mod walk;
 
+pub(crate) use effect_witness::read_effect_witness;
 pub(crate) use element::AtspiElement;
 pub(crate) use element::atspi_element;
 pub(crate) use element::child_list::{child_at_index, list_children};

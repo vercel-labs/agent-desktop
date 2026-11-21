@@ -46,6 +46,7 @@ Use `$env:NAME = 'value'` for environment variables.
   refused as before, unless that window shows an open menu, combo box or split
   button: then the innermost one is collapsed (`ExpandCollapsePattern.Collapse`),
   `delivered_verified` once read back closed. A tree item is never collapsed.
+  `collapse` of an open combo box or menu item works headless, and reports `not_delivered` when it is already closed.
 - A grid reports `row_count` and `column_count`. A row is a record: find it by its own
   name, and its cells through it. `agent-desktop click` on a grid cell that lists `Click`
   selects the row that holds it. A cell carries no grid position.

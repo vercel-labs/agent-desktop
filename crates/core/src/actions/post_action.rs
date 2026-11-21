@@ -11,6 +11,11 @@ pub fn execute_verified_action(
     lease: &InteractionLease,
 ) -> Result<ActionResult, AdapterError> {
     let action = request.action.clone();
+    if action.witnesses_effect() {
+        return crate::actions::witnessed_action::execute_witnessed_action(
+            adapter, handle, request, lease,
+        );
+    }
     if !action.requires_state_readback() {
         return adapter.execute_action(handle, request, lease);
     }

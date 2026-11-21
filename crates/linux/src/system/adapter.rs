@@ -13,7 +13,7 @@ use crate::adapter::LinuxAdapter;
 use crate::notifications;
 use crate::system::{
     close,
-    focus::key_dispatch,
+    focus::{escape_popup, key_dispatch},
     interaction::{action_clock, interaction_lease, session},
     launch,
     menu::{menu_surface, menu_wait},
@@ -143,6 +143,16 @@ impl SystemOps for LinuxAdapter {
         let result = key_dispatch::press_key_for_window(self.bus(), window, combo, policy, lease);
         action_clock::mark_outcome(Some(window.pid.get()), &result);
         result
+    }
+
+    fn close_transient_surface(
+        &self,
+        process: &ProcessIdentity,
+        window: Option<&WindowInfo>,
+        policy: InteractionPolicy,
+        lease: &InteractionLease,
+    ) -> Result<Option<ActionResult>, AdapterError> {
+        escape_popup::close_transient_surface(self.bus(), process, window, policy, lease)
     }
 
     fn is_blocked_combo(&self, combo: &KeyCombo) -> bool {

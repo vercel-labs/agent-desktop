@@ -1,14 +1,15 @@
-//! Escape for an open popup when the key route refused for focus.
+//! Closing the open popup of a window that does not hold the keyboard.
 //!
-//! The key route needs the target to hold the keyboard. A popup a person
-//! opened (a menu, a drop-down, a split-button list) can sit in a window that
-//! is not the foreground window, and the key is then refused. The popup still
-//! has a semantic close: `ExpandCollapsePattern.Collapse` on its owner. The
-//! states, in this order: the key route delivers, unchanged; it refuses for
-//! focus and the target shows an open popup, whose owner is collapsed and read
-//! back; otherwise the refusal stays as it was.
+//! Core asks for it after a plain Escape that the key route refused for focus.
+//! A popup a person opened (a menu, a drop-down, a split-button list) can sit
+//! in a window that is not in front. It has a semantic close: collapsing its
+//! owner, through the same primitive `collapse` uses (`disclosure_steps`).
 
-use agent_desktop_core::{AdapterError, Deadline, DeliverySemantics, ErrorCode, KeyCombo};
+#[cfg(not(target_os = "windows"))]
+use agent_desktop_core::{ActionResult, InteractionPolicy, ProcessIdentity, WindowInfo};
+use agent_desktop_core::{AdapterError, Deadline};
+#[cfg(any(target_os = "windows", test))]
+use agent_desktop_core::{DeliverySemantics, ErrorCode};
 
 #[cfg(any(target_os = "windows", test))]
 pub(super) const MAX_POPUP_ROOTS: usize = 32;
@@ -174,74 +175,6 @@ pub(super) fn scan_popup_owners<T: PopupTree>(
     best.map_or(PopupScan::None, |(_, owner)| PopupScan::Found(owner))
 }
 
-/// Key delivery to `process` (A9-3: SendInput has no per-pid targeting;
-/// core's headed path already activated), then the popup close.
-pub(crate) fn press_for_app(
-    process: agent_desktop_core::ProcessIdentity,
-    combo: &KeyCombo,
-    policy: agent_desktop_core::InteractionPolicy,
-    deadline: agent_desktop_core::Deadline,
-) -> Result<agent_desktop_core::ActionResult, AdapterError> {
-    let result =
-        crate::system::key_dispatch::press_for_app_impl(process.clone(), combo, policy, deadline);
-    after_key_route(
-        result,
-        PopupScope::Process(&process),
-        combo,
-        policy,
-        deadline,
-    )
-}
-
-/// Core's focus-gated delivery to a named window, then the popup close.
-pub(crate) fn press_for_window<A: agent_desktop_core::SystemOps>(
-    adapter: &A,
-    window: &agent_desktop_core::WindowInfo,
-    combo: &KeyCombo,
-    policy: agent_desktop_core::InteractionPolicy,
-    lease: &agent_desktop_core::InteractionLease,
-) -> Result<agent_desktop_core::ActionResult, AdapterError> {
-    let result =
-        agent_desktop_core::press_key_in_focused_window(adapter, window, combo, policy, lease);
-    after_key_route(
-        result,
-        PopupScope::Window(window),
-        combo,
-        policy,
-        lease.deadline(),
-    )
-}
-
-/// Where a refused Escape looks for an open popup.
-#[derive(Clone, Copy)]
-pub(crate) enum PopupScope<'a> {
-    Window(&'a agent_desktop_core::WindowInfo),
-    Process(&'a agent_desktop_core::ProcessIdentity),
-}
-
-pub(crate) fn is_plain_escape(combo: &KeyCombo) -> bool {
-    combo.modifiers.is_empty()
-        && (combo.key.eq_ignore_ascii_case("escape") || combo.key.eq_ignore_ascii_case("esc"))
-}
-
-/// The refusals after which the target's popup gets its close: core's refusal
-/// of a window that is not the exact focus holder, and this adapter's refusal
-/// of a process that does not hold the keyboard. Each scope answers only its
-/// own refusal, so one refusal is searched once.
-pub(crate) fn refused_for_focus(window_scope: bool, error: &AdapterError) -> bool {
-    let details = error.details.as_ref();
-    let unsent = error.disposition == DeliverySemantics::not_delivered()
-        && details.and_then(|details| details["physical_delivery_started"].as_bool())
-            == Some(false);
-    let check = details.and_then(|details| details["check"].as_str());
-    unsent
-        && if window_scope {
-            check == Some("window_active")
-        } else {
-            error.code == ErrorCode::ActionFailed && check.is_none()
-        }
-}
-
 /// The control types whose expansion is a popup: menu item (50011), combo box
 /// (50003) and split button (50031). A tree item or a group is never one.
 fn opens_a_popup(control_type: i32) -> bool {
@@ -253,18 +186,17 @@ fn opens_a_popup(control_type: i32) -> bool {
 mod uia;
 
 #[cfg(target_os = "windows")]
-pub(crate) use uia::after_key_route;
+pub(crate) use uia::close_transient_surface;
 
-/// Off Windows no popup can be open, so the key route's result stands.
+/// Off Windows no popup can be open.
 #[cfg(not(target_os = "windows"))]
-pub(crate) fn after_key_route(
-    result: Result<agent_desktop_core::ActionResult, AdapterError>,
-    _scope: PopupScope<'_>,
-    _combo: &KeyCombo,
-    _policy: agent_desktop_core::InteractionPolicy,
-    _deadline: agent_desktop_core::Deadline,
-) -> Result<agent_desktop_core::ActionResult, AdapterError> {
-    result
+pub(crate) fn close_transient_surface(
+    _process: &ProcessIdentity,
+    _window: Option<&WindowInfo>,
+    _policy: InteractionPolicy,
+    _deadline: Deadline,
+) -> Result<Option<ActionResult>, AdapterError> {
+    Ok(None)
 }
 
 #[cfg(test)]

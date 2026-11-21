@@ -2,14 +2,13 @@ use std::cell::Cell;
 use std::time::Duration;
 
 use agent_desktop_core::{
-    AdapterError, Deadline, DeliverySemantics, ErrorCode, KeyCombo, Modifier, ProcessId,
-    ProcessIdentity, WindowInfo,
+    Deadline, DeliverySemantics, ErrorCode, ProcessId, ProcessIdentity, WindowInfo,
 };
 
 use super::{
     MAX_POPUP_CHILDREN, MAX_POPUP_DEPTH, MAX_POPUP_NODES, MAX_POPUP_ROOTS, PopupScan, PopupTree,
-    is_plain_escape, opens_a_popup, refused_for_focus, scan_popup_owners, scan_timeout_error,
-    verify_process_handle, verify_process_target, verify_window_target,
+    opens_a_popup, scan_popup_owners, scan_timeout_error, verify_process_handle,
+    verify_process_target, verify_window_target,
 };
 
 struct FakeNode {
@@ -60,42 +59,6 @@ impl PopupTree for FakeTree {
 
 fn root_ref(id: usize) -> (usize, Option<(usize, usize)>) {
     (id, None)
-}
-
-fn key(name: &str, modifiers: Vec<Modifier>) -> KeyCombo {
-    KeyCombo {
-        key: name.to_owned(),
-        modifiers,
-    }
-}
-
-#[test]
-fn only_a_plain_escape_may_close_a_popup() {
-    assert!(is_plain_escape(&key("escape", vec![])));
-    assert!(is_plain_escape(&key("Esc", vec![])));
-    assert!(!is_plain_escape(&key("escape", vec![Modifier::Shift])));
-    assert!(!is_plain_escape(&key("return", vec![])));
-}
-
-#[test]
-fn each_scope_answers_only_its_own_focus_refusal() {
-    let window = AdapterError::stale_ref_because("not focused")
-        .with_details(
-            serde_json::json!({ "check": "window_active", "physical_delivery_started": false }),
-        )
-        .with_disposition(DeliverySemantics::not_delivered());
-    let process = AdapterError::new(ErrorCode::ActionFailed, "not foreground")
-        .with_details(serde_json::json!({ "pid": 4, "physical_delivery_started": false }))
-        .with_disposition(DeliverySemantics::not_delivered());
-    let sent = AdapterError::new(ErrorCode::ActionFailed, "sent")
-        .with_details(serde_json::json!({ "physical_delivery_started": true }))
-        .with_disposition(DeliverySemantics::delivered_unverified());
-
-    assert!(refused_for_focus(true, &window));
-    assert!(!refused_for_focus(false, &window));
-    assert!(refused_for_focus(false, &process));
-    assert!(!refused_for_focus(true, &process));
-    assert!(!refused_for_focus(false, &sent));
 }
 
 #[test]

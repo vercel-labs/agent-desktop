@@ -1,9 +1,10 @@
 use agent_desktop_core::{
     AccessibilityNode, ActionOps, ActionRequest, ActionResult, AdapterError, AppInventory,
-    ClipboardContent, ClipboardFormat, Deadline, DragParams, ElementState, HitTestResult, InputOps,
-    InteractionLease, KeyCombo, LiveElement, MouseEvent, NativeHandle, ObservationOps,
-    ObservationRequest, ObservationRoot, ObservedTree, OperationReport, Point, ProcessIdentity,
-    Rect, RefEntry, SnapshotSurface, SurfaceInfo, TreeOptions, WindowFilter, WindowInfo,
+    ClipboardContent, ClipboardFormat, Deadline, DragParams, EffectWitness, ElementState,
+    HitTestResult, InputOps, InteractionLease, KeyCombo, LiveElement, MouseEvent, NativeHandle,
+    ObservationOps, ObservationRequest, ObservationRoot, ObservedTree, OperationReport, Point,
+    ProcessIdentity, Rect, RefEntry, SnapshotSurface, SurfaceInfo, TreeOptions, WindowFilter,
+    WindowInfo,
 };
 
 use crate::system::SharedBus;
@@ -87,6 +88,14 @@ impl ObservationOps for LinuxAdapter {
         deadline: Deadline,
     ) -> Result<Option<String>, AdapterError> {
         crate::tree::get_live_value(self.bus(), handle, deadline)
+    }
+
+    fn read_effect_witness(
+        &self,
+        handle: &NativeHandle,
+        deadline: Deadline,
+    ) -> Result<EffectWitness, AdapterError> {
+        crate::tree::read_effect_witness(self.bus(), handle, deadline)
     }
 
     fn get_live_state(

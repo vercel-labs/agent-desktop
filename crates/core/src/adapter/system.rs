@@ -282,6 +282,21 @@ pub trait SystemOps: Send + Sync {
         super::focused_window_key::press_key_in_focused_window(self, window, combo, policy, lease)
     }
 
+    /// Closes the open transient surface (a menu, a drop-down, a popup) of
+    /// `window`, or of the process's windows when there is no window, through
+    /// the platform's own close action, verified by reading it gone. `Ok(None)`
+    /// when none is open. Core calls it only after a plain Escape was refused
+    /// because the target did not hold the keyboard.
+    fn close_transient_surface(
+        &self,
+        _process: &ProcessIdentity,
+        _window: Option<&WindowInfo>,
+        _policy: InteractionPolicy,
+        _lease: &InteractionLease,
+    ) -> Result<Option<ActionResult>, AdapterError> {
+        Err(AdapterError::not_supported("close_transient_surface"))
+    }
+
     fn wait_for_menu(
         &self,
         _process: ProcessIdentity,

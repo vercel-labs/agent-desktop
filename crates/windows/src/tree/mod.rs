@@ -2,6 +2,7 @@ pub mod actions;
 pub mod automation;
 pub mod chromium;
 pub mod descriptor;
+pub(crate) mod effect_witness;
 pub(crate) mod hit_test;
 pub(crate) mod live_read;
 pub(crate) mod minimized;

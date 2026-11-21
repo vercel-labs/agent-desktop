@@ -106,6 +106,28 @@ mod imp {
         attr: &str,
         deadline: agent_desktop_core::Deadline,
     ) -> Result<Option<AXElement>, i32> {
+        copy_element_attr_with(el, attr, deadline, is_absent_error)
+    }
+
+    /// Like `copy_element_attr_result`, but `Ok(None)` only when the element
+    /// answered that the attribute has no value. An attribute it does not
+    /// implement or fails to answer is `Err`, so "none" is never a guess.
+    pub(crate) fn copy_element_attr_answered_result(
+        el: &AXElement,
+        attr: &str,
+        deadline: agent_desktop_core::Deadline,
+    ) -> Result<Option<AXElement>, i32> {
+        copy_element_attr_with(el, attr, deadline, |error| {
+            error == accessibility_sys::kAXErrorNoValue
+        })
+    }
+
+    fn copy_element_attr_with(
+        el: &AXElement,
+        attr: &str,
+        deadline: agent_desktop_core::Deadline,
+        absent: impl Fn(i32) -> bool,
+    ) -> Result<Option<AXElement>, i32> {
         let cf_attr = CFString::new(attr);
         let (err, value) = crate::tree::properties::ax_ipc::copy_attribute_value(
             el,
@@ -116,11 +138,7 @@ mod imp {
             if !value.is_null() {
                 unsafe { core_foundation::base::CFRelease(value) };
             }
-            return if is_absent_error(err) {
-                Ok(None)
-            } else {
-                Err(err)
-            };
+            return if absent(err) { Ok(None) } else { Err(err) };
         }
         if value.is_null() {
             return Ok(None);
@@ -224,8 +242,8 @@ pub(crate) use super::text_attributes::{
     copy_value_typed_bounded_result, copy_value_typed_result,
 };
 pub(crate) use imp::{
-    copy_ax_array_prefix_result, copy_bool_attr, copy_bool_attr_result, copy_element_attr_result,
-    set_messaging_timeout,
+    copy_ax_array_prefix_result, copy_bool_attr, copy_bool_attr_result,
+    copy_element_attr_answered_result, copy_element_attr_result, set_messaging_timeout,
 };
 
 #[cfg(target_os = "macos")]

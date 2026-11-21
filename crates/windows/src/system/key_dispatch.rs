@@ -125,6 +125,7 @@ fn require_keyboard_focus(
                 "Application has no verified keyboard focus for key delivery",
             )
             .with_details(serde_json::json!({
+                "check": "process_focus",
                 "pid": pid,
                 "physical_delivery_started": false,
             }))
@@ -153,6 +154,7 @@ fn background_fail_closed(pid: ProcessId) -> AdapterError {
         "Target application is not foreground; Windows SendInput cannot deliver to a background process",
     )
     .with_details(serde_json::json!({
+        "check": "process_focus",
         "pid": pid,
         "physical_delivery_started": false,
     }))
@@ -169,6 +171,7 @@ fn focus_lost_before_delivery(pid: ProcessId) -> AdapterError {
         "Target application lost focus before physical input delivery",
     )
     .with_details(serde_json::json!({
+        "check": "process_focus",
         "pid": pid,
         "physical_delivery_started": false,
     }))

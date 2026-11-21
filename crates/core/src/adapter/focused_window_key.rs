@@ -7,9 +7,8 @@ use crate::{
 
 /// Sends `combo` to the process of `window` only when `window` is the exact
 /// focused window, and refuses before anything is sent otherwise. This is the
-/// default of `SystemOps::press_key_for_window`; an adapter that overrides
-/// that method to add a route after the refusal calls it first.
-pub fn press_key_in_focused_window<A: SystemOps + ?Sized>(
+/// default of `SystemOps::press_key_for_window`.
+pub(crate) fn press_key_in_focused_window<A: SystemOps + ?Sized>(
     adapter: &A,
     window: &WindowInfo,
     combo: &KeyCombo,

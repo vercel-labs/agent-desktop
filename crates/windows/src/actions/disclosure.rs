@@ -5,9 +5,9 @@
 //! flips it with no foreground change on SysTreeView32, WinForms and WPF
 //! trees (C7), so it runs only from a known opposite state and is verified by
 //! re-reading the state. ExpandCollapsePattern on a tree item takes no
-//! foreground (A31-5). On any other control it can open a popup over the
+//! foreground (A31-5). On any other control an expand can open a popup over the
 //! user's window (C6), so it declares the foreground effect and a policy that
-//! does not allow it refuses.
+//! does not allow it refuses; a collapse opens nothing and declares none.
 
 use agent_desktop_core::{ActionStep, AdapterError, Deadline, InteractionPolicy};
 use std::time::Duration;
@@ -80,7 +80,27 @@ mod imp {
         policy: InteractionPolicy,
         deadline: Deadline,
     ) -> Result<Vec<ActionStep>, AdapterError> {
+        disclosure_steps_guarded(element, want_expanded, policy, deadline, &|| Ok(()))
+    }
+
+    pub(crate) fn collapse_with_guard(
+        element: &UIAElement,
+        policy: InteractionPolicy,
+        deadline: Deadline,
+        guard: &dyn Fn() -> Result<(), AdapterError>,
+    ) -> Result<Vec<ActionStep>, AdapterError> {
+        disclosure_steps_guarded(element, false, policy, deadline, guard)
+    }
+
+    fn disclosure_steps_guarded(
+        element: &UIAElement,
+        want_expanded: bool,
+        policy: InteractionPolicy,
+        deadline: Deadline,
+        guard: &dyn Fn() -> Result<(), AdapterError>,
+    ) -> Result<Vec<ActionStep>, AdapterError> {
         deadline.ensure_remaining()?;
+        guard()?;
         let pattern_ok =
             read_one(element, TreeProperty::ExpandCollapseAvailable).flag() == Some(true);
         let current = read_expand_state(element);
@@ -97,11 +117,15 @@ mod imp {
         } else {
             COLLAPSE_LABEL
         };
-        let mut legacy =
-            || deliver_and_observe(element, want_expanded, deadline, legacy_default_action);
+        let mut legacy = || {
+            deliver_and_observe(element, want_expanded, deadline, |element| {
+                guard()?;
+                legacy_default_action(element)
+            })
+        };
         let mut pattern = || {
             deliver_and_observe(element, want_expanded, deadline, |element| {
-                pattern_expand_collapse(element, want_expanded, label)
+                pattern_expand_collapse(element, want_expanded, label, guard)
             })
         };
         agent_desktop_core::execute_chain(
@@ -109,7 +133,7 @@ mod imp {
                 rung(
                     label,
                     pattern_ok && current != Some(ExpandKind::LeafNode),
-                    !tree_item,
+                    want_expanded && !tree_item,
                     &mut pattern,
                 ),
                 rung(LEGACY_LABEL, flips, false, &mut legacy),
@@ -148,10 +172,13 @@ mod imp {
         element: &UIAElement,
         want_expanded: bool,
         label: &'static str,
+        guard: &dyn Fn() -> Result<(), AdapterError>,
     ) -> Result<bool, AdapterError> {
         let operation = if want_expanded { "Expand" } else { "Collapse" };
+        guard()?;
         match element.0.get_pattern::<UIExpandCollapsePattern>() {
             Ok(pattern) => {
+                guard()?;
                 let result = if want_expanded {
                     pattern.expand()
                 } else {
@@ -179,6 +206,17 @@ mod imp {
     ) -> Result<Vec<ActionStep>, AdapterError> {
         Err(AdapterError::not_supported("ExpandCollapse"))
     }
+
+    pub(crate) fn collapse_with_guard(
+        _: &UIAElement,
+        _: InteractionPolicy,
+        _: Deadline,
+        _: &dyn Fn() -> Result<(), AdapterError>,
+    ) -> Result<Vec<ActionStep>, AdapterError> {
+        Err(AdapterError::not_supported("ExpandCollapse"))
+    }
 }
 
+#[cfg(target_os = "windows")]
+pub(crate) use imp::collapse_with_guard;
 pub(crate) use imp::disclosure_steps;

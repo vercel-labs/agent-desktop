@@ -18,6 +18,10 @@ pub struct ActionResult {
     pub surfaces: Vec<crate::SurfaceInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
+    /// What the effect witness saw around the action; absent when the action
+    /// has no witness or the platform could not read one.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub effect: Option<crate::actions::observed_effect::ObservedEffect>,
     #[serde(deserialize_with = "deserialize_action_disposition")]
     disposition: DeliverySemantics,
 }
@@ -49,6 +53,7 @@ impl ActionResult {
             steps: Vec::new(),
             surfaces: Vec::new(),
             details: None,
+            effect: None,
             disposition: DeliverySemantics::not_delivered(),
         }
     }
@@ -60,8 +65,14 @@ impl ActionResult {
             steps: Vec::new(),
             surfaces: Vec::new(),
             details: None,
+            effect: None,
             disposition: default_action_disposition(),
         }
+    }
+
+    pub fn with_effect(mut self, effect: crate::actions::observed_effect::ObservedEffect) -> Self {
+        self.effect = Some(effect);
+        self
     }
 
     pub fn with_state(mut self, state: ElementState) -> Self {

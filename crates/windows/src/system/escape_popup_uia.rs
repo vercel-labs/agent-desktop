@@ -1,33 +1,25 @@
 //! The UI Automation half of `escape_popup`: the bounded popup search, the collapse and the entry point.
 
 use super::{
-    MAX_POPUP_ROOTS, PopupScan, PopupScope, PopupTree, is_plain_escape, opens_a_popup,
-    refused_for_focus, scan_popup_owners, scan_timeout_error, verify_process_handle,
-    verify_process_target, verify_window_target,
+    MAX_POPUP_ROOTS, PopupScan, PopupTree, opens_a_popup, scan_popup_owners, scan_timeout_error,
+    verify_process_handle, verify_process_target, verify_window_target,
 };
 use agent_desktop_core::{
-    Action, ActionResult, AdapterError, Deadline, DeliveryOutcome, DeliverySemantics, ErrorCode,
-    InteractionPolicy, KeyCombo, ProcessIdentity, WindowInfo,
+    Action, ActionResult, AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionPolicy,
+    KeyCombo, ProcessIdentity, WindowInfo,
 };
-use std::time::Duration;
 use uiautomation::core::{UICacheRequest, UITreeWalker};
-use uiautomation::patterns::UIExpandCollapsePattern;
 
-use crate::actions::chain::{offered, poll_until, rung};
-use crate::actions::mutation::{classify_success, classify_write};
+use crate::actions::disclosure::collapse_with_guard;
 use crate::system::window::window_enum::{WindowHandle, enumerate_top_level};
 use crate::system::window::window_identity::live_window_owner;
 use crate::tree::automation::{automation_client, root_from_hwnd};
 use crate::tree::element::UIAElement;
 use crate::tree::properties::property_ids::TreeProperty;
-use crate::tree::properties::{read_cached, read_one};
+use crate::tree::properties::read_cached;
 use crate::tree::walk::cache::build_walk_cache_request;
 
-const COLLAPSE_LABEL: &str = "ExpandCollapsePattern.Collapse";
-const COLLAPSE_SUGGESTION: &str = "Close the popup with the key while its window is in front.";
-const VERIFY_TIMEOUT: Duration = Duration::from_millis(600);
 const EXPANDED: i32 = 1;
-const COLLAPSED: i32 = 0;
 const POPUP_SCAN_PROPERTIES: [TreeProperty; 2] =
     [TreeProperty::ControlType, TreeProperty::ExpandCollapseState];
 
@@ -121,13 +113,6 @@ fn deepest_popup_owner(
     }
 }
 
-fn verify_popup_target(scope: PopupScope<'_>, handle: WindowHandle) -> Result<(), AdapterError> {
-    match scope {
-        PopupScope::Window(window) => verify_window_target(window).map(|_| ()),
-        PopupScope::Process(process) => verify_process_handle(process, handle),
-    }
-}
-
 fn window_roots(window: &WindowInfo, deadline: Deadline) -> Result<Vec<PopupNode>, AdapterError> {
     if deadline.is_expired() {
         return Err(scan_timeout_error(deadline));
@@ -182,74 +167,35 @@ fn process_roots(
     Ok(roots)
 }
 
-fn collapse(owner: &PopupNode, scope: PopupScope<'_>) -> Result<bool, AdapterError> {
-    verify_popup_target(scope, owner.handle)?;
-    match owner.element.0.get_pattern::<UIExpandCollapsePattern>() {
-        Ok(pattern) => {
-            verify_popup_target(scope, owner.handle)?;
-            match pattern.collapse() {
-                Ok(()) => classify_success(),
-                Err(error) => classify_write("Collapse", COLLAPSE_LABEL, &error),
-            }
-        }
-        Err(error) => classify_write("get_pattern", COLLAPSE_LABEL, &error),
-    }
-}
-
-fn close_popup(
-    owner: &PopupNode,
-    scope: PopupScope<'_>,
-    combo: &KeyCombo,
+/// Collapses the deepest open popup of the window (or of the process), and
+/// reads its state back.
+pub(crate) fn close_transient_surface(
+    process: &ProcessIdentity,
+    window: Option<&WindowInfo>,
     policy: InteractionPolicy,
     deadline: Deadline,
-) -> Result<ActionResult, AdapterError> {
+) -> Result<Option<ActionResult>, AdapterError> {
+    let roots = match window {
+        Some(window) => window_roots(window, deadline)?,
+        None => process_roots(process, deadline)?,
+    };
+    let Some(owner) = deepest_popup_owner(roots, deadline)? else {
+        return Ok(None);
+    };
     if deadline.is_expired() {
         return Err(scan_timeout_error(deadline));
     }
-    verify_popup_target(scope, owner.handle)?;
-    let mut run = || {
-        if !collapse(owner, scope)? {
-            return Ok(DeliveryOutcome::NotDelivered);
-        }
-        let closed = poll_until(deadline, VERIFY_TIMEOUT, || {
-            read_one(&owner.element, TreeProperty::ExpandCollapseState).number() == Some(COLLAPSED)
-        });
-        Ok(DeliveryOutcome::from_delivery(true, closed))
+    let verify = || match window {
+        Some(window) => verify_window_target(window).map(|_| ()),
+        None => verify_process_handle(process, owner.handle),
     };
-    let steps = agent_desktop_core::execute_chain(
-        &mut offered([rung(COLLAPSE_LABEL, true, false, &mut run)]),
-        policy,
-        deadline,
-        COLLAPSE_SUGGESTION,
-    )?;
-    Ok(ActionResult::from_execution(
-        &Action::PressKey(combo.clone()),
+    let steps = collapse_with_guard(&owner.element, policy, deadline, &verify)?;
+    let escape = KeyCombo {
+        key: "escape".to_owned(),
+        modifiers: Vec::new(),
+    };
+    Ok(Some(ActionResult::from_execution(
+        &Action::PressKey(escape),
         steps,
-    ))
-}
-
-/// The key route's result, or, when it refused a plain Escape for focus and
-/// the scope shows an open popup, the collapse of that popup's owner.
-pub(crate) fn after_key_route(
-    result: Result<ActionResult, AdapterError>,
-    scope: PopupScope<'_>,
-    combo: &KeyCombo,
-    policy: InteractionPolicy,
-    deadline: Deadline,
-) -> Result<ActionResult, AdapterError> {
-    let Err(refusal) = result else {
-        return result;
-    };
-    let window_scope = matches!(scope, PopupScope::Window(_));
-    if !is_plain_escape(combo) || !refused_for_focus(window_scope, &refusal) {
-        return Err(refusal);
-    }
-    let roots = match scope {
-        PopupScope::Window(window) => window_roots(window, deadline)?,
-        PopupScope::Process(process) => process_roots(process, deadline)?,
-    };
-    match deepest_popup_owner(roots, deadline)? {
-        Some(owner) => close_popup(&owner, scope, combo, policy, deadline),
-        None => Err(refusal),
-    }
+    )))
 }

@@ -29,7 +29,7 @@ pub(crate) fn focus_is_indeterminate(candidates: &[usize], decided: Option<usize
 #[path = "focus_tests.rs"]
 mod tests;
 
-pub(super) mod escape_popup;
+pub(crate) mod escape_popup;
 pub(crate) mod focus_cause;
 pub(crate) mod focus_client_view;
 pub(crate) mod focus_frame_view;

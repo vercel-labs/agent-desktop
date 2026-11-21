@@ -6,15 +6,26 @@ use crate::tree::AXElement;
 /// with nonempty bounds. `None` when the element is not a menu control or a
 /// child could not be read.
 pub(crate) fn owned_menu_open(element: &AXElement, deadline: Deadline) -> Option<bool> {
-    use crate::tree::surface_read;
-    let end = deadline;
-    let role = surface_read::string(element, "AXRole", end).ok()??;
-    if !matches!(
-        role.as_str(),
-        "AXMenuButton" | "AXPopUpButton" | "AXComboBox" | "AXMenuBarItem" | "AXMenuItem"
-    ) {
+    let role = crate::tree::surface_read::string(element, "AXRole", deadline).ok()??;
+    if !is_menu_control(&role) {
         return None;
     }
+    menu_open(element, deadline)
+}
+
+/// Whether an element of `role` owns a menu of its own.
+pub(crate) fn is_menu_control(role: &str) -> bool {
+    matches!(
+        role,
+        "AXMenuButton" | "AXPopUpButton" | "AXComboBox" | "AXMenuBarItem" | "AXMenuItem"
+    )
+}
+
+/// Whether a menu control's menu is open, `None` when a child could not be
+/// read.
+pub(crate) fn menu_open(element: &AXElement, deadline: Deadline) -> Option<bool> {
+    use crate::tree::surface_read;
+    let end = deadline;
     let mut complete = true;
     for child in surface_read::elements(element, "AXChildren", end).ok()? {
         if surface_read::string(&child, "AXRole", end).ok()?? != "AXMenu" {

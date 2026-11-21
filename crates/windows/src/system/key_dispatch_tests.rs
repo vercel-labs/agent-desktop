@@ -133,3 +133,14 @@ mod delivery_gates {
         assert!(sink::recorded().is_empty());
     }
 }
+
+#[test]
+fn the_process_focus_refusals_name_their_check_for_core() {
+    let pid = ProcessId::new(4);
+    for refusal in [background_fail_closed(pid), focus_lost_before_delivery(pid)] {
+        let details = refusal.details.expect("a refusal carries details");
+        assert_eq!(details["check"], "process_focus");
+        assert_eq!(details["physical_delivery_started"], false);
+        assert_eq!(refusal.disposition, DeliverySemantics::not_delivered());
+    }
+}

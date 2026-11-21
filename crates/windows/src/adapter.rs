@@ -158,6 +158,14 @@ impl ObservationOps for WindowsAdapter {
         crate::tree::live_read::live_element(&read)
     }
 
+    fn read_effect_witness(
+        &self,
+        handle: &NativeHandle,
+        deadline: Deadline,
+    ) -> Result<agent_desktop_core::EffectWitness, AdapterError> {
+        crate::tree::effect_witness::read_effect_witness(handle, deadline)
+    }
+
     fn get_element_bounds(
         &self,
         handle: &NativeHandle,

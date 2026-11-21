@@ -44,7 +44,7 @@ permission prompts or a visible setup guide.
    take a skeleton and drill the relevant container with `--root`.
    Omit `-i` when you need static labels to distinguish rows.
 2. Act on a qualified ref from that observation. Prefer a semantic ref action
-   over coordinates, and `check` or `uncheck` over a state-reversing `toggle`.
+   over coordinates, and `check` or `uncheck` over `toggle` or `click`: they verify the state.
 3. Verify the requested outcome with an independent read: a fresh snapshot
    or a condition-based `wait`. Wait with `wait`, never a fixed sleep
    or a duration-only wait. A field value alone does not prove an application
@@ -181,10 +181,10 @@ Cloning a configured macOS VM has been tested end to end. Installing the first V
 Action results carry `data.disposition`; errors carry `error.disposition`.
 Only `not_delivered` permits a safe retry. `delivered_verified` confirms the
 reported readback, not the whole task. `delivered_unverified`, `delivery_uncertain`,
-and `unknown` do not prove that nothing happened. If retry is unsafe, unknown,
-or missing, read live state before deciding on a new action; do not repeat or
-substitute the original action blindly. Use `details.post_state` when present.
-An action or window command can land even when `ok` is false.
+and `unknown` do not prove that nothing happened. A click or select carries `effect`:
+`observed` verifies it; `indeterminate` (a change the app can make by itself, see
+`details.witness_diff`) and `not_observed` do not prove that nothing happened. If retry
+is unsafe or missing, read live state first and never repeat an action blindly; use `details.post_state` when present. An action can land even when `ok` is false.
 
 Held input fails closed: `key-down`, `key-up`, `mouse-down`, and `mouse-up` cannot
 hold input across CLI calls until daemon-owned release exists. They return

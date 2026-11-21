@@ -205,6 +205,18 @@ pub trait ObservationOps: Send + Sync {
         Err(AdapterError::not_supported("get_live_element"))
     }
 
+    /// Reads the effect witness of `handle`: its own state, the application's
+    /// focused element and its window, as an action can change them. Read
+    /// before and after a click or a select; a field the platform cannot read
+    /// is `None`.
+    fn read_effect_witness(
+        &self,
+        _handle: &NativeHandle,
+        _deadline: Deadline,
+    ) -> Result<crate::EffectWitness, AdapterError> {
+        Err(AdapterError::not_supported("read_effect_witness"))
+    }
+
     fn get_element_bounds(
         &self,
         _handle: &NativeHandle,

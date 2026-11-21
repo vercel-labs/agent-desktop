@@ -12,6 +12,7 @@ pub(crate) mod cell_write_failure;
 pub(crate) mod chain;
 pub(crate) mod delivery_tracker;
 pub(crate) mod dispatch;
+pub(crate) mod effect_witness;
 pub(crate) mod extras;
 mod native_menu;
 pub(crate) mod owned_menu;

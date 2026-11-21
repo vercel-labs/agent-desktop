@@ -21,7 +21,7 @@ pub(crate) fn classify_result(
 fn classify(operation: &str, api: &str, error: i32) -> Result<bool, AdapterError> {
     let signal = signal_or_error(operation, api, error)?;
     if signal == PerformSignal::Uninformative && api == PERFORM_API {
-        return settle_uninformative_perform(operation, error, false)
+        return settle_uninformative_perform(operation, error, None)
             .map(|outcome| matches!(outcome, DeliveryOutcome::Delivered(_)));
     }
     Ok(signal == PerformSignal::ReportedDelivered)
@@ -122,10 +122,10 @@ pub(crate) fn classify_perform(operation: &str, error: i32) -> Result<PerformSig
 pub(crate) fn settle_uninformative_perform(
     operation: &str,
     error: i32,
-    observed_effect: bool,
+    reaction: Option<DeliveryObservation>,
 ) -> Result<DeliveryOutcome, AdapterError> {
-    if observed_effect {
-        return Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified));
+    if let Some(observation) = reaction {
+        return Ok(DeliveryOutcome::Delivered(observation));
     }
     Err(AdapterError::new(
         ErrorCode::ActionFailed,
@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn uninformative_perform_without_observed_effect_stops_fallback() {
         let error =
-            super::settle_uninformative_perform("AXOpen", kAXErrorAttributeUnsupported, false)
+            super::settle_uninformative_perform("AXOpen", kAXErrorAttributeUnsupported, None)
                 .expect_err("missing or unchanged observations do not prove non-delivery");
         assert_eq!(
             error.disposition.delivery(),
@@ -167,9 +167,13 @@ mod tests {
         );
         assert_eq!(error.disposition.retry(), RetryDisposition::Unsafe);
         assert_eq!(
-            super::settle_uninformative_perform("AXOpen", kAXErrorAttributeUnsupported, true)
-                .unwrap(),
-            DeliveryOutcome::Delivered(DeliveryObservation::Verified),
+            super::settle_uninformative_perform(
+                "AXOpen",
+                kAXErrorAttributeUnsupported,
+                Some(DeliveryObservation::Unverified)
+            )
+            .unwrap(),
+            DeliveryOutcome::Delivered(DeliveryObservation::Unverified),
         );
     }
 
