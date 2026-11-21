@@ -15,6 +15,18 @@ pub(crate) fn show_menu_by_any_route(
     element: &AXElement,
     deadline: Deadline,
 ) -> Result<DeliveryOutcome, AdapterError> {
+    show_menu_after(|| Ok(DeliveryOutcome::NotDelivered), element, deadline)
+}
+
+/// The same search with `first` tried before the accessibility routes, as a
+/// pointer click is when the pointer is allowed. A `first` that was sent and
+/// showed no menu is one more unverified send: the accessibility routes run
+/// after it unless the menu has appeared by then.
+pub(crate) fn show_menu_after(
+    mut first: impl FnMut() -> Result<DeliveryOutcome, AdapterError>,
+    element: &AXElement,
+    deadline: Deadline,
+) -> Result<DeliveryOutcome, AdapterError> {
     let pid = crate::system::app::app_ops::pid_from_element(element, deadline);
     let mut direct = route(show_menu_on_element, element, deadline);
     let mut after_select = route(select_then_show_menu, element, deadline);
@@ -23,6 +35,7 @@ pub(crate) fn show_menu_by_any_route(
     let mut ancestors = route(show_menu_on_ancestors, element, deadline);
     first_menu_outcome(
         &mut [
+            &mut first,
             &mut direct,
             &mut after_select,
             &mut selected_items,

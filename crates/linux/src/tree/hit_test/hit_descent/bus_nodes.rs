@@ -4,9 +4,10 @@ use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 
 use super::{Described, Hit, NodeSource};
 use crate::system::{ACCESSIBLE_INTERFACE, PROPERTIES_INTERFACE, within};
+use crate::tree::element::child_view::{is_child_at_own_index, presented_children};
 use crate::tree::properties::node_read::call;
 use crate::tree::surfaces::window_extents::{WINDOW_COORDINATES, read_extents_async};
-use crate::tree::{AtspiElement, COMPONENT_INTERFACE, Extents, list_children};
+use crate::tree::{AtspiElement, COMPONENT_INTERFACE, Extents};
 
 const NULL_PATH: &str = "/org/a11y/atspi/null";
 
@@ -114,22 +115,27 @@ impl NodeSource for BusNodes<'_> {
             let Hit::Object(parent) = named(bus, path.to_string(), node) else {
                 return Ok(None);
             };
-            let listed = list_children(self.connection, &parent).await;
-            Ok(listed.ok().and_then(|children| {
-                children
-                    .iter()
-                    .any(|(bus, path)| bus == node.bus_name() && path == node.path())
-                    .then_some(parent)
-            }))
+            let Ok((children, whole)) = presented_children(self.connection, &parent).await else {
+                return Ok(None);
+            };
+            let listed = children
+                .iter()
+                .any(|(bus, path)| bus == node.bus_name() && path == node.path());
+            let proven = listed
+                || (!whole
+                    && is_child_at_own_index(self.connection, &parent, node)
+                        .await
+                        .unwrap_or(false));
+            Ok(proven.then_some(parent))
         })
     }
 
     fn children(&mut self, node: &AtspiElement) -> Result<Option<Vec<AtspiElement>>, AdapterError> {
         within(self.deadline, async {
-            Ok(list_children(self.connection, node)
+            Ok(presented_children(self.connection, node)
                 .await
                 .ok()
-                .map(|children| {
+                .map(|(children, _)| {
                     children
                         .into_iter()
                         .map(|(bus, path)| AtspiElement::new(bus, path, node.pid()))

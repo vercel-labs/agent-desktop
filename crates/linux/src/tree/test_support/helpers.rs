@@ -5,6 +5,7 @@ use agent_desktop_core::{
     LocatorRefEvidence, NodeDescriptor, ProcessId, Rect, RefEntry,
 };
 
+use crate::tree::properties::grid_read::GridRead;
 use crate::tree::{
     AtspiElement, Extents, Field, NodeProperties, NodeTraits, ObservedRead, RawNode,
 };
@@ -63,6 +64,7 @@ pub(crate) fn read_of(role: u32, name: &str, actions: &[&str]) -> ObservedRead {
             description: Field::Present(String::new()),
             child_count: Field::Present(0),
             accessible_id: Field::Present(String::new()),
+            grid: GridRead::default(),
         },
         traits: NodeTraits {
             role: Field::Present(role),

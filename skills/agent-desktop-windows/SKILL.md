@@ -42,6 +42,9 @@ Use `$env:NAME = 'value'` for environment variables.
 - A ref must be unique in its window, or inside its nearest unique ancestor (a
   cell inside its row), at capture and resolution. A root drill cannot make
   identical twins unique. Choose a distinct control.
+- A grid reports `row_count` and `column_count`. A row is a record: find it by its own
+  name, and its cells through it. `agent-desktop click` on a grid cell that lists `Click`
+  selects the row that holds it. A cell carries no grid position.
 - `agent-desktop launch` takes an absolute executable path or a bare program name in the
   Windows or System32 directory, not an arbitrary display name or a PATH search.
   Without `--activate` the process starts with a show-window hint that asks for no

@@ -80,14 +80,26 @@ mod imp {
         let outside_visible_area =
             crate::tree::minimized::owning_window_minimized(element, deadline).unwrap_or(false)
                 || crate::tree::minimized::outside_scroll_viewports(element, deadline)?;
-        read_live_element_core(
+        let mut read = read_live_element_core(
             element,
             deadline,
             outside_visible_area,
             corroborate_verified_process,
             |element| read_live_bounded(element, deadline),
             |element| read_label(element, false),
-        )
+        )?;
+        let actions = std::mem::replace(
+            &mut read.evidence.ref_evidence.available_actions,
+            agent_desktop_core::LocatorField::Unknown,
+        );
+        read.evidence.ref_evidence.available_actions =
+            crate::actions::click_container::advertise_container_click(
+                element,
+                &read.properties,
+                &read.evidence.role,
+                actions,
+            );
+        Ok(read)
     }
 
     /// The read's body, generic over how process-instance corroboration and

@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 
 use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
+use futures_util::future::join3;
 use zbus::Connection;
 
 use super::landing::Landing;
 use crate::system::within;
-use crate::tree::properties::node_read::read_node_for;
+use crate::tree::element::child_view::{read_interfaces, read_level_children};
+use crate::tree::properties::liveness::Liveness;
+use crate::tree::properties::node_read::{CHILD_COUNT, count_value, get_one, read_node_for};
 use crate::tree::properties::read_purpose::ReadPurpose;
 use crate::tree::properties::toolkit_trust::read_web_family;
 use crate::tree::walk::level::Level;
@@ -25,14 +28,14 @@ pub(crate) fn descend<K>(
     root: K,
     path: &[usize],
     deadline: Deadline,
-    mut read: impl FnMut(&K) -> Result<Level<K>, AdapterError>,
+    mut read: impl FnMut(&K, usize) -> Result<Level<K>, AdapterError>,
 ) -> Result<Landing<K>, AdapterError> {
     let mut current = root;
     for &index in path {
         if deadline.is_expired() {
             return Err(deadline.timeout_error());
         }
-        let level = match read(&current) {
+        let level = match read(&current, index) {
             Ok(level) => level,
             Err(error)
                 if matches!(
@@ -47,7 +50,7 @@ pub(crate) fn descend<K>(
         if level.children_unread || (level.children.is_empty() && level.empty_means_unread) {
             return Ok(Landing::unread());
         }
-        match level.children.into_iter().nth(index) {
+        match level.child_at(index) {
             Some(next) => current = next,
             None => return Ok(Landing::nowhere()),
         }
@@ -69,6 +72,12 @@ pub(crate) fn level_of(
         children: child_elements(node, pids),
         children_unread: node.children.is_failed(),
         empty_means_unread: web_process,
+        positions: node
+            .properties
+            .grid
+            .slots
+            .as_ref()
+            .map(|slots| slots.positions.clone()),
     }
 }
 
@@ -94,6 +103,7 @@ impl Levels {
     pub(crate) fn read(
         &mut self,
         element: &AtspiElement,
+        toward: Option<usize>,
     ) -> Result<Level<AtspiElement>, AdapterError> {
         if element.pid() == UNKNOWN_PID {
             return Err(AdapterError::new(ErrorCode::ElementNotFound, UNIDENTIFIED));
@@ -109,7 +119,23 @@ impl Levels {
         };
         let (connection, pids) = (&self.connection, &mut self.pids);
         within(self.deadline, async {
-            let (node, _) = read_node_for(connection, element, ReadPurpose::Shape).await?;
+            let (read, count, interfaces) = join3(
+                read_node_for(connection, element, ReadPurpose::Shape),
+                get_one(
+                    connection,
+                    element,
+                    CHILD_COUNT,
+                    count_value,
+                    Liveness::Alive,
+                ),
+                read_interfaces(connection, element, Liveness::Alive),
+            )
+            .await;
+            let (mut node, liveness) = read?;
+            node.traits.interfaces = interfaces?;
+            let view = read_level_children(connection, element, &count?, toward, liveness).await?;
+            node.children = view.children;
+            node.properties.grid.slots = view.slots;
             learn_pids(connection, pids, std::iter::once(&node)).await?;
             Ok(level_of(&node, pids, web_process))
         })

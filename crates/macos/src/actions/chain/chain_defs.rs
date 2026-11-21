@@ -7,7 +7,7 @@ use crate::actions::chain::{
     ChainContext, activate_descendant, chain_disclosure_steps, chain_menu_steps, chain_value_write,
     press_selection,
 };
-use crate::actions::{ax_helpers, scroll_into_view, select::container_select};
+use crate::actions::{ax_helpers, cell_editor, scroll_into_view, select::container_select};
 use crate::tree::AXElement;
 
 const PHYSICAL_CLICK: &str = "CGClick";
@@ -63,13 +63,14 @@ pub(crate) fn right_click_rungs<'a>(
     let deadline = ctx.deadline;
     vec![
         physical(PHYSICAL_CLICK, POINTER_EFFECTS, move || {
-            let pid = crate::system::app::app_ops::pid_from_element(element, deadline);
-            physical_click(element, &context, MouseButton::Right, 1)?;
-            let menu_seen = match pid {
-                Some(pid) => chain_menu_steps::wait_for_new_menu(pid, deadline),
-                None => false,
+            let click = || {
+                let pid = crate::system::app::app_ops::pid_from_element(element, deadline);
+                physical_click(element, &context, MouseButton::Right, 1)?;
+                let menu_seen =
+                    pid.is_some_and(|pid| chain_menu_steps::wait_for_new_menu(pid, deadline));
+                Ok(DeliveryOutcome::from_delivery(true, menu_seen))
             };
-            Ok(DeliveryOutcome::from_delivery(true, menu_seen))
+            chain_menu_steps::show_menu_after(click, element, deadline)
         }),
         custom(
             "show_menu",
@@ -254,6 +255,52 @@ fn value_rung<'a>(element: &'a AXElement, ctx: &ChainContext<'a>) -> ChainRung<'
             return Ok(DeliveryOutcome::NotDelivered);
         }
         chain_value_write::set_dynamic_verified(element, "AXValue", value, deadline)
+    })
+}
+
+/// The rung that goes before a value or clear chain when the target is a
+/// table cell or the editor inside one. Every other element gets none, so
+/// its chain is exactly the one above and holds no keyboard rung.
+pub(crate) fn cell_rungs<'a>(
+    target: cell_editor::CellTarget,
+    element: &'a AXElement,
+    ctx: &ChainContext<'a>,
+) -> Vec<ChainRung<'a>> {
+    match target {
+        cell_editor::CellTarget::Cell => vec![cell_write_rung(element, ctx, &[])],
+        cell_editor::CellTarget::ForegroundCell => {
+            vec![cell_write_rung(element, ctx, KEYBOARD_EFFECTS)]
+        }
+        cell_editor::CellTarget::Editor => vec![cell_editor_rung(element, ctx)],
+        cell_editor::CellTarget::Neither => Vec::new(),
+    }
+}
+
+/// The write through a cell that opens an editor when it is pressed. The
+/// text and the commit stay inside the application. `effects` is what the
+/// press does: nothing for a plain cell, and the foreground for a cell whose
+/// press shows a menu or opens a dialog.
+fn cell_write_rung<'a>(
+    element: &'a AXElement,
+    ctx: &ChainContext<'a>,
+    effects: &'static [Effect],
+) -> ChainRung<'a> {
+    let value = ctx.dynamic_value;
+    let deadline = ctx.deadline;
+    physical(cell_editor::WRITE_LABEL, effects, move || match value {
+        Some(value) => cell_editor::write(element, value, deadline),
+        None => Ok(DeliveryOutcome::NotDelivered),
+    })
+}
+
+/// The whole-text write for the editor of a table cell: key events to the
+/// process, which takes no foreground, so no effect is declared.
+fn cell_editor_rung<'a>(element: &'a AXElement, ctx: &ChainContext<'a>) -> ChainRung<'a> {
+    let value = ctx.dynamic_value;
+    let deadline = ctx.deadline;
+    physical(cell_editor::REPLACE_LABEL, &[], move || match value {
+        Some(value) => cell_editor::replace(element, value, deadline),
+        None => Ok(DeliveryOutcome::NotDelivered),
     })
 }
 

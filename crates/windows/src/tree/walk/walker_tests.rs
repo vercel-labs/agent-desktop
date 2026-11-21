@@ -337,3 +337,35 @@ fn an_edge_after_a_dropped_sibling_reports_its_prefix_as_incomplete() {
         "the cycle child is dropped and its siblings retained"
     );
 }
+
+/// An identity walk resolves role, name and description exactly as a full walk
+/// does, but its actions and states rest on properties it never read, so they
+/// are unknown. An empty claim would read as "this element has no actions".
+#[test]
+fn an_identity_walk_leaves_actions_and_states_unknown() {
+    use crate::tree::name_evidence::LabelOutcome;
+    use crate::tree::properties::ElementProperties;
+    use crate::tree::properties::property_ids::TreeProperty;
+    use crate::tree::properties::property_outcome::{PropertyOutcome, PropertyValue};
+    use agent_desktop_core::LocatorField;
+
+    let properties = ElementProperties::from_reads(vec![
+        (
+            TreeProperty::ControlType,
+            PropertyOutcome::Known(PropertyValue::Number(50000)),
+        ),
+        (
+            TreeProperty::Name,
+            PropertyOutcome::Known(PropertyValue::Text("OK".into())),
+        ),
+    ]);
+
+    let identity = walk_identity_vocabulary(&properties, &LabelOutcome::Unlabelled);
+    let full = walk_vocabulary(&properties, &LabelOutcome::Unlabelled);
+
+    assert_eq!(identity.role, LocatorField::Known("button".into()));
+    assert_eq!(identity.role, full.role);
+    assert_eq!(identity.name, full.name);
+    assert_eq!(identity.available_actions, LocatorField::Unknown);
+    assert_eq!(identity.states, LocatorField::Unknown);
+}

@@ -164,6 +164,7 @@ impl Fake {
                                 children: Vec::new(),
                                 children_unread: false,
                                 gone: true,
+                                slots: None,
                             };
                         }
                         let raw = self.raw(element);
@@ -176,6 +177,7 @@ impl Fake {
                             children,
                             children_unread: unread,
                             gone: false,
+                            slots: None,
                         }
                     })
                     .collect())
@@ -268,7 +270,11 @@ impl Source for Fake {
         }
     }
 
-    fn level(&mut self, element: &AtspiElement) -> Result<Level<AtspiElement>, AdapterError> {
+    fn level(
+        &mut self,
+        element: &AtspiElement,
+        _toward: Option<usize>,
+    ) -> Result<Level<AtspiElement>, AdapterError> {
         self.reads.levels += 1;
         if let Some(error) = self.faults.level_errors.get(element.path()) {
             return Err(error.clone());

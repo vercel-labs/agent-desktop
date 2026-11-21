@@ -5,8 +5,11 @@ use crate::actions::write::mutation::{Fault, WriteKind, WriteReply, fault_of};
 use crate::actions::write::write_call::{Call, invoke};
 use crate::system::{ACCESSIBLE_INTERFACE, within};
 use crate::tree::properties::toolkit_trust::{ToolkitKind, is_gecko, kind};
+use crate::tree::vocabulary::role_numbers::TABLE_CELL;
+use crate::tree::vocabulary::state_bits::TRANSIENT;
 use crate::tree::{AtspiElement, list_children};
 
+const TABLE_INTERFACE: &str = "org.a11y.atspi.Table";
 pub(in crate::actions) const UNPROVEN_INDEX_KIND: &str = "selection_index_unproven";
 
 fn supports_indices(toolkit: &crate::system::process::toolkit_id::ToolkitId) -> bool {
@@ -23,9 +26,29 @@ pub(crate) trait IndexLookup {
     fn index(&self, item: &AtspiElement) -> Result<i32, AdapterError>;
     fn child(&self, index: i32) -> Result<(String, String), AdapterError>;
     fn select(&self, index: i32) -> Result<WriteReply, AdapterError>;
+
+    /// Whether the child found at the index of `item` is `item`. An object
+    /// the toolkit marks transient may be created again at another address,
+    /// so for it the child at its index is the item.
+    fn names_item(&self, item: &AtspiElement, child: &(String, String)) -> bool {
+        child.0 == item.bus_name() && child.1 == item.path()
+    }
 }
 
 impl Target<'_> {
+    /// Whether the container is a table: the children of a table are its
+    /// cells, and its `Selection` indexes them as the `Table` interface does,
+    /// so the index of a cell in its parent is the index `SelectChild` takes.
+    fn indexes_cells(&self) -> bool {
+        self.view()
+            .ok()
+            .and_then(|view| {
+                view.interfaces()
+                    .map(|names| names.iter().any(|name| name == TABLE_INTERFACE))
+            })
+            .unwrap_or(false)
+    }
+
     fn native_child_exists(&self, index: i32) -> Result<bool, AdapterError> {
         let connection = self.bus.get(self.deadline)?;
         let element = self.element;
@@ -62,13 +85,25 @@ impl IndexLookup for Target<'_> {
         )
     }
 
+    fn names_item(&self, item: &AtspiElement, child: &(String, String)) -> bool {
+        (child.0 == item.bus_name() && child.1 == item.path())
+            || crate::tree::capabilities::action_read::read_node_view(
+                self.bus,
+                &crate::actions::select::handle_of(item),
+                self.deadline,
+            )
+            .is_ok_and(|view| {
+                view.role() == Some(TABLE_CELL) && view.state(TRANSIENT) == Some(true)
+            })
+    }
+
     fn accessible_indices(&self) -> bool {
         let toolkit = crate::tree::live_read::live_offscreen::toolkit_of(
             self.bus,
             self.element,
             self.deadline,
         );
-        supports_indices(&toolkit)
+        supports_indices(&toolkit) || self.indexes_cells()
     }
 
     fn counted_indices(&self) -> Result<bool, AdapterError> {
@@ -184,7 +219,7 @@ fn revalidated(lookup: &impl IndexLookup, item: &AtspiElement) -> Result<i32, Ad
     let index = lookup.index(item)?;
     if index >= 0 {
         let child = lookup.child(index)?;
-        if child.0 == item.bus_name() && child.1 == item.path() {
+        if lookup.names_item(item, &child) {
             return Ok(index);
         }
     }
@@ -306,5 +341,38 @@ mod tests {
         let error = write(&agreed, &item).unwrap_err();
         assert_eq!(error.details.unwrap()["kind"], UNPROVEN_INDEX_KIND);
         assert_eq!(agreed.writes.get(), 0);
+    }
+
+    struct Cells {
+        transient: bool,
+    }
+
+    impl IndexLookup for Cells {
+        fn select(&self, _: i32) -> Result<WriteReply, AdapterError> {
+            Ok(WriteReply::Done)
+        }
+        fn accessible_indices(&self) -> bool {
+            true
+        }
+        fn counted_indices(&self) -> Result<bool, AdapterError> {
+            Ok(true)
+        }
+        fn index(&self, _: &AtspiElement) -> Result<i32, AdapterError> {
+            Ok(98_305)
+        }
+        fn child(&self, _: i32) -> Result<(String, String), AdapterError> {
+            Ok((":1.2".into(), "/recreated".into()))
+        }
+        fn names_item(&self, item: &AtspiElement, child: &(String, String)) -> bool {
+            self.transient || (child.0 == item.bus_name() && child.1 == item.path())
+        }
+    }
+
+    #[test]
+    fn a_transient_cell_recreated_at_another_address_is_still_the_child_at_its_index() {
+        let item = AtspiElement::new(":1.2", "/original", 7);
+        assert_eq!(resolve(&Cells { transient: true }, &item).unwrap(), 98_305);
+        let error = resolve(&Cells { transient: false }, &item).unwrap_err();
+        assert_eq!(error.code, ErrorCode::StaleRef);
     }
 }

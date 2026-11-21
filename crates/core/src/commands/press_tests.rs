@@ -209,6 +209,11 @@ fn global_press_uses_only_caller_authorized_policy() {
     };
     assert_eq!(error.code, crate::ErrorCode::PolicyDenied);
     assert_eq!(*adapter.global_policy.lock().unwrap(), None);
+    let suggestion = error.suggestion.as_deref().unwrap_or_default();
+    assert!(
+        suggestion.starts_with("Name the target with --app"),
+        "the refusal must name the background route first, got: {suggestion}"
+    );
 
     execute(
         args("a", false),

@@ -356,3 +356,13 @@ fn the_walk_statistics_reach_the_observation() {
 
 #[path = "projection_retained_tests.rs"]
 mod retained_tests;
+
+#[test]
+fn a_transient_object_keeps_no_element_token() {
+    use crate::tree::test_support::helpers::{read_of, words};
+    use crate::tree::vocabulary::state_bits::{SHOWING, TRANSIENT};
+    let mut read = read_of(39, "cell", &[]);
+    assert!(!super::is_transient(&read.node));
+    read.node.traits.states = Field::Present(words(&[SHOWING, TRANSIENT]));
+    assert!(super::is_transient(&read.node));
+}

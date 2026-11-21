@@ -16,6 +16,8 @@ def identify(state_root, data):
                 (state_root / "snapshots" / snapshot_id / "refmap.json").read_text())["inner"]
         entry = maps[snapshot_id]["@" + local]
         node["_identity"] = entry["source_window_id"], tuple(entry.get("path", ()))
+        retained = str(entry.get("retained_object") or "")
+        node["_token"] = retained.startswith("token:") and retained != "token:"
     return data
 
 

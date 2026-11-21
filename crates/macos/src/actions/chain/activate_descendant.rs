@@ -64,7 +64,7 @@ mod imp {
 
         super::activate_candidates(
             &children,
-            |child| crate::actions::background_effect::descendant_press_disturbs(child, deadline),
+            |child| crate::actions::background_effect::press_disturbs(child, deadline),
             |child, action| {
                 crate::actions::ax_helpers::perform_observed_action(child, action, deadline)
             },

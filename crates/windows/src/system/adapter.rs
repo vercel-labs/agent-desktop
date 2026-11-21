@@ -195,16 +195,30 @@ impl SystemOps for WindowsAdapter {
     }
 
     /// Verified termination: `Ok(())` only after the process is observed gone
-    /// (A21-3). Graceful posts `WM_CLOSE`; force calls `TerminateProcess`.
+    /// (A21-3). Graceful posts `WM_CLOSE`; force calls `TerminateProcess`. A
+    /// headless close gives the foreground back to the window that had it
+    /// when a window of the closing application took it, as a save prompt can.
+    /// The foreground is left alone when the closing application had it
+    /// already, and when its process is no longer the one that was closed.
     fn close_app(
         &self,
         app: &AppInfo,
         force: bool,
         lease: &InteractionLease,
-        _policy: agent_desktop_core::InteractionPolicy,
+        policy: agent_desktop_core::InteractionPolicy,
     ) -> Result<OperationReport, AdapterError> {
+        let prior = (!policy.allow_focus_steal)
+            .then(crate::system::launch_focus::read_foreground)
+            .flatten()
+            .filter(|prior| prior.pid != app.pid.get());
         let dispatched = crate::system::close::close_app_impl(app, force, lease.deadline())
             .map(|outcome| outcome == CloseOutcome::Exited);
+        let still_running = app.process_instance.as_deref().is_some_and(|instance| {
+            crate::system::process_identity::matches_instance(app.pid, instance).unwrap_or(false)
+        });
+        if let Some(prior) = prior.filter(|_| still_running) {
+            crate::system::launch_focus::return_if_taken(prior, app.pid, lease);
+        }
         OperationReport::from_close_dispatch(app, dispatched)
     }
 

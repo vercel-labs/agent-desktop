@@ -1,5 +1,6 @@
 pub(crate) mod chain;
 pub(crate) mod click;
+pub(crate) mod click_container;
 pub(crate) mod disclosure;
 pub(crate) mod dispatch;
 pub(crate) mod envelope_parity;

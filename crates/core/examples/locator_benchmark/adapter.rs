@@ -111,7 +111,8 @@ fn identifier_matches(
         }
         IdentifierKind::AutomationId
         | IdentifierKind::RuntimeId
-        | IdentifierKind::AtspiObjectPath => false,
+        | IdentifierKind::AtspiObjectPath
+        | IdentifierKind::GridCell => false,
     }
 }
 

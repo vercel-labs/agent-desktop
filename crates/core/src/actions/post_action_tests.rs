@@ -204,7 +204,6 @@ fn native_errors_keep_postcondition_evidence_without_repeating_delivery() {
 #[test]
 fn post_read_errors_preserve_cause_codes_details_and_recovery_hints() {
     for code in [
-        ErrorCode::StaleRef,
         ErrorCode::AppUnresponsive,
         ErrorCode::Timeout,
         ErrorCode::PermDenied,
@@ -364,4 +363,33 @@ fn clear_that_leaves_a_newline_is_not_verified() {
     let error = execute(&adapter, Action::Clear).unwrap_err();
     assert_eq!(error.code, ErrorCode::ActionFailed);
     assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
+}
+
+#[test]
+fn an_element_gone_after_a_delivered_action_does_not_suggest_a_retry() {
+    let result = crate::ActionResult::delivered_unverified("set-value");
+    let read_failure = crate::AdapterError::stale_ref_because("Element became invalid")
+        .with_suggestion("Run 'snapshot' to refresh, then retry with the updated ref.");
+
+    let error = super::verification_error(&result, None, read_failure);
+
+    assert_eq!(
+        error.disposition,
+        crate::DeliverySemantics::delivered_unverified()
+    );
+    let suggestion = error.suggestion.unwrap();
+    assert!(suggestion.contains("Do not repeat the action"));
+    assert!(suggestion.contains("snapshot --surface focused"));
+}
+
+#[test]
+fn an_element_gone_with_nothing_delivered_keeps_its_own_suggestion() {
+    let result = crate::ActionResult::satisfied_without_delivery("set-value");
+    let read_failure = crate::AdapterError::stale_ref_because("Element became invalid")
+        .with_suggestion("Run 'snapshot' to refresh, then retry with the updated ref.");
+
+    let error = super::verification_error(&result, None, read_failure);
+
+    assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());
+    assert!(error.suggestion.is_some_and(|text| text.contains("retry")));
 }

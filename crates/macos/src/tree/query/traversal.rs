@@ -150,6 +150,7 @@ impl LocatorTraversal {
             self.context.window_bounds = crate::tree::element_bounds::clipped_viewport(
                 original_viewport,
                 read.attrs.role.as_deref().unwrap_or(""),
+                read.attrs.subrole.as_deref(),
                 read.attrs.bounds,
             );
             let result = self.visit_children(read.child_read, (child_logical_depth, raw_depth));

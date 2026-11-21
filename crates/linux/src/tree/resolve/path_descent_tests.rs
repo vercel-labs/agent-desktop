@@ -17,12 +17,16 @@ fn deadline() -> Deadline {
     Deadline::after(5_000).expect("a five second deadline builds")
 }
 
-fn reader(tree: &Tree, web: bool) -> impl FnMut(&u32) -> Result<Level<u32>, AdapterError> + '_ {
-    move |key| {
+fn reader(
+    tree: &Tree,
+    web: bool,
+) -> impl FnMut(&u32, usize) -> Result<Level<u32>, AdapterError> + '_ {
+    move |key, _| {
         Ok(Level {
             children: tree.get(key).cloned().unwrap_or_default(),
             children_unread: false,
             empty_means_unread: web,
+            positions: None,
         })
     }
 }
@@ -80,11 +84,12 @@ fn a_childless_node_of_a_web_engine_is_unread_and_otherwise_lands_nowhere() {
 
 #[test]
 fn a_child_list_that_could_not_be_read_is_unread() {
-    let landing = descend(0, &[0], deadline(), |_| {
+    let landing = descend(0, &[0], deadline(), |_, _| {
         Ok(Level {
             children: Vec::new(),
             children_unread: true,
             empty_means_unread: false,
+            positions: None,
         })
     })
     .expect("descends");
@@ -99,7 +104,7 @@ fn a_child_list_that_could_not_be_read_is_unread() {
 
 #[test]
 fn a_failed_read_leaves_the_region_unread_and_a_departure_ends_the_descent() {
-    let failed = descend(0, &[0], deadline(), |_| {
+    let failed = descend(0, &[0], deadline(), |_, _| {
         Err::<Level<u32>, _>(AdapterError::new(ErrorCode::Internal, "read failed"))
     })
     .expect("a failed level is not an error");
@@ -111,7 +116,7 @@ fn a_failed_read_leaves_the_region_unread_and_a_departure_ends_the_descent() {
         }
     );
 
-    let vanished = descend(0, &[0], deadline(), |_| {
+    let vanished = descend(0, &[0], deadline(), |_, _| {
         Err::<Level<u32>, _>(AdapterError::new(ErrorCode::ElementNotFound, "gone"))
     })
     .expect("an object gone mid-descent is unread");
@@ -122,7 +127,7 @@ fn a_failed_read_leaves_the_region_unread_and_a_departure_ends_the_descent() {
         ErrorCode::Timeout,
         ErrorCode::StaleRef,
     ] {
-        let error = descend(0, &[0], deadline(), |_| {
+        let error = descend(0, &[0], deadline(), |_, _| {
             Err::<Level<u32>, _>(AdapterError::new(code.clone(), "left"))
         })
         .expect_err("a departure is carried up");
@@ -133,7 +138,7 @@ fn a_failed_read_leaves_the_region_unread_and_a_departure_ends_the_descent() {
 #[test]
 fn an_expired_deadline_ends_the_descent_with_the_timeout_before_any_read() {
     let expired = Deadline::after(0).expect("a zero deadline builds");
-    let error = descend(0, &[0], expired, |_| {
+    let error = descend(0, &[0], expired, |_, _| {
         panic!("no level may be read after the deadline")
     })
     .map(|_: Landing<u32>| ())
@@ -146,9 +151,9 @@ fn an_object_that_still_answers_but_is_not_in_its_parents_list_is_never_reached(
     let tree = Tree::from([(0, vec![1]), (9, vec![])]);
     let mut consulted = Vec::new();
     let mut read = reader(&tree, false);
-    let landing = descend(0, &[1], deadline(), |key| {
+    let landing = descend(0, &[1], deadline(), |key, _| {
         consulted.push(*key);
-        read(key)
+        read(key, 0)
     })
     .expect("descends");
     assert_eq!(
@@ -221,7 +226,7 @@ fn the_descent_index_is_the_position_the_walk_recorded_when_the_list_held_a_null
         .collect();
     assert_eq!(recorded, [0, 1]);
 
-    let landing = descend(frame.clone(), &[1], deadline(), |_| {
+    let landing = descend(frame.clone(), &[1], deadline(), |_, _| {
         Ok(level_of(&parent, &pids, false))
     })
     .expect("descends");
@@ -229,7 +234,7 @@ fn the_descent_index_is_the_position_the_walk_recorded_when_the_list_held_a_null
         landing.element.map(|e| e.path().to_owned()),
         Some("/second".to_owned())
     );
-    let raw_index = descend(frame, &[2], deadline(), |_| {
+    let raw_index = descend(frame, &[2], deadline(), |_, _| {
         Ok(level_of(&parent, &pids, false))
     })
     .expect("descends");

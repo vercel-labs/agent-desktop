@@ -20,8 +20,8 @@ fn attempt<S: Source>(
     let frame = source.open_window(entry)?;
     let start = base.cloned().unwrap_or(frame);
     let mut destroyed = None;
-    let landing = descend(start, &entry.scope.path, deadline, |at| {
-        let outcome = source.level(at);
+    let landing = descend(start, &entry.scope.path, deadline, |at, index| {
+        let outcome = source.level(at, Some(index));
         outcome
             .map_err(|error| settle_read_error(source, entry, at, error))
             .inspect_err(|error| {

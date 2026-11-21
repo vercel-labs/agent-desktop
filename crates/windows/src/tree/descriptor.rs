@@ -32,6 +32,8 @@ pub fn descriptors(properties: &ElementProperties) -> NodeDescriptor {
         role_description: non_empty_text(properties.get(TreeProperty::LocalizedControlType)),
         placeholder: placeholder_of(properties),
         dom_classes: Vec::new(),
+        row_count: properties.gated_index(TreeProperty::GridRowCount),
+        column_count: properties.gated_index(TreeProperty::GridColumnCount),
     }
 }
 

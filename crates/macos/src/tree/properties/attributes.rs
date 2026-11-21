@@ -174,6 +174,40 @@ mod imp {
         Some(start..start.checked_add(length)?)
     }
 
+    /// Selects `range`, in UTF-16 units, in a text element. True when the
+    /// application acknowledged the write; the caller reads the selection
+    /// back, because an acknowledged write can be ignored.
+    pub(crate) fn set_selected_text_range(
+        element: &AXElement,
+        range: std::ops::Range<usize>,
+        deadline: agent_desktop_core::Deadline,
+    ) -> bool {
+        use accessibility_sys::{AXValueCreate, kAXValueTypeCFRange};
+        use core_foundation::base::TCFType;
+        use core_foundation_sys::base::CFRange;
+
+        let (Ok(location), Ok(length)) =
+            (isize::try_from(range.start), isize::try_from(range.len()))
+        else {
+            return false;
+        };
+        let range = CFRange { location, length };
+        let value =
+            unsafe { AXValueCreate(kAXValueTypeCFRange, (&range as *const CFRange).cast()) };
+        if value.is_null() {
+            return false;
+        }
+        let value = unsafe { CFType::wrap_under_create_rule(value as _) };
+        let attribute = CFString::new("AXSelectedTextRange");
+        crate::tree::properties::ax_ipc::set_attribute_value(
+            element,
+            attribute.as_concrete_TypeRef(),
+            value.as_CFTypeRef(),
+            deadline,
+        )
+        .is_ok_and(|error| error == kAXErrorSuccess)
+    }
+
     fn ax_array_items(arr: CFArray<CFType>) -> Vec<AXElement> {
         arr.into_iter()
             .filter_map(|item| ax_value::retained_ax_element(&item))
@@ -195,4 +229,4 @@ pub(crate) use imp::{
 };
 
 #[cfg(target_os = "macos")]
-pub(crate) use imp::selected_text_range;
+pub(crate) use imp::{selected_text_range, set_selected_text_range};

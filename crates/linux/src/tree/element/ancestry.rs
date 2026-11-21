@@ -20,6 +20,7 @@ pub(crate) struct Ancestry {
     button_parent: Option<Box<AtspiElement>>,
     menu_ancestors: Vec<AtspiElement>,
     combo_owner: Option<Box<AtspiElement>>,
+    selecting_parent: bool,
     chain: Arc<[AtspiElement]>,
 }
 
@@ -38,6 +39,7 @@ impl Ancestry {
             button_parent: None,
             menu_ancestors: Vec::new(),
             combo_owner: None,
+            selecting_parent: false,
             chain: Arc::from([]),
         }
     }
@@ -62,6 +64,18 @@ impl Ancestry {
 
     pub(crate) fn in_web_document(&self) -> bool {
         self.in_web_document
+    }
+
+    /// Whether the parent the walk came through advertises the `Selection`
+    /// interface, so the node can be selected through it.
+    pub(crate) fn selecting_parent(&self) -> bool {
+        self.selecting_parent
+    }
+
+    /// The same ancestry, recording whether the parent advertises `Selection`.
+    pub(crate) fn with_selecting_parent(mut self, selecting: bool) -> Self {
+        self.selecting_parent = selecting;
+        self
     }
 
     pub(crate) fn chain(&self) -> &[AtspiElement] {

@@ -79,6 +79,7 @@ pub(crate) async fn read_evidence(
         element,
         WalkLimits::default().max_field_bytes,
         purpose,
+        WalkLimits::default().max_children,
     )
     .await?;
     let evidence = evidence_for(&read, element, connection.server_guid().as_str());

@@ -12,7 +12,7 @@ struct Fake {
     named: Vec<u8>,
     at: usize,
     scroll: ScrollCapabilities,
-    lookup: Option<u8>,
+    lookup: Option<(u8, Realization)>,
     log: Vec<String>,
 }
 
@@ -84,8 +84,13 @@ impl ItemSource for Fake {
         Ok(true)
     }
 
-    fn realize(&mut self) -> Result<Option<Self::Item>, AdapterError> {
+    fn realize(&mut self) -> Result<Option<(Self::Item, Realization)>, AdapterError> {
         self.log.push("realize".to_string());
+        if let Some((id, _)) = self.lookup
+            && !self.windows[self.at].contains(&id)
+        {
+            self.windows[self.at].push(id);
+        }
         Ok(self.lookup)
     }
 }
@@ -100,25 +105,46 @@ fn found(located: Located<u8>) -> Option<(u8, bool)> {
 #[test]
 fn a_miss_asks_the_container_before_any_scroll_and_stops_when_it_answers() {
     let mut fake = Fake::new(vec![vec![9]], vec![1]);
-    fake.lookup = Some(7);
+    fake.lookup = Some((7, Realization::Sent));
     let located = locate(&mut fake).unwrap();
     assert_eq!(found(located), Some((7, true)));
     assert_eq!(fake.log, vec!["scan", "realize"]);
 }
 
 #[test]
-fn the_container_is_not_asked_when_the_walk_already_found_the_item() {
-    let mut fake = Fake::new(vec![vec![1]], vec![1]);
-    fake.scroll.scrollable = false;
+fn an_item_the_container_already_built_is_not_reported_as_realized() {
+    let mut fake = Fake::new(vec![vec![9]], vec![1]);
+    fake.lookup = Some((7, Realization::AlreadyBuilt));
+    let located = locate(&mut fake).unwrap();
+    assert_eq!(found(located), Some((7, false)));
+}
+
+#[test]
+fn a_row_the_container_rebuilt_with_a_realize_is_reported_as_realized() {
+    let mut fake = Fake::new(vec![vec![1], vec![9]], vec![1]);
+    fake.lookup = Some((1, Realization::Sent));
+    let located = locate(&mut fake).unwrap();
+    assert_eq!(found(located), Some((1, true)));
+}
+
+#[test]
+fn a_first_scan_match_is_confirmed_by_the_container_lookup_without_any_scroll() {
+    let mut fake = Fake::new(vec![vec![1], vec![2]], vec![1]);
+    fake.lookup = Some((1, Realization::AlreadyBuilt));
     let located = locate(&mut fake).unwrap();
     assert_eq!(found(located), Some((1, false)));
-    assert!(!fake.log.iter().any(|entry| entry == "realize"));
+    assert!(!fake.log.iter().any(|entry| entry == "step"));
+}
+
+#[test]
+fn a_lookup_that_answers_with_another_item_than_the_one_seen_is_ambiguous() {
+    let mut fake = Fake::new(vec![vec![1]], vec![1, 2]);
+    fake.lookup = Some((2, Realization::Sent));
+    let error = locate(&mut fake).err().expect("two items carry the name");
+    assert_eq!(error.code, agent_desktop_core::ErrorCode::AmbiguousTarget);
     assert_eq!(
-        fake.log
-            .iter()
-            .filter(|entry| entry.as_str() == "scan")
-            .count(),
-        1
+        error.disposition,
+        agent_desktop_core::DeliverySemantics::delivered_unverified()
     );
 }
 
@@ -141,7 +167,7 @@ fn a_failed_scroll_ends_the_sweep_without_another_scan() {
     fake.scroll.scrollable = false;
     let located = locate(&mut fake).unwrap();
     assert_eq!(found(located), Some((1, false)));
-    assert_eq!(fake.log, vec!["scan", "step"]);
+    assert_eq!(fake.log, vec!["scan", "realize", "step"]);
 }
 
 #[test]
@@ -188,7 +214,7 @@ fn a_row_still_in_the_list_after_the_sweep_is_used_without_scrolling_back() {
 #[test]
 fn the_containers_own_lookup_is_tried_before_scrolling_back() {
     let mut fake = Fake::new(vec![vec![1], vec![2]], vec![1]);
-    fake.lookup = Some(1);
+    fake.lookup = Some((1, Realization::Sent));
     let located = locate(&mut fake).unwrap();
     assert_eq!(found(located), Some((1, true)));
     assert!(!fake.log.iter().any(|entry| entry.starts_with("scroll_to")));
@@ -203,12 +229,12 @@ fn a_lost_row_in_a_container_that_cannot_scroll_back_is_absent() {
 }
 
 #[test]
-fn a_lost_row_without_a_recorded_position_is_absent() {
+fn a_sighting_without_a_readable_position_is_found_without_a_scroll() {
     let mut fake = Fake::new(vec![vec![1], vec![2], vec![3]], vec![1]);
     fake.scroll.reports_position = false;
     let located = locate(&mut fake).unwrap();
-    assert!(matches!(located, Located::Absent));
-    assert!(!fake.log.iter().any(|entry| entry.starts_with("scroll_to")));
+    assert_eq!(found(located), Some((1, false)));
+    assert_eq!(fake.log, vec!["scan", "realize"]);
 }
 
 #[test]

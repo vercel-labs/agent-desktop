@@ -92,7 +92,7 @@ mod non_windows_only {
         let window = window();
         let root = UIAElement::from(CannedElement);
 
-        let outcome = walk_uia_subtree(&root, &ObservationRoot::Window(&window), budget(10))
+        let outcome = walk_uia_subtree(&root, &ObservationRoot::Window(&window), budget(10), false)
             .expect("the canned walk assembles an observation");
 
         assert!(outcome.tree.is_complete());

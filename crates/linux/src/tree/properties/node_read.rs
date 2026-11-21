@@ -1,24 +1,27 @@
 use std::collections::BTreeMap;
 
+use crate::tree::element::child_list::CHILD_LIST_LIMIT;
 use agent_desktop_core::AdapterError;
-use futures_util::future::{join, join3, join4};
+use futures_util::future::{join, join4};
 use zbus::export::serde::Serialize;
 use zbus::zvariant::{DynamicDeserialize, DynamicType, OwnedValue};
 use zbus::{Connection, Message};
 
 use super::absence::gone_error;
+use super::grid_read::{GridRead, read_grid_facts};
 use super::interface_reads::{read_actions, read_extents};
 use super::liveness::Liveness;
 use super::read_purpose::ReadPurpose;
 use crate::system::{ACCESSIBLE_INTERFACE, PROPERTIES_INTERFACE};
+use crate::tree::element::child_view::{ChildView, child_count_of, read_child_view};
 use crate::tree::{AtspiElement, ChildAddress, Field, NodeProperties, NodeTraits, RawNode};
 
 pub(crate) const COMPONENT_INTERFACE: &str = "org.a11y.atspi.Component";
 pub(in crate::tree) const NAME: &str = "Name";
 const DESCRIPTION: &str = "Description";
-const CHILD_COUNT: &str = "ChildCount";
+pub(in crate::tree) const CHILD_COUNT: &str = "ChildCount";
 const ACCESSIBLE_ID: &str = "AccessibleId";
-const NULL_PATH: &str = "/org/a11y/atspi/null";
+pub(in crate::tree) const NULL_PATH: &str = "/org/a11y/atspi/null";
 
 pub(in crate::tree) type Reply = Result<Message, zbus::Error>;
 
@@ -76,7 +79,7 @@ pub(in crate::tree) fn string_value(value: &OwnedValue) -> Field<String> {
     }
 }
 
-fn count_value(value: &OwnedValue) -> Field<i32> {
+pub(in crate::tree) fn count_value(value: &OwnedValue) -> Field<i32> {
     match value.downcast_ref::<i32>() {
         Ok(count) => Field::Present(count),
         Err(error) => Field::Failed(error.to_string()),
@@ -158,6 +161,20 @@ pub(crate) async fn read_node_for(
     element: &AtspiElement,
     purpose: ReadPurpose,
 ) -> Result<(RawNode, Liveness), AdapterError> {
+    read_node_limited(connection, element, purpose, CHILD_LIST_LIMIT).await
+}
+
+/// Reads one node like `read_node_for`, listing its children only when it
+/// reports no more than `child_limit` of them. A larger container presents
+/// the part of its children that `read_child_view` names, one object at a
+/// time, so no read ever asks the application for every child of a very
+/// large container.
+pub(crate) async fn read_node_limited(
+    connection: &Connection,
+    element: &AtspiElement,
+    purpose: ReadPurpose,
+    child_limit: usize,
+) -> Result<(RawNode, Liveness), AdapterError> {
     let accessible = |method: &'static str, needed| async move {
         if needed {
             Some(call(connection, element, ACCESSIBLE_INTERFACE, method, &()).await)
@@ -210,7 +227,7 @@ pub(crate) async fn read_node_for(
             accessible("GetRoleName", purpose.vocabulary()),
             accessible("GetState", purpose != ReadPurpose::Shape),
         ),
-        join3(
+        join(
             accessible(
                 "GetInterfaces",
                 !matches!(
@@ -219,20 +236,20 @@ pub(crate) async fn read_node_for(
                 ),
             ),
             accessible("GetAttributes", purpose.vocabulary()),
-            accessible("GetChildren", purpose.children()),
         ),
     )
     .await;
     let (properties, role, role_name, state) = first;
-    let (interfaces, attributes, child_reply) = second;
+    let (interfaces, attributes) = second;
     let role = role.map(deserialize::<u32>);
     let liveness = Liveness::of(role.as_ref().and_then(|read| read.as_ref().err()));
-    let properties = match properties {
+    let mut properties = match properties {
         Some((name, description, child_count, accessible_id)) => NodeProperties {
             name: read_property(name, string_value, liveness)?,
             description: read_property(description, string_value, liveness)?,
             child_count: read_property(child_count, count_value, liveness)?,
             accessible_id: read_property(accessible_id, string_value, liveness)?,
+            grid: GridRead::default(),
         },
         None => {
             let mut properties = NodeProperties::failed("field not requested");
@@ -244,7 +261,7 @@ pub(crate) async fn read_node_for(
         }
     };
     let interfaces = selected(interfaces, liveness)?;
-    let (extents, actions) = join(
+    let (extents, actions, view, facts) = join4(
         async {
             if purpose.bounds() {
                 read_extents(connection, element, &interfaces, liveness).await
@@ -259,8 +276,36 @@ pub(crate) async fn read_node_for(
                 Ok(Field::Failed("field not requested".to_owned()))
             }
         },
+        async {
+            if purpose.children() {
+                let count = child_count_of(connection, element, &properties, liveness).await?;
+                read_child_view(
+                    connection,
+                    element,
+                    &count,
+                    &interfaces,
+                    child_limit,
+                    liveness,
+                )
+                .await
+            } else {
+                Ok(ChildView::not_requested())
+            }
+        },
+        async {
+            if purpose.identity() {
+                read_grid_facts(connection, element, &interfaces, liveness).await
+            } else {
+                Ok(GridRead::default())
+            }
+        },
     )
     .await;
+    let view = view?;
+    properties.grid = GridRead {
+        slots: view.slots,
+        ..facts?
+    };
     let node = RawNode {
         element: element.clone(),
         properties,
@@ -276,10 +321,7 @@ pub(crate) async fn read_node_for(
         attributes: selected::<BTreeMap<String, String>>(attributes, liveness)?,
         extents: extents?,
         actions: actions?,
-        children: match child_reply {
-            Some(reply) => read_children(reply, liveness)?,
-            None => Field::Failed("field not requested".to_owned()),
-        },
+        children: view.children,
     };
     Ok((node, liveness))
 }

@@ -66,10 +66,11 @@ agent-desktop snapshot --app gnome-calculator --skeleton -i --compact
 
 The tree above omits the unnamed wrapper groups between the window and the two drill targets. The calculator's main area is `e1`, and its header bar is `e2`.
 
-`--skeleton` changes two things:
+`--skeleton` changes three things:
 
 - **Depth is clamped to 3.** The effective depth is the smaller of `--max-depth` and 3, so a bare `--skeleton` reads three levels. Depth counts semantic levels: GTK and web wrappers can make the output nest deeper than three JSON levels.
 - **Cut containers carry `children_count`.** A container at the depth boundary lists no children. It reports how many direct children it did not expand.
+- **A table or grid that reports its size is one node.** Below the root it lists no cells at any depth. It carries `row_count`, `column_count` and `children_count`. Drill at its ref to read its cells. A table whose platform reports no size is cut by depth like any other container.
 
 Interactive elements inside the first three levels get ordinary refs. `children_count` appears on any node a depth limit cuts, not only under `--skeleton`, and with `-i` agent-desktop keeps a cut container in the output even when it has no ref.
 

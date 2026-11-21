@@ -5,8 +5,8 @@ use zbus::zvariant::OwnedValue;
 use crate::system::PROPERTIES_INTERFACE;
 use crate::tree::properties::node_read::call;
 use crate::tree::vocabulary::role_numbers::{
-    COMBO_BOX, DIAL, ENTRY, LEVEL_BAR, PROGRESS_BAR, SCROLL_BAR, SLIDER, SPIN_BUTTON, TERMINAL,
-    TEXT,
+    COMBO_BOX, DIAL, ENTRY, LEVEL_BAR, PROGRESS_BAR, SCROLL_BAR, SLIDER, SPIN_BUTTON, TABLE_CELL,
+    TERMINAL, TEXT,
 };
 use crate::tree::vocabulary::state_bits::{EDITABLE, StateBits};
 use crate::tree::{AtspiElement, Field, RawNode};
@@ -22,6 +22,7 @@ pub(crate) enum ValueSource {
     Unknown,
     Numeric,
     Text,
+    CellText,
 }
 
 /// The value of a node and whether it was cut to fit the field budget.
@@ -63,7 +64,8 @@ fn editable(node: &RawNode) -> bool {
 
 /// Which read supplies this node's value. Only the roles that carry one are
 /// read, and only through an interface the node names. A password field has
-/// no value source. Free text counts only on an editable text node: a
+/// no value source. A table cell holds its content in its `Text` interface:
+/// the content is the cell's value whether or not the cell can be edited. Free text counts only on an editable text node: a
 /// read-only text node is content, not a control value.
 pub(crate) fn value_source(node: &RawNode) -> ValueSource {
     let Some(role) = node.traits.role.present() else {
@@ -74,6 +76,7 @@ pub(crate) fn value_source(node: &RawNode) -> ValueSource {
             (ValueSource::Numeric, VALUE_INTERFACE)
         }
         ENTRY | COMBO_BOX => (ValueSource::Text, TEXT_INTERFACE),
+        TABLE_CELL => (ValueSource::CellText, TEXT_INTERFACE),
         TEXT | TERMINAL if node.traits.states.is_failed() => return ValueSource::Unknown,
         TEXT | TERMINAL if editable(node) => (ValueSource::Text, TEXT_INTERFACE),
         _ => return ValueSource::None,
@@ -140,6 +143,44 @@ async fn read_number(
     })
 }
 
+/// The content of a table cell in one call: `GetText` from the start to
+/// `MAX_TEXT_CHARACTERS`, which the toolkits clamp to the end of the text
+/// (L42-8), so a long cell never crosses the bus whole and the length is not
+/// asked for first. The field budget still cuts what is kept. A blank cell
+/// holds no content, so it has no value, in a snapshot and in a read alike.
+async fn read_cell_text(
+    connection: &Connection,
+    element: &AtspiElement,
+    max_bytes: usize,
+) -> Result<ValueRead, zbus::Error> {
+    let text = call(
+        connection,
+        element,
+        TEXT_INTERFACE,
+        "GetText",
+        &(0i32, MAX_TEXT_CHARACTERS),
+    )
+    .await?
+    .body()
+    .deserialize::<String>()?;
+    if text.is_empty() {
+        return Ok(ValueRead::absent());
+    }
+    let at_cap = reaches_text_cap(&text);
+    let (kept, cut) = truncate_to_boundary(text, max_bytes);
+    Ok(ValueRead {
+        value: Field::Present(kept),
+        truncated: cut || at_cap,
+    })
+}
+
+/// Whether a capped `GetText` returned as many characters as it asked for,
+/// so the text may go on past the cap.
+fn reaches_text_cap(text: &str) -> bool {
+    usize::try_from(MAX_TEXT_CHARACTERS)
+        .is_ok_and(|cap| cap > 0 && text.chars().nth(cap - 1).is_some())
+}
+
 async fn read_text(
     connection: &Connection,
     element: &AtspiElement,
@@ -176,6 +217,7 @@ pub(crate) async fn read_value(
         }
         ValueSource::Numeric => read_number(connection, &node.element).await,
         ValueSource::Text => read_text(connection, &node.element, max_bytes).await,
+        ValueSource::CellText => read_cell_text(connection, &node.element, max_bytes).await,
     };
     match outcome {
         Ok(value) => Ok(value),

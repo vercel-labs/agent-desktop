@@ -7,6 +7,8 @@ use crate::{
 };
 use serde_json::Value;
 
+const UNTARGETED_PRESS_SUGGESTION: &str = "Name the target with --app <name> or --window-id <id>: the key then goes to the element that holds the keyboard focus inside that application, and the application stays in the background where the platform can deliver it there. Use --headed only if the user explicitly asked for it.";
+
 pub struct PressArgs {
     pub combo: String,
     pub app: Option<String>,
@@ -55,10 +57,13 @@ pub fn execute(
             adapter.press_key_for_app(process, &combo, context.physical_input_policy(), &lease)?
         }
     } else {
-        context.physical_input_policy().require(
-            crate::Effect::FocusSteal,
-            "press without --app or --window-id",
-        )?;
+        context
+            .physical_input_policy()
+            .require(
+                crate::Effect::FocusSteal,
+                "press without --app or --window-id",
+            )
+            .map_err(|refusal| refusal.with_suggestion(UNTARGETED_PRESS_SUGGESTION))?;
         let lease = adapter.acquire_interaction_lease(deadline)?;
         let handle = crate::adapter::NativeHandle::null();
         adapter.execute_action(

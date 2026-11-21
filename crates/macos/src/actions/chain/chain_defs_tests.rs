@@ -1,8 +1,8 @@
 use agent_desktop_core::{ChainRung, Deadline, Effect, InteractionPolicy, StepMechanism};
 
 use super::{
-    clear_rungs, click_rungs, collapse_rungs, expand_rungs, focus_rungs, multi_click_rungs,
-    right_click_rungs, scroll_to_rungs, semantic_click_rungs, set_value_rungs,
+    cell_rungs, clear_rungs, click_rungs, collapse_rungs, expand_rungs, focus_rungs,
+    multi_click_rungs, right_click_rungs, scroll_to_rungs, semantic_click_rungs, set_value_rungs,
 };
 use crate::actions::chain::ChainContext;
 use crate::tree::AXElement;
@@ -119,4 +119,35 @@ fn every_other_chain_holds_only_semantic_rungs() {
         assert!(!rungs.is_empty());
         assert_semantic(&rungs);
     }
+}
+
+#[test]
+fn only_a_cell_or_its_editor_gets_a_rung_that_types_and_it_takes_no_foreground() {
+    use crate::actions::cell_editor::CellTarget;
+    let element = AXElement(std::ptr::null_mut());
+    let ctx = context();
+
+    assert!(cell_rungs(CellTarget::Neither, &element, &ctx).is_empty());
+    for (target, label) in [
+        (CellTarget::Cell, "CellEditorWrite"),
+        (CellTarget::Editor, "PIDTargetedReplaceText"),
+    ] {
+        let rungs = cell_rungs(target, &element, &ctx);
+
+        assert_eq!(labels(&rungs), [label]);
+        assert!(rungs[0].effects.is_empty());
+        assert_eq!(rungs[0].mechanism, StepMechanism::PhysicalSynthetic);
+    }
+}
+
+#[test]
+fn a_cell_whose_press_takes_the_foreground_declares_it_on_the_write_rung() {
+    use crate::actions::cell_editor::CellTarget;
+    let element = AXElement(std::ptr::null_mut());
+    let ctx = context();
+
+    let rungs = cell_rungs(CellTarget::ForegroundCell, &element, &ctx);
+
+    assert_eq!(labels(&rungs), ["CellEditorWrite"]);
+    assert_eq!(rungs[0].effects, [Effect::FocusSteal]);
 }

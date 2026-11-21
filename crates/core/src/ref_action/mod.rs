@@ -180,7 +180,7 @@ fn settled_surfaces(
 ) -> Vec<crate::SurfaceInfo> {
     target
         .adapter
-        .list_surfaces(process, target.deadline)
+        .surfaces_raised_by(process, target.handle, target.deadline)
         .unwrap_or_default()
 }
 

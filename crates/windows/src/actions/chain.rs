@@ -28,10 +28,11 @@ use crate::tree::properties::property_ids::TreeProperty;
 #[cfg(target_os = "windows")]
 use crate::tree::properties::read_one;
 #[cfg(target_os = "windows")]
-use uiautomation::patterns::{UIInvokePattern, UILegacyIAccessiblePattern};
+use uiautomation::patterns::{UIInvokePattern, UILegacyIAccessiblePattern, UISelectionItemPattern};
 
 pub(crate) const INVOKE_LABEL: &str = "InvokePattern.Invoke";
 pub(crate) const LEGACY_LABEL: &str = "LegacyIAccessible.DoDefaultAction";
+pub(crate) const SELECTION_ITEM_LABEL: &str = "SelectionItemPattern.Select";
 pub(crate) const ALREADY_LABEL: &str = "AlreadyInState";
 
 const POLL_SLICE: Duration = Duration::from_millis(25);
@@ -128,6 +129,19 @@ pub(crate) fn legacy_select(element: &UIAElement) -> Result<bool, AdapterError> 
     legacy_write(element, "LegacyIAccessible.Select", |pattern| {
         pattern.select(SELFLAG_TAKESELECTION)
     })
+}
+
+/// Selects the element alone through `SelectionItemPattern.Select` and
+/// classifies the write.
+#[cfg(target_os = "windows")]
+pub(crate) fn selection_item_select(element: &UIAElement) -> Result<bool, AdapterError> {
+    match element.0.get_pattern::<UISelectionItemPattern>() {
+        Ok(pattern) => match pattern.select() {
+            Ok(()) => classify_success(),
+            Err(error) => classify_write("Select", SELECTION_ITEM_LABEL, &error),
+        },
+        Err(error) => classify_write("get_pattern", SELECTION_ITEM_LABEL, &error),
+    }
 }
 
 /// Writes the element's value through LegacyIAccessible `SetValue`.

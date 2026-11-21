@@ -131,3 +131,35 @@ fn a_switch_with_only_a_toggle_verb_is_clicked_through_the_toggle() {
     assert!(!toggles_in_place(None, &toggle_only));
     assert!(!toggles_in_place(Some(CHECK_BOX), &names(&["doDefault"])));
 }
+
+#[test]
+fn a_click_selects_through_the_parent_only_for_a_table_cell_with_no_action_of_its_own() {
+    use crate::tree::vocabulary::role_numbers::{LIST_ITEM, PUSH_BUTTON, TABLE_CELL};
+    assert!(click_selects_through_parent(
+        Some(TABLE_CELL),
+        false,
+        Some(true)
+    ));
+    assert!(!click_selects_through_parent(
+        Some(TABLE_CELL),
+        true,
+        Some(true)
+    ));
+    assert!(!click_selects_through_parent(
+        Some(TABLE_CELL),
+        false,
+        Some(false)
+    ));
+    assert!(!click_selects_through_parent(Some(TABLE_CELL), false, None));
+    assert!(!click_selects_through_parent(
+        Some(PUSH_BUTTON),
+        false,
+        Some(true)
+    ));
+    assert!(!click_selects_through_parent(
+        Some(LIST_ITEM),
+        false,
+        Some(true)
+    ));
+    assert!(!click_selects_through_parent(None, false, Some(true)));
+}

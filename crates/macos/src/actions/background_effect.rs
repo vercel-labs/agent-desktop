@@ -68,10 +68,11 @@ fn action_effect(
     }
 }
 
-/// A press on a descendant the caller did not target must not show a menu or
-/// open a dialog under any policy, so the click fallback skips such a child.
-/// A child whose role and label cannot be read is skipped as well.
-pub(crate) fn descendant_press_disturbs(element: &AXElement, deadline: Deadline) -> bool {
+/// Whether a press on `element` shows a menu or opens a dialog. An element
+/// whose role or label cannot be read counts as one that does. The click
+/// fallback skips such a descendant under any policy, and a value write that
+/// presses such a cell declares the foreground.
+pub(crate) fn press_disturbs(element: &AXElement, deadline: Deadline) -> bool {
     press_effect(&Action::Click, &read_target(element, deadline)).is_some()
 }
 
@@ -101,7 +102,9 @@ fn press_effect(action: &Action, target: &Option<PressTarget>) -> Option<&'stati
 }
 
 fn read_target(element: &AXElement, deadline: Deadline) -> Option<PressTarget> {
-    use crate::tree::properties::node_attribute_status::{DESCRIPTION, LABEL, TITLE};
+    use crate::tree::properties::node_attribute_status::{
+        DESCRIPTION, LABEL, ROLE, TITLE, TITLE_ELEMENT,
+    };
     let requirements = agent_desktop_core::EvidenceRequirements {
         role: true,
         name: true,
@@ -115,20 +118,24 @@ fn read_target(element: &AXElement, deadline: Deadline) -> Option<PressTarget> {
         &mut usage,
     );
     let status = read.status;
-    if status.role_unknown()
-        || [TITLE, LABEL, DESCRIPTION]
-            .iter()
-            .any(|i| status.field_unknown(*i))
+    if [ROLE, TITLE, LABEL, DESCRIPTION, TITLE_ELEMENT]
+        .iter()
+        .any(|i| status.field_unknown(*i))
     {
         return None;
     }
     let names = read.attrs.name_evidence;
     Some(PressTarget {
         role: read.attrs.role,
-        labels: [names.native_title, names.explicit_label, names.description]
-            .into_iter()
-            .flatten()
-            .collect(),
+        labels: [
+            names.native_title,
+            names.explicit_label,
+            names.description,
+            names.labelled_by_text,
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
     })
 }
 

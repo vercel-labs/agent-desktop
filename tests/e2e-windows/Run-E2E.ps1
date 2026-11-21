@@ -12,7 +12,8 @@
     detached and waited for by observation, never by a fixed sleep ->
     Preconditions -> Observation -> NonInterference -> Interaction ->
     Acceptance -> Reliability -> Surfaces -> ShellSurfaces ->
-    TracePerformance -> Chromium -> SplitIntegrity -> CursorOverlay, with the
+    TracePerformance -> Chromium -> SplitIntegrity -> WindowOps ->
+    CursorOverlay, with the
     fixture's process identity re-checked between each -> teardown ->
     Write-Verdict. The sequence array in Invoke-ScenarioSequence is the
     single source for the order.
@@ -60,6 +61,7 @@ $scenariosDir = Join-Path $PSScriptRoot 'scenarios'
 . (Join-Path $scenariosDir 'TracePerformance.ps1')
 . (Join-Path $scenariosDir 'Chromium.ps1')
 . (Join-Path $scenariosDir 'SplitIntegrity.ps1')
+. (Join-Path $scenariosDir 'WindowOps.ps1')
 <#
     Registered last: it reaps its own renderer by session id in its
     own finally, but running after every other scenario keeps its (rare,
@@ -95,6 +97,7 @@ function Invoke-ScenarioSequence {
         @{ Name = 'TracePerformance'; Body = { Invoke-TracePerformanceScenario -App $App } }
         @{ Name = 'Chromium'; Body = { Invoke-ChromiumScenario } }
         @{ Name = 'SplitIntegrity'; Body = { Invoke-SplitIntegrityScenario -App $App } }
+        @{ Name = 'WindowOps'; Body = { Invoke-WindowOpsScenario } }
         @{ Name = 'CursorOverlay'; Body = { Invoke-CursorOverlayScenario -App $App } }
     )
     foreach ($scenario in $sequence) {

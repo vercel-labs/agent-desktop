@@ -50,6 +50,20 @@ may report `unknown` when consent would require a prompt.
   that press, report it and use `click --headed` only when the user asked.
 - Chromium accessibility is enabled by the adapter when needed. A sparse or
   incomplete read still needs another observation, not an assumption of absence.
+- A table cell carries its grid address in `native_id` (kind `grid_cell`, for
+  example `B7`), or its own identifier when it has one; the address finds it
+  either way.
+  Get one cell with `find --role cell --native-id B7 --root '<table ref>'`.
+  A cell that spans several rows or columns has no address.
+- `set-value` and `clear` on a table cell that lists `SetValue` write its value
+  directly when the cell takes one. Any other cell is written through its own
+  editor and committed with Return, without activating the app. Text and
+  Return go only to that editor. An application that moves a value into an editor of
+  its own, as a spreadsheet does with a formula that starts with `=`, leaves it typed
+  and open, and the write fails as `delivered_unverified`: commit it with
+  `press return --app <app>`. Such a cell publishes no value, so a committed write is
+  `delivered_unverified` too: read the cell's name to verify. The write also commits
+  an edit that is open in another cell.
 - AX success alone does not prove an application effect. Verify the task's
   result independently, especially after a menu action or a value write.
 

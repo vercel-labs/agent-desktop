@@ -49,12 +49,7 @@ impl ReadPurpose {
     pub(in crate::tree) fn children(self) -> bool {
         matches!(
             self,
-            Self::Snapshot
-                | Self::Sampling
-                | Self::Count
-                | Self::Structure
-                | Self::Shape
-                | Self::Gate
+            Self::Snapshot | Self::Sampling | Self::Count | Self::Structure | Self::Gate
         )
     }
 }

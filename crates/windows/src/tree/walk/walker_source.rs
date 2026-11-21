@@ -9,9 +9,12 @@ mod imp {
     use crate::tree::element::UIAElement;
     use crate::tree::name_evidence::read_label;
     use crate::tree::properties::property_ids::TreeProperty;
+    use crate::tree::properties::read_set::ReadSet;
     use crate::tree::properties::{read_cached, read_live, read_one, rect_has_area};
     use crate::tree::walk::cache::{build_walk_cache_request, policy_for_root};
-    use crate::tree::walk::walker::{DEFAULT_MAX_RAW_DEPTH, NodeKey, TreeSource, walk_vocabulary};
+    use crate::tree::walk::walker::{
+        DEFAULT_MAX_RAW_DEPTH, NodeKey, TreeSource, walk_identity_vocabulary, walk_vocabulary,
+    };
     use agent_desktop_core::{AdapterError, Deadline, LocatorField, Rect};
     use uiautomation::UIAutomation;
     use uiautomation::core::{UICacheRequest, UITreeWalker};
@@ -157,6 +160,7 @@ mod imp {
         client: UIAutomation,
         walker: UITreeWalker,
         cache: Option<UICacheRequest>,
+        read_set: ReadSet,
         /// Whether the root is Chromium/Electron provenance (the provenance
         /// gate): the transparent-wrapper depth skip must only fire under
         /// detected Chromium/WebView2 provenance, because the identical
@@ -167,12 +171,23 @@ mod imp {
 
     impl UiaTreeSource {
         pub fn for_root(root: &UIAElement) -> Result<Self, AdapterError> {
+            Self::for_root_reading(root, false)
+        }
+
+        /// A source for a walk that resolves a saved ref (`identity_only`) or
+        /// publishes a snapshot. `ReadSet::for_walk` alone chooses the set.
+        pub fn for_root_reading(
+            root: &UIAElement,
+            identity_only: bool,
+        ) -> Result<Self, AdapterError> {
             let client = automation_client()?;
+            let chromium_provenance = crate::tree::chromium::is_chromium_root(root);
+            let read_set = ReadSet::for_walk(identity_only, chromium_provenance);
             let walker = client
                 .get_raw_view_walker()
                 .map_err(|error| uia_error(&error, "open the raw view tree walker"))?;
             let cache = if policy_for_root(root).batches() {
-                Some(build_walk_cache_request(&client)?)
+                Some(build_walk_cache_request(&client, read_set.properties())?)
             } else {
                 None
             };
@@ -180,7 +195,8 @@ mod imp {
                 client,
                 walker,
                 cache,
-                chromium_provenance: crate::tree::chromium::is_chromium_root(root),
+                read_set,
+                chromium_provenance,
             })
         }
 
@@ -241,12 +257,16 @@ mod imp {
             u64,
         ) {
             let (properties, errors) = match &self.cache {
-                Some(_) => read_cached(node),
+                Some(_) => read_cached(node, self.read_set.properties()),
                 None => read_live(node),
             };
             let failed = u64::try_from(errors.len()).unwrap_or(u64::MAX);
             let label = read_label(node, self.cache.is_some());
-            let vocabulary = walk_vocabulary(&properties, &label);
+            let vocabulary = if self.read_set.reads_geometry_states_and_actions() {
+                walk_vocabulary(&properties, &label)
+            } else {
+                walk_identity_vocabulary(&properties, &label)
+            };
             (
                 properties.clone(),
                 properties.locator_evidence(vocabulary),
@@ -280,6 +300,13 @@ mod imp {
 
     impl UiaTreeSource {
         pub fn for_root(_root: &UIAElement) -> Result<Self, AdapterError> {
+            Ok(Self)
+        }
+
+        pub fn for_root_reading(
+            _root: &UIAElement,
+            _identity_only: bool,
+        ) -> Result<Self, AdapterError> {
             Ok(Self)
         }
 
@@ -349,8 +376,9 @@ pub fn walk_uia_subtree(
     root: &UIAElement,
     root_source: &ObservationRoot<'_>,
     budget: WalkBudget,
+    identity_only: bool,
 ) -> Result<WalkOutcome, AdapterError> {
-    let source = UiaTreeSource::for_root(root)?;
+    let source = UiaTreeSource::for_root_reading(root, identity_only)?;
     let prepared = source.prepare_root(root)?;
     walk_from_root(&source, &prepared, root_source, budget)
 }

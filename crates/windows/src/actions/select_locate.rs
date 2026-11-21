@@ -3,6 +3,9 @@
 
 use agent_desktop_core::AdapterError;
 
+use crate::actions::chain::after_delivery;
+use crate::actions::select_container::Realization;
+
 pub(crate) const MAX_REALIZE_SCROLLS: u32 = 16;
 
 /// One realize scroll attempt: either expose a searchable window or stop.
@@ -23,8 +26,8 @@ pub(crate) trait ItemSource {
     fn scroll_step(&mut self) -> Result<RealizeScrollStep, AdapterError>;
     /// Scrolls back to `position`; `false` when the container cannot.
     fn scroll_to(&mut self, position: f64) -> Result<bool, AdapterError>;
-    /// Asks the container's own lookup for the item and builds it.
-    fn realize(&mut self) -> Result<Option<Self::Item>, AdapterError>;
+    /// Asks the container's own lookup for the item and builds it, reporting whether that sent a request.
+    fn realize(&mut self) -> Result<Option<(Self::Item, Realization)>, AdapterError>;
 }
 
 /// The answer of the search.
@@ -45,7 +48,7 @@ struct Sighting<T> {
 
 enum Phase<T> {
     FirstScan,
-    ContainerLookup,
+    ContainerLookup(Option<Sighting<T>>),
     Sweep(Option<Sighting<T>>),
     Rescan(Sighting<T>),
     Rebuild(Sighting<T>),
@@ -53,13 +56,16 @@ enum Phase<T> {
     Done(Located<T>),
 }
 
-/// Finds the named item. The scroll search takes no foreground (A31-1, A31-2), so every policy runs it.
+/// Finds the named item. The order is: scan the built items, ask the container's
+/// own lookup (which proves the name unique itself), and only then sweep the
+/// scroll range for a second same-name item. The scroll search takes no
+/// foreground (A31-1, A31-2), so every policy runs it.
 pub(crate) fn locate<S: ItemSource>(source: &mut S) -> Result<Located<S::Item>, AdapterError> {
     let mut phase = Phase::FirstScan;
     loop {
         phase = match phase {
             Phase::FirstScan => first_scan(source)?,
-            Phase::ContainerLookup => container_lookup(source)?,
+            Phase::ContainerLookup(sighting) => container_lookup(source, sighting)?,
             Phase::Sweep(sighting) => sweep(source, sighting)?,
             Phase::Rescan(sighting) => rescan(source, sighting)?,
             Phase::Rebuild(sighting) => rebuild(source, sighting)?,
@@ -71,20 +77,32 @@ pub(crate) fn locate<S: ItemSource>(source: &mut S) -> Result<Located<S::Item>, 
 
 fn first_scan<S: ItemSource>(source: &mut S) -> Result<Phase<S::Item>, AdapterError> {
     let position = source.position();
-    Ok(match source.scan(None)? {
-        Some(item) => Phase::Sweep(Some(Sighting { item, position })),
-        None => Phase::ContainerLookup,
-    })
+    let sighting = source.scan(None)?.map(|item| Sighting { item, position });
+    Ok(Phase::ContainerLookup(sighting))
 }
 
-fn container_lookup<S: ItemSource>(source: &mut S) -> Result<Phase<S::Item>, AdapterError> {
-    Ok(match source.realize()? {
-        Some(item) => Phase::Done(Located::Found {
-            item,
-            realized: true,
-        }),
-        None => Phase::Sweep(None),
-    })
+fn container_lookup<S: ItemSource>(
+    source: &mut S,
+    sighting: Option<Sighting<S::Item>>,
+) -> Result<Phase<S::Item>, AdapterError> {
+    let Some((item, realization)) = source.realize()? else {
+        return Ok(Phase::Sweep(sighting));
+    };
+    let realized = realization == Realization::Sent;
+    let item = match sighting {
+        Some(seen) => source
+            .scan(Some(&seen.item))
+            .map_err(|error| {
+                if realized {
+                    after_delivery(error)
+                } else {
+                    error
+                }
+            })?
+            .unwrap_or(seen.item),
+        None => item,
+    };
+    Ok(Phase::Done(Located::Found { item, realized }))
 }
 
 fn sweep<S: ItemSource>(
@@ -92,6 +110,12 @@ fn sweep<S: ItemSource>(
     mut sighting: Option<Sighting<S::Item>>,
 ) -> Result<Phase<S::Item>, AdapterError> {
     let start = source.position();
+    if let Some(seen) = sighting.take_if(|_| start.is_none()) {
+        return Ok(Phase::Done(Located::Found {
+            item: seen.item,
+            realized: false,
+        }));
+    }
     let mut scrolled = false;
     for _ in 0..MAX_REALIZE_SCROLLS {
         match source.scroll_step()? {
@@ -144,9 +168,9 @@ fn rebuild<S: ItemSource>(
     sighting: Sighting<S::Item>,
 ) -> Result<Phase<S::Item>, AdapterError> {
     Ok(match source.realize()? {
-        Some(item) => Phase::Done(Located::Found {
+        Some((item, realization)) => Phase::Done(Located::Found {
             item,
-            realized: true,
+            realized: realization == Realization::Sent,
         }),
         None => Phase::Return(sighting),
     })

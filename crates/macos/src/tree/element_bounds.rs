@@ -67,17 +67,35 @@ pub(crate) fn intersect_rects(left: Rect, right: Rect) -> Option<Rect> {
     })
 }
 
+/// Whether an element with this role is drawn on a surface of its own. The
+/// accessibility tree hangs a popover below the control it is anchored to, in
+/// that control's window, but the popover can reach past that window, so its
+/// content is clipped by the popover and by nothing above it. A popover is
+/// named by its role or by its subrole, the same test the popover surface is
+/// found by.
+pub(crate) fn owns_surface(role: &str, subrole: Option<&str>) -> bool {
+    role == "AXPopover" || subrole == Some("AXPopover")
+}
+
 pub(crate) fn clipped_viewport(
     parent: Option<Rect>,
     role: &str,
+    subrole: Option<&str>,
     bounds: Option<Rect>,
 ) -> Option<Rect> {
+    if owns_surface(role, subrole) {
+        return bounds;
+    }
     if !clips_descendants(role) {
         return parent;
     }
-    let parent = parent?;
+    narrowed(parent, bounds)
+}
+
+fn narrowed(viewport: Option<Rect>, bounds: Option<Rect>) -> Option<Rect> {
+    let viewport = viewport?;
     let bounds = bounds?;
-    Some(intersect_rects(parent, bounds).unwrap_or(Rect {
+    Some(intersect_rects(viewport, bounds).unwrap_or(Rect {
         x: 0.0,
         y: 0.0,
         width: 0.0,
@@ -85,35 +103,49 @@ pub(crate) fn clipped_viewport(
     }))
 }
 
+/// The viewport of an element whose nearest surface is `surface` and whose
+/// clipping ancestors below that surface have the bounds in `clips`.
+fn within(surface: Option<Rect>, clips: &[Option<Rect>]) -> Option<Rect> {
+    clips
+        .iter()
+        .fold(surface, |viewport, bounds| narrowed(viewport, *bounds))
+}
+
 pub(crate) fn ancestor_viewport(
     element: &AXElement,
     deadline: Deadline,
 ) -> Result<Option<Rect>, AdapterError> {
-    let mut viewport = owning_window_bounds(element, deadline)?;
-    if viewport.is_none() {
+    let window = owning_window_bounds(element, deadline)?;
+    if window.is_none() {
         return Ok(None);
     }
     let instant = deadline;
+    let mut clips = Vec::new();
     let mut current = super::surface_read::element(element, "AXParent", instant)?;
     for _ in 0..super::properties::element::ABSOLUTE_MAX_DEPTH {
         let Some(parent) = current else {
-            return Ok(viewport);
+            return Ok(within(window, &clips));
         };
         let Some(role) = super::surface_read::string(&parent, "AXRole", instant)? else {
             return Ok(None);
         };
         if role == "AXApplication" {
-            return Ok(viewport);
+            return Ok(within(window, &clips));
+        }
+        let subrole = if owns_surface(&role, None) {
+            None
+        } else {
+            super::surface_read::string(&parent, "AXSubrole", instant)?
+        };
+        if owns_surface(&role, subrole.as_deref()) {
+            let surface = read_bounds_with_deadline(&parent, instant)?;
+            return Ok(within(surface, &clips));
         }
         if clips_descendants(&role) {
-            viewport = clipped_viewport(
-                viewport,
-                &role,
-                read_bounds_with_deadline(&parent, instant)?,
-            );
+            clips.push(read_bounds_with_deadline(&parent, instant)?);
         }
         if role == "AXWindow" {
-            return Ok(viewport);
+            return Ok(within(window, &clips));
         }
         current = super::surface_read::element(&parent, "AXParent", instant)?;
     }
@@ -187,11 +219,11 @@ mod tests {
     fn only_clipping_containers_narrow_the_viewport() {
         let window = Some(rect(0.0, 500.0));
         assert_eq!(
-            clipped_viewport(window, "AXGroup", Some(rect(20.0, 10.0))),
+            clipped_viewport(window, "AXGroup", None, Some(rect(20.0, 10.0))),
             window
         );
         assert_eq!(
-            clipped_viewport(window, "AXScrollArea", Some(rect(20.0, 100.0))),
+            clipped_viewport(window, "AXScrollArea", None, Some(rect(20.0, 100.0))),
             Some(rect(20.0, 100.0))
         );
     }
@@ -201,13 +233,14 @@ mod tests {
         let empty = clipped_viewport(
             Some(rect(0.0, 100.0)),
             "AXScrollArea",
+            None,
             Some(rect(200.0, 100.0)),
         );
         assert_eq!(
             crate::tree::state_reader::offscreen(Some(rect(-50.0, 500.0)), empty),
             Some(true)
         );
-        let nested = clipped_viewport(empty, "AXScrollArea", Some(rect(-50.0, 500.0)));
+        let nested = clipped_viewport(empty, "AXScrollArea", None, Some(rect(-50.0, 500.0)));
         assert_eq!(
             crate::tree::state_reader::offscreen(Some(rect(-50.0, 500.0)), nested),
             Some(true)
@@ -215,13 +248,53 @@ mod tests {
     }
 
     #[test]
+    fn a_popover_is_its_own_viewport_even_outside_the_window_it_hangs_in() {
+        let window = Some(rect(0.0, 100.0));
+        let popover = Some(rect(300.0, 80.0));
+
+        let viewport = clipped_viewport(window, "AXPopover", None, popover);
+
+        assert_eq!(viewport, popover);
+        assert_eq!(
+            crate::tree::state_reader::offscreen(Some(rect(310.0, 20.0)), viewport),
+            Some(false)
+        );
+        assert_eq!(clipped_viewport(None, "AXPopover", None, popover), popover);
+        assert_eq!(clipped_viewport(window, "AXPopover", None, None), None);
+    }
+
+    #[test]
+    fn a_popover_named_by_subrole_owns_its_surface() {
+        let popover = Some(rect(400.0, 300.0));
+        assert_eq!(
+            clipped_viewport(
+                Some(rect(0.0, 500.0)),
+                "AXGroup",
+                Some("AXPopover"),
+                popover
+            ),
+            popover
+        );
+    }
+
+    #[test]
+    fn clips_below_a_surface_narrow_that_surface_and_nothing_above_it() {
+        let popover = Some(rect(300.0, 80.0));
+        let scroll_area = Some(rect(320.0, 30.0));
+
+        assert_eq!(within(popover, &[scroll_area]), scroll_area);
+        assert_eq!(within(popover, &[]), popover);
+        assert_eq!(within(popover, &[None]), None);
+    }
+
+    #[test]
     fn missing_clipping_geometry_is_unknown_not_empty() {
         assert_eq!(
-            clipped_viewport(Some(rect(0.0, 100.0)), "AXScrollArea", None),
+            clipped_viewport(Some(rect(0.0, 100.0)), "AXScrollArea", None, None),
             None
         );
         assert_eq!(
-            clipped_viewport(None, "AXScrollArea", Some(rect(0.0, 100.0))),
+            clipped_viewport(None, "AXScrollArea", None, Some(rect(0.0, 100.0))),
             None
         );
     }

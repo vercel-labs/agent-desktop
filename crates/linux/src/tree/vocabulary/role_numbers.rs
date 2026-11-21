@@ -16,6 +16,7 @@ pub(crate) const SCROLL_PANE: u32 = 49;
 pub(crate) const SLIDER: u32 = 51;
 pub(crate) const SPIN_BUTTON: u32 = 52;
 pub(crate) const TABLE: u32 = 55;
+pub(crate) const TABLE_CELL: u32 = 56;
 pub(crate) const TREE: u32 = 65;
 pub(crate) const TREE_TABLE: u32 = 66;
 pub(crate) const WINDOW: u32 = 69;

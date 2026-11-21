@@ -27,7 +27,7 @@ fn withheld(outcome: PropertyOutcome) -> PropertyOutcome {
 /// the `VT_I4` divergence `is_secure`'s doc comment names (`Number`, nonzero
 /// meaning true). `None` for any other `Known` shape, which is not this
 /// provider's divergence and must not be guessed at.
-fn known_as_bool(value: &PropertyValue) -> Option<bool> {
+pub(crate) fn known_as_bool(value: &PropertyValue) -> Option<bool> {
     match value {
         PropertyValue::Flag(value) => Some(*value),
         PropertyValue::Number(value) => Some(*value != 0),
@@ -256,6 +256,11 @@ impl ElementProperties {
             self.get(TreeProperty::ClassName),
             PropertyOutcome::Known(PropertyValue::Text(class)) if class.to_ascii_lowercase().starts_with("richedit")
         )
+    }
+
+    /// A non-negative count or index behind its pattern gate.
+    pub(crate) fn gated_index(&self, property: TreeProperty) -> Option<u32> {
+        u32::try_from(self.gated_number(property)?).ok()
     }
 
     fn identifier_evidence(&self) -> IdentifierEvidence {

@@ -249,6 +249,8 @@ fn center_point(bounds: crate::Rect) -> Option<crate::Point> {
     })
 }
 
+const CELL_EDITOR_SUGGESTION: &str = "This cell is not directly editable. Click it, then take a fresh snapshot and target the text editor inside the cell. If the cell shows no editor, the first click only selected it: click it again.";
+
 fn finish(
     evidence: &ActionabilityEvidence,
     request: &ActionRequest,
@@ -265,7 +267,7 @@ fn finish(
             check.check == "editable" && check.status == super::status::ActionabilityStatus::Fail
         })
     {
-        "This cell is not directly editable. Activate it, take a fresh snapshot, and target the text editor if one appears.".to_owned()
+        CELL_EDITOR_SUGGESTION.to_owned()
     } else if code == ErrorCode::ActionNotSupported
         && matches!(request.action, crate::Action::SetFocus)
     {
@@ -354,13 +356,7 @@ mod tests {
         let error =
             finish(&evidence, &request, report).expect_err("non-actionable report must fail");
 
-        assert_eq!(
-            error.suggestion.as_deref(),
-            Some(
-                "This cell is not directly editable. Activate it, take a fresh snapshot, and \
-                 target the text editor if one appears."
-            )
-        );
+        assert_eq!(error.suggestion.as_deref(), Some(CELL_EDITOR_SUGGESTION));
         assert!(!error.suggestion.unwrap().contains("it exposes"));
     }
 

@@ -8,11 +8,12 @@
 //! never opens. The posted handler runs after the call returns and can still
 //! change the selection, so the result is delivered and unverified.
 //!
-//! An owner-drawn combo without `CBS_HASSTRINGS` keeps item data, not names,
-//! so the name search cannot see its items. Such a combo, and a name the search
-//! misses, hand the selection back to the caller's own route instead of
-//! failing, because nothing was sent yet. An index the combo refuses fails as
-//! delivered and unverified: the refusal can clear the selection.
+//! A combo without strings, an owner-drawn one without `CBS_HASSTRINGS`, keeps
+//! item data, not names, so the name search cannot see its items and the
+//! selection goes to the caller's route. For a combo with strings the search is
+//! the authority on item names: a name it misses is not found. An index the
+//! combo refuses fails as delivered and unverified: the refusal can clear the
+//! selection.
 
 use agent_desktop_core::{AdapterError, Deadline};
 
@@ -45,9 +46,7 @@ pub(crate) fn index_or_fall_through(
 
 #[cfg(target_os = "windows")]
 mod imp {
-    use super::{
-        AdapterError, Deadline, DeliveryOutcome, combo_has_strings, index_or_fall_through,
-    };
+    use super::{AdapterError, Deadline, DeliveryOutcome, combo_has_strings};
     use crate::actions::native_message::{find_unique, send};
     use crate::actions::native_window::NativeWindow;
     use crate::tree::element::UIAElement;
@@ -79,11 +78,7 @@ mod imp {
         if !combo_has_strings(style) {
             return Ok(None);
         }
-        let Some(index) =
-            index_or_fall_through(find_unique(&combo, CB_FINDSTRINGEXACT, value, deadline))?
-        else {
-            return Ok(None);
-        };
+        let index = find_unique(&combo, CB_FINDSTRINGEXACT, value, deadline)?;
         if send(&combo, CB_SETCURSEL, index, 0, deadline)? == CB_ERR as isize {
             return Err(crate::actions::chain::after_delivery(AdapterError::new(
                 agent_desktop_core::ErrorCode::ActionFailed,

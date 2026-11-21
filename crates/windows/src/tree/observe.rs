@@ -55,7 +55,12 @@ pub(crate) fn observe_tree(
     let budget = WalkBudget::new(request.max_logical_depth, request.deadline)
         .with_max_raw_depth(request.max_raw_depth.min(DEFAULT_MAX_RAW_DEPTH));
     let walk_started = Instant::now();
-    let outcome = walk_uia_subtree(&element, &root, budget)?;
+    let outcome = walk_uia_subtree(
+        &element,
+        &root,
+        budget,
+        request.observation_mode.identity_only,
+    )?;
     finish_observation(
         root,
         request,

@@ -2,7 +2,11 @@ use agent_desktop_core::{AdapterError, Deadline, LocatorStats, ObservedSubtree};
 use serde_json::json;
 
 use super::walker::{NodeKey, TreeSource, WalkBudget};
+use crate::actions::click_container::{
+    AncestorFacts, extend_known_actions, is_click_candidate, walk_has_container_item,
+};
 use crate::tree::automation::{UiaFailure, uia_failure_error};
+use crate::tree::properties::property_ids::TreeProperty;
 
 /// How long a boundary node's child-count-only read gets, independent of the
 /// walk's own deadline.
@@ -60,6 +64,7 @@ pub struct TreeWalk<'a, S: TreeSource> {
     source: &'a S,
     budget: WalkBudget,
     ancestors: Vec<(NodeKey, S::Node)>,
+    ancestor_facts: Vec<AncestorFacts>,
     stats: LocatorStats,
     complete: bool,
     failures: Vec<AdapterError>,
@@ -72,6 +77,7 @@ impl<'a, S: TreeSource> TreeWalk<'a, S> {
             source,
             budget,
             ancestors: Vec::new(),
+            ancestor_facts: Vec::new(),
             stats: LocatorStats::default(),
             complete: true,
             failures: Vec::new(),
@@ -144,7 +150,20 @@ impl<'a, S: TreeSource> TreeWalk<'a, S> {
         raw_depth: u8,
     ) -> Option<ObservedSubtree> {
         self.note_visit(logical_depth, raw_depth);
-        let (properties, evidence, read_failures) = self.source.evidence(node);
+        let (properties, mut evidence, read_failures) = self.source.evidence(node);
+        let facts = AncestorFacts::of(&properties);
+        let passed = &self.ancestor_facts;
+        evidence.ref_evidence.available_actions = extend_known_actions(
+            std::mem::replace(
+                &mut evidence.ref_evidence.available_actions,
+                agent_desktop_core::LocatorField::Unknown,
+            ),
+            is_click_candidate(
+                properties.is_true(TreeProperty::GridItemAvailable),
+                &evidence.role,
+            ),
+            || walk_has_container_item(passed),
+        );
         self.stats.reads.counts.observation_attempts += 1;
         self.stats.reads.health.native_read_failures += read_failures;
         let web_wrapper = self.source.is_web_wrapper(node, &properties);
@@ -178,7 +197,9 @@ impl<'a, S: TreeSource> TreeWalk<'a, S> {
                 .flatten();
             (Vec::new(), count, read.complete && !truncated_by_raw_depth)
         } else {
+            self.ancestor_facts.push(facts);
             let (children, complete) = self.visit_children(read, (child_logical_depth, raw_depth));
+            self.ancestor_facts.pop();
             (children, None, complete)
         };
         if !subtree_complete {

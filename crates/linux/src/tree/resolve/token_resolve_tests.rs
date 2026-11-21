@@ -1,3 +1,4 @@
+use agent_desktop_core::refs::ref_identity::tagged_element_token;
 use agent_desktop_core::{AdapterError, DeliverySemantics, ErrorCode, RefEntry};
 
 use crate::tree::resolve::resolve_fake::{FRAME_PATH, Fake, deadline, node};
@@ -163,20 +164,21 @@ fn a_token_for_another_frame_process_or_bus_name_is_stale_at_the_window() {
 }
 
 #[test]
-fn a_ref_with_no_token_or_a_foreign_token_is_refused_without_a_read() {
+fn a_ref_with_no_token_or_an_undecodable_token_is_refused_without_a_read() {
     let mut fake = window();
     let tokenless = fake.entry_of("/ok1", false);
-    let mut foreign = tokenless.clone();
-    foreign.identity.retained_object = Some("uia1:not-a-linux-token".to_owned());
-    for entry in [tokenless, foreign] {
-        let error = resolve(&mut fake, &entry, deadline()).expect_err("refused");
-        assert_eq!(error.code, ErrorCode::StaleRef);
-        assert_eq!(error.disposition, DeliverySemantics::not_delivered());
-        assert_eq!(
-            error.details.as_ref().expect("details")["kind"],
-            "element_token_required"
-        );
-    }
+    let mut undecodable = tokenless.clone();
+    undecodable.identity.retained_object = Some(tagged_element_token("uia1:not-a-linux-token"));
+    let error = resolve(&mut fake, &tokenless, deadline()).expect_err("refused");
+    assert_eq!(error.code, ErrorCode::StaleRef);
+    assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+    assert_eq!(
+        error.details.as_ref().expect("details")["kind"],
+        "element_token_required"
+    );
+    let error = resolve(&mut fake, &undecodable, deadline()).expect_err("refused");
+    assert_eq!(error.code, ErrorCode::StaleRef);
+    assert_eq!(reason(&error), ("token_format", None));
     assert_eq!(fake.reads.gate, 0);
     assert_eq!(fake.reads.levels, 0);
 }

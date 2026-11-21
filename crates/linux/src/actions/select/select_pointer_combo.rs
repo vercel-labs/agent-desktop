@@ -85,7 +85,7 @@ impl Choices for BusChoices<'_> {
                 lists.push(node.clone());
             }
             if depth < SCAN_DEPTH_LIMIT {
-                let children =
+                let (children, _) =
                     children_of(self.reader.bus, &node, view.role(), self.reader.deadline)?;
                 stack.extend(children.into_iter().rev().map(|child| (child, depth + 1)));
             }

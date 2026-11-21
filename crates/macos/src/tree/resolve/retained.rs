@@ -81,10 +81,13 @@ pub(crate) fn refuse_untagged_token(
     }
 }
 
-pub(crate) fn evidence(element: &AXElement, identifiers: IdentifierEvidence) -> IdentifierEvidence {
-    match capture(element) {
-        Ok(Some(token)) => identifiers.with_element_token(&token),
-        _ => identifiers,
+pub(crate) fn evidence(
+    token: Option<String>,
+    identifiers: IdentifierEvidence,
+) -> IdentifierEvidence {
+    match token {
+        Some(token) => identifiers.with_element_token(&token),
+        None => identifiers,
     }
 }
 

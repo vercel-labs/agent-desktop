@@ -5,6 +5,7 @@ struct FakeTree {
     selection: Vec<bool>,
     children: Vec<Vec<usize>>,
     unreadable: Vec<usize>,
+    cut: Vec<usize>,
 }
 
 impl FakeTree {
@@ -14,6 +15,7 @@ impl FakeTree {
             selection: shape.iter().map(|entry| entry.1).collect(),
             children: shape.iter().map(|entry| entry.2.to_vec()).collect(),
             unreadable: Vec::new(),
+            cut: Vec::new(),
         }
     }
 }
@@ -32,9 +34,24 @@ impl ItemReader for FakeTree {
         })
     }
 
-    fn children(&mut self, node: &usize) -> Result<Vec<usize>, AdapterError> {
-        Ok(self.children[*node].clone())
+    fn children(&mut self, node: &usize) -> Result<(Vec<usize>, bool), AdapterError> {
+        Ok((self.children[*node].clone(), !self.cut.contains(node)))
     }
+}
+
+#[test]
+fn one_match_in_a_listing_that_left_children_out_is_not_a_unique_match() {
+    let mut tree = FakeTree::new(&[
+        (None, true, &[1, 2]),
+        (Some("Dark"), false, &[]),
+        (Some("Light"), false, &[]),
+    ]);
+    tree.cut = vec![0];
+
+    assert_eq!(
+        search(&mut tree, &0, "dark").expect("searched"),
+        Search::Incomplete
+    );
 }
 
 #[test]
@@ -202,6 +219,7 @@ fn a_sole_match_in_an_incomplete_search_never_authorizes_selection() {
         selection: vec![false; NODE_LIMIT + 1],
         children: vec![Vec::new(); NODE_LIMIT + 1],
         unreadable: Vec::new(),
+        cut: Vec::new(),
     };
     wide.selection[0] = true;
     wide.names[1] = Some("Match");

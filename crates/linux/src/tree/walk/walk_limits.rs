@@ -1,9 +1,11 @@
 use agent_desktop_core::ObservationRequest;
 
+use crate::tree::element::child_list::CHILD_LIST_LIMIT;
+
 const DEFAULT_MAX_RAW_DEPTH: usize = 50;
 const DEFAULT_MAX_NODES: usize = 10_000;
 const DEFAULT_MAX_EDGES: usize = 100_000;
-const DEFAULT_MAX_CHILDREN: usize = 4_096;
+const DEFAULT_MAX_CHILDREN: usize = CHILD_LIST_LIMIT;
 const DEFAULT_MAX_FIELD_BYTES: usize = 64 * 1024;
 
 /// How far a walk may go before it marks the rest truncated, and whether its

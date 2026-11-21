@@ -342,6 +342,7 @@ fn walk_verdict(root: &UIAElement, deadline: Deadline) -> Value {
         root,
         &ObservationRoot::Window(&window),
         WalkBudget::new(u8::MAX, deadline),
+        false,
     ) {
         Ok(outcome) => {
             let failures = outcome.failures.len();

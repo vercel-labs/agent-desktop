@@ -40,6 +40,13 @@ use a private session and runtime directory for isolated work.
   Chromium, Qt, and unknown-toolkit refs must be unique in the window or inside
   their nearest unique ancestor. Take fresh refs after list changes; a narrower
   drill does not disambiguate identical twins.
+- A table reports `row_count` and `column_count`, and a large sheet is read by its cells
+  in view. While a window shows a sheet read this way, a ref that carries no native element
+  address is refused: a twin could sit among the cells that were not read. A cell's text is
+  its `value`. Where a spreadsheet names a cell by its
+  address, get it with `find --role cell --name B7 --root '<table ref>'`. `set-value` on an editable
+  cell takes a number; text has no background route and is refused. `click` and `select`
+  on a table cell select it where the table supports that; a GTK3 tree view does not.
 - GTK4 list-backed dropdowns stay in the window tree. Use `wait --text` and
   `snapshot --root` to read their contents, not a menu-surface wait.
   Menu-role popups use the menu surface instead.

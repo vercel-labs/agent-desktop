@@ -24,7 +24,8 @@ const SETTLE_GRACE: Duration = Duration::from_millis(150);
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
 const RESTORE_BUDGET_MS: u64 = 2_000;
 
-/// The window that owns the foreground and the process that owns that window.
+/// The window that owns the foreground and the application process behind it:
+/// the hosted application for a frame-hosted window, as window listing says.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Foreground {
     pub handle: isize,
@@ -141,6 +142,21 @@ pub(super) fn give_back(
     }
 }
 
+/// Focuses the window that had the foreground when a window of `owner` has
+/// taken it since, as the prompt of an application asked to close can. A
+/// foreground that did not change, or that went to another process, is left
+/// alone.
+pub(super) fn return_if_taken(
+    prior: Foreground,
+    owner: ProcessId,
+    lease: &InteractionLease,
+) -> bool {
+    match judge(prior, read_foreground(), |pid| pid == owner.get()) {
+        Look::Stolen => restore(prior, lease),
+        Look::Waiting | Look::Elsewhere => false,
+    }
+}
+
 fn restore(prior: Foreground, lease: &InteractionLease) -> bool {
     let Ok(budget) = Deadline::after(RESTORE_BUDGET_MS) else {
         return false;
@@ -165,18 +181,15 @@ fn restore(prior: Foreground, lease: &InteractionLease) -> bool {
 
 #[cfg(target_os = "windows")]
 pub(super) fn read_foreground() -> Option<Foreground> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, GetWindowThreadProcessId,
-    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
     let handle = unsafe { GetForegroundWindow() };
     if handle.is_null() {
         return None;
     }
-    let mut pid = 0u32;
-    unsafe { GetWindowThreadProcessId(handle, &mut pid) };
-    (pid != 0).then_some(Foreground {
+    let pid = crate::system::window::frame_identity::application_pid(handle)?;
+    Some(Foreground {
         handle: handle as isize,
-        pid,
+        pid: pid.get(),
     })
 }
 

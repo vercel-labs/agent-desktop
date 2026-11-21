@@ -3,6 +3,7 @@ use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
 use super::admit::admit_children;
 use super::walker_expand::LevelReader;
 use crate::system::SharedBus;
+use crate::tree::element::child_view::ChildSlots;
 use crate::tree::properties::read_purpose::ReadPurpose;
 use crate::tree::{
     AtspiElement, Expansion, NodeClass, ObservedRead, Walk, WalkCounts, WalkLimits, WalkedNode,
@@ -65,8 +66,20 @@ fn assemble<K, P>(slots: Vec<Slot<K, P>>) -> Option<WalkedNode<P>> {
     built.first_mut().and_then(Option::take)
 }
 
-fn listed_count<K>(children: &[K], unreadable: bool) -> Option<u32> {
-    (!unreadable && !children.is_empty()).then(|| u32::try_from(children.len()).unwrap_or(u32::MAX))
+fn listed_count<K>(children: &[K], unreadable: bool, slots: Option<&ChildSlots>) -> Option<u32> {
+    if unreadable {
+        return None;
+    }
+    if let Some(slots) = slots {
+        return Some(slots.reported);
+    }
+    (!children.is_empty()).then(|| u32::try_from(children.len()).unwrap_or(u32::MAX))
+}
+
+fn unlisted_children<K>(children: &[K], slots: Option<&ChildSlots>) -> bool {
+    slots.is_some_and(|slots| {
+        !slots.grid_view && usize::try_from(slots.reported).is_ok_and(|n| n > children.len())
+    })
 }
 
 /// Breadth-first walk. `expand` reads a whole level at once and returns, for
@@ -126,6 +139,7 @@ where
                 children,
                 children_unread,
                 gone,
+                slots: child_slots,
             } = read;
             let class = classify(&payload);
             counts.note_node(class, pending.logical);
@@ -141,7 +155,7 @@ where
                 key: pending.key,
                 parent: pending.parent,
                 children: Vec::new(),
-                listed: listed_count(&children, unreadable),
+                listed: listed_count(&children, unreadable, child_slots.as_ref()),
                 raw: pending.raw,
                 node: WalkedNode {
                     payload,
@@ -153,7 +167,7 @@ where
                 },
             });
             complete &= !unreadable;
-            if children.is_empty() {
+            if children.is_empty() && !unlisted_children(&children, child_slots.as_ref()) {
                 continue;
             }
             let child_logical = pending.logical + usize::from(!class.wrapper);
@@ -178,18 +192,26 @@ where
                 counts.note_hits(&admission.hits, admission.cycles);
                 edges += admission.considered;
                 admitted += admission.indices.len();
-                if admission.truncated {
+                if admission.truncated || unlisted_children(&children, child_slots.as_ref()) {
                     slots[index].cut_short();
                     complete = false;
+                } else if child_slots.as_ref().is_some_and(|listed| listed.grid_view) {
+                    let slot = &mut slots[index];
+                    slot.node.child_count = slot.listed;
                 }
                 let child_in_web = pending.in_web || class.web_document;
-                next.extend(admission.indices.into_iter().map(|child| Pending {
-                    key: children[child].clone(),
-                    parent: Some(index),
-                    raw: pending.raw + 1,
-                    logical: child_logical,
-                    index: child,
-                    in_web: child_in_web,
+                next.extend(admission.indices.into_iter().map(|child| {
+                    Pending {
+                        key: children[child].clone(),
+                        parent: Some(index),
+                        raw: pending.raw + 1,
+                        logical: child_logical,
+                        index: child_slots
+                            .as_ref()
+                            .and_then(|listed| listed.positions.get(child).copied())
+                            .unwrap_or(child),
+                        in_web: child_in_web,
+                    }
                 }));
             }
         }

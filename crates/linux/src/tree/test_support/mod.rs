@@ -1,4 +1,6 @@
 #[cfg(test)]
+pub(crate) mod grid_fake;
+#[cfg(test)]
 pub(crate) mod helpers;
 #[cfg(test)]
 pub(crate) mod live_launch;

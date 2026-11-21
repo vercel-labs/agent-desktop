@@ -13,6 +13,7 @@ fn properties(name: Field<String>, accessible_id: Field<String>) -> NodeProperti
         description: Field::Present(String::new()),
         child_count: Field::Present(1),
         accessible_id,
+        grid: Default::default(),
     }
 }
 

@@ -14,6 +14,7 @@ fn properties(name: &str, description: &str) -> NodeProperties {
         description: Field::Present(description.to_owned()),
         child_count: Field::Present(0),
         accessible_id: Field::Absent,
+        grid: Default::default(),
     }
 }
 

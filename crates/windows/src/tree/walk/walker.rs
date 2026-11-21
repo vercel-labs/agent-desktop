@@ -216,6 +216,30 @@ pub fn walk_vocabulary(
     }
 }
 
+/// The vocabulary of a walk that read identity properties only.
+///
+/// Role, name and description come out as in a full walk. Actions and states
+/// depend on properties this walk did not read, so they are unknown, never an
+/// empty claim.
+pub fn walk_identity_vocabulary(
+    properties: &ElementProperties,
+    label: &crate::tree::name_evidence::LabelOutcome,
+) -> ResolvedVocabulary {
+    let (name, description) = crate::tree::name_evidence::name_fields(properties, label);
+    ResolvedVocabulary {
+        role: walk_role(properties),
+        available_actions: LocatorField::Unknown,
+        states: LocatorField::Unknown,
+        name,
+        description,
+        name_borrowed: crate::tree::name_evidence::name_borrowed(properties, label),
+    }
+}
+
+#[cfg(test)]
+#[path = "walker_container_tests.rs"]
+mod container_tests;
+
 #[cfg(test)]
 #[path = "walker_tests.rs"]
 mod tests;

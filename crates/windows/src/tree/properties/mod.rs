@@ -137,7 +137,7 @@ mod imp {
     /// returned errors carry shape only and feed the walk's incompleteness
     /// accounting.
     pub fn read_live(element: &UIAElement) -> (ElementProperties, Vec<AdapterError>) {
-        read_with(element, live_read, None)
+        read_with(element, live_read, None, &TreeProperty::WALK_SET)
     }
 
     /// The same live read, bounded by an operation deadline consulted between
@@ -153,7 +153,7 @@ mod imp {
         element: &UIAElement,
         deadline: Deadline,
     ) -> (ElementProperties, Vec<AdapterError>) {
-        read_with(element, live_read, Some(deadline))
+        read_with(element, live_read, Some(deadline), &TreeProperty::WALK_SET)
     }
 
     /// Reads the walk property set from an element's cache.
@@ -162,8 +162,11 @@ mod imp {
     /// live fetch: it classifies `Unknown` with a structured error, never
     /// `Absent`, so a missing request entry cannot masquerade as a provider
     /// that does not implement the property.
-    pub fn read_cached(element: &UIAElement) -> (ElementProperties, Vec<AdapterError>) {
-        read_with(element, cached_read, None)
+    pub fn read_cached(
+        element: &UIAElement,
+        set: &[TreeProperty],
+    ) -> (ElementProperties, Vec<AdapterError>) {
+        read_with(element, cached_read, None, set)
     }
 
     /// Reads one property live, for the cache policy's provider-class probe
@@ -222,11 +225,12 @@ mod imp {
         element: &UIAElement,
         read: impl Fn(&UIAElement, TreeProperty) -> Result<PropertyOutcome, AdapterError>,
         deadline: Option<Deadline>,
+        set: &[TreeProperty],
     ) -> (ElementProperties, Vec<AdapterError>) {
-        let mut reads = Vec::with_capacity(TreeProperty::WALK_SET.len());
+        let mut reads = Vec::with_capacity(set.len());
         let mut errors = Vec::new();
         let mut truncated = false;
-        for property in TreeProperty::WALK_SET {
+        for &property in set {
             if property.is_element_valued() {
                 continue;
             }
@@ -332,6 +336,7 @@ pub(crate) use imp::rect_from_uia;
 pub mod element_properties;
 pub mod property_ids;
 pub mod property_outcome;
+pub mod read_set;
 #[cfg(test)]
 #[path = "properties_tests.rs"]
 mod tests;

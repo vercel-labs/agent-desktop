@@ -167,6 +167,19 @@ fn a_complete_observation_marks_the_entry_it_found_once() {
 }
 
 #[test]
+fn a_container_read_by_the_children_in_view_proves_no_ref_unique() {
+    let mut table = named("table", "Orders");
+    table.children = vec![named("button", "Pay")];
+    table.children_count = Some(40);
+    let root = window(vec![table]);
+    let observed = observed_from(root.clone());
+
+    let proven = flags(root, &observed);
+    assert!(!proven.is_empty());
+    assert!(proven.iter().all(|unique| !unique), "{proven:?}");
+}
+
+#[test]
 fn an_identifier_a_twin_carries_secondhand_is_not_unique() {
     let (root, observed) = twin_carrying_the_identifier_secondhand();
 

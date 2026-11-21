@@ -66,7 +66,7 @@ fn child_at<S: Source>(
         return Err(Some(deadline.timeout_error()));
     }
     let level = source
-        .level(parent)
+        .level(parent, None)
         .map_err(|error| Some(settle_read_error(source, entry, parent, error)))?;
     if level.children_unread || (level.children.is_empty() && level.empty_means_unread) {
         return Err(Some(identity_unknown_error(entry)));

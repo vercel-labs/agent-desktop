@@ -8,7 +8,9 @@
 //! other element is pressed through its LegacyIAccessible default action,
 //! which changes no foreground state on Win32, WinForms, WPF and the Ribbon
 //! (W-W0-6). InvokePattern takes no foreground either (A31-5), so every
-//! policy runs it.
+//! policy runs it. A grid cell with none of those routes, the one the snapshot
+//! advertises `Click` for, is selected through the item that holds it
+//! (`click_container`), the last semantic rung.
 
 use agent_desktop_core::{ActionStep, AdapterError, Deadline, InteractionPolicy};
 use std::time::Duration;
@@ -28,10 +30,11 @@ mod imp {
         UIAElement, VERIFY_TIMEOUT,
     };
     use crate::actions::chain::{
-        INVOKE_LABEL, LEGACY_LABEL, invoke_available, invoke_pattern_delivered,
-        legacy_default_action, legacy_default_action_available, legacy_select, offered, poll_until,
-        rung,
+        INVOKE_LABEL, LEGACY_LABEL, SELECTION_ITEM_LABEL, invoke_available,
+        invoke_pattern_delivered, legacy_default_action, legacy_default_action_available,
+        legacy_select, offered, poll_until, rung, selection_item_select,
     };
+    use crate::actions::click_container::clicked_item;
     use crate::actions::select_tab::{TAB_SELECT_LABEL, is_tab_item, select_native_tab};
     use crate::tree::properties::property_ids::TreeProperty;
     use crate::tree::properties::read_one;
@@ -44,6 +47,14 @@ mod imp {
         deadline: Deadline,
     ) -> Result<Vec<ActionStep>, AdapterError> {
         let item = is_selectable_item(element);
+        let tab_item = is_tab_item(element);
+        let default_action = legacy_default_action_available(element);
+        let invokable = invoke_available(element);
+        let container = if tab_item || item || default_action || invokable {
+            None
+        } else {
+            clicked_item(element, deadline)
+        };
         let mut select = || {
             if !legacy_select(element)? {
                 return Ok(DeliveryOutcome::NotDelivered);
@@ -67,17 +78,30 @@ mod imp {
                 false,
             ))
         };
+        let mut select_container = || {
+            let Some(target) = container.as_ref() else {
+                return Ok(DeliveryOutcome::NotDelivered);
+            };
+            if !selection_item_select(target)? {
+                return Ok(DeliveryOutcome::NotDelivered);
+            }
+            let selected = poll_until(deadline, VERIFY_TIMEOUT, || {
+                read_one(target, TreeProperty::SelectionItemIsSelected).flag() == Some(true)
+            });
+            Ok(DeliveryOutcome::from_delivery(true, selected))
+        };
         agent_desktop_core::execute_chain(
             &mut offered([
-                rung(TAB_SELECT_LABEL, is_tab_item(element), false, &mut tab),
+                rung(TAB_SELECT_LABEL, tab_item, false, &mut tab),
                 rung(SELECT_ITEM_LABEL, item, false, &mut select),
+                rung(LEGACY_LABEL, !item && default_action, false, &mut press),
+                rung(INVOKE_LABEL, invokable, false, &mut invoke),
                 rung(
-                    LEGACY_LABEL,
-                    !item && legacy_default_action_available(element),
+                    SELECTION_ITEM_LABEL,
+                    container.is_some(),
                     false,
-                    &mut press,
+                    &mut select_container,
                 ),
-                rung(INVOKE_LABEL, invoke_available(element), false, &mut invoke),
             ]),
             policy,
             deadline,

@@ -15,7 +15,8 @@ mod walk;
 
 pub(crate) use element::AtspiElement;
 pub(crate) use element::atspi_element;
-pub(crate) use element::child_list::list_children;
+pub(crate) use element::child_list::{child_at_index, list_children};
+pub(crate) use element::child_view::presented_children;
 pub(crate) use element::raw_node::{ChildAddress, RawNode};
 pub(crate) use hit_test::hit_test;
 pub(crate) use live_read::{

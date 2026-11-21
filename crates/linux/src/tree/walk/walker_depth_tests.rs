@@ -265,6 +265,7 @@ fn a_parent_whose_child_read_failed_is_incomplete_and_carries_no_count() {
                     children: if *key == 0 { vec![1] } else { Vec::new() },
                     children_unread: *key == 1,
                     gone: false,
+                    slots: None,
                 })
                 .collect())
         },

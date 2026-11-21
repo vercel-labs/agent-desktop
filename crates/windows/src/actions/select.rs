@@ -1,8 +1,8 @@
 //! Select.
 //!
 //! A native combo box that stores item names selects by name through its own
-//! window messages (`select_combo`); an owner-drawn one, or a name its search
-//! misses, falls through to the route below. A tab item of a native tab
+//! window messages (`select_combo`), and a name its search misses is not
+//! found; an owner-drawn one falls through to the route below. A tab item of a native tab
 //! control selects through `TCM_SETCURFOCUS` (`select_tab`), because the
 //! accessibility select route changes the index without the notification
 //! that swaps the page. Any other target selects a named item, itself or one of
@@ -27,7 +27,7 @@ use crate::actions::chain::{after_delivery, offered, poll_until, rung};
 use crate::actions::disclosure::{EXPAND_LABEL, ExpandKind};
 use crate::tree::element::UIAElement;
 
-pub(crate) const SELECT_LABEL: &str = "SelectionItemPattern.Select";
+pub(crate) const SELECT_LABEL: &str = crate::actions::chain::SELECTION_ITEM_LABEL;
 
 const VERIFY_TIMEOUT: Duration = Duration::from_millis(600);
 
@@ -92,13 +92,13 @@ mod imp {
         InteractionPolicy, SELECT_LABEL, SELECT_SUGGESTION, UIAElement, VERIFY_TIMEOUT,
         annotate_container, collapse_container, offered, run_expand, rung,
     };
-    use crate::actions::chain::{after_delivery, legacy_select, poll_until};
+    use crate::actions::chain::{after_delivery, legacy_select, poll_until, selection_item_select};
     use crate::actions::click::SELECT_ITEM_LABEL;
     use crate::actions::disclosure::ExpandKind;
     use crate::actions::mutation::{classify_success, classify_write};
     use crate::actions::scroll::vertical_scroll;
     use crate::actions::select_combo::{COMBO_SELECT_LABEL, native_combo, select_native_combo};
-    use crate::actions::select_container::realize_named_item;
+    use crate::actions::select_container::{Realization, realize_named_item};
     use crate::actions::select_locate::{ItemSource, Located, RealizeScrollStep, locate};
     use crate::actions::select_search::{
         find_named_selection_item, name_matches, realize_scroll_step, scroll_to_position,
@@ -108,9 +108,7 @@ mod imp {
     use crate::tree::properties::property_ids::TreeProperty;
     use crate::tree::properties::read_one;
     use agent_desktop_core::DeliverySemantics;
-    use uiautomation::patterns::{
-        UIExpandCollapsePattern, UIScrollPattern, UISelectionItemPattern,
-    };
+    use uiautomation::patterns::{UIExpandCollapsePattern, UIScrollPattern};
 
     pub(crate) fn select_steps(
         element: &UIAElement,
@@ -202,7 +200,7 @@ mod imp {
             }
         }
 
-        fn realize(&mut self) -> Result<Option<UIAElement>, AdapterError> {
+        fn realize(&mut self) -> Result<Option<(UIAElement, Realization)>, AdapterError> {
             realize_named_item(self.element, self.value, self.deadline)
         }
     }
@@ -244,7 +242,7 @@ mod imp {
             Ok(DeliveryOutcome::from_delivery(true, selected))
         };
         let mut legacy = || observe(legacy_select(item)?);
-        let mut pattern = || observe(pattern_select(item)?);
+        let mut pattern = || observe(selection_item_select(item)?);
         agent_desktop_core::execute_chain(
             &mut offered([
                 rung(
@@ -259,16 +257,6 @@ mod imp {
             deadline,
             SELECT_SUGGESTION,
         )
-    }
-
-    fn pattern_select(item: &UIAElement) -> Result<bool, AdapterError> {
-        match item.0.get_pattern::<UISelectionItemPattern>() {
-            Ok(pattern) => match pattern.select() {
-                Ok(()) => classify_success(),
-                Err(error) => classify_write("Select", SELECT_LABEL, &error),
-            },
-            Err(error) => classify_write("get_pattern", SELECT_LABEL, &error),
-        }
     }
 
     fn expand_container(element: &UIAElement) -> Result<DeliveryOutcome, AdapterError> {

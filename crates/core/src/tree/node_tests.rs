@@ -230,6 +230,7 @@ fn descriptor_fields_present_serialize_under_documented_names() {
         role_description: Some("Push button".into()),
         placeholder: Some("Enter name".into()),
         dom_classes: vec!["btn".into(), "primary".into()],
+        ..Default::default()
     };
     let json = serde_json::to_string(&node).unwrap();
 
@@ -288,6 +289,7 @@ fn descriptor_fields_roundtrip_both_ways() {
         role_description: Some("List item".into()),
         placeholder: None,
         dom_classes: vec!["leaf".into()],
+        ..Default::default()
     };
     let json = serde_json::to_string(&original).unwrap();
     let back: crate::NodeDescriptor = serde_json::from_str(&json).unwrap();

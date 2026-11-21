@@ -1,5 +1,8 @@
 use super::{AXElement, properties::element::element_for_pid, surface_read};
-use agent_desktop_core::{AdapterError, Deadline, SnapshotSurface};
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode, SnapshotSurface};
+
+#[cfg(target_os = "macos")]
+const POPOVER_SEARCH_LIMIT: usize = 4_096;
 
 #[cfg(target_os = "macos")]
 pub(crate) fn focused_surface_for_pid(
@@ -36,24 +39,59 @@ fn first_child_with_role_or_subrole(
     })
 }
 
-/// Finds a sheet, popover or alert on this window or its direct children only.
+/// Finds a sheet, popover or alert on this window. A sheet or an alert is the
+/// window or one of its direct children. A popover hangs below the control it
+/// is anchored to, at any depth, so it is searched for through the window.
 #[cfg(target_os = "macos")]
 pub(crate) fn surface_in_window(
     window: &AXElement,
     surface: SnapshotSurface,
     deadline: Deadline,
 ) -> Result<Option<AXElement>, AdapterError> {
-    let target = match surface {
-        SnapshotSurface::Sheet => "AXSheet",
-        SnapshotSurface::Popover => "AXPopover",
+    match surface {
+        SnapshotSurface::Sheet => first_in_window(window, deadline, |element| {
+            role_or_subrole_matches(element, "AXSheet", deadline)
+        }),
+        SnapshotSurface::Popover => popover_in_window(window, deadline),
         SnapshotSurface::Alert => {
-            return first_in_window(window, deadline, |element| is_alert(element, deadline));
+            first_in_window(window, deadline, |element| is_alert(element, deadline))
         }
-        _ => return Err(AdapterError::not_supported("window-owned surface")),
-    };
-    first_in_window(window, deadline, |element| {
-        role_or_subrole_matches(element, target, deadline)
-    })
+        _ => Err(AdapterError::not_supported("window-owned surface")),
+    }
+}
+
+/// The first popover in `window`, nearest the window first. None only when
+/// every element was read: a search cut at `POPOVER_SEARCH_LIMIT` elements
+/// fails as not found and says it is incomplete.
+#[cfg(target_os = "macos")]
+fn popover_in_window(
+    window: &AXElement,
+    deadline: Deadline,
+) -> Result<Option<AXElement>, AdapterError> {
+    let mut level = vec![window.clone()];
+    let mut searched = 0;
+    while !level.is_empty() {
+        let mut below = Vec::new();
+        for element in level {
+            if role_or_subrole_matches(&element, "AXPopover", deadline)? {
+                return Ok(Some(element));
+            }
+            searched += 1;
+            if searched >= POPOVER_SEARCH_LIMIT {
+                return Err(AdapterError::new(
+                    ErrorCode::ElementNotFound,
+                    format!("No popover among the first {searched} elements of the window; the rest was not searched"),
+                )
+                .with_details(serde_json::json!({
+                    "kind": "popover_search_limit",
+                    "complete": false,
+                })));
+            }
+            below.extend(surface_read::elements(&element, "AXChildren", deadline)?);
+        }
+        level = below;
+    }
+    Ok(None)
 }
 
 #[cfg(target_os = "macos")]
@@ -98,7 +136,10 @@ pub(crate) fn popover_for_pid(
     pid: i32,
     deadline: Deadline,
 ) -> Result<Option<AXElement>, AdapterError> {
-    first_child_with_role_or_subrole(pid, "AXPopover", deadline)
+    match focused_surface_for_pid(pid, deadline)? {
+        Some(window) => popover_in_window(&window, deadline),
+        None => Ok(None),
+    }
 }
 
 #[cfg(target_os = "macos")]

@@ -136,6 +136,19 @@ pub trait ObservationOps: Send + Sync {
         Err(AdapterError::not_supported("list_surfaces"))
     }
 
+    /// The surfaces open after an action on `raised_by`. The default is the
+    /// application's inventory. An adapter whose platform hangs a surface
+    /// below the control that raised it adds that surface, which the
+    /// inventory of windows and menus does not reach.
+    fn surfaces_raised_by(
+        &self,
+        process: crate::ProcessIdentity,
+        _raised_by: &NativeHandle,
+        deadline: Deadline,
+    ) -> Result<Vec<SurfaceInfo>, AdapterError> {
+        self.list_surfaces(process, deadline)
+    }
+
     /// Reads an already-open OS-chrome surface - the Start menu, the taskbar,
     /// the notification area, the Action Center - into the window identity
     /// the observation stack consumes. It only reads what is already up and

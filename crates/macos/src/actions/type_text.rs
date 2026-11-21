@@ -19,9 +19,19 @@ pub(crate) fn execute_type(
     }
     if policy.is_headed() {
         crate::actions::physical_keyboard::type_text(element, text, policy, deadline)?;
-        return Ok(ActionStep::succeeded("PIDTargetedUnicodeText")
-            .with_mechanism(StepMechanism::PhysicalSynthetic)
-            .with_verified(false));
+        return Ok(
+            ActionStep::succeeded(crate::actions::cell_editor::TYPE_LABEL)
+                .with_mechanism(StepMechanism::PhysicalSynthetic)
+                .with_verified(false),
+        );
+    }
+    if crate::actions::cell_editor::holds_focus(element, deadline)? {
+        crate::actions::background_keyboard::type_text(element, text, deadline)?;
+        return Ok(
+            ActionStep::succeeded(crate::actions::cell_editor::TYPE_LABEL)
+                .with_mechanism(StepMechanism::PhysicalSynthetic)
+                .with_verified(false),
+        );
     }
     insert_selected_text(element, text, deadline)?;
     Ok(ActionStep::succeeded("AXSelectedText")
@@ -68,10 +78,15 @@ fn is_text_target(element: &AXElement, deadline: Deadline) -> Result<bool, Adapt
         )
         .with_details(serde_json::json!({ "ax_error": error }))
     })?;
-    Ok(matches!(
-        role.as_deref(),
+    Ok(takes_typed_text(role.as_deref()))
+}
+
+/// The roles whose element takes typed text when it holds the keyboard focus.
+pub(crate) fn takes_typed_text(role: Option<&str>) -> bool {
+    matches!(
+        role,
         Some("AXTextField" | "AXTextArea" | "AXSecureTextField" | "AXComboBox")
-    ))
+    )
 }
 
 fn prepare(element: &AXElement, deadline: Deadline) -> Result<(), AdapterError> {

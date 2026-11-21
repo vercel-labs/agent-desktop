@@ -177,3 +177,49 @@ fn placeholder_of_matches_the_group_producer() {
         "the group producer withholds it too, rather than reading HelpText directly"
     );
 }
+
+/// A grid reports its size through the grid pattern; both counts reach the
+/// descriptor.
+#[test]
+fn a_grid_reports_its_row_and_column_counts() {
+    let properties = from_reads(&[
+        (
+            TreeProperty::GridAvailable,
+            PropertyOutcome::Known(PropertyValue::Flag(true)),
+        ),
+        (
+            TreeProperty::GridRowCount,
+            PropertyOutcome::Known(PropertyValue::Number(29)),
+        ),
+        (
+            TreeProperty::GridColumnCount,
+            PropertyOutcome::Known(PropertyValue::Number(8)),
+        ),
+    ]);
+
+    let descriptors = descriptors(&properties);
+
+    assert_eq!(descriptors.row_count, Some(29));
+    assert_eq!(descriptors.column_count, Some(8));
+}
+
+/// An element without the grid pattern reads a default 0 from UI Automation;
+/// that must not become an empty grid.
+#[test]
+fn an_element_without_the_grid_pattern_has_no_counts() {
+    let properties = from_reads(&[
+        (
+            TreeProperty::GridAvailable,
+            PropertyOutcome::Known(PropertyValue::Flag(false)),
+        ),
+        (
+            TreeProperty::GridRowCount,
+            PropertyOutcome::Known(PropertyValue::Number(0)),
+        ),
+    ]);
+
+    let descriptors = descriptors(&properties);
+
+    assert_eq!(descriptors.row_count, None);
+    assert_eq!(descriptors.column_count, None);
+}

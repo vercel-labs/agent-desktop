@@ -54,7 +54,8 @@ pub(in crate::actions) fn first_label(
             return view.name().map(str::to_owned);
         }
         if depth < LABEL_DEPTH_LIMIT {
-            let children = children_of(reader.bus, &node, view.role(), reader.deadline).ok()?;
+            let (children, _) =
+                children_of(reader.bus, &node, view.role(), reader.deadline).ok()?;
             stack.extend(children.into_iter().rev().map(|child| (child, depth + 1)));
         }
     }

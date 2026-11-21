@@ -9,6 +9,7 @@ use crate::tree::capabilities::action_names::capabilities;
 use crate::tree::capabilities::value_read::truncate_to_boundary;
 use crate::tree::element::element_token::encode;
 use crate::tree::vocabulary::resolve_vocabulary;
+use crate::tree::vocabulary::state_bits::{StateBits, TRANSIENT};
 use crate::tree::{Extents, Field, ObservedRead, Walk, WalkLimits, WalkedNode};
 
 /// The extents as evidence a ref can hold. A rectangle core cannot store (a
@@ -100,7 +101,9 @@ impl Projector<'_> {
                 descriptors: vocabulary.descriptor,
             },
         };
-        if let Some(token) = encode(self.guid, &read.node.element, &evidence) {
+        if !is_transient(&read.node)
+            && let Some(token) = encode(self.guid, &read.node.element, &evidence)
+        {
             evidence.identifiers = evidence.identifiers.clone().with_element_token(&token);
         }
         append_visibility(read, &mut evidence, &Placement::default());
@@ -145,6 +148,17 @@ impl Projector<'_> {
             .with_source_child_index(source_index)
             .with_wrapper(wrapper)
     }
+}
+
+/// Whether the toolkit marks the object transient: created for one request
+/// and free to be destroyed and created again at another address, as a table
+/// cell is. The address chain of an element token would go stale, so such an
+/// object keeps no token and a ref to it resolves from its capture proof.
+fn is_transient(node: &crate::tree::RawNode) -> bool {
+    node.traits
+        .states
+        .present()
+        .is_some_and(|words| StateBits::new(words).has(TRANSIENT))
 }
 
 /// The evidence of one node read, exactly as a walk projects it: a ref taken

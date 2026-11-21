@@ -6,6 +6,7 @@ pub enum AdIdentifierKind {
     AutomationId = 2,
     RuntimeId = 3,
     AtspiObjectPath = 4,
+    GridCell = 5,
 }
 
 impl AdIdentifierKind {
@@ -16,6 +17,7 @@ impl AdIdentifierKind {
             2 => Some(Self::AutomationId),
             3 => Some(Self::RuntimeId),
             4 => Some(Self::AtspiObjectPath),
+            5 => Some(Self::GridCell),
             _ => None,
         }
     }
@@ -27,6 +29,7 @@ impl AdIdentifierKind {
             Self::AutomationId => agent_desktop_core::IdentifierKind::AutomationId,
             Self::RuntimeId => agent_desktop_core::IdentifierKind::RuntimeId,
             Self::AtspiObjectPath => agent_desktop_core::IdentifierKind::AtspiObjectPath,
+            Self::GridCell => agent_desktop_core::IdentifierKind::GridCell,
         }
     }
 }

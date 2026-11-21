@@ -23,6 +23,7 @@ fn properties(name: Field<String>, description: Field<String>) -> NodeProperties
         description,
         child_count: Field::Present(0),
         accessible_id: Field::Absent,
+        grid: Default::default(),
     }
 }
 

@@ -14,10 +14,12 @@ pub struct ObservedNode {
 }
 
 impl ObservedNode {
-    /// A container whose descendants were not read cannot support any verdict
-    /// about the elements it might hide.
+    /// A container that holds more children than were read cannot support any
+    /// verdict about the elements it might hide, however many it did list.
     pub(crate) fn omits_descendants(&self) -> bool {
         !self.completeness.subtree_complete
-            || (self.children_count.is_some_and(|count| count > 0) && self.children.is_empty())
+            || self
+                .children_count
+                .is_some_and(|count| count as usize > self.children.len())
     }
 }

@@ -13,6 +13,14 @@ mod imp {
     };
     use crate::tree::AXElement;
 
+    fn cell_rungs<'a>(
+        el: &'a AXElement,
+        ctx: &ChainContext<'a>,
+    ) -> Vec<agent_desktop_core::ChainRung<'a>> {
+        let target = crate::actions::cell_editor::target(el, ctx.deadline);
+        chain_defs::cell_rungs(target, el, ctx)
+    }
+
     const DISCLOSURE_SUGGESTION: &str = "Target a control with a readable expandable state.";
     const MULTI_CLICK_SUGGESTION: &str = "Use a headed physical double-click or triple-click; the semantic routes cannot repeat a click.";
 
@@ -79,10 +87,12 @@ mod imp {
                     dynamic_value: Some(val.as_str()),
                     ..ctx
                 };
+                let mut rungs = cell_rungs(el, &valued);
+                rungs.extend(chain_defs::set_value_rungs(el, &valued));
                 steps.extend(run_chain(
                     el,
                     &valued,
-                    chain_defs::set_value_rungs(el, &valued),
+                    rungs,
                     "Target an element with a settable value or native increment/decrement actions.",
                 )?);
             }
@@ -206,10 +216,12 @@ mod imp {
                     dynamic_value: Some(""),
                     ..ctx
                 };
+                let mut rungs = cell_rungs(el, &cleared);
+                rungs.extend(chain_defs::clear_rungs(el, &cleared));
                 steps.extend(run_chain(
                     el,
                     &cleared,
-                    chain_defs::clear_rungs(el, &cleared),
+                    rungs,
                     "Target an editable control or allow the verified keyboard fallback.",
                 )?);
             }

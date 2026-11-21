@@ -6,6 +6,7 @@ mod imp {
     };
     use accessibility_sys::{
         AXUIElementCreateSystemWide, kAXApplicationRole, kAXErrorSuccess, kAXRoleAttribute,
+        kAXSubroleAttribute,
     };
     use agent_desktop_core::{
         AdapterError, Point, Rect, adapter::hit_test::HitTestResult,
@@ -275,6 +276,24 @@ mod imp {
                 };
                 visible = intersection;
             }
+            let role = role.as_deref().unwrap_or("");
+            let subrole = if owns_surface(role, None) {
+                None
+            } else {
+                match read_complete_text(
+                    &current,
+                    kAXSubroleAttribute,
+                    deadline,
+                    &mut usage,
+                    "hit_test.clip_subrole",
+                ) {
+                    Ok(subrole) => subrole,
+                    Err(_) => return Ok(None),
+                }
+            };
+            if owns_surface(role, subrole.as_deref()) {
+                return Ok(Some(visible));
+            }
             current = match crate::tree::resolve::resolve_ax_read::read_element(
                 &current, "AXParent", deadline,
             ) {
@@ -286,8 +305,8 @@ mod imp {
         Ok(None)
     }
 
-    use crate::tree::element_bounds::clips_descendants;
     pub(super) use crate::tree::element_bounds::intersect_rects;
+    use crate::tree::element_bounds::{clips_descendants, owns_surface};
 
     pub(super) fn remember_ancestor(visited: &mut Vec<AXElement>, current: &AXElement) -> bool {
         if visited

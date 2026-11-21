@@ -1,6 +1,8 @@
 use crate::tree::{AXElement, properties::element::element_for_pid};
 use agent_desktop_core::{AdapterError, Deadline, SurfaceInfo};
 
+const ANCHOR_CHILD_LIMIT: usize = 16;
+
 pub(crate) fn list_surfaces_for_process(
     identity: crate::system::process::process_identity::ProcessIdentity,
     deadline: Deadline,
@@ -60,6 +62,35 @@ fn push_menu_surface(
         unclassified: Vec::new(),
     });
     Ok(())
+}
+
+/// Adds the surface `anchor` is or holds as a direct child: a popover hangs
+/// below the control that raised it, not below its window. A control that
+/// anchors a surface has few children, so an element with more than
+/// `ANCHOR_CHILD_LIMIT` is left unread instead of listing a whole container.
+/// The anchor only adds to `surfaces`: a read of it that fails ends the look
+/// and leaves what is already listed.
+#[cfg(target_os = "macos")]
+pub(crate) fn collect_anchored_surfaces(
+    anchor: &AXElement,
+    deadline: Deadline,
+    surfaces: &mut Vec<SurfaceInfo>,
+) {
+    use core_foundation::{base::TCFType, string::CFString};
+
+    let children = CFString::new("AXChildren");
+    let count = crate::tree::properties::ax_ipc::attribute_value_count(
+        anchor,
+        children.as_concrete_TypeRef(),
+        deadline,
+    );
+    if anchors_few_children(count.ok()) {
+        let _ = collect_window_surfaces(anchor, "target", deadline, surfaces);
+    }
+}
+
+fn anchors_few_children(count: Option<usize>) -> bool {
+    count.is_some_and(|count| (1..=ANCHOR_CHILD_LIMIT).contains(&count))
 }
 
 fn collect_window_surfaces(

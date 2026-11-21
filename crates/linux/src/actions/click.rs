@@ -15,8 +15,8 @@ use crate::system::within;
 use crate::tree::capabilities::action_names::{click_verbs, toggle_verbs, verbs_for};
 use crate::tree::capabilities::action_read::{NodeView, read_node_view};
 use crate::tree::capabilities::capability_rules::carries_checked;
-use crate::tree::vocabulary::role_numbers::TOGGLE_BUTTON;
-use crate::tree::vocabulary::state_bits::HAS_POPUP;
+use crate::tree::vocabulary::role_numbers::{TABLE_CELL, TOGGLE_BUTTON};
+use crate::tree::vocabulary::state_bits::{HAS_POPUP, SELECTABLE};
 use crate::tree::{AtspiElement, atspi_element, element::ancestry, list_children};
 
 pub(super) const POLL_STEP: Duration = Duration::from_millis(50);
@@ -149,6 +149,18 @@ fn toggles_in_place(role: Option<u32>, names: &[String]) -> bool {
     role.is_some_and(carries_checked) && resolve_verb(names, toggle_verbs(None)).is_some()
 }
 
+/// Whether a click on a node ends as a selection by its parent: the last
+/// rung, offered only to a selectable table cell that names no action of its
+/// own. A node with an action of its own keeps every rung it had, in its
+/// order, and a node that is not a table cell keeps exactly the rungs it had.
+fn click_selects_through_parent(
+    role: Option<u32>,
+    own_verb: bool,
+    selectable: Option<bool>,
+) -> bool {
+    role == Some(TABLE_CELL) && selectable == Some(true) && !own_verb
+}
+
 fn activate(target: &Target<'_>, action: &Action) -> Result<ActionResult, AdapterError> {
     let view = target.view()?;
     if matches!(action, Action::Click)
@@ -185,6 +197,12 @@ fn activate(target: &Target<'_>, action: &Action) -> Result<ActionResult, Adapte
     let own_verb = resolve_verb(names, verbs).is_some();
     if matches!(action, Action::Click) && !own_verb && toggles_in_place(view.role(), names) {
         return toggle_reporting(target, None, true);
+    }
+    if matches!(action, Action::Click)
+        && click_selects_through_parent(view.role(), own_verb, view.state(SELECTABLE))
+        && let Some(result) = super::select::select_parent::select_by_parent(target, &view)?
+    {
+        return Ok(result);
     }
     let inner = if own_verb || !opens_popup(&view) {
         None

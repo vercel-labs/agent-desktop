@@ -130,3 +130,23 @@ fn alert_discovery_reads_beyond_an_ordinary_dialog() {
     assert!(super::is_incomplete_surface(&tree, Alert));
     assert!(!is_incomplete(&tree));
 }
+
+#[test]
+fn a_table_presenting_the_cells_in_view_is_not_cut_short() {
+    use crate::tree::element::child_view::ChildSlots;
+    let mut table = node(PANEL, "", true, "/t", Vec::new());
+    table.child_count = Some(1_000_000);
+    assert!(is_cut_short(&table));
+    table.payload.node.properties.grid.slots = Some(ChildSlots {
+        positions: Vec::new(),
+        reported: 1_000_000,
+        grid_view: true,
+    });
+    assert!(!is_cut_short(&table));
+    table.payload.node.properties.grid.slots = Some(ChildSlots {
+        positions: Vec::new(),
+        reported: 1_000_000,
+        grid_view: false,
+    });
+    assert!(is_cut_short(&table));
+}

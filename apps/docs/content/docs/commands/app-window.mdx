@@ -138,7 +138,7 @@ agent-desktop close-app <APP> [--force]
 - A save prompt keeps the app open. Read it with `snapshot --surface sheet`, answer it, then close again.
 - On Linux a headless graceful close runs. Where the focused window cannot be read (a Wayland session, or a focused window whose owner cannot be identified), it fails with `POLICY_DENIED` (`details.kind: focus_unreadable`) before any close request is sent. Report it to the user, or use `--force` (it discards unsaved work). If the app answers with a save prompt, the command fails with `ACTION_FAILED` (`details.cause: dialog_pending`), the app stays open, and the focus goes back to the window that had it (`details.focus_returned: true`). With `--headed` the focus is left where the prompt put it. Answer the prompt, or use `--force` (it discards unsaved work).
 
-On macOS and Windows, a headless graceful close does not check the interaction policy. It sends the close request, and if the app answers with a save prompt, the prompt stays in the app's own window and the command does not move focus back. Linux checks focus first, as described above.
+On macOS a headless graceful close sends the quit request, and a save prompt opens in the app's own window behind the window in front. On Windows the close is posted to the app's windows, and if a window of the app takes the foreground, as a save prompt can, the command gives the foreground back to the window that had it. Linux checks focus first, as described above.
 
 Platform limits: graceful close needs an X11 client on Linux, and the protected processes differ by OS. See [macOS](/desktop/platforms/macos), [Windows](/desktop/platforms/windows), and [Linux](/desktop/platforms/linux).
 

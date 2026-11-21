@@ -67,9 +67,13 @@ impl Source for MenuSource {
         Ok(root)
     }
 
-    fn level(&mut self, element: &AtspiElement) -> Result<Level<AtspiElement>, AdapterError> {
+    fn level(
+        &mut self,
+        element: &AtspiElement,
+        toward: Option<usize>,
+    ) -> Result<Level<AtspiElement>, AdapterError> {
         match self.levels.as_mut() {
-            Some(levels) => levels.read(element),
+            Some(levels) => levels.read(element, toward),
             None => Err(AdapterError::internal(
                 "A level was read before the popup was opened",
             )),

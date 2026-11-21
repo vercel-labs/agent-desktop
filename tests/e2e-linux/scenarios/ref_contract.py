@@ -102,10 +102,18 @@ def act(ctx, node, action, value=None):
     return ctx.product(argv, headed=False)
 
 
+def zoo_toolkit(ctx):
+    return ctx.leg.id.split("zoo_", 1)[1].removesuffix("_windows")
+
+
+def token_required(ctx):
+    return zoo_toolkit(ctx) in ("gtk3", "gtk4")
+
+
 @contextlib.contextmanager
 def zoo(ctx):
     # Supply the log argument explicitly instead of depending on a launch default.
-    toolkit = ctx.leg.id.split("zoo_", 1)[1].removesuffix("_windows")
+    toolkit = zoo_toolkit(ctx)
     label = {"gtk3": "GTK3", "gtk4": "GTK4", "qt": "Qt"}[toolkit]
     path = ctx.tier.runtime_dir / f"ref-contract-{toolkit}-{uuid4().hex}.log"
     with managed(ctx, "Zoo " + label, (str(path),)) as app:
@@ -233,7 +241,7 @@ def prepare(ctx, app, tree, node, action):
 
 
 def print_rows(ctx, rows):
-    columns = ("name", "role", "states", "action", "expected", "observed", "verdict")
+    columns = ("name", "role", "states", "action", "expected", "observed", "verdict", "token")
     table = " | ".join(columns) + "\n" + "\n".join(
         " | ".join(str(row.get(key, "")) for key in columns) for row in rows)
     print(table, flush=True)
@@ -280,7 +288,8 @@ def refs(ctx):
             for original in initial:
                 key = original.get("name"), original.get("role")
                 row = dict(name=key[0], role=key[1], states=original.get("states", []),
-                           action=[], expected=[], observed=[], verdict="pass")
+                           action=[], expected=[], observed=[], verdict="pass",
+                           token=bool(original.get("_token")))
                 rows.append(row)
                 if closes_fixture(original) and expected_outcomes(original) == [("click", "land")]:
                     row["verdict"] = "fail"
@@ -365,5 +374,8 @@ def refs(ctx):
     finally:
         print_rows(ctx, rows)
     require(not any(row["verdict"] == "fail" for row in rows), "ref-contract table has failures")
+    if token_required(ctx):
+        require(any(row["token"] for row in rows if row["action"]),
+                "no acted GTK zoo ref carried an element token; token resolution was not exercised")
     if any(row["verdict"] == "not-exercised" for row in rows):
         raise NotImplementedError("ref-contract table has actions not exercised because setup refused")

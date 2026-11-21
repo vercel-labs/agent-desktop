@@ -5,6 +5,8 @@ pub(crate) mod ax_helpers;
 pub(crate) mod ax_mutation;
 pub(crate) mod ax_perform;
 pub(crate) mod background_effect;
+mod background_keyboard;
+mod cell_editor;
 pub(crate) mod chain;
 pub(crate) mod delivery_tracker;
 pub(crate) mod dispatch;

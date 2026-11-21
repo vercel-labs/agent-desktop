@@ -75,3 +75,12 @@ fn expired_deadline_fails_before_accessibility_inventory() {
         list_surfaces_for_process(identity, deadline).expect_err("expired surface inventory");
     assert_eq!(error.code.as_str(), "TIMEOUT");
 }
+
+#[test]
+fn only_a_control_with_few_children_is_read_for_an_anchored_surface() {
+    assert!(anchors_few_children(Some(1)));
+    assert!(anchors_few_children(Some(ANCHOR_CHILD_LIMIT)));
+    assert!(!anchors_few_children(Some(0)));
+    assert!(!anchors_few_children(Some(ANCHOR_CHILD_LIMIT + 1)));
+    assert!(!anchors_few_children(None));
+}

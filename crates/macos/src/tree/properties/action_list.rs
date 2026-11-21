@@ -96,7 +96,11 @@ pub(crate) fn read_platform_available_actions(
     let value_settable = value_settable(role, attrs.states.control.readonly, || {
         read_settable(el, kAXValueAttribute, deadline, &mut read)
     });
-    if has("AXIncrement") || has("AXDecrement") || value_settable {
+    if has("AXIncrement")
+        || has("AXDecrement")
+        || value_settable
+        || cell_opens_editor(role, has("AXPress"))
+    {
         push_unique(&mut read.actions, capability::SET_VALUE);
     }
     if (role == "combobox" && value_settable) || role_supports_collection_select(role) {
@@ -191,6 +195,13 @@ fn value_settable(
             .unwrap_or(false)
 }
 
+/// A cell that can be pressed can open an in-place editor: the first press
+/// selects it and the next one starts the edit. Such a cell takes a value
+/// through that editor, though its own value is not settable.
+fn cell_opens_editor(role: &str, pressable: bool) -> bool {
+    role == "cell" && pressable
+}
+
 fn role_may_accept_focus(role: &str) -> bool {
     agent_desktop_core::tree::roles::is_interactive_role(role)
         || matches!(
@@ -235,6 +246,14 @@ fn has_scroll_mechanism(has: &impl Fn(&str) -> bool, has_scrollbars: bool) -> bo
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_a_pressable_cell_takes_a_value_through_its_editor() {
+        assert!(super::cell_opens_editor("cell", true));
+        assert!(!super::cell_opens_editor("cell", false));
+        assert!(!super::cell_opens_editor("row", true));
+        assert!(!super::cell_opens_editor("button", true));
+    }
+
     #[test]
     fn value_capability_reuses_observed_settability_and_probes_only_unknown_controls() {
         for (readonly, expected) in [(Some(true), false), (Some(false), true)] {

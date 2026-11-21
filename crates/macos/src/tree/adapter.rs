@@ -109,6 +109,24 @@ impl ObservationOps for MacOSAdapter {
         crate::tree::surface_inventory::list_surfaces_for_process(identity, deadline)
     }
 
+    fn surfaces_raised_by(
+        &self,
+        process: agent_desktop_core::ProcessIdentity,
+        raised_by: &NativeHandle,
+        deadline: Deadline,
+    ) -> Result<Vec<SurfaceInfo>, AdapterError> {
+        let mut surfaces = self.list_surfaces(process, deadline)?;
+        #[cfg(target_os = "macos")]
+        if let Ok(anchor) = ax_element(raised_by) {
+            crate::tree::surface_inventory::collect_anchored_surfaces(
+                anchor,
+                deadline,
+                &mut surfaces,
+            );
+        }
+        Ok(surfaces)
+    }
+
     fn hit_test(
         &self,
         handle: &NativeHandle,
