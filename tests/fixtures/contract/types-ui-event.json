@@ -1,0 +1,1 @@
+{"full":{"app":"Fixture","kind":"surface_appeared","pid":4242,"surface":"sheet","title":"Preferences","window_id":"w-9"},"kinds":[{"kind":"window_opened"},{"kind":"window_closed"},{"kind":"app_launched"},{"kind":"app_terminated"},{"kind":"surface_dismissed","surface":"system_tray"}],"minimal":{"kind":"focus_changed_window"}}

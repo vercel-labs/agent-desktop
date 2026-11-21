@@ -1,0 +1,1 @@
+{"action":"click","details":{"notification_index":1},"disposition":{"delivery":"delivered_verified","retry":"unsafe"},"post_state":{"enabled":true,"role":"button","value":"Reply"},"steps":[{"label":"press","mechanism":"semantic_api","outcome":"succeeded","verified":true}],"surfaces":[{"id":"s-1","item_count":2,"title":"Reply","type":"sheet","unclassified":["menu"]}]}
