@@ -45,9 +45,9 @@ fn test_run_from_ref_does_not_persist_refs_when_source_window_is_gone() {
     };
     match err {
         AppError::Adapter(adapter_err) => {
-            assert_eq!(adapter_err.code, crate::ErrorCode::WindowNotFound);
+            assert_eq!(adapter_err.code, crate::ErrorCode::StaleRef);
         }
-        other => panic!("expected Adapter(WindowNotFound), got {other:?}"),
+        other => panic!("expected Adapter(StaleRef), got {other:?}"),
     }
     let on_disk = load_latest();
     assert_eq!(

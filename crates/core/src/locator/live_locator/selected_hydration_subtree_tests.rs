@@ -62,6 +62,7 @@ impl ObservationOps for SubtreeHydrationAdapter {
     fn resolve_locator_anchor(
         &self,
         entry: &crate::RefEntry,
+        _base: Option<&NativeHandle>,
         _deadline: crate::Deadline,
     ) -> Result<NativeHandle, AdapterError> {
         self.anchor_resolutions.fetch_add(1, Ordering::SeqCst);

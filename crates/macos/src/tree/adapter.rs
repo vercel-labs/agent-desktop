@@ -70,9 +70,10 @@ impl ObservationOps for MacOSAdapter {
     fn resolve_locator_anchor(
         &self,
         entry: &RefEntry,
+        base: Option<&NativeHandle>,
         deadline: Deadline,
     ) -> Result<NativeHandle, AdapterError> {
-        crate::tree::resolve::resolve_locator_anchor_with_deadline(entry, deadline)
+        crate::tree::resolve::resolve_locator_anchor_with_deadline(entry, base, deadline)
     }
 
     fn list_windows(

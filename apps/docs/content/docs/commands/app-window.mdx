@@ -136,7 +136,9 @@ agent-desktop close-app <APP> [--force]
 - `APP_NOT_FOUND` when no running app matches, `AMBIGUOUS_TARGET` when several instances share the name.
 - `INVALID_ARGS` for a protected system process, with or without `--force`.
 - A save prompt keeps the app open. Read it with `snapshot --surface sheet`, answer it, then close again.
-- On Linux a headless graceful close is `POLICY_DENIED` (`details.check: foreground`, `details.kind: may_prompt`) before any close request, because an app with unsaved work answers it with a save prompt over the user's window. Use `--force` (it discards unsaved work) or `agent-desktop --headed close-app`; the graceful example above is the `--headed` form there.
+- On Linux a headless graceful close runs. Where the focused window cannot be read (a Wayland session, or a focused window whose owner cannot be identified), it fails with `POLICY_DENIED` (`details.kind: focus_unreadable`) before any close request is sent. Report it to the user, or use `--force` (it discards unsaved work). If the app answers with a save prompt, the command fails with `ACTION_FAILED` (`details.cause: dialog_pending`), the app stays open, and the focus goes back to the window that had it (`details.focus_returned: true`). With `--headed` the focus is left where the prompt put it. Answer the prompt, or use `--force` (it discards unsaved work).
+
+On macOS and Windows, a headless graceful close does not check the interaction policy. It sends the close request, and if the app answers with a save prompt, the prompt stays in the app's own window and the command does not move focus back. Linux checks focus first, as described above.
 
 Platform limits: graceful close needs an X11 client on Linux, and the protected processes differ by OS. See [macOS](/desktop/platforms/macos), [Windows](/desktop/platforms/windows), and [Linux](/desktop/platforms/linux).
 
@@ -385,7 +387,7 @@ A minimized window reports its elements as offscreen, so ref actions on it fail 
 
 ## maximize
 
-Maximizes a window, or zooms it on macOS. Flags are the same as [`minimize`](#minimize). The step label is `window_maximize`, and a verified report names `details.verification_scope: "window_maximized_state"`.
+Maximizes a window. On macOS it moves and resizes the window to the display work area and records the frame it replaced in the state root. Flags are the same as [`minimize`](#minimize). The step label is `window_maximize`, and a verified report names `details.verification_scope: "window_maximized_state"`.
 
 ```bash
 agent-desktop maximize [--app NAME] [--window-id ID]
@@ -399,7 +401,7 @@ Restores a minimized or maximized window. Flags are the same as [`minimize`](#mi
 agent-desktop restore [--app NAME] [--window-id ID]
 ```
 
-`restore` has no single read-back across its cases, so a successful report is `delivered_unverified`:
+On Linux, `restore` has no single read-back across its cases, so a successful report is `delivered_unverified`:
 
 ```json
 {
@@ -419,5 +421,7 @@ agent-desktop restore [--app NAME] [--window-id ID]
   }
 }
 ```
+
+On macOS, `restore` un-minimizes a minimized window and verifies the minimized state. For a window that `maximize` moved, it sets the recorded frame back and verifies the size (`details.verification_scope: "window_size"`). This also undoes a maximize or a restore that only half landed, such as a move on a window that cannot be resized. A window that someone moved or resized since is already normal: the report is `not_delivered` and nothing is written. A window that fills its display with no recorded frame fails with `ACTION_FAILED` (`details.cause: "no_recorded_frame"`); set its frame with `resize-window` and `move-window`.
 
 Check the window with `list-windows` afterward. Platform limits are the same as `resize-window`.

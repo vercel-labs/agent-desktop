@@ -105,11 +105,12 @@ A macOS <code>TIMEOUT</code> with <code>details.kind: "focus_verification"</code
   <tbody>
     <tr><td><code>refresh_snapshot_then_retry_original</code></td><td><code>STALE_REF</code>, <code>SNAPSHOT_NOT_FOUND</code></td><td>Take a fresh snapshot (or <code>find</code>), locate the same element, and run the original command again with the new qualified ref.</td></tr>
     <tr><td><code>inspect_state_then_retry_original</code></td><td><code>TIMEOUT</code>, <code>APP_UNRESPONSIVE</code>, and <code>STALE_REF</code> when <code>details.process_state</code> is <code>exited</code></td><td>Inspect the app first (<code>list-apps</code>, a snapshot, or a <code>wait</code>), wait <code>retry_after_ms</code> if present, then run the original command. For an exited process, launch the app again and take a new snapshot first.</td></tr>
+    <tr><td><code>retry_original</code></td><td><code>TIMEOUT</code> when <code>details.lease</code> is <code>not_acquired</code></td><td>Another agent-desktop command held the interaction lease for the whole wait, so this command never ran. Wait <code>retry_after_ms</code>, then run the original command again. No new snapshot is needed.</td></tr>
     <tr><td><code>request_explicit_policy_then_retry_original</code></td><td><code>POLICY_DENIED</code></td><td>Retry only after someone has explicitly chosen the policy the command needs, such as <code>--headed</code> when physical input is intended. Never switch to headed mode on your own to get past the error.</td></tr>
   </tbody>
 </table>
 
-`STALE_REF` uses `inspect_state_then_retry_original` only when `details.process_state` is `exited`, and `refresh_snapshot_then_retry_original` otherwise. Every other code, such as `ACTION_FAILED`, `INVALID_ARGS`, or `AMBIGUOUS_TARGET`, never carries `recovery`. Follow the "What to do" column instead.
+`STALE_REF` uses `inspect_state_then_retry_original` only when `details.process_state` is `exited`, and `refresh_snapshot_then_retry_original` otherwise. `TIMEOUT` uses `retry_original` only when `details.lease` is `not_acquired`, and `inspect_state_then_retry_original` otherwise. Every other code, such as `ACTION_FAILED`, `INVALID_ARGS`, or `AMBIGUOUS_TARGET`, never carries `recovery`. Follow the "What to do" column instead.
 
 `retry_after_ms` is set only for `TIMEOUT` and `APP_UNRESPONSIVE` (250 ms in this release). `details.retryable` is the adapter's own judgment: `false` means waiting cannot change the outcome, so try a different approach, and it suppresses `recovery` even for a code that would otherwise carry one.
 

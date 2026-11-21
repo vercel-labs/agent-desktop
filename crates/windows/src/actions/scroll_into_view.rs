@@ -2,16 +2,17 @@
 //!
 //! A target already in view delivers nothing. A native list box item scrolls
 //! through `LB_SETTOPINDEX` (`scroll_list_box`). Otherwise
-//! `ScrollItemPattern.ScrollIntoView` runs; it changes no foreground state on
-//! WPF (C9) and activates the window on proxied controls (W-W0-7), so off
-//! WPF it is a foreground rung. When the gate is unavailable or invoke leaves
-//! geometry unchanged, a scrollable ancestor runs the ScrollPattern ladder
-//! (A19-7), also a foreground rung; without one the unsupported / not-delivered
-//! arms stay unchanged. A scroll-to whose policy does not allow focus steal and
-//! whose only routes take the foreground returns `POLICY_DENIED`. Provider
-//! rects are unclipped (A18-2), so verified visibility needs viewport
-//! intersection. Invoke failures keep tagged `UiaFailure`; completed
-//! observation disposition outranks the classifier (A18).
+//! `ScrollItemPattern.ScrollIntoView` runs. When the gate is unavailable or
+//! invoke leaves geometry unchanged, a scrollable ancestor runs the
+//! ScrollPattern ladder (A19-7); without one the unsupported / not-delivered
+//! arms stay unchanged. The client sets `AutoSetFocus` to false, so neither
+//! route takes the foreground (A31-1, A31-2), with one measured exception:
+//! `ScrollIntoView` on a Win32 tree view item activates its window with
+//! either client setting (A31-4), so a policy without focus steal sends that
+//! item to the ladder. Provider rects are
+//! unclipped (A18-2), so verified visibility needs viewport intersection.
+//! Invoke failures keep tagged `UiaFailure`; completed observation
+//! disposition outranks the classifier (A18).
 
 use agent_desktop_core::{
     AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionLease, InteractionPolicy, Rect,
@@ -45,6 +46,7 @@ mod imp {
     use std::time::{Duration, Instant};
     use uiautomation::core::UITreeWalker;
     use uiautomation::patterns::UIScrollItemPattern;
+    use uiautomation::types::ControlType;
 
     const VERIFY_WINDOW: Duration = Duration::from_millis(800);
     const POLL_SLICE: Duration = Duration::from_millis(20);
@@ -112,23 +114,12 @@ mod imp {
                 outcome: DeliveryOutcome::from_delivery(true, verified),
             });
         }
-        let ladder = |fallback: AdapterError| {
-            if foreground_route_allowed(policy) {
-                ladder_from_terminal(fallback, element, deadline)
-            } else if viewport.is_some() {
-                Err(agent_desktop_core::mechanisms_denied(
-                    &[LADDER_SCROLL_LABEL],
-                    policy,
-                ))
-            } else {
-                Err(fallback)
-            }
-        };
+        let ladder = |fallback: AdapterError| ladder_from_terminal(fallback, element, deadline);
         if !scroll_item_available(element) {
             return ladder(unsupported_error());
         }
-        if !foreground_route_allowed(policy) && !is_wpf(element) {
-            return Err(agent_desktop_core::mechanisms_denied(
+        if scroll_item_activates(element) && !foreground_route_allowed(policy) {
+            return ladder(agent_desktop_core::mechanisms_denied(
                 &[SCROLL_INTO_VIEW_API],
                 policy,
             ));
@@ -164,11 +155,18 @@ mod imp {
         }
     }
 
+    /// The ancestor ladder steers by the target's rectangle. A provider that
+    /// reports an item outside its view as a rectangle without area, such as
+    /// a Win32 tree item (A31-10), gives it nothing to steer by, so the
+    /// caller's own answer stands and nothing is scrolled.
     fn ladder_from_terminal(
         fallback: AdapterError,
         element: &UIAElement,
         deadline: Deadline,
     ) -> Result<ScrollIntoViewDone, AdapterError> {
+        if completed_bounds(known_bounds(element)).is_none() {
+            return Err(fallback);
+        }
         apply_ladder_seam(fallback, ancestor_ladder(element, deadline)).map(|outcome| {
             ScrollIntoViewDone {
                 label: LADDER_SCROLL_LABEL,
@@ -319,11 +317,20 @@ mod imp {
         bounds.filter(rect_has_area)
     }
 
-    fn is_wpf(element: &UIAElement) -> bool {
-        element
-            .0
-            .get_framework_id()
-            .is_ok_and(|framework| framework == "WPF")
+    /// `ScrollIntoView` activates the window of a Win32 tree view item with
+    /// either client `AutoSetFocus` setting; no other measured provider does
+    /// (A31-4).
+    pub(crate) fn scroll_into_view_activates(framework: &str, control_type: ControlType) -> bool {
+        framework == "Win32" && control_type == ControlType::TreeItem
+    }
+
+    fn scroll_item_activates(element: &UIAElement) -> bool {
+        match (element.0.get_framework_id(), element.0.get_control_type()) {
+            (Ok(framework), Ok(control_type)) => {
+                scroll_into_view_activates(&framework, control_type)
+            }
+            _ => true,
+        }
     }
 
     fn scroll_item_available(element: &UIAElement) -> bool {
@@ -374,7 +381,8 @@ pub(crate) use crate::actions::scroll_ladder::{VisibilitySample, visibility_veri
 
 #[cfg(all(test, target_os = "windows"))]
 pub(crate) use imp::{
-    finish_observation, scroll_effect_observed, scroll_into_view_judged_for, unsupported_error,
+    finish_observation, scroll_effect_observed, scroll_into_view_activates,
+    scroll_into_view_judged_for, unsupported_error,
 };
 
 #[cfg(all(test, target_os = "windows"))]

@@ -86,6 +86,7 @@ impl ObservationOps for Sidebar {
     fn resolve_locator_anchor(
         &self,
         _: &RefEntry,
+        _base: Option<&NativeHandle>,
         _: Deadline,
     ) -> Result<NativeHandle, AdapterError> {
         self.events.lock().unwrap().push("resolve".into());

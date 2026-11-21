@@ -146,7 +146,7 @@ fn the_lifecycle_overrides_are_wired_to_the_adapter() {
     let mut options = agent_desktop_core::system::launch_options::LaunchOptions::default();
     options.args.push("a\0b".to_owned());
     let error = adapter
-        .launch_app("anything", &options, &lease())
+        .launch_app("anything", &options, lease())
         .expect_err("a NUL argument is refused");
     assert_eq!(error.code, ErrorCode::InvalidArgs);
 

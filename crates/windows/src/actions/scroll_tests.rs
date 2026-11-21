@@ -57,7 +57,7 @@ fn down_times_three_issues_three_vertical_small_increments() {
     let steps = scroll_judged_for(
         deadline(5_000),
         plan(3, true),
-        InteractionPolicy::headed(),
+        InteractionPolicy::headless(),
         &mut scroll_once,
         &mut observe,
     )
@@ -279,38 +279,5 @@ fn a_partial_scroll_keeps_the_code_of_whatever_stopped_it() {
             .as_ref()
             .and_then(|d| d.get("completed_steps")),
         Some(&serde_json::json!(1))
-    );
-}
-
-#[test]
-fn headless_scroll_is_refused_before_any_step_is_sent() {
-    let calls = Cell::new(0u8);
-    let mut scroll_once = || {
-        calls.set(calls.get() + 1);
-        Ok(())
-    };
-    let mut observe = || true;
-    let error = scroll_judged_for(
-        deadline(5_000),
-        plan(3, true),
-        InteractionPolicy::headless(),
-        &mut scroll_once,
-        &mut observe,
-    )
-    .expect_err("policy");
-    assert_eq!(calls.get(), 0);
-    assert_eq!(error.code, ErrorCode::PolicyDenied);
-    let details = error.details.as_ref().expect("details");
-    assert_eq!(
-        details.get("foreground_effect"),
-        Some(&serde_json::json!(true))
-    );
-    assert_eq!(
-        details.get("mechanisms"),
-        Some(&serde_json::json!([SCROLL_LABEL]))
-    );
-    assert_eq!(
-        error.disposition.delivery(),
-        DeliveryDisposition::NotDelivered
     );
 }

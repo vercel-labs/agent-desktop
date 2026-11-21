@@ -211,6 +211,7 @@ pub(crate) fn ref_entry(role: &str) -> RefEntry {
             root_ref: None,
             path_is_absolute: false,
             path: agent_desktop_core::refs::RefPath::default(),
+            chain: Default::default(),
         },
     }
 }

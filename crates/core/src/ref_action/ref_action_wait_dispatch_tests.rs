@@ -54,6 +54,7 @@ impl ObservationOps for DispatchReadAdapter {
     fn resolve_locator_anchor(
         &self,
         _entry: &RefEntry,
+        _base: Option<&NativeHandle>,
         _deadline: crate::Deadline,
     ) -> Result<NativeHandle, AdapterError> {
         Ok(NativeHandle::null())

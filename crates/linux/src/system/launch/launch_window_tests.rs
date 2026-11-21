@@ -37,7 +37,7 @@ fn waiting_for_window<T>(timeout_ms: u64, body: impl FnOnce(&Launch<'_>, &Runnin
         bus: &bus,
         id: "fixture",
         options: &options,
-        lease: &lease,
+        lease: Some(lease),
         deadline,
     };
     body(&launch, &this_process())
@@ -131,7 +131,7 @@ fn launch_window_lookup_never_enriches_an_unrelated_process() {
         bus: &bus,
         id: "fixture",
         options: &options,
-        lease: &lease,
+        lease: Some(lease),
         deadline,
     };
     assert!(

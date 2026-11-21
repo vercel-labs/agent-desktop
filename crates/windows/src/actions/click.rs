@@ -1,12 +1,14 @@
 //! Click.
 //!
-//! A list or tree item is clicked by selecting it: its LegacyIAccessible
+//! A tab item of a native tab control is clicked through `TCM_SETCURFOCUS`
+//! (`select_tab`). A list or tree item is clicked by selecting it: its LegacyIAccessible
 //! default action is "Double Click" or "Expand", not a single press, and
 //! Legacy `Select(SELFLAG_TAKESELECTION)` selects it with no foreground
 //! change on SysTreeView32, WinForms, WPF and DirectUI items (C8). Every
 //! other element is pressed through its LegacyIAccessible default action,
 //! which changes no foreground state on Win32, WinForms, WPF and the Ribbon
-//! (W-W0-6). InvokePattern activates the window and is the headed rung.
+//! (W-W0-6). InvokePattern takes no foreground either (A31-5), so every
+//! policy runs it.
 
 use agent_desktop_core::{ActionStep, AdapterError, Deadline, InteractionPolicy};
 use std::time::Duration;
@@ -30,6 +32,7 @@ mod imp {
         legacy_default_action, legacy_default_action_available, legacy_select, offered, poll_until,
         rung,
     };
+    use crate::actions::select_tab::{TAB_SELECT_LABEL, is_tab_item, select_native_tab};
     use crate::tree::properties::property_ids::TreeProperty;
     use crate::tree::properties::read_one;
     use agent_desktop_core::DeliveryOutcome;
@@ -50,6 +53,8 @@ mod imp {
             });
             Ok(DeliveryOutcome::from_delivery(true, selected))
         };
+        let mut tab =
+            || Ok(select_native_tab(element, deadline)?.unwrap_or(DeliveryOutcome::NotDelivered));
         let mut press = || {
             Ok(DeliveryOutcome::from_delivery(
                 legacy_default_action(element)?,
@@ -64,6 +69,7 @@ mod imp {
         };
         agent_desktop_core::execute_chain(
             &mut offered([
+                rung(TAB_SELECT_LABEL, is_tab_item(element), false, &mut tab),
                 rung(SELECT_ITEM_LABEL, item, false, &mut select),
                 rung(
                     LEGACY_LABEL,
@@ -71,7 +77,7 @@ mod imp {
                     false,
                     &mut press,
                 ),
-                rung(INVOKE_LABEL, invoke_available(element), true, &mut invoke),
+                rung(INVOKE_LABEL, invoke_available(element), false, &mut invoke),
             ]),
             policy,
             deadline,

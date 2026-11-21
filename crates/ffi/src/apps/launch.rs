@@ -74,7 +74,7 @@ pub unsafe extern "C" fn ad_launch_app_exact(
         };
         match adapter
             .inner
-            .launch_app(&id, &options, &lease)
+            .launch_app(&id, &options, lease)
             .and_then(launched_window)
         {
             Ok(window) => match validate_exact_window_info(&window) {
@@ -145,7 +145,7 @@ mod tests {
             &self,
             _id: &str,
             options: &LaunchOptions,
-            _lease: &InteractionLease,
+            _lease: InteractionLease,
         ) -> Result<LaunchResult, AdapterError> {
             self.probe.calls.fetch_add(1, Ordering::SeqCst);
             self.probe

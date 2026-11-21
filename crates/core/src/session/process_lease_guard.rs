@@ -44,8 +44,11 @@ impl Drop for ProcessLeaseGuard {
 }
 
 fn timeout(deadline: Deadline, contention_count: u64) -> AdapterError {
-    deadline.timeout_error().with_details(serde_json::json!({
-        "kind": "interaction_process_lock_timeout",
-        "contention_count": contention_count,
-    }))
+    crate::session::interaction_lease::interaction_lease_timeout(
+        deadline,
+        serde_json::json!({
+            "kind": "interaction_process_lock_timeout",
+            "contention_count": contention_count,
+        }),
+    )
 }

@@ -38,12 +38,13 @@ pub(super) fn selected_matches(
     let mut refmap = RefMap::new();
     for matched in &mut resolution.matches {
         ensure_remaining(deadline)?;
-        let preliminary = matched.entry.clone();
+        let mut preliminary = matched.entry.clone();
         let bounds_space = preliminary.geometry.bounds_space.unwrap_or_default();
         let has_identity = crate::refs::ref_identity::has_meaningful_identity(&preliminary);
         let has_bounds = preliminary.geometry.bounds_hash.is_some();
         let index = matched.document_order as usize;
-        let proven = proof.proves_node(&preliminary, index);
+        proof.prove_node(&mut preliminary, index);
+        let proven = preliminary.identity.unique_at_capture;
         tracing::debug!(
             role = preliminary.identity.role,
             path_len = preliminary.scope.path.len(),
@@ -60,7 +61,18 @@ pub(super) fn selected_matches(
             record_match(matched, preliminary, name, value, &mut refmap)?;
             continue;
         }
-        let handle = adapter.resolve_locator_anchor(&preliminary, deadline)?;
+        let handle = if preliminary.scope.chain.is_empty() {
+            adapter.resolve_locator_anchor(&preliminary, None, deadline)?
+        } else {
+            crate::refs::ref_scope_resolve::land_in_scope(
+                adapter,
+                &preliminary,
+                observed,
+                index,
+                deadline,
+                None,
+            )?
+        };
         ensure_remaining(deadline)?;
         let hydration_root = ObservationRoot::Element {
             handle: &handle,
@@ -106,10 +118,11 @@ pub(super) fn selected_matches(
             {
                 return Err(changed_during_hydration().into());
             }
-            let entry = RefEntry {
+            let mut entry = RefEntry {
                 identity: preliminary.identity.clone(),
                 ..super::materialize::ref_entry(node, &hydrated.source, query)
             };
+            entry.scope.chain = preliminary.scope.chain.clone();
             let name = node.evidence.name.meaningful_string().unwrap_or_default();
             let value = node.evidence.value.meaningful_string();
             let screen_bounds = super::materialize::screen_bounds(&node.evidence);

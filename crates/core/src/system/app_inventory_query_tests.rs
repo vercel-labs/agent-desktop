@@ -96,6 +96,7 @@ impl SystemOps for IncompleteAfterLease {
         _app: &AppInfo,
         _force: bool,
         _lease: &crate::InteractionLease,
+        _policy: crate::InteractionPolicy,
     ) -> Result<crate::OperationReport, AdapterError> {
         panic!("incomplete post-lease inventory must not authorize mutation")
     }

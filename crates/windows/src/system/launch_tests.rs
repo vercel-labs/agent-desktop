@@ -38,10 +38,12 @@ fn ambiguous_launch_target_suggestion_names_pids_instead_of_a_ref_retry() {
         ProcessRow {
             pid: ProcessId::from(111),
             name: "Cursor.exe".into(),
+            parent: 0,
         },
         ProcessRow {
             pid: ProcessId::from(222),
             name: "Cursor.exe".into(),
+            parent: 0,
         },
     ];
 
@@ -71,10 +73,12 @@ fn shared_ambiguous_target_pins_the_windows_envelope() {
         ProcessRow {
             pid: ProcessId::from(10),
             name: "Cursor.exe".into(),
+            parent: 0,
         },
         ProcessRow {
             pid: ProcessId::from(11),
             name: "Cursor.exe".into(),
+            parent: 0,
         },
     ];
 
@@ -192,9 +196,6 @@ fn absolute_cwd_returns_an_absolute_path_unchanged() {
         super::absolute_cwd(absolute).expect("an absolute cwd must be accepted unchanged");
     assert_eq!(returned, absolute);
 }
-
-#[cfg(target_os = "windows")]
-use crate::system::test_support::test_time::deadline;
 
 #[cfg(target_os = "windows")]
 fn matching_pids(image: &str) -> Vec<ProcessId> {

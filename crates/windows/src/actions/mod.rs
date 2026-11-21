@@ -21,5 +21,6 @@ pub(crate) mod select_combo;
 pub(crate) mod select_container;
 pub(crate) mod select_locate;
 pub(crate) mod select_search;
+pub(crate) mod select_tab;
 pub(crate) mod toggle_state;
 pub(crate) mod value_write;

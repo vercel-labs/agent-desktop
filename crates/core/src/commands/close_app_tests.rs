@@ -37,6 +37,7 @@ impl SystemOps for ProtectiveAdapter {
         _app: &crate::AppInfo,
         _force: bool,
         _lease: &crate::InteractionLease,
+        _policy: crate::InteractionPolicy,
     ) -> Result<crate::OperationReport, crate::AdapterError> {
         Ok(crate::adapter::test_report())
     }
@@ -73,6 +74,7 @@ impl SystemOps for FailingAdapter {
         _app: &crate::AppInfo,
         _force: bool,
         _lease: &crate::InteractionLease,
+        _policy: crate::InteractionPolicy,
     ) -> Result<crate::OperationReport, AdapterError> {
         Err(AdapterError::new(ErrorCode::AppNotFound, "no such app"))
     }
@@ -160,62 +162,17 @@ fn forced_close_reports_method_force_with_unverified_delivery() {
     assert!(value.get("closed").is_none());
 }
 
-struct PromptingAdapter(std::sync::atomic::AtomicUsize);
-
-impl ObservationOps for PromptingAdapter {
-    fn query_app_inventory(
-        &self,
-        query: crate::AppInventoryQuery<'_>,
-        deadline: crate::Deadline,
-    ) -> Result<crate::AppInventory, AdapterError> {
-        ProtectiveAdapter.query_app_inventory(query, deadline)
-    }
-}
-
-impl ActionOps for PromptingAdapter {}
-
-impl InputOps for PromptingAdapter {}
-
-impl SystemOps for PromptingAdapter {
-    crate::adapter::guarded_interaction_lease!();
-
-    fn graceful_close_may_prompt(&self) -> bool {
-        true
-    }
-
-    fn close_app(
-        &self,
-        _app: &crate::AppInfo,
-        _force: bool,
-        _lease: &crate::InteractionLease,
-    ) -> Result<crate::OperationReport, AdapterError> {
-        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Ok(crate::adapter::test_report())
-    }
-}
-
 #[test]
-fn a_headless_graceful_close_that_can_prompt_is_refused_before_any_close_request() {
-    let adapter = PromptingAdapter(std::sync::atomic::AtomicUsize::new(0));
-    let close = |force, policy| {
-        execute(
-            CloseAppArgs {
-                app: "TextEdit".into(),
-                force,
-                policy,
-            },
-            &adapter,
-        )
-    };
-    let refused = close(false, crate::InteractionPolicy::headless()).unwrap_err();
-    assert_eq!(refused.code(), "POLICY_DENIED");
-    assert!(
-        refused
-            .suggestion()
-            .is_some_and(|hint| hint.contains("--force"))
-    );
-    assert_eq!(adapter.0.load(std::sync::atomic::Ordering::SeqCst), 0);
-    close(true, crate::InteractionPolicy::headless()).unwrap();
-    close(false, crate::InteractionPolicy::headed()).unwrap();
-    assert_eq!(adapter.0.load(std::sync::atomic::Ordering::SeqCst), 2);
+fn a_headless_graceful_close_reaches_the_adapter() {
+    let value = execute(
+        CloseAppArgs {
+            app: "TextEdit".into(),
+            force: false,
+            policy: crate::InteractionPolicy::headless(),
+        },
+        &ProtectiveAdapter,
+    )
+    .unwrap();
+
+    assert_eq!(value["method"], "graceful");
 }

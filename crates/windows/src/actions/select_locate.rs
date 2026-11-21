@@ -17,8 +17,6 @@ pub(crate) trait ItemSource {
 
     /// Walks the items the container has built; a match that is not `prior` is a second item and fails `AMBIGUOUS_TARGET`.
     fn scan(&mut self, prior: Option<&Self::Item>) -> Result<Option<Self::Item>, AdapterError>;
-    /// Whether a vertical scroll can hide items from `scan`.
-    fn hides_items_behind_a_scroll(&self) -> bool;
     /// The scroll position of the window `scan` reads, when the container reports one.
     fn position(&self) -> Option<f64>;
     /// Scrolls one step toward the end of the list.
@@ -37,8 +35,6 @@ pub(crate) enum Located<T> {
         realized: bool,
     },
     Absent,
-    /// Nothing matched and the scroll that could show more items is not allowed.
-    ScrollDenied,
 }
 
 /// A matching item and the scroll position of the window it was seen in.
@@ -57,15 +53,12 @@ enum Phase<T> {
     Done(Located<T>),
 }
 
-/// Finds the named item. `may_scroll` is whether the policy allows calls that change what the user sees.
-pub(crate) fn locate<S: ItemSource>(
-    source: &mut S,
-    may_scroll: bool,
-) -> Result<Located<S::Item>, AdapterError> {
+/// Finds the named item. The scroll search takes no foreground (A31-1, A31-2), so every policy runs it.
+pub(crate) fn locate<S: ItemSource>(source: &mut S) -> Result<Located<S::Item>, AdapterError> {
     let mut phase = Phase::FirstScan;
     loop {
         phase = match phase {
-            Phase::FirstScan => first_scan(source, may_scroll)?,
+            Phase::FirstScan => first_scan(source)?,
             Phase::ContainerLookup => container_lookup(source)?,
             Phase::Sweep(sighting) => sweep(source, sighting)?,
             Phase::Rescan(sighting) => rescan(source, sighting)?,
@@ -76,28 +69,12 @@ pub(crate) fn locate<S: ItemSource>(
     }
 }
 
-fn first_scan<S: ItemSource>(
-    source: &mut S,
-    may_scroll: bool,
-) -> Result<Phase<S::Item>, AdapterError> {
+fn first_scan<S: ItemSource>(source: &mut S) -> Result<Phase<S::Item>, AdapterError> {
     let position = source.position();
-    if let Some(item) = source.scan(None)? {
-        return Ok(if may_scroll {
-            Phase::Sweep(Some(Sighting { item, position }))
-        } else {
-            Phase::Done(Located::Found {
-                item,
-                realized: false,
-            })
-        });
-    }
-    if may_scroll {
-        return Ok(Phase::ContainerLookup);
-    }
-    if source.hides_items_behind_a_scroll() {
-        return Ok(Phase::Done(Located::ScrollDenied));
-    }
-    Ok(Phase::Done(Located::Absent))
+    Ok(match source.scan(None)? {
+        Some(item) => Phase::Sweep(Some(Sighting { item, position })),
+        None => Phase::ContainerLookup,
+    })
 }
 
 fn container_lookup<S: ItemSource>(source: &mut S) -> Result<Phase<S::Item>, AdapterError> {
@@ -114,6 +91,7 @@ fn sweep<S: ItemSource>(
     source: &mut S,
     mut sighting: Option<Sighting<S::Item>>,
 ) -> Result<Phase<S::Item>, AdapterError> {
+    let start = source.position();
     let mut scrolled = false;
     for _ in 0..MAX_REALIZE_SCROLLS {
         match source.scroll_step()? {
@@ -139,7 +117,12 @@ fn sweep<S: ItemSource>(
             item: seen.item,
             realized: false,
         }),
-        None => Phase::Done(Located::Absent),
+        None => {
+            if let (true, Some(position)) = (scrolled, start) {
+                source.scroll_to(position)?;
+            }
+            Phase::Done(Located::Absent)
+        }
     })
 }
 

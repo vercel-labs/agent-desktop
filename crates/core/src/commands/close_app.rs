@@ -22,26 +22,13 @@ pub fn execute(args: CloseAppArgs, adapter: &dyn PlatformAdapter) -> Result<Valu
     if protected {
         return Err(protected_process_error(&args.app));
     }
-    if !args.force && !args.policy.allow_focus_steal && adapter.graceful_close_may_prompt() {
-        return Err(crate::foreground_denied(
-            "A close request can make the app open a save prompt that takes the foreground, which the interaction policy does not allow",
-            "may_prompt",
-            "close-app",
-            args.policy,
-        )
-        .with_suggestion(format!(
-            "{} A headless alternative is --force to end the app without a prompt; it discards unsaved work.",
-            crate::headed_mode_suggestion("may show a save prompt over the user's window")
-        ))
-        .into());
-    }
     let lease = adapter.acquire_interaction_lease(deadline)?;
     let live = crate::commands::helpers::revalidate_app_for_mutation(
         adapter,
         &expected,
         lease.deadline(),
     )?;
-    let report = adapter.close_app(&live, args.force, &lease)?;
+    let report = adapter.close_app(&live, args.force, &lease, args.policy)?;
     operation_response(
         &report,
         json!({

@@ -1,18 +1,14 @@
 //! Windows rungs for the core delivery chain (`agent_desktop_core::execute_chain`).
 //!
 //! Each rung names one mechanism, whether the live element offers it, and
-//! whether it takes the desktop foreground. Every UI Automation control
-//! pattern call (Invoke, Toggle, Value, RangeValue, ExpandCollapse,
-//! SelectionItem, ScrollItem on proxied controls) activates the target's
-//! window on every provider measured (W-W0-6, W-W0-7), so those rungs declare
-//! that effect and core runs them only when the policy allows it. The
-//! LegacyIAccessible and Win32 message rungs change no foreground state. The
-//! verifiable pattern rungs are listed first, so in headed mode they run
-//! first and Legacy is the fallback; in headless mode the pattern rungs are
-//! held back and Legacy runs alone. Core stops at the first rung that
-//! delivers or finds the target already satisfied, and refuses with
-//! `POLICY_DENIED` when nothing was delivered and a rung was held back for
-//! its effect.
+//! whether it takes the desktop foreground. The client sets `AutoSetFocus` to
+//! false, so a control pattern call takes no foreground (A31-1, A31-2,
+//! A31-5). Only `SetFocus` and an expand that can open a popup over the
+//! user's window declare the effect; core runs a declared rung only when the
+//! policy allows it. Every other rung runs under every policy, in the order
+//! listed. Core stops at the first rung that delivers or finds the target
+//! already satisfied, and refuses with `POLICY_DENIED` when nothing was
+//! delivered and a rung was held back for its effect.
 
 use agent_desktop_core::{
     AdapterError, ChainRung, Deadline, DeliveryOutcome, DeliverySemantics, Effect,
@@ -47,9 +43,9 @@ pub(crate) fn poll_until(deadline: Deadline, cap: Duration, reached: impl FnMut(
     deadline.poll_until(cap, POLL_SLICE, reached, |reached| *reached)
 }
 
-/// What a UI Automation control pattern call does to the desktop: it
-/// activates the target's window on every provider measured (W-W0-6,
-/// W-W0-7). The LegacyIAccessible and Win32 message rungs declare nothing.
+/// What a rung that still takes the foreground does to the desktop: it moves
+/// focus (`SetFocus`) or opens a popup over the user's window (an expand). A
+/// control pattern call declares nothing (A31-2, A31-5).
 const TAKES_FOREGROUND: &[Effect] = &[Effect::FocusSteal];
 
 /// Whether `policy` lets a route that takes the foreground run: the check

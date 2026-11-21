@@ -2,15 +2,12 @@ use crate::{
     AdapterError, AppError, AppInfo, Deadline, IdentityMatch, PlatformAdapter, RefEntry,
     WindowInfo,
     adapter::{NativeHandle, TreeOptions},
-    locator::live_locator::{
-        ObservationRequest, ObservationRoot, ObservedTree, materialize_ref_entry,
-    },
+    locator::live_locator::{ObservationRequest, ObservationRoot, ObservedTree},
     refs::ref_full_predicate::FullPredicate,
     refs::ref_identity::element_token,
     refs::ref_live_predicate::LivePredicate,
-    refs::resolve_errors::{
-        absent, ambiguous_live_match, identity_not_unique, identity_unknown_error,
-    },
+    refs::ref_scope_resolve::{chain_nodes, land_in_scope, match_in_scope},
+    refs::resolve_errors::{absent, identity_not_unique, identity_unknown_error},
 };
 
 /// The depth a whole-window observation reaches: the limit a snapshot walk
@@ -36,15 +33,7 @@ pub fn resolve_saved_ref(
         return adapter.resolve_element_strict(entry, deadline);
     }
     let (_, observed, found) = observe_saved_ref(adapter, entry, deadline, lease, true)?;
-    let anchor = positional_anchor(entry, &observed, found)?;
-    let handle = adapter.resolve_locator_anchor(&anchor, deadline)?;
-    let root = ObservationRoot::Element {
-        handle: &handle,
-        entry: &anchor,
-        root_ref: None,
-    };
-    confirm_landed(adapter, entry, root, deadline, lease)?;
-    Ok(handle)
+    land_in_scope(adapter, entry, &observed, found, deadline, lease)
 }
 
 /// Lands a tokenless saved ref at its recorded path and confirms the landed
@@ -63,7 +52,8 @@ pub(crate) fn land_saved_ref(
 ) -> Result<NativeHandle, AdapterError> {
     if element_token(entry).is_none()
         && entry.identity.unique_at_capture
-        && let Ok(handle) = adapter.resolve_locator_anchor(entry, deadline)
+        && entry.scope.chain.is_empty()
+        && let Ok(handle) = adapter.resolve_locator_anchor(entry, None, deadline)
         && confirm_landed_element(adapter, entry, &handle, deadline).is_ok()
     {
         return Ok(handle);
@@ -131,7 +121,7 @@ pub fn confirm_landed_element(
 /// The anchor lands a stored path, which a different element can move into
 /// between the live count and the descent, so the handle is re-identified
 /// before it is handed back: only the recorded predicate proves the landing.
-fn confirm_landed(
+pub(crate) fn confirm_landed(
     adapter: &dyn PlatformAdapter,
     entry: &RefEntry,
     root: ObservationRoot<'_>,
@@ -146,7 +136,7 @@ fn confirm_landed(
     let request = ObservationRequest::snapshot(&options, deadline).validate()?;
     let observed =
         crate::tree::renderer_accessibility::observe_tree(adapter, root, &request, lease)
-            .map_err(adapter_error)?;
+            .map_err(AppError::into_adapter_error)?;
     let landed = observed
         .roots
         .first()
@@ -171,7 +161,7 @@ pub(crate) fn recorded_window(
 ) -> Result<WindowInfo, AdapterError> {
     if entry.source.is_process_owned() {
         return crate::system::app_lookup::live_process_owner(adapter, entry, deadline)
-            .map_err(adapter_error);
+            .map_err(AppError::into_adapter_error);
     }
     let resolved = crate::snapshot::resolve_window_for_surface(
         adapter,
@@ -181,10 +171,11 @@ pub(crate) fn recorded_window(
         deadline,
     );
     let mut failure = None;
-    match resolved {
+    match resolved.map_err(AppError::into_adapter_error) {
         Ok(window) if belongs_to_entry(&window, entry) => return Ok(window),
         Ok(_) => {}
-        Err(error) => failure = Some(adapter_error(error)),
+        Err(error) if error.code == crate::ErrorCode::WindowNotFound => {}
+        Err(error) => failure = Some(error),
     }
     if entry.source.source_window_id.is_some() {
         return Err(failure.unwrap_or_else(gone));
@@ -282,7 +273,7 @@ fn observe_window(
     };
     let mut observed =
         crate::tree::renderer_accessibility::observe_tree(adapter, root, request, lease)
-            .map_err(adapter_error)?;
+            .map_err(AppError::into_adapter_error)?;
     if let crate::locator::live_locator::ObservationSource::Window {
         renderer_accessibility_forced,
         ..
@@ -313,54 +304,12 @@ fn saved_ref_node(
 }
 
 fn unique_live_match(entry: &RefEntry, observed: &ObservedTree) -> Result<usize, AdapterError> {
-    let predicate = FullPredicate::of_entry(entry);
-    let mut found = None;
-    let mut incomplete = !observed.is_exhaustive();
-    for (index, node) in observed.nodes.iter().enumerate() {
-        match predicate.compare(&LivePredicate::observed(&node.evidence)) {
-            IdentityMatch::Match if found.is_some() => return Err(ambiguous_live_match(entry)),
-            IdentityMatch::Match => found = Some(index),
-            IdentityMatch::Unknown => incomplete = true,
-            IdentityMatch::NoMatch => {}
-        }
-    }
-    if incomplete {
-        return Err(identity_unknown_error(entry));
-    }
-    found.ok_or_else(|| absent(entry))
-}
-
-/// A positional anchor at the matching node's path, carrying the saved
-/// predicate: the adapter lands that path and its own anchor verification
-/// re-checks the recorded identity, so a row that moved under the path is
-/// refused rather than acted on.
-fn positional_anchor(
-    entry: &RefEntry,
-    observed: &ObservedTree,
-    index: usize,
-) -> Result<RefEntry, AdapterError> {
-    let node = observed
-        .nodes
-        .get(index)
-        .ok_or_else(|| AdapterError::internal("saved ref match is missing from the observation"))?;
-    let mut anchor = materialize_ref_entry(
-        node,
-        &observed.source,
-        &crate::locator::LocatorQuery::default(),
-    );
-    anchor.identity = crate::RefEntryIdentity {
-        retained_object: entry.identity.retained_object.clone(),
-        unique_at_capture: false,
-        ..entry.identity.clone()
-    };
-    Ok(anchor)
-}
-
-fn adapter_error(error: AppError) -> AdapterError {
-    match error {
-        AppError::Adapter(error) => error,
-        other => AdapterError::internal(other.to_string()),
-    }
+    let scope = chain_nodes(observed, &entry.scope.chain)
+        .map_err(|miss| miss.into_error(entry))?
+        .last()
+        .copied();
+    match_in_scope(observed, scope, &FullPredicate::of_entry(entry))
+        .map_err(|miss| miss.into_error(entry))
 }
 
 #[cfg(test)]
@@ -374,6 +323,14 @@ mod window_tests;
 #[cfg(test)]
 #[path = "resolve_saved_ref_context_tests.rs"]
 mod context_tests;
+
+#[cfg(test)]
+#[path = "resolve_saved_ref_scope_tests.rs"]
+mod scope_tests;
+
+#[cfg(test)]
+#[path = "resolve_saved_ref_scope_find_tests.rs"]
+mod scope_find_tests;
 
 #[cfg(test)]
 #[path = "resolve_saved_ref_label_tests.rs"]

@@ -138,12 +138,36 @@ fn lock_timeout(
     path: &Path,
     contention_count: u64,
 ) -> AdapterError {
-    deadline.timeout_error().with_details(serde_json::json!({
-        "kind": "lock_timeout",
-        "purpose": purpose,
-        "path": path.file_name().map(|name| name.to_string_lossy().into_owned()),
-        "contention_count": contention_count,
+    lock_wait_timeout(
+        deadline,
+        purpose,
+        serde_json::json!({
+            "kind": "lock_timeout",
+            "purpose": purpose,
+            "path": path.file_name().map(|name| name.to_string_lossy().into_owned()),
+            "contention_count": contention_count,
+        }),
+    )
+}
+
+/// The `TIMEOUT` error for a lock that another agent-desktop command held for
+/// the whole wait. The disposition stays unknown: only a caller that takes the
+/// lock before any delivery can claim `not_delivered`.
+pub fn lock_wait_timeout(
+    deadline: Deadline,
+    purpose: &str,
+    details: serde_json::Value,
+) -> AdapterError {
+    AdapterError::timeout(format!(
+        "Another agent-desktop command held the {purpose} for the whole {}ms wait",
+        deadline.timeout_ms()
+    ))
+    .with_suggestion("Retry the command, or wait for the other agent-desktop command to finish")
+    .with_details(serde_json::json!({
+        "timeout_ms": deadline.timeout_ms(),
+        "elapsed_ms": deadline.elapsed().as_millis(),
     }))
+    .with_details(details)
 }
 
 fn io_error(error: std::io::Error) -> AdapterError {

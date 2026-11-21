@@ -34,3 +34,17 @@ fn focus_window_requires_a_process_instance_token() {
     let err = focus_window(&win, &lease()).unwrap_err();
     assert_eq!(err.code, ErrorCode::StaleRef);
 }
+
+/// Windows refuses `SetForegroundWindow` from a process that does not own
+/// the foreground (A21-6), which is every headed action on a window in the
+/// background. The raise must stay on the UI Automation focus route (A31-9).
+#[test]
+fn the_raise_asks_ui_automation_for_focus_and_never_calls_set_foreground_window() {
+    let src = include_str!("window_activate.rs");
+    let raise = src
+        .split("fn bring_to_foreground")
+        .nth(1)
+        .expect("the raise function exists");
+    assert!(raise.contains("focus_window_element(handle)"));
+    assert!(!src.contains("SetForegroundWindow(handle)"));
+}

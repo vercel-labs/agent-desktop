@@ -66,6 +66,9 @@ fn recovery_for_code(
     let process_exited = details
         .and_then(|details| details.get("process_state"))
         .is_some_and(|state| state == "exited");
+    let lease_not_acquired = details
+        .and_then(|details| details.get("lease"))
+        .is_some_and(|lease| lease == "not_acquired");
     match code {
         ErrorCode::StaleRef if process_exited => Some(RecoveryHint {
             strategy: "inspect_state_then_retry_original".into(),
@@ -84,6 +87,12 @@ fn recovery_for_code(
             retryable: true,
             requires_fresh_snapshot: false,
             retry_after_ms: None,
+        }),
+        ErrorCode::Timeout if lease_not_acquired => Some(RecoveryHint {
+            strategy: "retry_original".into(),
+            retryable: true,
+            requires_fresh_snapshot: false,
+            retry_after_ms: Some(250),
         }),
         ErrorCode::AppUnresponsive | ErrorCode::Timeout => Some(RecoveryHint {
             strategy: "inspect_state_then_retry_original".into(),

@@ -1,8 +1,6 @@
 use super::super::*;
-use super::{
-    KillOnDrop, copy_system_exe, deadline, matching_pids, scratch_dir, start_named_windowless,
-};
-use agent_desktop_core::Deadline;
+use super::{KillOnDrop, copy_system_exe, matching_pids, scratch_dir, start_named_windowless};
+use crate::system::test_support::test_time::test_lease;
 
 #[test]
 fn attach_true_windowless_does_not_launch_second_process() {
@@ -19,7 +17,7 @@ fn attach_true_windowless_does_not_launch_second_process() {
             timeout_ms: 300,
             ..Default::default()
         },
-        Deadline::after(1_000).expect("deadline"),
+        test_lease(1_000),
     )
     .expect("attaching to a windowless process is a successful launch, not a failure");
     assert!(
@@ -53,7 +51,7 @@ fn cwd_is_honored_for_create_process() {
     let result = launch_app_impl(
         probe.to_str().expect("utf8 path"),
         &options,
-        deadline(10_000),
+        test_lease(10_000),
     )
     .expect("a windowless probe is a successful launch");
     let _guard = KillOnDrop(result.pid);
@@ -101,7 +99,7 @@ fn timeout_zero_checks_once_for_process_without_window() {
             timeout_ms: 0,
             ..Default::default()
         },
-        deadline(10_000),
+        test_lease(10_000),
     )
     .expect("a windowless process is a successful launch");
     let _guard = KillOnDrop(result.pid);

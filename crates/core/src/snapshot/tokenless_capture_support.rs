@@ -119,6 +119,7 @@ impl ObservationOps for CaptureAdapter {
     fn resolve_locator_anchor(
         &self,
         entry: &RefEntry,
+        _base: Option<&NativeHandle>,
         _deadline: Deadline,
     ) -> Result<NativeHandle, AdapterError> {
         self.anchors

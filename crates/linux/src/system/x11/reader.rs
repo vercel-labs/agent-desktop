@@ -340,15 +340,12 @@ fn read_display(display: &str) -> X11State {
     if manager.is_none_or(|values| values.is_empty()) {
         return X11State::NoWindowManager;
     }
-    let active = cardinals(property(
-        &connection,
-        root,
-        atoms.active,
-        AtomEnum::WINDOW,
-        1,
-    ))
-    .and_then(|values| values.first().copied())
-    .filter(|window| *window != 0);
+    let Some(active) = property(&connection, root, atoms.active, AtomEnum::WINDOW, 1) else {
+        return X11State::Unavailable;
+    };
+    let active = cardinals(Some(active))
+        .and_then(|values| values.first().copied())
+        .filter(|window| *window != 0);
     let Some(listed) = cardinals(property(
         &connection,
         root,

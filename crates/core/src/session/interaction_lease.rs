@@ -104,13 +104,38 @@ impl InteractionLease {
     }
 }
 
+pub const INTERACTION_LEASE_PURPOSE: &str = "desktop interaction lease";
+
+/// Marks a lease acquire timeout as `not_delivered`: the lease is taken before
+/// any delivery, so a lease that was never acquired delivered nothing. The
+/// `lease: not_acquired` detail tells recovery that the command never ran.
+pub fn lease_not_acquired(error: AdapterError) -> AdapterError {
+    if error.code == crate::ErrorCode::Timeout {
+        error
+            .with_disposition(crate::DeliverySemantics::not_delivered())
+            .with_details(serde_json::json!({ "lease": "not_acquired" }))
+    } else {
+        error
+    }
+}
+
+/// The error for an interaction lease held by another command for the whole wait.
+pub fn interaction_lease_timeout(deadline: Deadline, details: serde_json::Value) -> AdapterError {
+    lease_not_acquired(crate::storage::file_lock::lock_wait_timeout(
+        deadline,
+        INTERACTION_LEASE_PURPOSE,
+        details,
+    ))
+}
+
 #[cfg(unix)]
 pub fn acquire_unix_interaction_lease(
     deadline: Deadline,
 ) -> Result<InteractionLease, AdapterError> {
     let process_guard = crate::session::process_lease_guard::ProcessLeaseGuard::acquire(deadline)?;
     let path = interaction_lock_path_at(std::path::Path::new("/tmp"))?;
-    let lock = FileLock::acquire(&path, deadline, "desktop interaction lease")?;
+    let lock = FileLock::acquire(&path, deadline, INTERACTION_LEASE_PURPOSE)
+        .map_err(lease_not_acquired)?;
     Ok(InteractionLease::from_file_lock(
         deadline,
         lock,
@@ -141,7 +166,8 @@ fn acquire_unix_interaction_lease_at(
 ) -> Result<InteractionLease, AdapterError> {
     let process_guard = crate::session::process_lease_guard::ProcessLeaseGuard::acquire(deadline)?;
     let path = interaction_lock_path_at(root)?;
-    let lock = FileLock::acquire(&path, deadline, "test desktop interaction lease")?;
+    let lock = FileLock::acquire(&path, deadline, "test desktop interaction lease")
+        .map_err(lease_not_acquired)?;
     Ok(InteractionLease::from_file_lock(
         deadline,
         lock,
@@ -165,7 +191,8 @@ fn adopt_inherited_unix_interaction_lease_at(
         &path,
         deadline,
         "inherited desktop interaction lease",
-    )?;
+    )
+    .map_err(lease_not_acquired)?;
     Ok(InteractionLease::from_file_lock(
         deadline,
         lock,

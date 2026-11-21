@@ -23,6 +23,8 @@ pub mod screenshot_target;
 pub(crate) mod surface_info;
 pub mod window_filter;
 pub(crate) mod window_focus;
+pub(crate) mod window_frame_memory;
+pub(crate) mod window_frame_record;
 pub(crate) mod window_info;
 pub(crate) mod window_lookup;
 pub(crate) mod window_op;

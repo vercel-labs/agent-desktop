@@ -14,17 +14,13 @@ use crate::input::elevation::{
 use super::window_identity::WindowIdentityEvidence;
 use super::window_ops::{is_foreground_window, parse_handle};
 
-/// A21-6: the committed capture recorded 0/5 first-attempt successes, and
-/// the scratch-window foreground transition did not land on the second
-/// attempt either; the repo-controlled scratch host cannot stage the
-/// contention this retry exists to survive, so that case was never
-/// exercised here. A budget still has to be finite regardless of what this
-/// host could measure: an unbounded retry against a target that truly
-/// never becomes foreground would hang the caller instead of failing
-/// closed. Two keeps the one extra attach-and-set-foreground attempt after
-/// a short delay, enough for a retry to observe an attach the first
-/// attempt raced, then exhausts and fails closed rather than asserting a
-/// success rate this capture never showed.
+/// Windows refuses `SetForegroundWindow` from a process that does not own
+/// the foreground: 0 of 5 on the first attempt and 0 of 5 on the second
+/// (A21-6). UI Automation focus on the window's own element took the
+/// foreground from such a process in 60 of 60 trials (A31-9), so the raise
+/// goes through it. The budget stays finite: a target that never becomes
+/// foreground gets one more attempt after a short delay, then the raise
+/// fails closed.
 const FOCUS_STEAL_BUDGET: u32 = 2;
 const INTER_ATTEMPT_DELAY: Duration = Duration::from_millis(25);
 
@@ -81,9 +77,9 @@ fn before_activation(error: AdapterError) -> AdapterError {
 /// Refuses activation of a target that is not dispatching messages.
 ///
 /// This conservative liveness check runs after identity verification and
-/// before activation. Restore/show use asynchronous window calls, while
-/// `SetForegroundWindow` can still be refused by Windows; checking after
-/// verification keeps a destroyed or recycled handle classified as stale.
+/// before activation. Restore/show use asynchronous window calls, and the
+/// raise is a call into the target's process; checking after verification
+/// keeps a destroyed or recycled handle classified as stale.
 #[cfg(target_os = "windows")]
 fn ensure_window_is_pumping(handle: super::window_enum::WindowHandle) -> Result<(), AdapterError> {
     if super::window_enum::window_is_responsive(handle) {
@@ -153,7 +149,7 @@ fn raise_with_budget(
 /// window has not been touched, so that timeout is routed through
 /// `before_activation` like every pre-write failure above it. From the
 /// second attempt onward, a prior `bring_to_foreground` call has already
-/// issued `ShowWindow`/`SetForegroundWindow` against the live handle, so the
+/// issued a show and a focus request against the live handle, so the
 /// envelope cannot claim nothing was written even though the error itself is
 /// a plain `Timeout`. That mirrors the split the keyboard and mouse release
 /// guards already use: not-delivered while nothing has gone out,
@@ -237,9 +233,7 @@ fn bring_to_foreground(
     handle: super::window_enum::WindowHandle,
     evidence: &WindowIdentityEvidence<'_>,
 ) -> Result<(), AdapterError> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        IsWindowVisible, SW_SHOW, SetForegroundWindow, ShowWindowAsync,
-    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{IsWindowVisible, SW_SHOW, ShowWindowAsync};
 
     unsafe {
         if !owned_for_write(evidence)? {
@@ -255,9 +249,24 @@ fn bring_to_foreground(
         if !owned_for_write(evidence)? {
             return Err(recycled_before_foreground());
         }
-        let _ = SetForegroundWindow(handle);
     }
+    focus_window_element(handle);
     Ok(())
+}
+
+/// Asks UI Automation to focus the window's own element, which makes the
+/// window the foreground window. A refusal is not an error here: the caller
+/// reads the foreground back and decides.
+#[cfg(target_os = "windows")]
+fn focus_window_element(handle: super::window_enum::WindowHandle) {
+    let Ok(client) = crate::tree::automation::automation_client() else {
+        return;
+    };
+    if let Ok(element) =
+        client.element_from_handle(uiautomation::types::Handle::from(handle as isize))
+    {
+        let _ = element.set_focus();
+    }
 }
 
 #[cfg(not(target_os = "windows"))]

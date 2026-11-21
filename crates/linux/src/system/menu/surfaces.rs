@@ -90,24 +90,19 @@ fn windows_of_process(
     scoped_windows_of(bus, &registry, |app| app.root.pid() == pid, deadline)
 }
 
-/// The dialogs a scan found, or the deadline's timeout when the scan stopped
-/// because the deadline ran out with nothing found: the command's own
-/// timeout, not an unknown dialog state. A scan cut short for another reason
-/// stays incomplete, and a dialog it saw is still reported.
-fn dialogs_or_timeout(scan: NestedScan, deadline: Deadline) -> Result<NestedDialogs, AdapterError> {
+/// The dialogs a scan found, and whether it read every window to the end. An
+/// incomplete scan still reports the dialogs it saw.
+fn nested_dialogs_of(scan: NestedScan) -> NestedDialogs {
     let NestedScan {
         found, complete, ..
     } = scan;
-    if !complete && found.is_empty() && deadline.is_expired() {
-        return Err(deadline.timeout_error());
-    }
-    Ok(NestedDialogs {
+    NestedDialogs {
         titles: found
             .into_iter()
             .map(|nested| nested.title.unwrap_or_default())
             .collect(),
         complete,
-    })
+    }
 }
 
 /// The titles of the dialogs drawn inside the windows of one process, which
@@ -123,7 +118,7 @@ pub(crate) fn nested_dialog_titles(
     let windows = windows_of_process(bus, pid, deadline)?;
     let mut inventory = Inventory::structural(bus, deadline);
     let scan = scan_windows(&windows, |window| inventory.read(window));
-    dialogs_or_timeout(scan, deadline)
+    Ok(nested_dialogs_of(scan))
 }
 
 /// Lists the surfaces the named process presents. The process identity is

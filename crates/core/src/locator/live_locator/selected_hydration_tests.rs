@@ -62,6 +62,7 @@ impl ObservationOps for RoleOnlyHydrationAdapter {
     fn resolve_locator_anchor(
         &self,
         entry: &crate::RefEntry,
+        _base: Option<&NativeHandle>,
         _deadline: crate::Deadline,
     ) -> Result<NativeHandle, AdapterError> {
         self.strict_resolutions.fetch_add(1, Ordering::SeqCst);

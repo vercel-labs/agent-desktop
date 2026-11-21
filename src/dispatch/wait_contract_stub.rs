@@ -311,7 +311,7 @@ pub(crate) fn save_run_button(context: &CommandContext) -> (String, String) {
         scope: RefScope {
             root_ref: None,
             path_is_absolute: true,
-            path: Default::default(),
+            ..Default::default()
         },
     };
     let mut refmap = RefMap::new();

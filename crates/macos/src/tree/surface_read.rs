@@ -148,7 +148,7 @@ pub(crate) fn map_error(attribute: &str, error: i32) -> AdapterError {
     } else if error == kAXErrorCannotComplete {
         ErrorCode::Timeout
     } else if error == kAXErrorInvalidUIElement {
-        ErrorCode::AppUnresponsive
+        ErrorCode::StaleRef
     } else {
         ErrorCode::ActionFailed
     };
@@ -189,7 +189,7 @@ mod tests {
         );
         assert_eq!(
             map_error("AXRole", kAXErrorInvalidUIElement).code,
-            ErrorCode::AppUnresponsive
+            ErrorCode::StaleRef
         );
         let stale = map_error("AXRole", kAXErrorInvalidUIElement);
         let details = stale.details.unwrap();

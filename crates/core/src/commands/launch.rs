@@ -49,7 +49,7 @@ pub fn execute(
         deadline.capped(deadline.remaining().saturating_sub(reserve))
     });
     let lease = adapter.acquire_interaction_lease(launch_deadline)?;
-    let mut launched = adapter.launch_app(&app, &options, &lease)?;
+    let mut launched = adapter.launch_app(&app, &options, lease)?;
     if let Some(port) = options.cdp_port {
         let granted = deadline.remaining();
         launched.guidance.cdp = Some(verify_cdp_endpoint(

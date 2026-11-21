@@ -43,6 +43,7 @@ fn entry(role: &str) -> RefEntry {
             root_ref: None,
             path_is_absolute: false,
             path: smallvec::smallvec![0, 1],
+            chain: Default::default(),
         },
     }
 }

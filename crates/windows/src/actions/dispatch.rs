@@ -55,7 +55,7 @@ mod imp {
                 Ok(ActionResult::from_execution(&request.action, steps))
             }
             Action::SetFocus => focus_element(element, &request, deadline),
-            Action::ScrollTo => execute_scroll_to(handle, lease, request.policy),
+            Action::ScrollTo => execute_scroll_to(handle, request.policy, lease),
             Action::TypeText(text) => {
                 let steps = type_text_steps(element, text, request.policy, deadline)?;
                 Ok(ActionResult::from_execution(&request.action, steps))
@@ -173,8 +173,8 @@ mod imp {
 
     fn execute_scroll_to(
         handle: &NativeHandle,
-        lease: &InteractionLease,
         policy: agent_desktop_core::InteractionPolicy,
+        lease: &InteractionLease,
     ) -> Result<ActionResult, AdapterError> {
         let done = scroll_into_view_outcome(handle, lease, policy)?;
         Ok(ActionResult::from_execution(

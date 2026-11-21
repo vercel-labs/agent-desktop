@@ -49,11 +49,11 @@ fn an_expired_baseline_deadline_prevents_spawning() {
     let bus = SharedBus::default();
     let options = options();
     let lease = InteractionLease::guarded(Deadline::after(1_000).unwrap(), ()).unwrap();
-    let launch = Launch {
+    let mut launch = Launch {
         bus: &bus,
         id: "true",
         options: &options,
-        lease: &lease,
+        lease: Some(lease),
         deadline: Deadline::after(0).unwrap(),
     };
     let error = launch

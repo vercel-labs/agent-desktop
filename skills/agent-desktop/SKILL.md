@@ -67,7 +67,7 @@ agent-desktop click '@s8f3k2p9:e12' --wait-for "<role>:<text>"   # act, then ret
 agent-desktop set-value '@s8f3k2p9:e4' "<text>"  # replaces the whole value; the headless route
 agent-desktop type '@s8f3k2p9:e4' "<text>"       # inserts text at the caret and keeps the rest
 agent-desktop get '@s8f3k2p9:e4' --property value
-agent-desktop close-app "<app>"                # headless graceful close can be refused; see --force below
+agent-desktop close-app "<app>"                # a save prompt keeps the app open; see --force below
 ```
 
 If an action reports `data.surfaces`, inspect the overlay before acting on the
@@ -118,13 +118,14 @@ Keep that scope from observation through verification.
 After a UI change, re-observe the affected region. A root drill keeps its snapshot
 id and refs outside that subtree, including the root, but replaces descendant refs.
 Refs re-identify live elements; they are not coordinates or a promise that a widget
-instance survives. Without a native element token, identity must be unique across
-the whole window at capture and resolution. Values and bounds are not identity.
+instance survives. Without a native element token, identity must be unique in the
+whole window, or inside the nearest ancestor that is unique (a cell inside its
+row), at capture and resolution. Values and bounds are not identity.
 
 - `STALE_REF` means no matching live element or a stale native token. Observe again.
 - `AMBIGUOUS_TARGET` means multiple matches or unproven capture identity. Identical
-  twins stay ambiguous after another snapshot or a narrower drill; choose a unique
-  control. If capture identity was unproven because the read was incomplete, finish
+  twins that no unique ancestor separates stay ambiguous after another snapshot or
+  a narrower drill; choose a unique control. If capture identity was unproven because the read was incomplete, finish
   the observation before acting.
 - `SNAPSHOT_NOT_FOUND` means the snapshot is absent in the current scope. Check the
   session before taking a replacement snapshot.

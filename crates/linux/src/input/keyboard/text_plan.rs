@@ -39,7 +39,7 @@ pub(crate) fn plan_text(map: &Keymap, text: &str) -> Result<Vec<Plan>, AdapterEr
     }
     let controls: Vec<_> = text
         .chars()
-        .filter(|character| character.is_control())
+        .filter(|character| character.is_control() && *character != '\n')
         .collect();
     if !controls.is_empty() {
         return Err(refusal(&controls));

@@ -2,7 +2,9 @@
 //!
 //! Gates `ScrollAvailable` on the element, maps direction to
 //! SmallIncrement/SmallDecrement on one axis, invokes `amount` times under the
-//! deadline, and verifies by scroll-percent delta or bounds change.
+//! deadline, and verifies by scroll-percent delta or bounds change. The rung
+//! takes no foreground, because the client sets `AutoSetFocus` to false
+//! (A31-1, A31-2), so every policy runs it.
 
 use agent_desktop_core::{ActionStep, AdapterError, Deadline, Direction, ErrorCode, Rect};
 
@@ -198,7 +200,7 @@ mod imp {
             Ok(DeliveryOutcome::from_delivery(true, observe_effect()))
         };
         agent_desktop_core::execute_chain(
-            &mut offered([rung(SCROLL_LABEL, true, true, &mut deliver)]),
+            &mut offered([rung(SCROLL_LABEL, true, false, &mut deliver)]),
             policy,
             deadline,
             SCROLL_SUGGESTION,

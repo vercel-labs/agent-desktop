@@ -124,8 +124,8 @@ ABI. A bare `@eN` ref returns
   pipeline. They still refuse an action the adapter reports as taking the
   foreground (a popup, menu or dialog opener, or a Linux element focus) when the
   policy forbids it: `AD_RESULT_ERR_POLICY_DENIED`, nothing sent. `ad_close_app`
-  runs headless: on Linux a graceful close is `AD_RESULT_ERR_POLICY_DENIED`
-  (`may_prompt`); pass `force` to end the app. Release every handle with `ad_free_handle(adapter, &handle)` on the
+  runs headless: a graceful close of an app that answers with a save prompt
+  fails and leaves the app open; pass `force` to end the app. Release every handle with `ad_free_handle(adapter, &handle)` on the
   same adapter and thread, before `ad_adapter_destroy`, on every platform. It
   zeroes `handle.ptr`, so a second call is a no-op.
 

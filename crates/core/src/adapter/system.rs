@@ -97,7 +97,7 @@ pub trait SystemOps: Send + Sync {
         &self,
         _id: &str,
         _options: &crate::system::launch_options::LaunchOptions,
-        _lease: &InteractionLease,
+        _lease: InteractionLease,
     ) -> Result<crate::system::launch_result::LaunchResult, AdapterError> {
         Err(AdapterError::not_supported("launch_app"))
     }
@@ -206,19 +206,12 @@ pub trait SystemOps: Send + Sync {
         Err(AdapterError::not_supported("capture_signal_baseline"))
     }
 
-    /// Whether a graceful close request can make the application open a prompt
-    /// (a save dialog) that takes the foreground. Core refuses a graceful
-    /// `close-app` whose policy forbids focus when it can. The default is
-    /// `false`: no prompt was measured.
-    fn graceful_close_may_prompt(&self) -> bool {
-        false
-    }
-
     fn close_app(
         &self,
         _app: &AppInfo,
         _force: bool,
         _lease: &InteractionLease,
+        _policy: crate::InteractionPolicy,
     ) -> Result<OperationReport, AdapterError> {
         Err(AdapterError::not_supported("close_app"))
     }

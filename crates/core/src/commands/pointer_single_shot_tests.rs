@@ -204,6 +204,7 @@ fn ref_entry(pid: u32) -> RefEntry {
             root_ref: None,
             path_is_absolute: false,
             path: smallvec::SmallVec::new(),
+            chain: Default::default(),
         },
     }
 }

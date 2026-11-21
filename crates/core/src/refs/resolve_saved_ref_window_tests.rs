@@ -53,9 +53,10 @@ fn a_closed_recorded_window_is_never_replaced_by_another() {
 
     let error = refused(&adapter, &entry());
 
-    assert!(
-        matches!(error.code, ErrorCode::StaleRef | ErrorCode::WindowNotFound),
-        "a closed window is gone, not substituted: {error:?}"
+    assert_eq!(
+        error.code,
+        ErrorCode::StaleRef,
+        "a closed window makes the ref stale, on every platform: {error:?}"
     );
     assert_eq!(adapter.observations.load(Ordering::SeqCst), 0);
 }

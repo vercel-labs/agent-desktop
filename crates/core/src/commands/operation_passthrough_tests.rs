@@ -86,6 +86,7 @@ impl SystemOps for ReportingAdapter {
         _app: &AppInfo,
         _force: bool,
         _lease: &InteractionLease,
+        _policy: crate::InteractionPolicy,
     ) -> Result<OperationReport, AdapterError> {
         Ok(self.report.clone())
     }

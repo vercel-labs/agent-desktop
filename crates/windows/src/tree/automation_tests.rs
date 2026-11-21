@@ -239,6 +239,27 @@ mod windows_only {
         );
     }
 
+    /// With `AutoSetFocus` left at its default, every control pattern call
+    /// first sets focus to its target and activates the target's window
+    /// (A31-1). The shipped client turns it off (A31-2).
+    #[test]
+    fn the_shipped_client_does_not_set_focus_before_a_pattern_call() {
+        use windows::Win32::UI::Accessibility::{IUIAutomation, IUIAutomation2};
+        use windows::core::Interface;
+        bootstrap();
+        let client = automation_client().expect("a client");
+        let raw: IUIAutomation = client.as_ref().clone();
+
+        let bounded: IUIAutomation2 = raw
+            .cast()
+            .expect("the shipped client must expose IUIAutomation2");
+        assert!(
+            !unsafe { bounded.AutoSetFocus() }
+                .expect("AutoSetFocus is readable")
+                .as_bool()
+        );
+    }
+
     /// UI Automation's client core initializes lazily and not re-entrantly:
     /// concurrent first touches made all but one thread fail instantly with
     /// E_FAIL and "Re-Entrant CheckInit() call, aborting". The accessor

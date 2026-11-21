@@ -172,6 +172,7 @@ fn snapshot_id() -> String {
             root_ref: None,
             path_is_absolute: false,
             path: smallvec::SmallVec::new(),
+            chain: Default::default(),
         },
     });
     RefStore::new().unwrap().save_new_snapshot(&refmap).unwrap()

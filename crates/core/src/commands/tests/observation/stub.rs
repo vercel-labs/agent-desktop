@@ -100,6 +100,7 @@ impl ObservationOps for Stub {
     fn resolve_locator_anchor(
         &self,
         _entry: &RefEntry,
+        _base: Option<&NativeHandle>,
         _deadline: Deadline,
     ) -> Result<NativeHandle, AdapterError> {
         Ok(NativeHandle::null())

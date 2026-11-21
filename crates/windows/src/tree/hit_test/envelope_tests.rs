@@ -205,6 +205,7 @@ fn entry_for(live: &LiveElement) -> RefEntry {
             root_ref: None,
             path_is_absolute: false,
             path: Default::default(),
+            chain: Default::default(),
         },
     }
 }

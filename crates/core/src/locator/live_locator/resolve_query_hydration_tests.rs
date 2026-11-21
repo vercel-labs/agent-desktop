@@ -45,6 +45,7 @@ impl ObservationOps for HydrationRetryAdapter {
     fn resolve_locator_anchor(
         &self,
         _entry: &crate::RefEntry,
+        _base: Option<&crate::NativeHandle>,
         _deadline: crate::Deadline,
     ) -> Result<crate::NativeHandle, AdapterError> {
         Ok(crate::NativeHandle::null())
@@ -97,6 +98,7 @@ impl ObservationOps for CountingAdapter {
     fn resolve_locator_anchor(
         &self,
         _entry: &crate::RefEntry,
+        _base: Option<&crate::NativeHandle>,
         _deadline: crate::Deadline,
     ) -> Result<crate::NativeHandle, AdapterError> {
         self.element_observations.fetch_add(1, Ordering::SeqCst);
@@ -187,6 +189,7 @@ impl ObservationOps for IncompleteHydrationAdapter {
     fn resolve_locator_anchor(
         &self,
         _entry: &crate::RefEntry,
+        _base: Option<&crate::NativeHandle>,
         _deadline: crate::Deadline,
     ) -> Result<crate::NativeHandle, AdapterError> {
         Ok(crate::NativeHandle::null())
@@ -270,6 +273,7 @@ impl ObservationOps for ReadAgainAdapter {
     fn resolve_locator_anchor(
         &self,
         _entry: &crate::RefEntry,
+        _base: Option<&crate::NativeHandle>,
         _deadline: crate::Deadline,
     ) -> Result<crate::NativeHandle, AdapterError> {
         Ok(crate::NativeHandle::null())

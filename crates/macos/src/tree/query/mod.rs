@@ -364,6 +364,7 @@ mod tests {
                 root_ref: None,
                 path_is_absolute: false,
                 path: Default::default(),
+                chain: Default::default(),
             },
         };
         let handle = NativeHandle::null();

@@ -53,6 +53,7 @@ pub(super) fn entry(
             root_ref: root_ref.map(String::from),
             path_is_absolute: false,
             path: smallvec::smallvec![0, 1],
+            chain: Default::default(),
         },
     }
 }
@@ -261,4 +262,20 @@ fn complete_absence_remains_retryable_for_renderer_detach_and_reattach() {
 
     assert_eq!(error.code, ErrorCode::StaleRef);
     assert_eq!(error.details.unwrap()["retryable"], true);
+}
+
+#[test]
+fn based_anchor_with_a_foreign_base_handle_is_a_stale_ref_not_a_refusal() {
+    let mut context = ResolveReadContext::new(Deadline::after(1_000).unwrap());
+    let base = NativeHandle::new(42_u32);
+
+    let error = anchor_roots(
+        &entry(Some(42), Some("w-42"), None, None),
+        Some(&base),
+        &mut context,
+    )
+    .err()
+    .expect("a base that is not an AX element cannot anchor a path");
+
+    assert_eq!(error.code, ErrorCode::StaleRef);
 }

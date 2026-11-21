@@ -167,6 +167,7 @@ fn element_root_derives_surface_with_relative_depth_budgets() {
             root_ref: None,
             path_is_absolute: true,
             path: smallvec::smallvec![3, 4, 5],
+            chain: Default::default(),
         },
     };
     let handle = crate::NativeHandle::null();

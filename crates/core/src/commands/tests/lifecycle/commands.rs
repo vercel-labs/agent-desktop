@@ -95,7 +95,7 @@ impl SystemOps for Stub {
         &self,
         _id: &str,
         options: &LaunchOptions,
-        _lease: &InteractionLease,
+        _lease: InteractionLease,
     ) -> Result<LaunchResult, AdapterError> {
         if let Some(port) = options.cdp_port {
             serve_devtools_endpoint(port);

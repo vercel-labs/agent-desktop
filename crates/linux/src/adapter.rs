@@ -67,9 +67,10 @@ impl ObservationOps for LinuxAdapter {
     fn resolve_locator_anchor(
         &self,
         entry: &RefEntry,
+        base: Option<&NativeHandle>,
         deadline: Deadline,
     ) -> Result<NativeHandle, AdapterError> {
-        crate::tree::resolve_locator_anchor(self.bus(), entry, deadline)
+        crate::tree::resolve_locator_anchor(self.bus(), entry, base, deadline)
     }
 
     fn resolve_shell_surface(

@@ -4,7 +4,7 @@ use agent_desktop_core::{
 use zbus::Connection;
 
 use super::path_descent::Levels;
-use super::resolve_anchor::resolve_anchor;
+use super::resolve_anchor::resolve_anchor_from;
 use super::resolve_errors::{settle_gone, stopped_app};
 use super::resolve_gate::stored_window;
 use crate::system::{SharedBus, owner_process_id, process::process_facts, shell, within};
@@ -168,13 +168,20 @@ pub(crate) fn resolve_element_strict(
 pub(crate) fn resolve_locator_anchor(
     bus: &SharedBus,
     entry: &RefEntry,
+    base: Option<&NativeHandle>,
     deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
+    let base = base.map(crate::tree::element::atspi_element).transpose()?;
     if crate::system::tray::owns(entry) || crate::tree::menu::menu_resolve::is_menu_entry(entry) {
+        if base.is_some() {
+            return Err(AdapterError::not_supported(
+                "resolve_locator_anchor from a base element",
+            ));
+        }
         return resolve_element_strict(bus, entry, deadline);
     }
     let mut source = BusSource::open(bus, deadline)?;
-    resolve_anchor(&mut source, entry, deadline).map(AtspiElement::into_native_handle)
+    resolve_anchor_from(&mut source, entry, base, deadline).map(AtspiElement::into_native_handle)
 }
 
 #[cfg(test)]

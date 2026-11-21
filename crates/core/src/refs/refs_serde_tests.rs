@@ -37,6 +37,7 @@ fn minimal_entry(role: &str) -> RefEntry {
             root_ref: None,
             path_is_absolute: false,
             path: smallvec::SmallVec::new(),
+            chain: Default::default(),
         },
     }
 }
@@ -215,6 +216,7 @@ fn ref_entry_full_roundtrip_preserves_all_fields() {
             root_ref: Some("@e5".into()),
             path_is_absolute: true,
             path: smallvec::SmallVec::from_slice(&[2, 0, 1]),
+            chain: Default::default(),
         },
     };
     let json = serde_json::to_string(&original).unwrap();
@@ -294,4 +296,72 @@ fn refmap_round_trip_keeps_bounds_on_a_rounding_boundary() {
     restored.validate().unwrap();
     let restored_bounds = restored.get(&ref_id).unwrap().geometry.bounds.unwrap();
     assert_eq!(restored_bounds.y.to_bits(), bounds.y.to_bits());
+}
+
+fn identity_named(role: &str, name: &str) -> crate::RefEntryIdentity {
+    crate::RefEntryIdentity {
+        role: role.into(),
+        name: Some(name.into()),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn ref_map_stores_a_shared_scope_chain_once() {
+    let mut shared = minimal_entry("button");
+    shared.scope.chain = vec![identity_named("group", "Zebra Row")].into();
+    let mut other = minimal_entry("button");
+    other.scope.chain = vec![identity_named("group", "Plain Row")].into();
+    let mut map = RefMap::new();
+    let first = map.try_allocate(shared.clone()).unwrap();
+    let twin = map.try_allocate(shared).unwrap();
+    let third = map.try_allocate(other).unwrap();
+
+    let json = map.serialize_with_size_check().unwrap();
+    assert_eq!(json.matches("Zebra Row").count(), 1, "json={json}");
+    let restored: RefMap = serde_json::from_str(&json).unwrap();
+    for ref_id in [&first, &twin, &third] {
+        assert_eq!(
+            restored.get(ref_id).unwrap().scope.chain,
+            map.get(ref_id).unwrap().scope.chain
+        );
+    }
+}
+
+#[test]
+fn ref_map_loads_scope_chains_stored_inline_before_the_chain_table() {
+    let mut entry = minimal_entry("button");
+    entry.scope.chain = vec![identity_named("group", "Legacy Row")].into();
+    let legacy = serde_json::json!({
+        "inner": { "@e1": serde_json::to_value(&entry).unwrap() },
+        "counter": 1
+    });
+
+    let restored: RefMap = serde_json::from_value(legacy).unwrap();
+    restored.validate().unwrap();
+    assert_eq!(restored.get("@e1").unwrap().scope.chain, entry.scope.chain);
+}
+
+#[test]
+fn ref_map_of_a_thousand_rows_with_twins_fits_the_size_limit() {
+    let mut map = RefMap::new();
+    for row in 0..1000 {
+        let row_name =
+            format!("Message thread {row}: quarterly planning review and follow-up notes");
+        let row_identity = identity_named("row", &row_name);
+        for _ in 0..4 {
+            let mut entry = minimal_entry("button");
+            entry.identity.name = Some("Delete".into());
+            entry.scope.chain = vec![row_identity.clone()].into();
+            map.try_allocate(entry).unwrap();
+        }
+    }
+
+    let json = map.serialize_with_size_check().unwrap();
+    let restored: RefMap = serde_json::from_str(&json).unwrap();
+    assert_eq!(restored.len(), 4000);
+    assert_eq!(
+        restored.get("@e4000").unwrap().scope.chain,
+        map.get("@e4000").unwrap().scope.chain
+    );
 }

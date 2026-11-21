@@ -44,7 +44,7 @@ pub(crate) fn validate_ref_entry(entry: &RefEntry) -> Result<(), AppError> {
             "RefEntry contains invalid typed identifier evidence",
         ));
     }
-    if entry.scope.path.len() > MAX_PATH_DEPTH {
+    if entry.scope.path.len() > MAX_PATH_DEPTH || entry.scope.chain.len() > MAX_PATH_DEPTH {
         return Err(AppError::invalid_input("RefEntry path is too deep"));
     }
     if let Some(bounds) = entry.geometry.bounds {

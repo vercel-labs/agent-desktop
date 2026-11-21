@@ -50,14 +50,11 @@ mod imp {
         set_value_steps(element, "", policy, deadline)
     }
 
-    /// Writes `value` through ValuePattern or RangeValuePattern, which
-    /// activate the window and are headed rungs, so they run first when the
-    /// policy allows the foreground. LegacyIAccessible `SetValue` follows as
-    /// the fallback and is the only rung that runs headless; it lands with
-    /// no foreground change on Win32 and RichEdit edits, WinForms and WPF
-    /// text boxes, a WinForms TrackBar and a WPF Slider (C4, P2). Every
-    /// delivery is verified by re-reading the value through the IsPassword
-    /// gate.
+    /// Writes `value` through ValuePattern or RangeValuePattern first, then
+    /// LegacyIAccessible `SetValue` as the fallback. None of them takes the
+    /// foreground with the client's `AutoSetFocus` off (A31-5), so every
+    /// policy runs the same order. Every delivery is verified by re-reading
+    /// the value through the IsPassword gate.
     pub(crate) fn set_value_steps(
         element: &UIAElement,
         value: &str,
@@ -99,8 +96,8 @@ mod imp {
         };
         agent_desktop_core::execute_chain(
             &mut offered([
-                rung(VALUE_LABEL, text_ok, true, &mut text),
-                rung(RANGE_LABEL, range_ok, true, &mut range),
+                rung(VALUE_LABEL, text_ok, false, &mut text),
+                rung(RANGE_LABEL, range_ok, false, &mut range),
                 rung(LEGACY_VALUE_LABEL, text_ok || range_ok, false, &mut legacy),
             ]),
             policy,

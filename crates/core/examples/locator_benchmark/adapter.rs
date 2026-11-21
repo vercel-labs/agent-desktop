@@ -52,6 +52,7 @@ impl ObservationOps for FixtureAdapter<'_> {
     fn resolve_locator_anchor(
         &self,
         entry: &RefEntry,
+        _base: Option<&NativeHandle>,
         deadline: Deadline,
     ) -> Result<NativeHandle, AdapterError> {
         if deadline.is_expired() {

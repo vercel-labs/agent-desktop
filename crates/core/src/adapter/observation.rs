@@ -115,9 +115,14 @@ pub trait ObservationOps: Send + Sync {
         Ok(())
     }
 
+    /// Lands the element an anchor's path names. With a `base`, the path is
+    /// relative to that live element and the descent starts there, so the landed
+    /// element is a descendant of the one the caller verified. An adapter that
+    /// cannot start from a base must refuse, never land from the window root.
     fn resolve_locator_anchor(
         &self,
         _entry: &RefEntry,
+        _base: Option<&NativeHandle>,
         _deadline: Deadline,
     ) -> Result<NativeHandle, AdapterError> {
         Err(AdapterError::not_supported("resolve_locator_anchor"))

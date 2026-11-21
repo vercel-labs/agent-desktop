@@ -246,6 +246,7 @@ impl ObservationOps for LiveFindAdapter {
     fn resolve_locator_anchor(
         &self,
         _entry: &crate::refs::RefEntry,
+        _base: Option<&NativeHandle>,
         _deadline: crate::Deadline,
     ) -> Result<NativeHandle, AdapterError> {
         Ok(NativeHandle::null())

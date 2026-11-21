@@ -57,7 +57,7 @@ impl SystemOps for CdpAdapter {
         &self,
         _id: &str,
         options: &LaunchOptions,
-        _lease: &InteractionLease,
+        _lease: InteractionLease,
     ) -> Result<crate::system::launch_result::LaunchResult, AdapterError> {
         self.launch_app_calls.fetch_add(1, Ordering::SeqCst);
         *self.captured_options.lock().unwrap() = options.clone();

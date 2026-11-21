@@ -30,6 +30,8 @@ use super::resolve_search::{identity_unknown_error, resolve_walk_budget, window_
 use crate::system::runtime::hresult::ReadDisposition;
 use crate::tree::automation::{UiaFailure, uia_failure_disposition};
 #[cfg(target_os = "windows")]
+use crate::tree::element::UIAElement;
+#[cfg(target_os = "windows")]
 use crate::tree::walk::walker::TreeSource;
 #[cfg(target_os = "windows")]
 use crate::tree::walk::walker_source::UiaTreeSource;
@@ -38,10 +40,11 @@ use crate::tree::walk::walker_source::UiaTreeSource;
 #[cfg(target_os = "windows")]
 pub(crate) fn resolve_locator_anchor(
     entry: &RefEntry,
+    base: Option<&NativeHandle>,
     deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
     agent_desktop_core::refs::resolve_retry::retry_incomplete_until(deadline, || {
-        resolve_locator_anchor_once(entry, deadline)
+        resolve_locator_anchor_once(entry, base, deadline)
     })
 }
 
@@ -50,6 +53,7 @@ pub(crate) fn resolve_locator_anchor(
 #[cfg(not(target_os = "windows"))]
 pub(crate) fn resolve_locator_anchor(
     entry: &RefEntry,
+    _base: Option<&NativeHandle>,
     _deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
     Err(stale_ref_error(entry))
@@ -68,13 +72,21 @@ pub(crate) fn resolve_locator_anchor(
 #[cfg(target_os = "windows")]
 fn resolve_locator_anchor_once(
     entry: &RefEntry,
+    base: Option<&NativeHandle>,
     deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
     if !window_rooted(entry) {
         return Err(stale_ref_error(entry));
     }
 
-    let root = crate::tree::resolve::resolve_window_root(entry, deadline)?;
+    let window = crate::tree::resolve::resolve_window_root(entry, deadline)?;
+    let root = match base {
+        Some(handle) => handle
+            .downcast_ref::<UIAElement>()
+            .cloned()
+            .ok_or_else(|| stale_ref_error(entry))?,
+        None => window,
+    };
     let source = UiaTreeSource::for_root(&root)?;
     let prepared = source.prepare_root(&root)?;
     let budget = resolve_walk_budget(deadline);

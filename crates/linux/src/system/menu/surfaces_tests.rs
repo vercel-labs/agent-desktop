@@ -120,44 +120,24 @@ fn a_window_whose_tree_was_not_read_in_full_names_the_sheet_kind_unclassified() 
 }
 
 #[test]
-fn an_empty_scan_that_ended_at_the_deadline_is_a_timeout_not_an_unknown() {
+fn an_empty_incomplete_scan_is_unknown_not_a_timeout() {
     use crate::system::menu::surface_scan::NestedScan;
-    use agent_desktop_core::Deadline;
 
-    let spent = Deadline::after(0).expect("a zero deadline builds");
     let scan = NestedScan {
         found: Vec::new(),
         menus: Vec::new(),
         complete: false,
         unread: vec![0],
     };
-    let error = super::dialogs_or_timeout(scan, spent).expect_err("the deadline ran out");
-    assert_eq!(error.code, ErrorCode::Timeout);
-}
-
-#[test]
-fn an_empty_scan_cut_short_for_another_reason_stays_incomplete() {
-    use crate::system::menu::surface_scan::NestedScan;
-    use agent_desktop_core::Deadline;
-
-    let live = Deadline::after(60_000).expect("a live deadline builds");
-    let scan = NestedScan {
-        found: Vec::new(),
-        menus: Vec::new(),
-        complete: false,
-        unread: vec![0],
-    };
-    let dialogs = super::dialogs_or_timeout(scan, live).expect("an incomplete answer");
+    let dialogs = super::nested_dialogs_of(scan);
     assert!(!dialogs.complete && dialogs.titles.is_empty());
 }
 
 #[test]
-fn a_scan_that_found_a_dialog_past_the_deadline_still_reports_it() {
+fn an_incomplete_scan_still_reports_the_dialog_it_saw() {
     use crate::system::menu::nested_surface::Nested;
     use crate::system::menu::surface_scan::NestedScan;
-    use agent_desktop_core::Deadline;
 
-    let spent = Deadline::after(0).expect("a zero deadline builds");
     let scan = NestedScan {
         found: vec![Nested {
             window: 0,
@@ -168,7 +148,7 @@ fn a_scan_that_found_a_dialog_past_the_deadline_still_reports_it() {
         complete: false,
         unread: vec![1],
     };
-    let dialogs = super::dialogs_or_timeout(scan, spent).expect("a seen dialog is pending");
+    let dialogs = super::nested_dialogs_of(scan);
     assert_eq!(dialogs.titles, ["Save Changes?".to_owned()]);
     assert!(!dialogs.complete);
 }

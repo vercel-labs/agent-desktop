@@ -27,10 +27,6 @@ use crate::system::{
 const SURFACE_PROBE_MS: u64 = 3_000;
 
 impl SystemOps for LinuxAdapter {
-    fn graceful_close_may_prompt(&self) -> bool {
-        true
-    }
-
     fn subscribe_wait(
         &self,
         filter: &SignalFilter,
@@ -84,15 +80,16 @@ impl SystemOps for LinuxAdapter {
         app: &AppInfo,
         force: bool,
         lease: &InteractionLease,
+        policy: agent_desktop_core::InteractionPolicy,
     ) -> Result<OperationReport, AdapterError> {
-        close::close_app(self.bus(), app, force, lease)
+        close::close_app(self.bus(), app, force, lease, policy)
     }
 
     fn launch_app(
         &self,
         id: &str,
         options: &LaunchOptions,
-        lease: &InteractionLease,
+        lease: InteractionLease,
     ) -> Result<LaunchResult, AdapterError> {
         launch::launch_app(self.bus(), id, options, lease)
     }

@@ -4,9 +4,10 @@
 //! state delivers nothing. A tree item's LegacyIAccessible default action
 //! flips it with no foreground change on SysTreeView32, WinForms and WPF
 //! trees (C7), so it runs only from a known opposite state and is verified by
-//! re-reading the state. ExpandCollapsePattern activates the window and is
-//! the headed rung. On a combo box every route puts the popup over the user's
-//! window (C6), so headless offers it no rung and refuses.
+//! re-reading the state. ExpandCollapsePattern on a tree item takes no
+//! foreground (A31-5). On any other control it can open a popup over the
+//! user's window (C6), so it declares the foreground effect and a policy that
+//! does not allow it refuses.
 
 use agent_desktop_core::{ActionStep, AdapterError, Deadline, InteractionPolicy};
 use std::time::Duration;
@@ -86,9 +87,10 @@ mod imp {
         if current.is_some_and(|state| state.is_target(want_expanded)) {
             return Ok(vec![DeliveryOutcome::Satisfied.step(ALREADY_LABEL)]);
         }
+        let tree_item = read_one(element, TreeProperty::ControlType).number()
+            == Some(ControlType::TreeItem as i32);
         let flips = current.is_some_and(|state| state.is_opposite(want_expanded))
-            && read_one(element, TreeProperty::ControlType).number()
-                == Some(ControlType::TreeItem as i32)
+            && tree_item
             && legacy_default_action_available(element);
         let label = if want_expanded {
             EXPAND_LABEL
@@ -107,7 +109,7 @@ mod imp {
                 rung(
                     label,
                     pattern_ok && current != Some(ExpandKind::LeafNode),
-                    true,
+                    !tree_item,
                     &mut pattern,
                 ),
                 rung(LEGACY_LABEL, flips, false, &mut legacy),

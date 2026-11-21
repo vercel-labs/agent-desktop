@@ -26,7 +26,8 @@ pub(crate) fn is_protected_process(identifier: &str) -> bool {
         .any(|protected| image.eq_ignore_ascii_case(protected))
 }
 
-/// A process snapshot row: the image name and the identity token for one pid.
+/// A process snapshot row: the image name, the parent pid and the identity
+/// token for one pid. The parent stays recorded after the parent exits.
 ///
 /// `list_apps` joins the window inventory's owning processes with this
 /// snapshot so the two inventories corroborate each other on
@@ -37,6 +38,7 @@ pub(crate) fn is_protected_process(identifier: &str) -> bool {
 pub(crate) struct ProcessRow {
     pub(crate) pid: ProcessId,
     pub(crate) name: String,
+    pub(crate) parent: u32,
 }
 
 /// `CreateToolhelp32Snapshot` reports failure as `INVALID_HANDLE_VALUE`
@@ -67,6 +69,7 @@ pub(crate) fn process_snapshot() -> Result<Vec<ProcessRow>, AdapterError> {
         rows.push(ProcessRow {
             pid: ProcessId::from(entry.th32ProcessID),
             name: process_identity::wide_buffer_to_string(&entry.szExeFile),
+            parent: entry.th32ParentProcessID,
         });
         ok = unsafe { Process32NextW(snapshot, &mut entry) };
     }

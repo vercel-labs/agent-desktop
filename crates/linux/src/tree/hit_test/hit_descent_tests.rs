@@ -260,3 +260,89 @@ fn a_lander_whose_own_ancestry_cannot_be_verified_is_unproved_whatever_its_recta
         assert_eq!(run(&mut nodes).landing, Landing::Unproved);
     }
 }
+
+fn described_at(nodes: &mut FakeNodes, path: &str, x: i32, y: i32, width: i32, height: i32) {
+    nodes.described.insert(
+        path.to_owned(),
+        Described {
+            window_extents: Some(Extents {
+                x,
+                y,
+                width,
+                height,
+            }),
+            ..Described::default()
+        },
+    );
+}
+
+#[test]
+fn a_child_without_geometry_stands_in_for_its_children() {
+    let mut nodes = FakeNodes::default();
+    nodes.parent("/group", "/frame").parent("/target", "/group");
+    described_at(&mut nodes, "/group", -1, -1, -1, -1);
+    described_at(&mut nodes, "/target", 0, 0, 100, 100);
+    let frame = el("/frame");
+    let target = el("/target");
+    let probe = Probe {
+        target: &target,
+        frame: &frame,
+        window_point: (10, 10),
+    };
+    let bridged = require_unambiguous_branch(&mut nodes, &probe, deadline())
+        .expect("the grouping node does not hide the branch");
+    assert!(bridged);
+
+    described_at(&mut nodes, "/group", i32::MIN, i32::MIN, 100, 100);
+    let hidden = require_unambiguous_branch(&mut nodes, &probe, deadline())
+        .expect_err("a hidden widget is not a grouping node");
+    assert_eq!(hidden.details.unwrap()["reason"], "ancestry_unknown");
+}
+
+#[test]
+fn a_grouping_node_off_the_branch_does_not_bridge_the_walk() {
+    let mut nodes = FakeNodes::default();
+    nodes
+        .parent("/pane", "/frame")
+        .parent("/target", "/pane")
+        .parent("/ghost", "/frame")
+        .parent("/far", "/ghost");
+    described_at(&mut nodes, "/pane", 0, 0, 100, 100);
+    described_at(&mut nodes, "/target", 0, 0, 100, 100);
+    described_at(&mut nodes, "/ghost", -1, -1, -1, -1);
+    described_at(&mut nodes, "/far", 400, 400, 10, 10);
+    let frame = el("/frame");
+    let target = el("/target");
+    let probe = Probe {
+        target: &target,
+        frame: &frame,
+        window_point: (10, 10),
+    };
+    let bridged = require_unambiguous_branch(&mut nodes, &probe, deadline())
+        .expect("the branch is unambiguous");
+    assert!(!bridged);
+}
+
+#[test]
+fn a_grouping_node_off_the_branch_at_a_deeper_level_does_not_bridge_the_walk() {
+    let mut nodes = FakeNodes::default();
+    nodes
+        .parent("/pane", "/frame")
+        .parent("/target", "/pane")
+        .parent("/ghost", "/pane")
+        .parent("/far", "/ghost");
+    described_at(&mut nodes, "/pane", 0, 0, 100, 100);
+    described_at(&mut nodes, "/target", 0, 0, 100, 100);
+    described_at(&mut nodes, "/ghost", -1, -1, -1, -1);
+    described_at(&mut nodes, "/far", 400, 400, 10, 10);
+    let frame = el("/frame");
+    let target = el("/target");
+    let probe = Probe {
+        target: &target,
+        frame: &frame,
+        window_point: (10, 10),
+    };
+    let bridged = require_unambiguous_branch(&mut nodes, &probe, deadline())
+        .expect("the branch is unambiguous");
+    assert!(!bridged);
+}

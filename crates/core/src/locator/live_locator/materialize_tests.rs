@@ -361,6 +361,7 @@ fn source_entry() -> RefEntry {
             root_ref: None,
             path_is_absolute: false,
             path: RefPath::from_slice(&[3]),
+            chain: Default::default(),
         },
     }
 }

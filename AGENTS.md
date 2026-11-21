@@ -243,6 +243,9 @@ Every command prints one envelope. `docs/json-output.md` holds the full contract
   recorded stable field, that is native id, stable name and description, counted over one complete observation of the
   window it was captured from. A ref that was not unique at capture is refused before the application is read. Zero
   live matches is `STALE_REF`, two or more is `AMBIGUOUS_TARGET`, and control values and bounds are never identity.
+  A proof that is not unique in the window may instead be unique below its nearest ancestor whose own proof is; the
+  ref then records that chain of ancestors in `scope.chain`. Resolution finds each ancestor below the one before it and
+  lands the chain and the element step by step, each step starting from the live element the step before verified.
 - All state lives under one root, `~/.agent-desktop` by default. `AGENT_DESKTOP_HOME` relocates it
   (`crates/core/src/storage/state_root.rs`). Refmaps live at `snapshots/<snapshot_id>/refmap.json`, capped at 1 MB each; the
   store keeps the newest 128 snapshots per namespace and prunes to 96. Command code goes through `RefStore`, which

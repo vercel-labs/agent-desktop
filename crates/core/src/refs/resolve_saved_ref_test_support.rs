@@ -129,6 +129,7 @@ impl ObservationOps for RuleAdapter {
     fn resolve_locator_anchor(
         &self,
         entry: &RefEntry,
+        _base: Option<&NativeHandle>,
         _deadline: Deadline,
     ) -> Result<NativeHandle, AdapterError> {
         self.anchors.fetch_add(1, Ordering::SeqCst);

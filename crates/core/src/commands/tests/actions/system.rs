@@ -58,6 +58,7 @@ impl SystemOps for AppStub {
         app: &AppInfo,
         _: bool,
         _: &InteractionLease,
+        _: crate::InteractionPolicy,
     ) -> Result<OperationReport, AdapterError> {
         OperationReport::from_close_dispatch(app, Ok(!self.already_gone))
     }

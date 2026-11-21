@@ -127,6 +127,20 @@ fn safe_timeout_payload_carries_inspect_recovery() {
 }
 
 #[test]
+fn a_lease_that_was_never_acquired_carries_a_plain_retry() {
+    let err = AppError::Adapter(crate::interaction_lease_timeout(
+        crate::Deadline::after(1).unwrap(),
+        serde_json::json!({}),
+    ));
+    let recovery = ErrorPayload::from_app_error(&err)
+        .recovery
+        .expect("a lease timeout is safe to retry");
+    assert_eq!(recovery.strategy, "retry_original");
+    assert!(!recovery.requires_fresh_snapshot);
+    assert_eq!(recovery.retry_after_ms, Some(250));
+}
+
+#[test]
 fn unsafe_timeout_payload_carries_no_recovery() {
     let err = AppError::Adapter(AdapterError::new(ErrorCode::Timeout, "wait expired"));
     assert!(ErrorPayload::from_app_error(&err).recovery.is_none());

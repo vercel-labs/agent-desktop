@@ -112,7 +112,8 @@ pub(crate) fn direction_for_visibility(target: Rect, viewport: Rect) -> Option<D
 pub(crate) fn direction_after_visibility_miss(
     sample: &VisibilitySample,
 ) -> Result<Direction, AdapterError> {
-    let (Some(bounds), Some(viewport)) = (sample.bounds, sample.viewport) else {
+    let position = sample.bounds.filter(crate::tree::properties::rect_has_area);
+    let (Some(bounds), Some(viewport)) = (position, sample.viewport) else {
         return Err(AdapterError::new(
             ErrorCode::ActionFailed,
             "Could not determine ancestor scroll direction without target and viewport bounds",

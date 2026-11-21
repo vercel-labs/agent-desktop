@@ -148,6 +148,9 @@ fn key_currently_down(vk: u16) -> bool {
 #[cfg(target_os = "windows")]
 const CHEVRON_AUTOMATION_ID: &str = "1502";
 
+/// Focuses the chevron, then invokes it. The overflow must own the foreground
+/// for the Escape that dismisses it, and the client does not set focus before
+/// a pattern call (A31-2, A31-11), so the raise asks for the focus itself.
 #[cfg(target_os = "windows")]
 fn invoke_overflow_chevron(_deadline: Deadline) -> Result<(), AdapterError> {
     use uiautomation::patterns::UIInvokePattern;
@@ -195,6 +198,7 @@ fn invoke_overflow_chevron(_deadline: Deadline) -> Result<(), AdapterError> {
     let invoke: UIInvokePattern = chevron.get_pattern().map_err(|error| {
         crate::tree::automation::uia_error(&error, "read the chevron's invoke pattern")
     })?;
+    let _ = chevron.set_focus();
     invoke.invoke().map_err(|error| {
         crate::tree::automation::uia_error(&error, "invoke the notification chevron")
     })

@@ -27,7 +27,7 @@ pub(crate) fn materialize_refmap(
                 continue;
             }
             let mut entry = ref_entry(node, &tree.source, query);
-            entry.identity.unique_at_capture = proof.proves_node(&entry, index);
+            proof.prove_node(&mut entry, index);
             planned.push((index, entry));
         }
     }
@@ -138,6 +138,7 @@ pub(crate) fn ref_entry(
             root_ref: None,
             path_is_absolute: false,
             path: node.path.clone(),
+            chain: Default::default(),
         },
     };
     apply_source(&mut entry, source, &node.path);

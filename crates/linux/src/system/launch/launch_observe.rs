@@ -116,6 +116,10 @@ impl Spawned {
         failed(status, &self.identifier)
     }
 
+    pub(in crate::system) fn exited_in_failure(&mut self) -> bool {
+        self.state().is_some_and(|status| !status.success())
+    }
+
     fn state(&mut self) -> Option<ExitStatus> {
         self.child
             .as_mut()

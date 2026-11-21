@@ -37,6 +37,7 @@ fn entry(name: &str, root_ref: Option<&str>) -> crate::RefEntry {
             root_ref: root_ref.map(str::to_string),
             path_is_absolute: root_ref.is_some(),
             path: smallvec::SmallVec::new(),
+            chain: Default::default(),
         },
     }
 }

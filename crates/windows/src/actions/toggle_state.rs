@@ -3,9 +3,9 @@
 //! The toggle state is read first, and Check or Uncheck on a control already
 //! in the target state delivers nothing. Otherwise the LegacyIAccessible
 //! default action flips the control with no foreground change on Win32,
-//! WinForms and WPF (W-W0-7, C3). TogglePattern flips it too but activates
-//! the window, so it is the headed rung. Each flip is verified by re-reading
-//! the state.
+//! WinForms and WPF (C3). TogglePattern flips it too and takes no foreground
+//! (A31-5), so every policy runs it. Each flip is verified by re-reading the
+//! state.
 
 use agent_desktop_core::{ActionStep, AdapterError, Deadline, InteractionPolicy};
 use std::time::Duration;
@@ -150,7 +150,7 @@ mod imp {
             || drive_toggle(goal, deadline, &mut read, &mut || pattern_toggle(element));
         agent_desktop_core::execute_chain(
             &mut offered([
-                rung(TOGGLE_LABEL, toggle_ok, true, &mut pattern),
+                rung(TOGGLE_LABEL, toggle_ok, false, &mut pattern),
                 rung(
                     LEGACY_LABEL,
                     toggle_ok && legacy_default_action_available(element),

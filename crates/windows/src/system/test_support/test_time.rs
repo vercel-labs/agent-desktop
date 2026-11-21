@@ -10,10 +10,14 @@
 //! call rather than baked into a same-shaped function redefined once per
 //! file.
 
-use agent_desktop_core::{Deadline, InteractionPolicy};
+use agent_desktop_core::{Deadline, InteractionLease, InteractionPolicy};
 
 pub(crate) fn deadline(ms: u64) -> Deadline {
     Deadline::after(ms).expect("deadline")
+}
+
+pub(crate) fn test_lease(ms: u64) -> InteractionLease {
+    InteractionLease::guarded(deadline(ms), ()).expect("lease")
 }
 
 pub(crate) fn headed() -> InteractionPolicy {

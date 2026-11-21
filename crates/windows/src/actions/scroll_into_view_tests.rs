@@ -1,6 +1,6 @@
 use super::{
-    VisibilitySample, finish_observation, scroll_effect_observed, scroll_into_view_judged_for,
-    unsupported_error, visibility_verified,
+    VisibilitySample, finish_observation, scroll_effect_observed, scroll_into_view_activates,
+    scroll_into_view_judged_for, unsupported_error, visibility_verified,
 };
 use crate::system::runtime::hresult::{
     E_ACCESSDENIED, RPC_E_DISCONNECTED, UIA_E_ELEMENTNOTAVAILABLE, com_hresult_detail,
@@ -39,6 +39,19 @@ fn hidden_sample(bounds: Rect) -> VisibilitySample {
 
 fn invoke_hr(hresult: i32) -> Option<UiaFailure> {
     Some(UiaFailure::Hresult(hresult))
+}
+
+#[test]
+fn only_a_win32_tree_item_is_a_foreground_scroll_into_view() {
+    use uiautomation::types::ControlType;
+
+    assert!(scroll_into_view_activates("Win32", ControlType::TreeItem));
+    assert!(!scroll_into_view_activates("Win32", ControlType::ListItem));
+    assert!(!scroll_into_view_activates("WPF", ControlType::TreeItem));
+    assert!(!scroll_into_view_activates(
+        "DirectUI",
+        ControlType::ListItem
+    ));
 }
 
 #[test]
@@ -249,5 +262,20 @@ fn zero_verify_window_unchanged_reaches_not_delivered() {
         || Ok(hidden_sample(bounds)),
     )
     .expect_err("unchanged after zero window");
+    assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+}
+
+/// A Win32 tree item outside its view reports a rectangle without area at the
+/// screen origin (A31-10). Read as a position it sends every scroll upward,
+/// away from an item that is below the view.
+#[test]
+fn a_rectangle_without_area_names_no_scroll_direction() {
+    let sample = VisibilitySample {
+        bounds: Some(rect(0.0, 0.0, 0.0, 0.0)),
+        offscreen: Some(true),
+        viewport: Some(rect(40.0, 120.0, 640.0, 400.0)),
+    };
+    let error = crate::actions::scroll_ladder::direction_after_visibility_miss(&sample)
+        .expect_err("a rectangle without area is not a position");
     assert_eq!(error.disposition, DeliverySemantics::not_delivered());
 }

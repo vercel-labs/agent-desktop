@@ -83,7 +83,7 @@ impl SystemOps for LaunchAdapter {
         &self,
         _id: &str,
         _options: &LaunchOptions,
-        _lease: &InteractionLease,
+        _lease: InteractionLease,
     ) -> Result<crate::system::launch_result::LaunchResult, AdapterError> {
         Ok(crate::system::launch_result::LaunchResult {
             app: "Fixture".into(),

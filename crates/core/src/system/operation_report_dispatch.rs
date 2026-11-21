@@ -2,8 +2,8 @@ use serde_json::{Map, Value, json};
 
 use crate::system::operation_report_build::window_step;
 use crate::{
-    ActionStep, AdapterError, AppInfo, DeliverySemantics, OperationReport, OperationTarget,
-    WindowInfo, WindowOp, WindowReadback,
+    ActionResult, ActionStep, AdapterError, AppInfo, DeliverySemantics, OperationReport,
+    OperationTarget, WindowInfo, WindowOp, WindowReadback,
 };
 
 const IDENTITY_UNAVAILABLE: &str = "process_instance_unavailable";
@@ -36,6 +36,17 @@ impl OperationReport {
             )),
             (Err(error), Err(_)) => Err(error),
         }
+    }
+
+    /// A window operation that found the window already in the requested
+    /// state and wrote nothing.
+    pub fn window_already_satisfied(window: &WindowInfo, op: &WindowOp) -> Self {
+        let target = OperationTarget::for_window(window)
+            .unwrap_or_else(|_| OperationTarget::window_without_instance(window));
+        let mut report = Self::window_operation(target, op, None);
+        report.result = ActionResult::satisfied_without_delivery(report.result.action)
+            .with_details(json!({ "evidence": "window_already_in_requested_state" }));
+        report
     }
 
     /// As [`Self::from_window_dispatch`] for closing an application.

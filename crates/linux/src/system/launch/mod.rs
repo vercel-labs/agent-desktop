@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use agent_desktop_core::system::launch_options::LaunchOptions;
@@ -17,7 +18,9 @@ use self::launch_spawn::{before_spawn, spawn, validate};
 use self::launch_target::{Plan, resolve};
 use super::SharedBus;
 use crate::system::app::app_alias::current_index;
+use crate::system::focus::focus_return;
 use crate::system::focus::focus_window::focus_window;
+use crate::system::focus::prior_focus::PriorFocus;
 use crate::system::process::liveness::{Liveness, liveness};
 use crate::system::process::process_facts;
 use crate::system::process::running_app::Running;
@@ -116,7 +119,7 @@ struct Launch<'a> {
     bus: &'a SharedBus,
     id: &'a str,
     options: &'a LaunchOptions,
-    lease: &'a InteractionLease,
+    lease: Option<InteractionLease>,
     deadline: Deadline,
 }
 
@@ -214,7 +217,10 @@ impl Launch<'_> {
     ) -> LaunchResult {
         let renderer = chromium_renderer(self.bus, owner.pid, self.deadline);
         let mut result = conclude(owner, window, self.options, arrival, |window| {
-            let activation = focus_window(self.bus, window, self.lease)?;
+            let lease = self.lease.as_ref().ok_or_else(|| {
+                AdapterError::new(ErrorCode::Internal, "The launch lease was released early")
+            })?;
+            let activation = focus_window(self.bus, window, lease)?;
             Ok(FocusAnswer {
                 window: same_window(
                     windows_of_process(self.bus, owner.pid, self.deadline),
@@ -232,7 +238,7 @@ impl Launch<'_> {
     /// window closed, is started again so that its launcher forwards to it
     /// and a window opens.
     fn attach(
-        &self,
+        &mut self,
         owner: &Running,
         plan: &Plan,
         running: &[Running],
@@ -262,29 +268,60 @@ impl Launch<'_> {
         }
     }
 
-    fn start(&self, plan: &Plan, running: &[Running]) -> Result<LaunchResult, AdapterError> {
+    fn start(&mut self, plan: &Plan, running: &[Running]) -> Result<LaunchResult, AdapterError> {
         let before = baseline::prepare(self.bus, &plan.identity, running, self.deadline);
         self.deadline.ensure_remaining().map_err(before_spawn)?;
+        let prior = (!self.options.activate)
+            .then(|| focus_return::read_prior(self.deadline))
+            .and_then(PriorFocus::held);
         let mut spawned = spawn(self.id, plan, self.options)?;
-        match find_owner(self.bus, &mut spawned, plan, &before, self.deadline)? {
-            Some(owner) => {
-                let known = before
-                    .residents
-                    .iter()
-                    .find(|resident| resident.owner.identity() == owner.identity());
-                let window = match known {
-                    Some(resident) => self.window_of(&owner, true, &resident.windows)?,
-                    None if before.processes.contains(&owner.identity()) => None,
-                    None => self.window_of(&owner, true, &HashSet::new())?,
-                };
-                let arrival = Arrival::started(
-                    owner.pid == spawned.pid,
-                    !before.processes.contains(&owner.identity()),
-                );
-                Ok(self.conclude_with(&owner, window, arrival))
-            }
-            None => Ok(self.report_unlisted(&spawned)),
-        }
+        let residents = before.residents.iter().map(|r| r.owner.pid).collect();
+        let belongs = focus_return::belongs_to(spawned.pid, residents);
+        let watch =
+            launch_focus_watch::returning(prior, belongs, self.watch_lease(), self.deadline);
+        let (focus_returned, ready) = launch_focus_watch::beside(watch, |hopeless| {
+            let ready = self.ready(&mut spawned, plan, &before);
+            hopeless.store(spawned.exited_in_failure(), Ordering::Relaxed);
+            ready
+        });
+        let mut result = ready?;
+        result.guidance.focus_returned = focus_returned;
+        Ok(result)
+    }
+
+    /// The lease a background launch hands to its focus watch, which releases
+    /// it when the watch ends. A launch asked to activate keeps it.
+    fn watch_lease(&mut self) -> Option<InteractionLease> {
+        self.lease.take_if(|_| !self.options.activate)
+    }
+
+    fn ready(
+        &self,
+        spawned: &mut Spawned,
+        plan: &Plan,
+        before: &baseline::Baseline,
+    ) -> Result<LaunchResult, AdapterError> {
+        Ok(
+            match find_owner(self.bus, spawned, plan, before, self.deadline)? {
+                Some(owner) => {
+                    let known = before
+                        .residents
+                        .iter()
+                        .find(|resident| resident.owner.identity() == owner.identity());
+                    let window = match known {
+                        Some(resident) => self.window_of(&owner, true, &resident.windows)?,
+                        None if before.processes.contains(&owner.identity()) => None,
+                        None => self.window_of(&owner, true, &HashSet::new())?,
+                    };
+                    let arrival = Arrival::started(
+                        owner.pid == spawned.pid,
+                        !before.processes.contains(&owner.identity()),
+                    );
+                    self.conclude_with(&owner, window, arrival)
+                }
+                None => self.report_unlisted(spawned),
+            },
+        )
     }
 }
 
@@ -296,7 +333,7 @@ pub(crate) fn launch_app(
     bus: &SharedBus,
     id: &str,
     options: &LaunchOptions,
-    lease: &InteractionLease,
+    lease: InteractionLease,
 ) -> Result<LaunchResult, AdapterError> {
     validate(options)?;
     let deadline = bounded(lease.deadline(), options.timeout_ms);
@@ -304,11 +341,11 @@ pub(crate) fn launch_app(
     let plan = resolve(id, &options.args, &search, &current_index())?;
     let registry = crate::system::registry::read_processes(bus, deadline).map_err(before_spawn)?;
     let running = running_of(&registry).map_err(before_spawn)?;
-    let launch = Launch {
+    let mut launch = Launch {
         bus,
         id,
         options,
-        lease,
+        lease: Some(lease),
         deadline,
     };
     match decide(
@@ -334,6 +371,9 @@ pub(crate) fn launch_app(
 }
 
 #[cfg(test)]
+#[path = "launch_lease_tests.rs"]
+mod lease_tests;
+#[cfg(test)]
 #[path = "launch_tests.rs"]
 mod tests;
 #[cfg(test)]
@@ -349,6 +389,7 @@ pub(super) mod indexed_entry;
 mod launch_arrival;
 pub(super) mod launch_attach;
 mod launch_conclude;
+mod launch_focus_watch;
 mod launch_handoff;
 pub(super) mod launch_observe;
 pub(crate) mod launch_sample;

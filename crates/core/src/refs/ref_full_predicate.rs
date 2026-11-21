@@ -1,5 +1,5 @@
 use crate::{
-    ElementIdentifier, IdentityMatch, RefEntry,
+    ElementIdentifier, IdentityMatch, RefEntry, RefEntryIdentity,
     locator::live_locator::LocatorField,
     refs::ref_identity::{equality_match, meaningful_field, stable_name, stable_name_field},
     refs::ref_live_predicate::LivePredicate,
@@ -24,12 +24,16 @@ pub(crate) struct FullPredicate<'a> {
 
 impl<'a> FullPredicate<'a> {
     pub(crate) fn of_entry(entry: &'a RefEntry) -> Self {
+        Self::of_identity(&entry.identity)
+    }
+
+    pub(crate) fn of_identity(identity: &'a RefEntryIdentity) -> Self {
         Self::of_fields(
-            &entry.identity.role,
-            entry.identity.name.as_deref(),
-            entry.identity.value.as_deref(),
-            entry.identity.description.as_deref(),
-            entry.identity.native_id.as_ref(),
+            &identity.role,
+            identity.name.as_deref(),
+            identity.value.as_deref(),
+            identity.description.as_deref(),
+            identity.native_id.as_ref(),
         )
     }
 

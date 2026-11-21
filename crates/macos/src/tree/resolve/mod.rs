@@ -14,6 +14,8 @@ use super::resolve::resolve_roots::{candidate_roots, source_window_scope_require
 #[cfg(target_os = "macos")]
 use super::resolve::resolve_search::find_entry_by_path;
 #[cfg(target_os = "macos")]
+use crate::tree::AXElement;
+#[cfg(target_os = "macos")]
 use agent_desktop_core::refs::resolve_errors::element_token_required;
 
 /// Re-identifies a saved ref by the element token captured with it, and refuses
@@ -43,12 +45,13 @@ pub(crate) fn resolve_element_with_deadline(
 #[cfg(target_os = "macos")]
 pub(crate) fn resolve_locator_anchor_with_deadline(
     entry: &RefEntry,
+    base: Option<&NativeHandle>,
     operation_deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
     let identity = verify_process_instance(entry)?;
     let deadline = operation_deadline;
     let result = resolve_with_recovery(entry, identity, deadline, || {
-        resolve_locator_anchor_once(entry, deadline)
+        resolve_locator_anchor_once(entry, base, deadline)
     });
     match result {
         Err(error) if error.code == ErrorCode::ElementNotFound => {
@@ -130,6 +133,7 @@ fn resolve_token_once(entry: &RefEntry, deadline: Deadline) -> Result<NativeHand
 #[cfg(target_os = "macos")]
 fn resolve_locator_anchor_once(
     entry: &RefEntry,
+    base: Option<&NativeHandle>,
     deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
     let started = Instant::now();
@@ -138,16 +142,7 @@ fn resolve_locator_anchor_once(
     if let Some(result) = token_resolution(entry, deadline, &mut read_context, started) {
         return result;
     }
-    if !can_use_locator_anchor_path(entry) {
-        return finish_resolution(
-            Err(AdapterError::element_not_found("locator anchor")),
-            &mut read_context,
-            started,
-            "locator_anchor_insufficient",
-            true,
-        );
-    }
-    let roots = match candidate_roots(entry, &mut read_context) {
+    let roots = match anchor_roots(entry, base, &mut read_context) {
         Ok(roots) => roots,
         Err(error) => {
             return finish_resolution(
@@ -167,6 +162,27 @@ fn resolve_locator_anchor_once(
         "locator_anchor_path",
         true,
     )
+}
+
+/// The element a locator-anchor path starts from: the live base the previous
+/// chain step verified, or else the window or application roots the entry names.
+#[cfg(target_os = "macos")]
+fn anchor_roots(
+    entry: &RefEntry,
+    base: Option<&NativeHandle>,
+    read_context: &mut ResolveReadContext,
+) -> Result<Vec<AXElement>, AdapterError> {
+    match base {
+        Some(base) => match base.downcast_ref::<AXElement>() {
+            Some(element) => Ok(vec![element.clone()]),
+            None => Err(stale_ref_error(
+                entry,
+                &AdapterError::element_not_found("locator anchor base"),
+            )),
+        },
+        None if can_use_locator_anchor_path(entry) => candidate_roots(entry, read_context),
+        None => Err(AdapterError::element_not_found("locator anchor")),
+    }
 }
 
 /// The token answer a resolution pass shares: `Some` when the saved ref carries

@@ -106,20 +106,8 @@ unsafe fn find_in_window(
         return AdResult::ErrInvalidArgs;
     };
     let process = agent_desktop_core::ProcessIdentity::new(entry.process.pid, process_instance);
-    match adapter
-        .inner
-        .resolve_locator_anchor(&entry, request.deadline)
-    {
+    match landed_handle(adapter.inner.as_ref(), &entry, request.deadline) {
         Ok(handle) => {
-            if let Err(error) = agent_desktop_core::refs::resolve_saved_ref::confirm_landed_element(
-                adapter.inner.as_ref(),
-                &entry,
-                &handle,
-                request.deadline,
-            ) {
-                set_last_error(&error);
-                return crate::error::last_error_code();
-            }
             match crate::actions::native_handle::into_ffi_handle(adapter_id, handle, process) {
                 Ok(token) => {
                     unsafe { (*out_handle).ptr = token };
@@ -346,3 +334,20 @@ mod tests {
 #[cfg(test)]
 #[path = "find_abi_tests.rs"]
 mod abi_tests;
+
+fn landed_handle(
+    adapter: &dyn agent_desktop_core::PlatformAdapter,
+    entry: &agent_desktop_core::RefEntry,
+    deadline: agent_desktop_core::Deadline,
+) -> Result<agent_desktop_core::NativeHandle, AdapterError> {
+    if !entry.scope.chain.is_empty() {
+        return agent_desktop_core::refs::resolve_saved_ref::resolve_saved_ref(
+            adapter, entry, deadline, None,
+        );
+    }
+    let handle = adapter.resolve_locator_anchor(entry, None, deadline)?;
+    agent_desktop_core::refs::resolve_saved_ref::confirm_landed_element(
+        adapter, entry, &handle, deadline,
+    )?;
+    Ok(handle)
+}

@@ -172,6 +172,7 @@ pub(crate) fn minimal_ref_entry(role: &str, name: Option<&str>) -> crate::RefEnt
             root_ref: None,
             path_is_absolute: false,
             path: crate::refs::RefPath::default(),
+            chain: Default::default(),
         },
     }
 }

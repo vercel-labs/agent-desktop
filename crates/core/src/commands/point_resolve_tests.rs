@@ -115,7 +115,7 @@ fn ref_snapshot(pid: u32) -> String {
         scope: crate::RefScope {
             root_ref: None,
             path_is_absolute: false,
-            path: smallvec::SmallVec::new(),
+            ..Default::default()
         },
     });
     store.save_new_snapshot(&refmap).unwrap()
@@ -279,7 +279,7 @@ fn focus_ref_entry() -> RefEntry {
         scope: crate::RefScope {
             root_ref: None,
             path_is_absolute: false,
-            path: smallvec::SmallVec::new(),
+            ..Default::default()
         },
     }
 }
