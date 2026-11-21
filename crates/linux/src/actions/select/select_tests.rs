@@ -49,10 +49,8 @@ fn a_combo_name_is_evidence_against_the_wanted_value_only_where_it_is_the_value(
         combo_evidence(None, Some("combo"), "beta", true),
         Some(false)
     );
-    assert_eq!(
-        combo_evidence(None, Some("beta"), "beta", false),
-        Some(true)
-    );
+    assert_eq!(combo_evidence(None, Some("beta"), "beta", false), None);
+    assert_eq!(combo_evidence(None, Some("beta"), "beta", true), Some(true));
     assert_eq!(
         combo_evidence(Some("alpha"), Some("beta"), "beta", false),
         Some(false)

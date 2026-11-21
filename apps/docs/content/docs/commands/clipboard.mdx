@@ -61,7 +61,7 @@ agent-desktop --headed clipboard-set --file-url /tmp/a.txt --file-url /tmp/b.txt
 
 With `--stdin`, the command waits until the input ends. Empty input and all line breaks are kept, including a final newline. Use `printf '%s'` to avoid adding one. Input must be valid UTF-8 without NUL bytes (`\0`).
 
-`--stdin` keeps text out of process arguments. Batch uses the JSON `text` field, which puts the text in process arguments. Run secret steps as separate `--stdin` commands. To copy the text `--stdin`, use `agent-desktop clipboard-set -- --stdin`.
+`--stdin` keeps text out of process arguments. Batch uses the JSON `text` field, which puts the text in process arguments. Run secret steps as separate `--stdin` commands. To copy the text `--stdin`, use `agent-desktop --headed clipboard-set -- --stdin`.
 
 Without `--stdin`, one call writes one representation: `--file-url` wins over `--image`, which wins over `TEXT`. The result is an [OperationReport](/desktop/json-output#operationreport) plus the written `type`:
 

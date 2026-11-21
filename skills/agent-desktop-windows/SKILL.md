@@ -35,8 +35,8 @@ Use `$env:NAME = 'value'` for environment variables.
   process. Ask the user to run the CLI at the target's integrity level when needed;
   a working observation does not establish input permission.
 - Headless routes use foreground-safe legacy accessibility and native control
-  messages. UIA patterns that activate the target are refused. `agent-desktop type`,
-  `agent-desktop right-click`, and `agent-desktop focus` need headed mode; a semantic value write may
+  messages. UIA patterns that activate the target are refused. `agent-desktop scroll`,
+  `agent-desktop type`, `agent-desktop right-click`, and `agent-desktop focus` need headed mode; a semantic value write may
   work instead when it matches the user's task. Never retry a refusal headed.
 - Refs require whole-window uniqueness at capture and resolution. A root drill
   cannot make identical twins unique. Choose a distinct control.

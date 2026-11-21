@@ -155,3 +155,28 @@ fn an_empty_window_selection_is_not_delivered_and_safe_to_retry() {
     assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());
     assert_eq!(error.disposition.retry(), crate::RetryDisposition::Safe);
 }
+
+#[test]
+fn process_lookup_with_only_hidden_windows_names_a_step_that_works() {
+    let mut first = window(Some("generation-a"));
+    first.state.is_focused = false;
+    first.state.visible = Some(false);
+    let mut second = first.clone();
+    second.id = "w-2".into();
+    let adapter = WindowInventory(vec![first, second]);
+
+    let error = find_window_for_process(
+        ProcessIdentity::new(42, "generation-a"),
+        &adapter,
+        crate::Deadline::standard().unwrap(),
+    )
+    .unwrap_err();
+
+    let AppError::Adapter(error) = error else {
+        panic!("expected adapter error");
+    };
+    assert_eq!(error.code.as_str(), "AMBIGUOUS_TARGET");
+    let suggestion = error.suggestion.as_deref().unwrap();
+    assert!(suggestion.contains("error.details.candidates"));
+    assert!(!suggestion.contains("list-windows"));
+}

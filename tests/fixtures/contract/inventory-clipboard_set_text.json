@@ -1,1 +1,1 @@
-{"action":"clipboard-set","disposition":{"delivery":"delivered_unverified","retry":"unsafe"},"target":{"kind":"clipboard"},"type":"text"}
+{"action":"clipboard-set","disposition":{"delivery":"delivered_unverified","retry":"unsafe"},"steps":[{"label":"clipboard_write","mechanism":"semantic_api","outcome":"succeeded"}],"target":{"kind":"clipboard"},"type":"text"}

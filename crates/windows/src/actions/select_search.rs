@@ -1,4 +1,4 @@
-//! Bounded SelectionItem descendant search and scroll-to-realize (A19-7).
+//! Bounded SelectionItem descendant search and scroll steps for realizing items (A19-7).
 
 use agent_desktop_core::{AdapterError, Deadline, ErrorCode, normalize_search_text};
 
@@ -6,7 +6,6 @@ use crate::tree::element::UIAElement;
 
 pub(crate) const MAX_SELECT_NODES: usize = 2_048;
 pub(crate) const MAX_SELECT_DEPTH: u8 = 8;
-const MAX_REALIZE_SCROLLS: u32 = 16;
 
 fn select_node_budget_has_room(visited: usize, pending: usize, staged: usize) -> bool {
     visited.saturating_add(pending).saturating_add(staged) < MAX_SELECT_NODES
@@ -14,33 +13,6 @@ fn select_node_budget_has_room(visited: usize, pending: usize, staged: usize) ->
 
 fn names_equal(left: &str, right: &str) -> bool {
     normalize_search_text(left) == normalize_search_text(right)
-}
-
-/// One realize scroll attempt: either expose a searchable window or stop.
-pub(crate) enum RealizeScrollStep {
-    Window { end_of_range: bool },
-    Stop,
-}
-
-/// Search after every completed realize scroll so intermediate virtualized
-/// duplicates cannot scroll past the finder unnoticed.
-pub(crate) fn drive_realize_scrolls(
-    max_steps: u32,
-    mut next: impl FnMut() -> Result<RealizeScrollStep, AdapterError>,
-    mut after_scroll: impl FnMut() -> Result<(), AdapterError>,
-) -> Result<(), AdapterError> {
-    for _ in 0..max_steps {
-        match next()? {
-            RealizeScrollStep::Window { end_of_range } => {
-                after_scroll()?;
-                if end_of_range {
-                    break;
-                }
-            }
-            RealizeScrollStep::Stop => break,
-        }
-    }
-    Ok(())
 }
 
 /// Second same-name SelectionItem is `AMBIGUOUS_TARGET`, never a silent pick.
@@ -77,12 +49,12 @@ pub(crate) fn admit_selection_match<T: Clone>(
 #[cfg(target_os = "windows")]
 mod imp {
     use super::{
-        AdapterError, Deadline, ErrorCode, MAX_REALIZE_SCROLLS, MAX_SELECT_DEPTH, MAX_SELECT_NODES,
-        RealizeScrollStep, UIAElement, admit_selection_match, drive_realize_scrolls, names_equal,
-        select_node_budget_has_room,
+        AdapterError, Deadline, ErrorCode, MAX_SELECT_DEPTH, MAX_SELECT_NODES, UIAElement,
+        admit_selection_match, names_equal, select_node_budget_has_room,
     };
     use crate::actions::mutation::{classify_success, classify_write};
-    use crate::actions::scroll::{SCROLL_LABEL, vertical_scroll};
+    use crate::actions::scroll::SCROLL_LABEL;
+    use crate::actions::select_locate::RealizeScrollStep;
     use crate::tree::automation::automation_client;
     use crate::tree::automation::uia_failure_error;
     use crate::tree::name_evidence::{name_fields, read_label};
@@ -92,7 +64,9 @@ mod imp {
     use crate::tree::walk::walker::TreeSource;
     use crate::tree::walk::walker_source::{UiaTreeSource, same_element};
     use agent_desktop_core::LocatorField;
+    use uiautomation::patterns::UIScrollPattern;
     use uiautomation::types::ScrollAmount;
+    use windows::Win32::UI::Accessibility::UIA_ScrollPatternNoScroll;
 
     pub(crate) fn find_named_selection_item(
         root: &UIAElement,
@@ -131,35 +105,39 @@ mod imp {
         Ok(found)
     }
 
-    pub(crate) fn scroll_to_realize(
-        element: &UIAElement,
+    /// Scrolls the container one small step down and reports whether its position stopped changing.
+    pub(crate) fn realize_scroll_step(
+        pattern: &UIScrollPattern,
         deadline: Deadline,
-        mut after_scroll: impl FnMut() -> Result<(), AdapterError>,
-    ) -> Result<(), AdapterError> {
-        let Some(pattern) = vertical_scroll(element) else {
-            return Ok(());
-        };
-        drive_realize_scrolls(
-            MAX_REALIZE_SCROLLS,
-            || {
-                deadline.ensure_remaining()?;
-                let before = pattern.get_vertical_scroll_percent().ok();
-                match pattern.scroll(ScrollAmount::NoAmount, ScrollAmount::SmallIncrement) {
-                    Ok(()) => {
-                        let _ = classify_success()?;
-                    }
-                    Err(error) => {
-                        let _ = classify_write("Scroll", SCROLL_LABEL, &error)?;
-                        return Ok(RealizeScrollStep::Stop);
-                    }
-                }
-                let after = pattern.get_vertical_scroll_percent().ok();
-                Ok(RealizeScrollStep::Window {
-                    end_of_range: before.is_some() && before == after,
-                })
-            },
-            &mut after_scroll,
-        )
+    ) -> Result<RealizeScrollStep, AdapterError> {
+        deadline.ensure_remaining()?;
+        let before = pattern.get_vertical_scroll_percent().ok();
+        match pattern.scroll(ScrollAmount::NoAmount, ScrollAmount::SmallIncrement) {
+            Ok(()) => {
+                let _ = classify_success()?;
+            }
+            Err(error) => {
+                let _ = classify_write("Scroll", SCROLL_LABEL, &error)?;
+                return Ok(RealizeScrollStep::Stop);
+            }
+        }
+        let after = pattern.get_vertical_scroll_percent().ok();
+        Ok(RealizeScrollStep::Window {
+            end_of_range: before.is_some() && before == after,
+        })
+    }
+
+    /// Scrolls the container to a vertical position it reported earlier; `false` when it has no way to.
+    pub(crate) fn scroll_to_position(
+        pattern: &UIScrollPattern,
+        position: f64,
+        deadline: Deadline,
+    ) -> Result<bool, AdapterError> {
+        deadline.ensure_remaining()?;
+        match pattern.set_scroll_percent(UIA_ScrollPatternNoScroll, position) {
+            Ok(()) => classify_success(),
+            Err(error) => classify_write("Scroll", SCROLL_LABEL, &error),
+        }
     }
 
     pub(crate) fn selection_item_available(element: &UIAElement) -> bool {
@@ -253,14 +231,6 @@ mod imp {
         Ok(None)
     }
 
-    pub(crate) fn scroll_to_realize(
-        _element: &UIAElement,
-        _deadline: Deadline,
-        _after_scroll: impl FnMut() -> Result<(), AdapterError>,
-    ) -> Result<(), AdapterError> {
-        Ok(())
-    }
-
     pub(crate) fn selection_item_available(_element: &UIAElement) -> bool {
         false
     }
@@ -270,18 +240,18 @@ mod imp {
     }
 }
 
-pub(crate) use imp::{
-    find_named_selection_item, name_matches, scroll_to_realize, selection_item_available,
-};
+pub(crate) use imp::{find_named_selection_item, name_matches, selection_item_available};
+
+#[cfg(target_os = "windows")]
+pub(crate) use imp::{realize_scroll_step, scroll_to_position};
 
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_SELECT_DEPTH, MAX_SELECT_NODES, RealizeScrollStep, accept_selection_match,
-        drive_realize_scrolls, names_equal, select_node_budget_has_room,
+        MAX_SELECT_DEPTH, MAX_SELECT_NODES, accept_selection_match, names_equal,
+        select_node_budget_has_room,
     };
-    use agent_desktop_core::{AdapterError, ErrorCode};
-    use std::cell::Cell;
+    use agent_desktop_core::ErrorCode;
 
     #[test]
     fn names_compare_by_the_one_core_name_form() {
@@ -320,67 +290,6 @@ mod tests {
                 .and_then(serde_json::Value::as_str),
             Some("ambiguous_select_value")
         );
-    }
-
-    #[test]
-    fn realize_searches_after_each_scroll_window() {
-        let steps = Cell::new(0u8);
-        let searches = Cell::new(0u8);
-        drive_realize_scrolls(
-            8,
-            || {
-                let n = steps.get();
-                steps.set(n + 1);
-                Ok(match n {
-                    0 | 1 => RealizeScrollStep::Window {
-                        end_of_range: false,
-                    },
-                    2 => RealizeScrollStep::Window { end_of_range: true },
-                    _ => RealizeScrollStep::Stop,
-                })
-            },
-            || {
-                searches.set(searches.get() + 1);
-                Ok(())
-            },
-        )
-        .expect("drive");
-        assert_eq!(steps.get(), 3);
-        assert_eq!(searches.get(), 3);
-    }
-
-    #[test]
-    fn realize_stop_skips_search_for_failed_scroll() {
-        let searches = Cell::new(0u8);
-        drive_realize_scrolls(
-            8,
-            || Ok(RealizeScrollStep::Stop),
-            || {
-                searches.set(searches.get() + 1);
-                Ok(())
-            },
-        )
-        .expect("drive");
-        assert_eq!(searches.get(), 0);
-    }
-
-    #[test]
-    fn mid_realize_search_error_aborts_drive() {
-        let error = drive_realize_scrolls(
-            8,
-            || {
-                Ok(RealizeScrollStep::Window {
-                    end_of_range: false,
-                })
-            },
-            || {
-                Err(AdapterError::ambiguous_target(
-                    "Multiple SelectionItem elements share the requested accessible name",
-                ))
-            },
-        )
-        .expect_err("ambiguous");
-        assert_eq!(error.code, ErrorCode::AmbiguousTarget);
     }
 }
 

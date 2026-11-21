@@ -1,4 +1,4 @@
-use agent_desktop_core::{AdapterError, ErrorCode, RefEntry};
+use agent_desktop_core::{AdapterError, DeliverySemantics, ErrorCode, RefEntry};
 
 use crate::tree::resolve::resolve_fake::{FRAME_PATH, Fake, deadline, node};
 use crate::tree::resolve::{Source, resolve};
@@ -115,4 +115,68 @@ fn a_replaced_window_or_a_stopped_process_settles_before_the_chain_is_read() {
     let error = resolve(&mut fake, &entry, deadline()).expect_err("stopped");
     assert_eq!(error.code, ErrorCode::AppUnresponsive);
     assert_eq!(fake.reads.gate, 0);
+}
+
+fn with_token_field(
+    entry: &RefEntry,
+    index: usize,
+    replace: impl FnOnce(&str) -> String,
+) -> RefEntry {
+    let token = entry.identity.retained_object.as_deref().expect("a token");
+    let mut fields: Vec<String> = token.split('|').map(str::to_owned).collect();
+    fields[index] = replace(&fields[index]);
+    let mut changed = entry.clone();
+    changed.identity.retained_object = Some(fields.join("|"));
+    changed
+}
+
+fn assert_stale_at(error: &AdapterError, expected_reason: &str) {
+    assert_eq!(error.code, ErrorCode::StaleRef);
+    assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+    assert_eq!(reason(error), (expected_reason, None));
+}
+
+#[test]
+fn a_token_from_another_bus_instance_is_stale_before_any_window_is_read() {
+    let mut fake = window();
+    let entry = token_entry(&fake, "/ok1");
+    fake.guid = "restarted-bus".to_owned();
+    let error = resolve(&mut fake, &entry, deadline()).expect_err("refused");
+    assert_stale_at(&error, "bus");
+    assert_eq!(fake.reads.gate, 0);
+}
+
+#[test]
+fn a_token_for_another_frame_process_or_bus_name_is_stale_at_the_window() {
+    let fake = window();
+    let entry = token_entry(&fake, "/ok1");
+    let other_frame =
+        with_token_field(&entry, 5, |suffixes| suffixes.replacen("frame", "other", 1));
+    let other_process = with_token_field(&entry, 1, |_| "41".to_owned());
+    let other_bus = with_token_field(&entry, 2, |_| ":1.9".to_owned());
+    for changed in [other_frame, other_process, other_bus] {
+        let mut fake = window();
+        let error = resolve(&mut fake, &changed, deadline()).expect_err("refused");
+        assert_stale_at(&error, "window");
+        assert_eq!(fake.reads.levels, 0);
+    }
+}
+
+#[test]
+fn a_ref_with_no_token_or_a_foreign_token_is_refused_without_a_read() {
+    let mut fake = window();
+    let tokenless = fake.entry_of("/ok1", false);
+    let mut foreign = tokenless.clone();
+    foreign.identity.retained_object = Some("uia1:not-a-linux-token".to_owned());
+    for entry in [tokenless, foreign] {
+        let error = resolve(&mut fake, &entry, deadline()).expect_err("refused");
+        assert_eq!(error.code, ErrorCode::StaleRef);
+        assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+        assert_eq!(
+            error.details.as_ref().expect("details")["kind"],
+            "element_token_required"
+        );
+    }
+    assert_eq!(fake.reads.gate, 0);
+    assert_eq!(fake.reads.levels, 0);
 }

@@ -7,7 +7,7 @@ use crate::actions::chain::{
     ChainContext, activate_descendant, chain_disclosure_steps, chain_menu_steps, chain_value_write,
     press_selection,
 };
-use crate::actions::{DeliveryTracker, ax_helpers, scroll_into_view, select::container_select};
+use crate::actions::{ax_helpers, scroll_into_view, select::container_select};
 use crate::tree::AXElement;
 
 const PHYSICAL_CLICK: &str = "CGClick";
@@ -66,8 +66,7 @@ pub(crate) fn right_click_rungs<'a>(
             let pid = crate::system::app::app_ops::pid_from_element(element, deadline);
             physical_click(element, &context, MouseButton::Right, 1)?;
             let menu_seen = match pid {
-                Some(pid) => chain_menu_steps::wait_for_new_menu(pid, deadline)
-                    .map_err(|error| DeliveryTracker::from_delivered_units(1).annotate(error))?,
+                Some(pid) => chain_menu_steps::wait_for_new_menu(pid, deadline),
                 None => false,
             };
             Ok(DeliveryOutcome::from_delivery(true, menu_seen))

@@ -11,9 +11,12 @@ pub fn ensure_combo_allowed(
     adapter: &dyn PlatformAdapter,
 ) -> Result<(), AppError> {
     if !force && adapter.is_blocked_combo(combo) {
-        return Err(AppError::Adapter(AdapterError::policy_denied(format!(
-            "Key combo '{raw}' is blocked for safety; pass --force to override"
-        ))));
+        return Err(AppError::Adapter(
+            AdapterError::policy_denied(format!(
+                "Key combo '{raw}' is blocked for safety; pass --force to override"
+            ))
+            .with_suggestion("Pass --force only if the user asked for this key combo"),
+        ));
     }
     Ok(())
 }

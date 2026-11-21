@@ -11,7 +11,8 @@
 //! An owner-drawn combo without `CBS_HASSTRINGS` keeps item data, not names,
 //! so the name search cannot see its items. Such a combo, and a name the search
 //! misses, hand the selection back to the caller's own route instead of
-//! failing, because nothing was sent yet.
+//! failing, because nothing was sent yet. An index the combo refuses fails as
+//! delivered and unverified: the refusal can clear the selection.
 
 use agent_desktop_core::{AdapterError, Deadline};
 
@@ -53,8 +54,8 @@ mod imp {
     use std::ffi::c_void;
     use windows_sys::Win32::UI::Controls::{COMBOBOXINFO, GetComboBoxInfo};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CB_FINDSTRINGEXACT, CB_SETCURSEL, CBN_SELCHANGE, GWL_STYLE, GetDlgCtrlID, GetParent,
-        GetWindowLongPtrW, PostMessageW, WM_COMMAND,
+        CB_ERR, CB_FINDSTRINGEXACT, CB_SETCURSEL, CBN_SELCHANGE, GWL_STYLE, GetDlgCtrlID,
+        GetParent, GetWindowLongPtrW, PostMessageW, WM_COMMAND,
     };
 
     /// The element's window when it is a native combo box of the element's
@@ -83,7 +84,12 @@ mod imp {
         else {
             return Ok(None);
         };
-        send(&combo, CB_SETCURSEL, index, 0, deadline)?;
+        if send(&combo, CB_SETCURSEL, index, 0, deadline)? == CB_ERR as isize {
+            return Err(crate::actions::chain::after_delivery(AdapterError::new(
+                agent_desktop_core::ErrorCode::ActionFailed,
+                "The combo box refused the selection",
+            )));
+        }
         let hwnd = combo.hwnd;
         let window = hwnd as *mut c_void;
         let id = (unsafe { GetDlgCtrlID(window) } as usize) & 0xFFFF;

@@ -1,10 +1,11 @@
 use agent_desktop_core::{Action, LocatorField};
 
-use super::{capabilities, capability_of, click_verbs, verbs_for};
+use super::{capabilities, capability_of, click_verbs, unsupported_entry_activation, verbs_for};
+use crate::system::process::toolkit_id::ToolkitId;
 use crate::tree::Field;
 use crate::tree::RawNode;
 use crate::tree::test_support::helpers::read_of;
-use crate::tree::vocabulary::role_numbers::{CHECK_BOX, LIST_ITEM};
+use crate::tree::vocabulary::role_numbers::{CHECK_BOX, ENTRY, LIST_ITEM};
 use crate::tree::vocabulary::role_numbers::{MENU_ITEM, PUSH_BUTTON};
 use crate::tree::vocabulary::state_bits::{CHECKABLE, SELECTABLE};
 
@@ -164,4 +165,30 @@ fn dispatch_verb_orders_are_fixed() {
     assert!(verbs_for(&Action::Hover).is_empty());
     assert!(verbs_for(&Action::Clear).is_empty());
     assert!(verbs_for(&Action::SetFocus).is_empty());
+}
+
+fn gtk4() -> ToolkitId {
+    ToolkitId {
+        name: Some("gtk".to_owned()),
+        version: Some("4.12.0".to_owned()),
+    }
+}
+
+#[test]
+fn the_toolkit_is_read_only_for_a_text_role() {
+    let names = vec!["activate".to_owned()];
+    let reads = std::cell::Cell::new(0);
+    let counted = || {
+        reads.set(reads.get() + 1);
+        gtk4()
+    };
+    assert!(!unsupported_entry_activation(
+        Some(PUSH_BUTTON),
+        &names,
+        counted
+    ));
+    assert!(!unsupported_entry_activation(None, &names, counted));
+    assert_eq!(reads.get(), 0);
+    assert!(unsupported_entry_activation(Some(ENTRY), &names, counted));
+    assert_eq!(reads.get(), 1);
 }

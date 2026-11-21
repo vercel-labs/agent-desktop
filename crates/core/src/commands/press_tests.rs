@@ -172,6 +172,11 @@ fn adapter_blocked_combo_is_refused_when_not_forced() {
         err.to_string().contains("--force"),
         "the refusal must tell the caller how to override, got: {err}"
     );
+    let suggestion = err.suggestion().unwrap_or_default();
+    assert!(
+        suggestion.contains("--force") && !suggestion.contains("--headed"),
+        "the suggestion must name --force and never headed mode, got: {suggestion}"
+    );
 }
 
 #[test]

@@ -26,7 +26,7 @@ agent-desktop scroll <REF> [--direction up|down|left|right] [--amount N] [--time
   </tbody>
 </table>
 
-macOS and Windows scroll through native accessibility paths headless. On Linux, `scroll` is a physical wheel event, so headless it refuses before sending anything:
+macOS scrolls through a native accessibility path headless. On Windows the scroll pattern takes the foreground, and on Linux `scroll` is a physical wheel event, so on both headless it refuses before sending anything:
 
 ```json
 {

@@ -1,6 +1,7 @@
 use agent_desktop_core::{Action, LocatorField, actions::capability};
 
 use super::capability_rules::{Facts, rule_tokens, scroll_tokens};
+use crate::system::process::toolkit_id::ToolkitId;
 use crate::tree::RawNode;
 use crate::tree::vocabulary::role_numbers::{LIST_ITEM, is_menu_item};
 use crate::tree::vocabulary::state_bits::{CHECKABLE, SELECTABLE};
@@ -115,15 +116,18 @@ pub(crate) fn click_verbs(role: Option<u32>) -> &'static [&'static str] {
 
 /// L41-22: GTK4's entry Activate calls gtk_widget_activate without an activation signal
 /// and ignores its false result. Other advertised click verbs remain usable.
-pub(crate) fn unsupported_entry_activation(
+///
+/// `toolkit` is read only for a text role, so a caller that reads it over the
+/// bus pays nothing for any other role.
+pub(crate) fn unsupported_entry_activation<T: std::borrow::Borrow<ToolkitId>>(
     role: Option<u32>,
     names: &[String],
-    toolkit: &crate::system::process::toolkit_id::ToolkitId,
+    toolkit: impl FnOnce() -> T,
 ) -> bool {
     use crate::tree::properties::toolkit_trust::{ToolkitKind, kind};
     use crate::tree::vocabulary::role_numbers::{ENTRY, PASSWORD_TEXT, TEXT};
     matches!(role, Some(ENTRY | PASSWORD_TEXT | TEXT))
-        && kind(toolkit) == ToolkitKind::Gtk4
+        && kind(toolkit().borrow()) == ToolkitKind::Gtk4
         && names
             .iter()
             .any(|name| name.eq_ignore_ascii_case("activate"))

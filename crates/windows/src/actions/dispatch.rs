@@ -133,7 +133,7 @@ mod imp {
                 Ok(ActionResult::from_execution(&request.action, steps))
             }
             Action::Scroll(direction, amount) => {
-                let steps = scroll_steps(element, direction, *amount, deadline)?;
+                let steps = scroll_steps(element, direction, *amount, request.policy, deadline)?;
                 Ok(ActionResult::from_execution(&request.action, steps))
             }
         }

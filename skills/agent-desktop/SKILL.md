@@ -64,7 +64,8 @@ agent-desktop launch <program>                 # data.window means a window is r
 agent-desktop snapshot -i --app "<app>"        # interactive elements with refs
 agent-desktop find --app "<app>" --role button --name "<label>"   # matching elements with refs, no full tree
 agent-desktop click '@s8f3k2p9:e12' --wait-for "<role>:<text>"   # act, then return the snapshot showing the result
-agent-desktop type '@s8f3k2p9:e4' "<text>"      # set-value replaces the whole value
+agent-desktop set-value '@s8f3k2p9:e4' "<text>"  # replaces the whole value; the headless route
+agent-desktop type '@s8f3k2p9:e4' "<text>"       # inserts text at the caret and keeps the rest
 agent-desktop get '@s8f3k2p9:e4' --property value
 agent-desktop close-app "<app>"                # headless graceful close can be refused; see --force below
 ```
@@ -179,7 +180,7 @@ reported readback, not the whole task. `delivered_unverified`, `delivery_uncerta
 and `unknown` do not prove that nothing happened. If retry is unsafe, unknown,
 or missing, read live state before deciding on a new action; do not repeat or
 substitute the original action blindly. Use `details.post_state` when present.
-An action can land even when `ok` is false.
+An action or window command can land even when `ok` is false.
 
 Held input fails closed: `key-down`, `key-up`, `mouse-down`, and `mouse-up` cannot
 hold input across CLI calls until daemon-owned release exists. They return

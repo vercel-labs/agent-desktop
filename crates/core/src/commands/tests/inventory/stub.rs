@@ -56,16 +56,10 @@ impl InputOps for Stub {
         _: &ClipboardContent,
         _: &InteractionLease,
     ) -> Reply<OperationReport> {
-        Ok(OperationReport::delivered_unverified(
-            "clipboard-set",
-            OperationTarget::Clipboard,
-        ))
+        Ok(OperationReport::clipboard_written("clipboard-set", false))
     }
     fn clear_clipboard(&self, _: &InteractionLease) -> Reply<OperationReport> {
-        Ok(OperationReport::delivered_unverified(
-            "clipboard-clear",
-            OperationTarget::Clipboard,
-        ))
+        Ok(OperationReport::clipboard_written("clipboard-clear", false))
     }
 }
 

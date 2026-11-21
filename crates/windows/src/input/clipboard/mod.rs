@@ -175,15 +175,33 @@ fn format_available(format: u32) -> bool {
 /// `clipboard_worker_state` exists to detect after the fact.
 pub(crate) fn ensure_owner_responsive() -> Result<(), AdapterError> {
     let owner = unsafe { GetClipboardOwner() };
-    if owner.is_null() {
+    owner_responsiveness(
+        (!owner.is_null()).then_some(owner as usize),
+        || {
+            ClipboardSession::owner_hwnd()
+                .ok()
+                .map(|ours| ours as usize)
+        },
+        |owner| window_is_responsive(owner as _),
+    )
+}
+
+/// Decides whether the clipboard owner may be read, from facts the caller already read.
+///
+/// `ours` is evaluated only when an owner exists, so a clipboard with no owner never
+/// starts this process's owner window.
+fn owner_responsiveness(
+    owner: Option<usize>,
+    ours: impl FnOnce() -> Option<usize>,
+    responsive: impl FnOnce(usize) -> bool,
+) -> Result<(), AdapterError> {
+    let Some(owner) = owner else {
+        return Ok(());
+    };
+    if ours() == Some(owner) {
         return Ok(());
     }
-    if let Ok(ours) = ClipboardSession::owner_hwnd() {
-        if owner == ours {
-            return Ok(());
-        }
-    }
-    if window_is_responsive(owner) {
+    if responsive(owner) {
         return Ok(());
     }
     Err(AdapterError::new(
@@ -191,7 +209,7 @@ pub(crate) fn ensure_owner_responsive() -> Result<(), AdapterError> {
         "Clipboard owner is not processing messages, so GetClipboardData would block",
     )
     .with_suggestion("Wait for the application to recover, then retry the clipboard read")
-    .with_platform_detail(format!("GetClipboardOwner HWND 0x{:X}", owner as usize))
+    .with_platform_detail(format!("GetClipboardOwner HWND 0x{owner:X}"))
     .with_disposition(DeliverySemantics::not_delivered()))
 }
 

@@ -258,9 +258,6 @@ impl AdapterError {
 
     pub fn policy_denied(message: impl Into<String>) -> Self {
         Self::new(ErrorCode::PolicyDenied, message)
-            .with_suggestion(crate::headed_mode_suggestion(
-                "can take the foreground, move the pointer and send synthetic keys",
-            ))
             .with_disposition(DeliverySemantics::not_delivered())
     }
 

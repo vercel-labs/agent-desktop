@@ -1311,7 +1311,8 @@ void ad_app_list_free(struct AdAppList *list);
  *
  * `policy` is an `AdPolicyKind` discriminant (0=Headless, 1=FocusFallback,
  * 2=Headed). An out-of-range value returns `ErrInvalidArgs`. `Headless (0)`
- * accepts the action's base policy. `FocusFallback (1)` explicitly permits
+ * is strict headless for every action, so a `PressKey` the element does not
+ * advertise natively returns `ErrPolicyDenied`. `FocusFallback (1)` explicitly permits
  * focus without cursor movement. `Headed (2)` opts in to physical cursor and
  * keyboard delivery.
  *

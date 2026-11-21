@@ -25,10 +25,10 @@ pub struct ExecuteByRefArgs<'a> {
 /// `ref_id` must be snapshot-qualified (`@<snapshot_id>:eN`); a bare `@eN`
 /// is rejected with `INVALID_ARGS`.
 ///
-/// The effective `InteractionPolicy` is the join of `caller_policy` and the
-/// action's base policy. Semantic actions, including `TypeText`, are strict
-/// headless; explicit `PressKey` permits focus without cursor movement. FFI
-/// callers may opt in to `focus_fallback` or `headed`.
+/// `caller_policy` is the effective `InteractionPolicy`. Every action,
+/// including `TypeText` and `PressKey`, is strict headless unless the caller
+/// opts in to `focus_fallback` or `headed`. A `PressKey` that the element does
+/// not advertise natively is refused with `POLICY_DENIED` under headless.
 pub fn execute_with_timeout(
     args: ExecuteByRefArgs<'_>,
     timeout_ms: u64,

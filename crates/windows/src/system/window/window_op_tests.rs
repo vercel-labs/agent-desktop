@@ -120,3 +120,61 @@ fn a_handle_that_names_no_window_of_the_recorded_process_fails_closed_before_any
 
     assert_eq!(error.disposition, DeliverySemantics::not_delivered());
 }
+
+#[test]
+fn resize_plan_keeps_the_origin_and_takes_the_new_size() {
+    let plan = Placement::plan(&WindowOp::Resize {
+        width: 800.0,
+        height: 600.0,
+    })
+    .expect("a finite positive resize is plannable");
+    match plan {
+        Placement::Frame { origin, size } => {
+            assert_eq!(origin, None);
+            assert_eq!(size, Some((800, 600)));
+        }
+        Placement::Show(_) => panic!("resize must plan a frame write"),
+    }
+}
+
+#[test]
+fn move_plan_keeps_the_size_and_takes_the_new_origin() {
+    let plan = Placement::plan(&WindowOp::Move {
+        x: -1920.0,
+        y: 40.0,
+    })
+    .expect("a coordinate inside the bound is plannable");
+    match plan {
+        Placement::Frame { origin, size } => {
+            assert_eq!(origin, Some((-1920, 40)));
+            assert_eq!(size, None);
+        }
+        Placement::Show(_) => panic!("move must plan a frame write"),
+    }
+}
+
+#[test]
+fn show_ops_plan_the_matching_show_verb() {
+    assert!(matches!(
+        Placement::plan(&WindowOp::Minimize),
+        Ok(Placement::Show(ShowVerb::Minimize))
+    ));
+    assert!(matches!(
+        Placement::plan(&WindowOp::Maximize),
+        Ok(Placement::Show(ShowVerb::Maximize))
+    ));
+    assert!(matches!(
+        Placement::plan(&WindowOp::Restore),
+        Ok(Placement::Show(ShowVerb::Restore))
+    ));
+}
+
+#[test]
+fn readback_tolerance_accepts_drift_up_to_the_edge_and_rejects_past_it() {
+    assert!(within_tolerance(100, 100));
+    assert!(within_tolerance(100, 100 + PLACEMENT_TOLERANCE_PX));
+    assert!(within_tolerance(100, 100 - PLACEMENT_TOLERANCE_PX));
+    assert!(!within_tolerance(100, 100 + PLACEMENT_TOLERANCE_PX + 1));
+    assert!(!within_tolerance(100, 100 - PLACEMENT_TOLERANCE_PX - 1));
+    assert!(within_tolerance(-1920 - PLACEMENT_TOLERANCE_PX, -1920));
+}

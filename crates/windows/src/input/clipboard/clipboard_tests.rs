@@ -1,7 +1,7 @@
 use super::{
     MAX_CLIPBOARD_PAYLOAD_BYTES, clear, ensure_owner_responsive, get_clipboard_content,
-    read_format_bytes, reset_sequence_retries_observed, sequence_retries_observed, set_content,
-    with_global_size_override_for_test,
+    owner_responsiveness, read_format_bytes, reset_sequence_retries_observed,
+    sequence_retries_observed, set_content, with_global_size_override_for_test,
 };
 use crate::input::clipboard::clipboard_guard::MoveableMemory;
 use crate::input::clipboard::clipboard_session::ClipboardSession;
@@ -14,6 +14,7 @@ use agent_desktop_core::{
     AdapterError, ClipboardContent, ClipboardFormat, Deadline, DeliverySemantics, ErrorCode,
     ImageBuffer, ImageFormat, parse_png_dimensions,
 };
+use std::cell::Cell;
 use windows_sys::Win32::System::DataExchange::{EmptyClipboard, EnumClipboardFormats};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -232,6 +233,68 @@ fn oversized_clipboard_payload_is_rejected_before_copy() {
             );
         });
     });
+}
+
+#[test]
+fn clipboard_without_an_owner_is_readable_without_probing_or_owner_lookup() {
+    let probed = Cell::new(false);
+    let looked_up = Cell::new(false);
+    let result = owner_responsiveness(
+        None,
+        || {
+            looked_up.set(true);
+            Some(7)
+        },
+        |_| {
+            probed.set(true);
+            false
+        },
+    );
+    assert!(result.is_ok());
+    assert!(!probed.get(), "no owner must not be probed");
+    assert!(!looked_up.get(), "no owner must not start the owner window");
+}
+
+#[test]
+fn owner_that_is_this_process_is_readable_without_probing() {
+    let probed = Cell::new(false);
+    let result = owner_responsiveness(
+        Some(0x2A),
+        || Some(0x2A),
+        |_| {
+            probed.set(true);
+            false
+        },
+    );
+    assert!(result.is_ok());
+    assert!(!probed.get(), "our own owner window must not be probed");
+}
+
+#[test]
+fn owner_that_answers_the_probe_is_readable() {
+    let probed = Cell::new(false);
+    let result = owner_responsiveness(
+        Some(0x2A),
+        || Some(0x07),
+        |owner| {
+            probed.set(owner == 0x2A);
+            true
+        },
+    );
+    assert!(result.is_ok());
+    assert!(probed.get(), "a foreign owner must be probed");
+}
+
+#[test]
+fn owner_that_does_not_answer_is_refused_before_the_read() {
+    let error = owner_responsiveness(Some(0x2A), || None, |_| false)
+        .expect_err("an owner that does not pump messages must be refused");
+    assert_eq!(error.code, ErrorCode::AppUnresponsive);
+    assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+    assert_eq!(
+        error.platform_detail.as_deref(),
+        Some("GetClipboardOwner HWND 0x2A")
+    );
 }
 
 fn sample_png() -> Vec<u8> {

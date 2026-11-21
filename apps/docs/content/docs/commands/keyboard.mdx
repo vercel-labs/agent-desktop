@@ -12,7 +12,7 @@ Sends a key combo to the focused window, or to one app.
 
 ```bash
 agent-desktop press COMBO [--app NAME] [--window-id ID] [--force]
-agent-desktop press ctrl+shift+z
+agent-desktop press ctrl+shift+z --app gnome-calculator
 agent-desktop press return --app gnome-calculator
 ```
 
@@ -81,7 +81,7 @@ A held key needs a process that can guarantee its release, and every agent-deskt
 }
 ```
 
-Nothing was sent, and the command fails the same way every time. Send the whole chord with [`press`](#press), for example `press shift+tab`.
+Nothing was sent, and the command fails the same way every time. Send the whole chord with [`press`](#press), for example `press shift+tab --app gnome-calculator`.
 
 ## key-up
 

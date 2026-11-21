@@ -149,7 +149,7 @@ fn show_menu_on_element(
     }
     Ok(DeliveryOutcome::from_delivery(
         true,
-        wait_for_new_menu(pid, deadline)?,
+        wait_for_new_menu(pid, deadline),
     ))
 }
 
@@ -168,25 +168,20 @@ fn show_menu_or_press(
         if crate::actions::ax_helpers::try_ax_action_or_err(element, action, deadline)? {
             return Ok(DeliveryOutcome::from_delivery(
                 true,
-                wait_for_new_menu(pid, deadline)?,
+                wait_for_new_menu(pid, deadline),
             ));
         }
     }
     Ok(DeliveryOutcome::NotDelivered)
 }
 
-pub(crate) fn wait_for_new_menu(pid: i32, deadline: Deadline) -> Result<bool, AdapterError> {
-    let local_end = std::time::Instant::now() + std::time::Duration::from_millis(600);
-    loop {
-        if menu_probe(pid, deadline) {
-            return Ok(true);
-        }
-        if deadline.is_expired() || std::time::Instant::now() >= local_end {
-            return Ok(false);
-        }
-        let pause = deadline.remaining_slice(std::time::Duration::from_millis(25))?;
-        std::thread::sleep(pause.min(std::time::Duration::from_millis(25)));
-    }
+pub(crate) fn wait_for_new_menu(pid: i32, deadline: Deadline) -> bool {
+    deadline.poll_until(
+        std::time::Duration::from_millis(600),
+        std::time::Duration::from_millis(25),
+        || menu_probe(pid, deadline),
+        |opened| *opened,
+    )
 }
 
 /// An application in menu tracking stops answering child reads, so a failed
