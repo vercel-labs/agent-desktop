@@ -1,0 +1,75 @@
+---
+title: macOS VM sandbox
+navTitle: macOS VM
+description: Install the macOS VM provider, create a macOS guest, set it up once, and clone it for later sandboxes.
+---
+
+The `macos` provider runs a macOS guest in a virtual machine on an Apple Silicon Mac. You set up the first sandbox once in its window. Every sandbox you clone from it starts headless and needs no setup. Creating the first VM from a macOS image is experimental.
+
+## Requirements
+
+- An Apple Silicon Mac running macOS 13 or later. The guest must also run macOS 13 or later.
+- Xcode Command Line Tools for `swiftc`: `xcode-select --install`.
+
+## Set up the first sandbox
+
+```bash
+agent-desktop sandbox install macos                                    # build and sign the VM host and guest agent
+agent-desktop sandbox create base --provider macos --set ipsw=latest   # download and install macOS in the background
+agent-desktop sandbox status base                                      # repeat until it stops answering working
+agent-desktop sandbox start base                                       # opens the guest in a window
+```
+
+`--set ipsw=<path>` installs an image you already have instead of downloading one. A failed install answers `broken`; the reason is in `vm/install.log`.
+
+Then, in the guest window:
+
+1. Finish macOS setup, and turn on automatic login in **System Settings > Users & Groups**.
+2. Open **Terminal** and run `sh "/Volumes/My Shared Files/guest-setup.sh"`.
+3. When macOS asks, open **System Settings > Privacy & Security > Accessibility** and switch on **agent-desktop-guest**. For `screenshot`, switch it on under **Screen & System Audio Recording** too.
+
+On the host, `agent-desktop sandbox status base` answers `running` when the setup is complete.
+
+## Clone it
+
+```bash
+agent-desktop sandbox stop base                                      # a clone needs a stopped source
+agent-desktop sandbox create work --provider macos --set from=base   # copy the set-up VM
+agent-desktop sandbox start work                                     # starts headless
+agent-desktop sandbox exec work -- snapshot --app Finder -i          # run agent-desktop in the guest
+```
+
+A started sandbox keeps running after the command that started it exits, until `sandbox stop`. To watch a sandbox, start it in a window. Closing the window shuts the VM down.
+
+```bash
+agent-desktop sandbox start work --window --set title="Review build"
+```
+
+## When status answers needs_setup
+
+The guest agent is not answering, Accessibility is off for it, or another process answered in its place. A guest that is only slow to start answers `running` on a later `status`. Otherwise open the sandbox in a window and repeat the three guest steps:
+
+```bash
+agent-desktop sandbox stop base
+agent-desktop sandbox start base --window
+```
+
+A sandbox set up by agent-desktop 1.3.0 needs this once, after `agent-desktop sandbox install macos`. Its guest no longer needs Remote Login.
+
+## How the host reaches the guest
+
+- `guest-setup.sh` installs a guest agent, `agent-desktop-guest.app`, in the guest's `~/Applications`. It starts with each login. It runs one program, the guest's `agent-desktop`, with the arguments `sandbox exec` passes. It does not run a shell.
+- The host talks to the agent through the virtual machine's own socket device. The guest's network is not involved, and only the process that runs the VM can open that connection.
+- The agent holds a key that only its guest account can read. The host records the public half when setup completes and sends commands only to a process that proves that key, so another account in the guest cannot answer in the agent's place.
+- The guest mounts `sandboxes/<name>/vm/share/` read-only. Before each command the guest agent installs the host's agent-desktop build from it, so the guest always runs your build.
+
+## What this isolates
+
+A sandbox has its own disk, desktop, and agent-desktop state. It does not isolate the network: every sandbox on a host shares one virtual network and can reach the host's network services. agent-desktop does not prevent a guest escape; the hypervisor and the guest OS are Apple's. Use a separate machine or a hosted sandbox for code you do not trust.
+
+## Limits
+
+- macOS runs two macOS VMs at once. A third start fails, and `vm/vmhost.log` holds the reason.
+- The first setup needs a person: nothing outside the guest can grant Accessibility.
+- `sandbox exec` waits at most 300 seconds for one guest command.
+- `sandbox rm` deletes the sandbox's disk image.

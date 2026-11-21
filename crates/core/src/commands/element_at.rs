@@ -155,12 +155,14 @@ fn response(
 ) -> Value {
     let mut response = json!({
         "snapshot_id": result.snapshot_id,
-        "app": result.window.app,
-        "window_id": result.window.id,
+        "app": result.owner.app_name(),
         "point": { "x": point.x, "y": point.y },
         "candidates": candidates.len(),
         "match": Value::Null,
     });
+    if let Some(window) = result.owner.window() {
+        response["window_id"] = json!(window.id);
+    }
     attach_completeness(&mut response, result.complete, result.nodes_observed);
     let Some((index, hit)) = chosen else {
         return response;

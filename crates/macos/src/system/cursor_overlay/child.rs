@@ -21,6 +21,7 @@ struct OverlayState {
     motion: CursorMotionProfile,
     moves: u64,
     at: Option<Point>,
+    dragging: bool,
     resting: bool,
 }
 
@@ -152,13 +153,12 @@ fn handle(control: &CursorOverlayControl, state: &mut OverlayState) -> Result<bo
     if let Some(image_changed) = absorb_settings(control, state) {
         bridge::apply_style(&state.style, image_changed);
     }
-    if control.is_hide() {
-        bridge::hide();
-        apply_landing_memory(control, state, None);
-        return Ok(true);
-    }
-    if control.is_show() {
-        bridge::show();
+    if control.is_hide() || control.is_show() {
+        if control.is_show() {
+            bridge::show();
+        } else if state.dragging {
+            bridge::hide();
+        }
         apply_landing_memory(control, state, None);
         return Ok(true);
     }
@@ -210,7 +210,9 @@ fn apply_landing_memory(
     instruction: Option<&CursorOverlayInstruction>,
 ) {
     if control.is_hide() {
-        state.at = None;
+        if std::mem::take(&mut state.dragging) {
+            state.at = None;
+        }
         return;
     }
     if control.is_show() {
@@ -222,7 +224,8 @@ fn apply_landing_memory(
     if bridge::is_caret(instruction) {
         return;
     }
-    state.at = Some(if instruction.phase() == CursorPhase::Drag {
+    state.dragging = instruction.phase() == CursorPhase::Drag;
+    state.at = Some(if state.dragging {
         instruction
             .drag_from()
             .unwrap_or(instruction.destination())

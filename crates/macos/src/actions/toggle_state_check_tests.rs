@@ -5,7 +5,7 @@ use agent_desktop_core::{
     actions::action_step_outcome::ActionStepOutcome,
 };
 
-use super::{CheckTarget, run_check};
+use super::{CheckTarget, radio::value_write_allowed, run_check};
 
 struct Scripted {
     reads: VecDeque<Option<bool>>,
@@ -206,4 +206,20 @@ fn a_radio_whose_state_is_unreadable_after_a_refused_write_is_not_called_undeliv
     let error = run_check(&mut target, false, false).unwrap_err();
     assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
     assert_eq!(target.clicks, 0);
+}
+
+#[test]
+fn tab_buttons_never_take_a_value_write() {
+    assert!(!value_write_allowed(Some("AXTabButton")));
+    assert!(value_write_allowed(None));
+    assert!(value_write_allowed(Some("AXSwitch")));
+}
+
+#[test]
+fn an_unsettable_tab_button_is_selected_by_press_and_verified() {
+    let mut target = Scripted::new(&[Some(false)], &[Some(true)], false);
+    let steps = run_check(&mut target, true, true).expect("press selects the tab");
+    assert_eq!(target.writes, 0);
+    assert_eq!(target.clicks, 1);
+    assert_eq!(labels(&steps), vec![("AXPress".to_string(), Some(true))]);
 }

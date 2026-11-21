@@ -116,6 +116,9 @@ impl CheckTarget for LiveToggleTarget<'_> {
 
     fn value_settable(&mut self) -> Result<bool, AdapterError> {
         prepare(self.el, self.deadline)?;
+        if !radio::value_write_allowed(radio::subrole(self.el, self.deadline)?.as_deref()) {
+            return Ok(false);
+        }
         ax_helpers::is_attr_settable(self.el, "AXValue", self.deadline)
     }
 

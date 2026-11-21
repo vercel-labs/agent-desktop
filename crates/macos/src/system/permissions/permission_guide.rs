@@ -16,11 +16,6 @@ const ACCESSIBILITY: u8 = 1;
 const SCREEN_RECORDING: u8 = 2;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_ANCESTORS: usize = 64;
-const COMMAND_HOST_ENVS: [&str; 3] = [
-    "AGENT_DESKTOP_INTERNAL_COMMAND_HOST",
-    "AGENT_DESKTOP_INTERNAL_HOST_SOCKET",
-    "AGENT_DESKTOP_INTERNAL_HOST_CLIENT",
-];
 
 pub(crate) fn start() -> Result<&'static str, AdapterError> {
     let steps = missing_steps(
@@ -46,9 +41,6 @@ pub(crate) fn start() -> Result<&'static str, AdapterError> {
     })?;
     let host = host_app().unwrap_or_else(|| executable.clone());
     let mut command = Command::new(&executable);
-    for name in COMMAND_HOST_ENVS {
-        command.env_remove(name);
-    }
     hand_over(&mut command, &lock);
     let mut child = command
         .env(STEPS_ENV, steps.to_string())
@@ -91,9 +83,8 @@ fn run_child(steps: &str) -> bool {
     unsafe { agent_desktop_permission_guide_run(steps, host.as_ptr(), granted) == 0 }
 }
 
-/// Each poll runs in a fresh process: a long-lived process keeps the Screen
-/// Recording answer it read at launch, and the command host may belong to
-/// another terminal app.
+/// Each poll runs in a fresh process, because a long-lived process keeps the
+/// Screen Recording answer it read at launch.
 extern "C" fn granted(step: u8) -> bool {
     let Ok(executable) = std::env::current_exe() else {
         return false;
@@ -136,25 +127,59 @@ fn parse_steps(value: &str) -> Option<u8> {
         .filter(|steps| (1..=(ACCESSIBILITY | SCREEN_RECORDING)).contains(steps))
 }
 
-/// TCC charges a command-line tool to the app that launched its process
-/// tree, so the guide shows the nearest ancestor that runs from an app
-/// bundle. Terminal servers such as Rex Server are not registered with
-/// LaunchServices, so the bundle comes from the executable path.
+/// TCC charges a command-line tool to its responsible process, which stays the
+/// app that launched it even when a terminal multiplexer server detaches and is
+/// reparented to launchd. The ancestor walk is the fallback. Terminal servers
+/// such as Rex Server are not registered with LaunchServices, so the bundle
+/// comes from the executable path.
 fn host_app() -> Option<PathBuf> {
-    let mut pid = i32::try_from(std::process::id()).ok()?;
+    host_app_of(i32::try_from(std::process::id()).ok()?, responsible_pid)
+}
+
+fn host_app_of(pid: i32, responsible: impl Fn(i32) -> Option<i32>) -> Option<PathBuf> {
+    responsible(pid)
+        .and_then(app_of)
+        .or_else(|| ancestor_app(pid))
+}
+
+fn app_of(pid: i32) -> Option<PathBuf> {
+    crate::system::renderer_kind::executable_path(pid)
+        .as_deref()
+        .and_then(outermost_app)
+}
+
+/// The nearest ancestor that runs from an app bundle, used when the
+/// responsible process is unknown or runs outside an app bundle.
+fn ancestor_app(mut pid: i32) -> Option<PathBuf> {
     for _ in 0..MAX_ANCESTORS {
         if pid <= 1 {
             return None;
         }
-        let app = crate::system::renderer_kind::executable_path(pid)
-            .as_deref()
-            .and_then(outermost_app);
+        let app = app_of(pid);
         if app.is_some() {
             return app;
         }
         pid = parent_pid(pid)?;
     }
     None
+}
+
+/// Resolves the private libSystem symbol at runtime, so a macOS that drops it
+/// leaves the binary launching instead of failing to link.
+fn responsible_pid(pid: i32) -> Option<i32> {
+    let symbol = unsafe {
+        libc::dlsym(
+            libc::RTLD_DEFAULT,
+            c"responsibility_get_pid_responsible_for_pid".as_ptr(),
+        )
+    };
+    if symbol.is_null() {
+        return None;
+    }
+    let responsible: unsafe extern "C" fn(libc::pid_t) -> libc::pid_t =
+        unsafe { std::mem::transmute(symbol) };
+    let responsible = unsafe { responsible(pid) };
+    (responsible > 0).then_some(responsible)
 }
 
 /// A helper such as `Code Helper (Plugin).app` sits inside the app that TCC
@@ -237,103 +262,5 @@ unsafe extern "C" {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn guide_covers_only_missing_permissions() {
-        assert_eq!(missing_steps(true, true), 0);
-        assert_eq!(missing_steps(false, true), ACCESSIBILITY);
-        assert_eq!(missing_steps(true, false), SCREEN_RECORDING);
-        assert_eq!(
-            missing_steps(false, false),
-            ACCESSIBILITY | SCREEN_RECORDING
-        );
-        assert_eq!(parse_steps("3"), Some(3));
-        assert_eq!(parse_steps("0"), None);
-        assert_eq!(parse_steps("4"), None);
-    }
-
-    #[test]
-    fn the_guide_lock_stays_held_from_the_check_through_the_child() {
-        let path = std::env::temp_dir().join(format!("{LOCK_NAME}.{}.test", std::process::id()));
-        let lock = lock_file(&path).unwrap().unwrap();
-        let mut command = Command::new("/bin/sleep");
-        command.arg("30");
-        hand_over(&mut command, &lock);
-        let mut child = command.spawn().unwrap();
-        drop(lock);
-        assert!(lock_file(&path).unwrap().is_none());
-        child.kill().unwrap();
-        child.wait().unwrap();
-        assert!(lock_released_within(&path, Duration::from_secs(10)));
-        std::fs::remove_file(&path).unwrap();
-    }
-
-    fn lock_released_within(path: &Path, limit: Duration) -> bool {
-        let give_up = Instant::now() + limit;
-        loop {
-            if lock_file(path).unwrap().is_some() {
-                return true;
-            }
-            if Instant::now() >= give_up {
-                return false;
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
-    }
-
-    #[test]
-    fn the_guide_offers_the_outermost_app_bundle_of_the_launching_process() {
-        let rex = Path::new(
-            "/Users/me/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex",
-        );
-        assert_eq!(
-            outermost_app(rex),
-            Some(PathBuf::from(
-                "/Users/me/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app"
-            ))
-        );
-        let code_helper = Path::new(
-            "/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)",
-        );
-        assert_eq!(
-            outermost_app(code_helper),
-            Some(PathBuf::from("/Applications/Visual Studio Code.app"))
-        );
-        assert_eq!(
-            outermost_app(Path::new(
-                "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal"
-            )),
-            Some(PathBuf::from("/System/Applications/Utilities/Terminal.app"))
-        );
-        assert_eq!(
-            outermost_app(Path::new("/usr/local/bin/agent-desktop")),
-            None
-        );
-    }
-
-    #[test]
-    fn the_host_walk_passes_through_a_process_of_another_user() {
-        let parent = parent_pid(i32::try_from(std::process::id()).unwrap());
-        assert_eq!(parent, Some(unsafe { libc::getppid() }));
-        let launchd_child = std::process::Command::new("/bin/ps")
-            .args(["-axo", "pid=,ppid=,uid="])
-            .output()
-            .unwrap();
-        let root_child = String::from_utf8(launchd_child.stdout)
-            .unwrap()
-            .lines()
-            .filter_map(|line| {
-                let fields: Vec<i32> = line
-                    .split_whitespace()
-                    .filter_map(|field| field.parse().ok())
-                    .collect();
-                (fields.len() == 3 && fields[0] > 1 && fields[1] == 1 && fields[2] == 0)
-                    .then_some(fields[0])
-            })
-            .next()
-            .unwrap();
-        assert_eq!(parent_pid(root_child), Some(1));
-    }
-}
+#[path = "permission_guide_tests.rs"]
+mod tests;
