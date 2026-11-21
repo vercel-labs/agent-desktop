@@ -1,220 +1,298 @@
-use agent_desktop_core::AdapterError;
+use agent_desktop_core::{
+    AdapterError, ChainRung, Deadline, DeliveryObservation, DeliveryOutcome, Effect, KeyCombo,
+    Modifier, MouseButton, StepMechanism,
+};
 
-#[cfg(target_os = "macos")]
-mod imp {
-    use super::*;
-    use crate::actions::{
-        chain::ChainDef, chain::ChainStep, chain::chain_disclosure_steps, chain::chain_menu_steps,
-    };
-    use crate::tree::AXElement;
-    use agent_desktop_core::{ActionStep, Deadline, MouseButton, StepMechanism};
+use crate::actions::chain::{
+    ChainContext, activate_descendant, chain_disclosure_steps, chain_menu_steps, chain_value_write,
+    press_selection,
+};
+use crate::actions::{DeliveryTracker, ax_helpers, scroll_into_view, select::container_select};
+use crate::tree::AXElement;
 
-    static CLICK_CHAIN: ChainDef = ChainDef {
-        steps: &[
-            ChainStep::CGClick {
-                button: MouseButton::Left,
-                count: 1,
-            },
-            ChainStep::CustomWithDeadline {
-                label: "AXPress",
-                func: crate::actions::chain::press_selection::press_or_report_no_effect,
-            },
-            ChainStep::Action("AXOpen"),
-            ChainStep::CustomWithDeadline {
-                label: "activate_descendant",
-                func: crate::actions::chain::activate_descendant::activate_descendant,
-            },
-            ChainStep::CustomWithDeadline {
-                label: "select_within_container",
-                func: crate::actions::select::container_select::select_within_container,
-            },
-            ChainStep::Action("AXConfirm"),
-        ],
-        suggestion: "Target an element that advertises Click or use an explicit point click.",
-        continue_after_unverified_delivery: false,
-    };
+const PHYSICAL_CLICK: &str = "CGClick";
+const POINTER_EFFECTS: &[Effect] = &[Effect::FocusSteal, Effect::CursorMove];
+const KEYBOARD_EFFECTS: &[Effect] = &[Effect::FocusSteal];
+const UNVERIFIED: DeliveryOutcome = DeliveryOutcome::Delivered(DeliveryObservation::Unverified);
 
-    static MENU_CLICK_CHAIN: ChainDef = ChainDef {
-        steps: &[ChainStep::Action("AXPress")],
-        suggestion: "Refresh the menu snapshot and target an item that supports AXPress.",
-        continue_after_unverified_delivery: false,
-    };
+type ElementRun = fn(&AXElement, Deadline) -> Result<DeliveryOutcome, AdapterError>;
 
-    pub(crate) fn click_chain(native_menu: bool) -> &'static ChainDef {
-        if native_menu {
-            &MENU_CLICK_CHAIN
-        } else {
-            &CLICK_CHAIN
-        }
+pub(crate) fn click_rungs<'a>(
+    element: &'a AXElement,
+    ctx: &ChainContext<'a>,
+    native_menu: bool,
+) -> Vec<ChainRung<'a>> {
+    let deadline = ctx.deadline;
+    if native_menu {
+        return vec![action("AXPress", element, deadline)];
     }
-
-    /// Continues past an unverified delivery because an `AXShowMenu` that
-    /// reports success without opening a menu must not consume the fallbacks
-    /// behind it. Each step re-checks for an open menu first, so continuing
-    /// cannot raise a second one.
-    pub(crate) static RIGHT_CLICK_CHAIN: ChainDef = ChainDef {
-        steps: &[
-            ChainStep::CGClick {
-                button: MouseButton::Right,
-                count: 1,
-            },
-            ChainStep::CustomWithDeadline {
-                label: "show_menu",
-                func: chain_menu_steps::show_menu,
-            },
-            ChainStep::CustomWithDeadline {
-                label: "select_then_show_menu",
-                func: chain_menu_steps::select_then_show_menu,
-            },
-            ChainStep::CustomWithDeadline {
-                label: "selected_items_menu",
-                func: chain_menu_steps::select_then_selected_items_menu,
-            },
-            ChainStep::CustomWithDeadline {
-                label: "child_show_menu",
-                func: chain_menu_steps::show_menu_on_children,
-            },
-            ChainStep::CustomWithDeadline {
-                label: "ancestor_show_menu",
-                func: chain_menu_steps::show_menu_on_ancestors,
-            },
-        ],
-        suggestion: "Try 'mouse-click --button right --xy X,Y'.",
-        continue_after_unverified_delivery: true,
-    };
-
-    pub(crate) static EXPAND_CHAIN: ChainDef = ChainDef {
-        steps: &[ChainStep::CustomWithDeadline {
-            label: "expand_verified",
-            func: chain_disclosure_steps::press_to_expand,
-        }],
-        suggestion: "Target a control with a readable expandable state.",
-        continue_after_unverified_delivery: false,
-    };
-
-    pub(crate) static COLLAPSE_CHAIN: ChainDef = ChainDef {
-        steps: &[ChainStep::CustomWithDeadline {
-            label: "collapse_verified",
-            func: chain_disclosure_steps::press_to_collapse,
-        }],
-        suggestion: "Target a control with a readable expandable state.",
-        continue_after_unverified_delivery: false,
-    };
-
-    pub(crate) static SET_VALUE_CHAIN: ChainDef = ChainDef {
-        steps: &[
-            ChainStep::SetDynamic { attr: "AXValue" },
-            ChainStep::IncrementToDynamic,
-        ],
-        suggestion: "Target an element with a settable value or native increment/decrement actions.",
-        continue_after_unverified_delivery: false,
-    };
-
-    pub(crate) static CLEAR_CHAIN: ChainDef = ChainDef {
-        steps: &[
-            ChainStep::FocusThenClearByKeyboard,
-            ChainStep::SetDynamic { attr: "AXValue" },
-        ],
-        suggestion: "Target an editable control or allow the verified keyboard fallback.",
-        continue_after_unverified_delivery: false,
-    };
-
-    pub(crate) static SEMANTIC_CLICK_CHAIN: ChainDef = ChainDef {
-        steps: &[
-            ChainStep::Action("AXPress"),
-            ChainStep::Action("AXOpen"),
-            ChainStep::CustomWithDeadline {
-                label: "activate_descendant",
-                func: crate::actions::chain::activate_descendant::activate_descendant,
-            },
-            ChainStep::CustomWithDeadline {
-                label: "select_within_container",
-                func: crate::actions::select::container_select::select_within_container,
-            },
-            ChainStep::Action("AXConfirm"),
-        ],
-        suggestion: "Target an element that advertises Click.",
-        continue_after_unverified_delivery: false,
-    };
-
-    pub(crate) static FOCUS_CHAIN: ChainDef = ChainDef {
-        steps: &[ChainStep::SetBool {
-            attr: "AXFocused",
-            value: true,
-        }],
-        suggestion: "Target an element whose AXFocused attribute is settable.",
-        continue_after_unverified_delivery: false,
-    };
-
-    pub(crate) static SCROLL_TO_CHAIN: ChainDef = ChainDef {
-        steps: &[ChainStep::CustomWithDeadline {
-            label: "scroll_to_visible_verified",
-            func: crate::actions::scroll_into_view::scroll_into_view_outcome,
-        }],
-        suggestion: "Target an element that advertises AXScrollToVisible.",
-        continue_after_unverified_delivery: false,
-    };
-
-    pub(crate) fn double_click(
-        element: &AXElement,
-        request: &agent_desktop_core::ActionRequest,
-        deadline: Deadline,
-    ) -> Result<Vec<ActionStep>, AdapterError> {
-        physical_multi_click(element, 2, request, deadline)
-    }
-
-    pub(crate) fn triple_click(
-        element: &AXElement,
-        request: &agent_desktop_core::ActionRequest,
-        deadline: Deadline,
-    ) -> Result<Vec<ActionStep>, AdapterError> {
-        physical_multi_click(element, 3, request, deadline)
-    }
-
-    fn physical_multi_click(
-        element: &AXElement,
-        count: u32,
-        request: &agent_desktop_core::ActionRequest,
-        deadline: Deadline,
-    ) -> Result<Vec<ActionStep>, AdapterError> {
-        crate::actions::physical_click::click_via_bounds(
+    let context = *ctx;
+    vec![
+        physical(PHYSICAL_CLICK, POINTER_EFFECTS, move || {
+            physical_click(element, &context, MouseButton::Left, 1)?;
+            Ok(UNVERIFIED)
+        }),
+        custom(
+            "AXPress",
+            press_selection::press_or_select_container,
             element,
-            crate::actions::physical_click::PhysicalClick {
-                button: MouseButton::Left,
-                count,
-                verified_point: request.verified_point().cloned(),
-            },
-            request.policy,
             deadline,
-        )?;
-        Ok(vec![
-            ActionStep::succeeded("CGClick")
-                .with_mechanism(StepMechanism::PhysicalSynthetic)
-                .with_verified(false),
-        ])
-    }
+        ),
+        action("AXOpen", element, deadline),
+        custom(
+            "activate_descendant",
+            activate_descendant::activate_descendant,
+            element,
+            deadline,
+        ),
+        custom(
+            "select_within_container",
+            container_select::select_within_container,
+            element,
+            deadline,
+        ),
+        action("AXConfirm", element, deadline),
+    ]
+}
 
-    #[cfg(test)]
-    mod tests {
-        use super::{COLLAPSE_CHAIN, EXPAND_CHAIN};
-        use crate::actions::chain::step_mechanism;
-        use agent_desktop_core::StepMechanism;
+pub(crate) fn right_click_rungs<'a>(
+    element: &'a AXElement,
+    ctx: &ChainContext<'a>,
+) -> Vec<ChainRung<'a>> {
+    let context = *ctx;
+    let deadline = ctx.deadline;
+    vec![
+        physical(PHYSICAL_CLICK, POINTER_EFFECTS, move || {
+            let pid = crate::system::app::app_ops::pid_from_element(element, deadline);
+            physical_click(element, &context, MouseButton::Right, 1)?;
+            let menu_seen = match pid {
+                Some(pid) => chain_menu_steps::wait_for_new_menu(pid, deadline)
+                    .map_err(|error| DeliveryTracker::from_delivered_units(1).annotate(error))?,
+                None => false,
+            };
+            Ok(DeliveryOutcome::from_delivery(true, menu_seen))
+        }),
+        custom(
+            "show_menu",
+            chain_menu_steps::show_menu_by_any_route,
+            element,
+            deadline,
+        ),
+    ]
+}
 
-        #[test]
-        fn disclosure_chains_hold_only_semantic_steps_and_never_fall_back() {
-            for chain in [&EXPAND_CHAIN, &COLLAPSE_CHAIN] {
-                assert!(!chain.steps.is_empty());
-                assert!(!chain.continue_after_unverified_delivery);
-                for step in chain.steps {
-                    assert_eq!(step_mechanism(step), StepMechanism::SemanticApi);
-                }
-            }
+pub(crate) fn expand_rungs<'a>(
+    element: &'a AXElement,
+    ctx: &ChainContext<'a>,
+) -> Vec<ChainRung<'a>> {
+    vec![custom(
+        "expand_verified",
+        chain_disclosure_steps::press_to_expand,
+        element,
+        ctx.deadline,
+    )]
+}
+
+pub(crate) fn collapse_rungs<'a>(
+    element: &'a AXElement,
+    ctx: &ChainContext<'a>,
+) -> Vec<ChainRung<'a>> {
+    vec![custom(
+        "collapse_verified",
+        chain_disclosure_steps::press_to_collapse,
+        element,
+        ctx.deadline,
+    )]
+}
+
+pub(crate) fn set_value_rungs<'a>(
+    element: &'a AXElement,
+    ctx: &ChainContext<'a>,
+) -> Vec<ChainRung<'a>> {
+    let value = ctx.dynamic_value;
+    let deadline = ctx.deadline;
+    vec![
+        value_rung(element, ctx),
+        semantic("IncrementToDynamic", move || match value {
+            Some(value) => chain_value_write::increment_to_value(element, value, deadline),
+            None => Ok(DeliveryOutcome::NotDelivered),
+        }),
+    ]
+}
+
+pub(crate) fn clear_rungs<'a>(
+    element: &'a AXElement,
+    ctx: &ChainContext<'a>,
+) -> Vec<ChainRung<'a>> {
+    let policy = ctx.policy;
+    let deadline = ctx.deadline;
+    vec![
+        physical("FocusThenClearByKeyboard", KEYBOARD_EFFECTS, move || {
+            crate::actions::physical_keyboard::press_sequence(
+                element,
+                &select_all_then_delete(),
+                policy,
+                deadline,
+            )?;
+            Ok(UNVERIFIED)
+        }),
+        value_rung(element, ctx),
+    ]
+}
+
+pub(crate) fn semantic_click_rungs<'a>(
+    element: &'a AXElement,
+    ctx: &ChainContext<'a>,
+) -> Vec<ChainRung<'a>> {
+    let deadline = ctx.deadline;
+    vec![
+        action("AXPress", element, deadline),
+        action("AXOpen", element, deadline),
+        custom(
+            "activate_descendant",
+            activate_descendant::activate_descendant,
+            element,
+            deadline,
+        ),
+        custom(
+            "select_within_container",
+            container_select::select_within_container,
+            element,
+            deadline,
+        ),
+        action("AXConfirm", element, deadline),
+    ]
+}
+
+pub(crate) fn focus_rungs<'a>(
+    element: &'a AXElement,
+    ctx: &ChainContext<'a>,
+) -> Vec<ChainRung<'a>> {
+    let deadline = ctx.deadline;
+    vec![semantic("AXFocused", move || {
+        prepare(element, deadline)?;
+        if !ax_helpers::is_attr_settable(element, "AXFocused", deadline)? {
+            return Ok(DeliveryOutcome::NotDelivered);
         }
+        chain_value_write::set_bool_verified(element, "AXFocused", true, deadline)
+    })]
+}
+
+pub(crate) fn scroll_to_rungs<'a>(
+    element: &'a AXElement,
+    ctx: &ChainContext<'a>,
+) -> Vec<ChainRung<'a>> {
+    vec![custom(
+        "scroll_to_visible_verified",
+        scroll_into_view::scroll_into_view_outcome,
+        element,
+        ctx.deadline,
+    )]
+}
+
+pub(crate) fn multi_click_rungs<'a>(
+    element: &'a AXElement,
+    ctx: &ChainContext<'a>,
+    count: u32,
+) -> Vec<ChainRung<'a>> {
+    let context = *ctx;
+    vec![physical(PHYSICAL_CLICK, POINTER_EFFECTS, move || {
+        physical_click(element, &context, MouseButton::Left, count)?;
+        Ok(UNVERIFIED)
+    })]
+}
+
+fn semantic<'a>(
+    label: &'static str,
+    run: impl FnMut() -> Result<DeliveryOutcome, AdapterError> + 'a,
+) -> ChainRung<'a> {
+    ChainRung {
+        label,
+        effects: &[],
+        mechanism: StepMechanism::SemanticApi,
+        run: Box::new(run),
     }
 }
 
-#[cfg(target_os = "macos")]
-pub(crate) use imp::{
-    CLEAR_CHAIN, COLLAPSE_CHAIN, EXPAND_CHAIN, FOCUS_CHAIN, RIGHT_CLICK_CHAIN, SCROLL_TO_CHAIN,
-    SEMANTIC_CLICK_CHAIN, SET_VALUE_CHAIN, click_chain, double_click, triple_click,
-};
+fn physical<'a>(
+    label: &'static str,
+    effects: &'static [Effect],
+    run: impl FnMut() -> Result<DeliveryOutcome, AdapterError> + 'a,
+) -> ChainRung<'a> {
+    ChainRung {
+        label,
+        effects,
+        mechanism: StepMechanism::PhysicalSynthetic,
+        run: Box::new(run),
+    }
+}
+
+fn custom<'a>(
+    label: &'static str,
+    run: ElementRun,
+    element: &'a AXElement,
+    deadline: Deadline,
+) -> ChainRung<'a> {
+    semantic(label, move || run(element, deadline))
+}
+
+fn action<'a>(label: &'static str, element: &'a AXElement, deadline: Deadline) -> ChainRung<'a> {
+    semantic(label, move || {
+        prepare(element, deadline)?;
+        ax_helpers::perform_observed_action(element, label, deadline)
+    })
+}
+
+fn value_rung<'a>(element: &'a AXElement, ctx: &ChainContext<'a>) -> ChainRung<'a> {
+    let value = ctx.dynamic_value;
+    let deadline = ctx.deadline;
+    semantic("AXValue", move || {
+        let Some(value) = value else {
+            return Ok(DeliveryOutcome::NotDelivered);
+        };
+        prepare(element, deadline)?;
+        if !ax_helpers::is_attr_settable(element, "AXValue", deadline)? {
+            return Ok(DeliveryOutcome::NotDelivered);
+        }
+        chain_value_write::set_dynamic_verified(element, "AXValue", value, deadline)
+    })
+}
+
+fn physical_click(
+    element: &AXElement,
+    ctx: &ChainContext<'_>,
+    button: MouseButton,
+    count: u32,
+) -> Result<(), AdapterError> {
+    crate::actions::physical_click::click_via_bounds(
+        element,
+        crate::actions::physical_click::PhysicalClick {
+            button,
+            count,
+            verified_point: ctx.verified_point.cloned(),
+        },
+        ctx.policy,
+        ctx.deadline,
+    )
+}
+
+fn select_all_then_delete() -> [KeyCombo; 2] {
+    [
+        KeyCombo {
+            key: "a".into(),
+            modifiers: vec![Modifier::Meta],
+        },
+        KeyCombo {
+            key: "delete".into(),
+            modifiers: vec![],
+        },
+    ]
+}
+
+fn prepare(element: &AXElement, deadline: Deadline) -> Result<(), AdapterError> {
+    crate::tree::properties::attributes::set_messaging_timeout(element, deadline)
+}
+
+#[cfg(test)]
+#[path = "chain_defs_tests.rs"]
+mod tests;

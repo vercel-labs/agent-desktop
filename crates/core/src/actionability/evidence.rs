@@ -13,7 +13,7 @@ impl ActionabilityEvidence {
         &self,
         request: &crate::ActionRequest,
         report: &super::report::ActionabilityReport,
-        requirement: Option<crate::HeadedRequirement>,
+        focus: Option<crate::HeadedFocus>,
     ) -> bool {
         !report.actionable
             && request.policy.is_headed()
@@ -31,6 +31,6 @@ impl ActionabilityEvidence {
                     || (check.terminal_code.is_none()
                         && matches!(check.check, "visible" | "stable"))
             })
-            && requirement == Some(crate::HeadedRequirement::FocusedApplicationAndCursor)
+            && focus == Some(crate::HeadedFocus::ApplicationAndCursor)
     }
 }

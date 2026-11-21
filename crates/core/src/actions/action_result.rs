@@ -74,8 +74,12 @@ impl ActionResult {
         self
     }
 
+    /// Adds `details`, merging two objects; a key in `details` wins.
     pub fn with_details(mut self, details: serde_json::Value) -> Self {
-        self.details = Some(details);
+        self.details = Some(crate::response::details::merged(
+            self.details.take(),
+            details,
+        ));
         self
     }
 

@@ -1,7 +1,5 @@
 #[cfg(any(target_os = "macos", test))]
-use crate::actions::chain::chain_delivery::DeliveryOutcome;
-#[cfg(any(target_os = "macos", test))]
-use agent_desktop_core::AdapterError;
+use agent_desktop_core::{AdapterError, DeliveryOutcome};
 
 #[cfg(any(target_os = "macos", test))]
 fn activate_candidates<T>(
@@ -15,7 +13,7 @@ fn activate_candidates<T>(
         }
         for action in crate::tree::properties::action_list::PRIMARY_ACTIVATION_ACTIONS {
             let outcome = perform(child, action)?;
-            if outcome.terminates_chain() {
+            if outcome != DeliveryOutcome::NotDelivered {
                 return Ok(outcome);
             }
         }
@@ -25,9 +23,8 @@ fn activate_candidates<T>(
 
 #[cfg(target_os = "macos")]
 mod imp {
-    use agent_desktop_core::{AdapterError, Deadline};
+    use agent_desktop_core::{AdapterError, Deadline, DeliveryOutcome};
 
-    use crate::actions::chain::chain_delivery::DeliveryOutcome;
     use crate::tree::AXElement;
 
     const MAX_CANDIDATES: usize = 4;
@@ -80,6 +77,7 @@ pub(crate) use imp::activate_descendant;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agent_desktop_core::DeliveryObservation;
 
     #[test]
     fn unverified_descendant_delivery_stops_before_another_action_or_sibling() {
@@ -92,12 +90,15 @@ mod tests {
                 Ok(if attempts.len() == 1 {
                     DeliveryOutcome::NotDelivered
                 } else {
-                    DeliveryOutcome::DeliveredUnverified
+                    DeliveryOutcome::Delivered(DeliveryObservation::Unverified)
                 })
             },
         )
         .unwrap();
-        assert_eq!(outcome, DeliveryOutcome::DeliveredUnverified);
+        assert_eq!(
+            outcome,
+            DeliveryOutcome::Delivered(DeliveryObservation::Unverified)
+        );
         assert_eq!(attempts, [(1, "AXPress".into()), (1, "AXOpen".into())]);
     }
 
@@ -109,11 +110,14 @@ mod tests {
             |child| *child == 1,
             |child, _| {
                 pressed.push(*child);
-                Ok(DeliveryOutcome::DeliveredVerified)
+                Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified))
             },
         )
         .unwrap();
-        assert_eq!(outcome, DeliveryOutcome::DeliveredVerified);
+        assert_eq!(
+            outcome,
+            DeliveryOutcome::Delivered(DeliveryObservation::Verified)
+        );
         assert_eq!(pressed, [2]);
     }
 
@@ -126,14 +130,17 @@ mod tests {
             |child, _| {
                 attempts += 1;
                 Ok(if *child == 2 {
-                    DeliveryOutcome::DeliveredVerified
+                    DeliveryOutcome::Delivered(DeliveryObservation::Verified)
                 } else {
                     DeliveryOutcome::NotDelivered
                 })
             },
         )
         .unwrap();
-        assert_eq!(outcome, DeliveryOutcome::DeliveredVerified);
+        assert_eq!(
+            outcome,
+            DeliveryOutcome::Delivered(DeliveryObservation::Verified)
+        );
         assert_eq!(attempts, 4);
     }
 }

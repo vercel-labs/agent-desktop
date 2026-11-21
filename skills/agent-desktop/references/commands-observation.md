@@ -57,7 +57,7 @@ A command re-identifies the element from the ref before it acts. On macOS, and o
 
 - `STALE_REF`, `details.kind: saved_ref_absent`: no live element matches the stored identity. Take a fresh snapshot. `retained_object_stale` means the recorded address is dead or no longer matches; `details.reason` says which check failed.
 - `AMBIGUOUS_TARGET`, `details.kind: saved_ref_ambiguous`: an identical element appeared, so two live elements match. `identity_not_unique`: the ref was not proven unique at capture, so nothing was searched. That is an identical twin, which every snapshot refuses again, or a window the snapshot could not read whole in time, which a new snapshot with a larger `--timeout-ms` fixes.
-- `TIMEOUT`, `details.kind: resolution_identity_unknown`: a live read did not answer, so identity is unproven. Nothing was sent; retry.
+- `TIMEOUT`, `details.kind: resolution_identity_unknown`: a live read did not answer, so identity is unproven. Nothing was sent; retry, with a larger `--timeout-ms` for a large window.
 
 On Windows, and on Linux for Qt and other toolkits, identical twins have no ref path: only `--headed mouse-click --xy X,Y` can choose one. It takes the foreground, and a Linux Wayland session refuses it.
 
@@ -83,7 +83,7 @@ agent-desktop find --app "App" --role button --count
 - `--text` also matches ancestors whose subtree text contains the text. Use `--name` to match the node itself.
 - `--role` is case-insensitive; `textarea`, `textbox` and `searchfield` fold to `textfield`. When a role filter matches nothing, `data.roles_present` lists the roles in the searched tree. Use it to tell a wrong role name from an empty screen.
 - Unnamed elements omit `name`. Their content is in `value`, so search it with `--value`.
-- A large tree, such as a file dialog, can pass the 5000 ms default `--timeout-ms`. Raise it or narrow the search. A timeout here does not mean the app hangs.
+- `TIMEOUT` with `details.kind: "locator_incomplete"` means the search could not prove its result, and does not mean the app hangs. Read `details.cause`. `deadline` (`retryable: true`): a large tree, such as a file dialog, passed the 5000 ms default `--timeout-ms`; raise it. `unreadable_elements` or `traversal_limit` (`retryable: false`): some reads failed or a fixed limit was hit, so more time does not help; narrow with `--role` or `--name`, or run `snapshot` for the readable part of the tree with `complete: false`.
 
 Every non-count response returns the `snapshot_id` that owns its refs:
 

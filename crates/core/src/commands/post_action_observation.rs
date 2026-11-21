@@ -55,24 +55,23 @@ pub(crate) fn observe(
             }
             latest = Probe::new("timed_out");
             Ok(match observed {
-                Ok(SelectorObservation::Selector { matches, complete }) if matches || complete => {
-                    latest.selector_matches = Some(matches);
-                    if matches != wait.gone {
-                        latest.outcome = "expected_state_observed";
-                        Some(latest.clone())
+                Ok(SelectorObservation::Selector {
+                    matches,
+                    incomplete,
+                }) => {
+                    if matches || incomplete.is_none() {
+                        latest.selector_matches = Some(matches);
+                        if matches != wait.gone {
+                            latest.outcome = "expected_state_observed";
+                            Some(latest.clone())
+                        } else {
+                            None
+                        }
                     } else {
+                        latest.last_error =
+                            incomplete.map(|error| error_value(&AppError::Adapter(error)));
                         None
                     }
-                }
-                Ok(SelectorObservation::Selector { .. }) => {
-                    latest.last_error = Some(error_value(
-                        &AdapterError::new(
-                            crate::ErrorCode::Timeout,
-                            "Selector observation was incomplete",
-                        )
-                        .into(),
-                    ));
-                    None
                 }
                 Ok(SelectorObservation::OwnerUnavailable(state)) => {
                     latest.process_state = Some(state);

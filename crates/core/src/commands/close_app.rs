@@ -28,6 +28,7 @@ pub fn execute(args: CloseAppArgs, adapter: &dyn PlatformAdapter) -> Result<Valu
         return Err(crate::foreground_denied(
             "A close request can make the app open a save prompt that takes the foreground, which the interaction policy does not allow",
             "may_prompt",
+            "close-app",
             args.policy,
         )
         .with_suggestion(MAY_PROMPT_SUGGESTION)

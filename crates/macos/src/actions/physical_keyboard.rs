@@ -1,4 +1,4 @@
-use agent_desktop_core::{AdapterError, Deadline, ErrorCode, InteractionPolicy, KeyCombo};
+use agent_desktop_core::{AdapterError, Deadline, Effect, ErrorCode, InteractionPolicy, KeyCombo};
 use std::time::Duration;
 
 use crate::tree::AXElement;
@@ -55,7 +55,12 @@ fn prepare_target(
     deadline: Deadline,
     delivery: &mut crate::actions::DeliveryTracker,
 ) -> Result<crate::system::process::process_identity::ProcessIdentity, AdapterError> {
-    crate::actions::background_effect::Effect::TakesKeyFocus.refuse_unless_permitted(policy)?;
+    crate::actions::background_effect::require(
+        policy,
+        Effect::FocusSteal,
+        "keyboard input",
+        "takes_key_focus",
+    )?;
     let pid = crate::system::app::app_ops::pid_from_element(element, deadline)
         .filter(|pid| *pid > 0)
         .ok_or_else(|| {

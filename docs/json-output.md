@@ -195,7 +195,7 @@ Every ref is re-identified from its stored entry or refused, and `details.kind` 
 | `identity_not_unique` | `AMBIGUOUS_TARGET` | The ref was not proven the only element matching its role and stable fields when it was captured, so nothing is searched. Either an identical twin existed, or the window could not be read whole within the snapshot timeout (retake the snapshot with a larger `--timeout-ms`). It is reached on Windows, on Linux for Qt and other toolkits, and on macOS when the element yields no address. A twin is refused by every snapshot; only an explicit coordinate click (`--headed mouse-click --xy`) can pick one, it takes the foreground, and it is unavailable on a Linux Wayland session. |
 | `element_token_required` | `STALE_REF` | The platform re-identifies this ref only through the element token captured with it, and the ref carries none it can read. Nothing is searched, so this does not say the element is gone. Take a fresh snapshot and use the new ref |
 
-The sixth outcome is `resolution_identity_unknown`, which carries `TIMEOUT`: a live field could not be read, so the identity count stayed unproven. It is retryable. Linux menu and tray refs report the same kind as `STALE_REF`.
+The sixth outcome is `resolution_identity_unknown`, which carries `TIMEOUT`: a live field could not be read, so the identity count stayed unproven. It is retryable. A large window can need more time than the budget allows, so retry the same command with a larger `--timeout-ms`. Linux menu and tray refs report the same kind as `STALE_REF`.
 
 After the core resolver chooses the element, the platform adapter lands it, and a landing failure keeps the adapter's own `details.kind` (for example `resolve_no_candidate` on Linux and Windows, or `resolution_complete_absence` on macOS). The platform skills list those kinds. `saved_ref_absent`, `saved_ref_ambiguous`, `identity_not_unique`, `retained_object_stale` and `element_token_required` carry `details.retryable: false`, because waiting cannot change the answer. Every one of these is `not_delivered`.
 
@@ -210,17 +210,29 @@ After the core resolver chooses the element, the platform adapter lands it, and 
 | `AMBIGUOUS_TARGET` | Ref recovery matched multiple plausible targets |
 | `SNAPSHOT_NOT_FOUND` | Snapshot ID is missing or expired |
 | `SANDBOX_NOT_FOUND` | No sandbox has that name; run `agent-desktop sandbox list` to see the sandboxes that exist |
-| `POLICY_DENIED` | The interaction policy does not permit an effect of the operation; nothing was sent. `details.effect` names it when one effect decided: `focus_steal`, `cursor_move` or `clipboard_write`. Rerun with `--headed` to permit them |
+| `POLICY_DENIED` | The interaction policy does not permit an effect of the operation; nothing was sent. `details.effect` names it when one effect decided: `focus_steal`, `cursor_move` or `clipboard_write`. A refusal of an effect on the user's foreground also carries `details.check: "foreground"` and `details.foreground_effect: true`. Before dispatch, `details.mechanisms` is the action name and `details.kind` is the reason: `shows_menu`, `opens_dialog`, `opens_popup` or `focus`. When a delivery route is held back, `details.mechanisms` names the withheld route labels. A ref action whose remaining routes all deliver nothing, while one was held back, is `POLICY_DENIED`, not `ACTION_FAILED`, on every platform. Rerun with `--headed` to permit them |
 | `ACTION_FAILED` | Action rejected, or its observed result contradicted the request |
 | `ACTION_NOT_SUPPORTED` | The target does not expose the requested action |
 | `APP_UNRESPONSIVE` | The matching application stopped responding |
 | `PLATFORM_NOT_SUPPORTED` | Adapter method not implemented on this platform |
-| `TIMEOUT` | Wait condition expired, or a live identity read stayed incomplete until the deadline |
+| `TIMEOUT` | Wait condition expired, or a live identity read stayed incomplete until the deadline. A locator that could not prove its result carries `details.kind: "locator_incomplete"`; see below |
 | `INVALID_ARGS` | Invalid argument values |
 | `WINDOW_NOT_FOUND` | The requested window does not exist, including a `screenshot --window-id` that matches no window; the disposition is `not_delivered` |
 | `NOTIFICATION_NOT_FOUND` | The notification ID was not found |
 | `INTERNAL` | Unexpected error or caught panic |
 
+### Locator incomplete
+
+`find` and the other locator commands return `TIMEOUT` with `details.kind: "locator_incomplete"` when the search could not prove its result. `details.cause` says why:
+
+| `details.cause` | Meaning | `details.retryable` |
+|------|---------|------|
+| `deadline` | The search ran out of time. Retry with a larger `--timeout-ms`. | `true` |
+| `unreadable_elements` | The search finished in time, but some native reads failed, so part of the tree is unknown. More time does not help. | `false` |
+| `traversal_limit` | A fixed traversal limit (node, edge, child, text or depth) was hit. More time does not help. | `false` |
+
+For the last two, narrow the query with `--role` or `--name`, or run `snapshot`, which returns the readable part of the tree with `complete: false`. `details.observed_matches` and `details.query_stats` carry the evidence. The disposition is `not_delivered`.
+
 ## Exit codes
 
-`0` success, `1` structured error (JSON on stdout), `2` command-line parse error (the envelope is still printed, with `INVALID_ARGS`).
+`0` success, `1` structured error (JSON on stdout), `2` command-line parse error (the envelope is still printed, with `INVALID_ARGS`). A parse error's `error.suggestion` carries clap's `tip:` lines and the command's `Usage:` line when clap printed them, then, when the command is known, a pointer to `agent-desktop <command> --help`.

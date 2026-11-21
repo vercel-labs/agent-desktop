@@ -104,13 +104,13 @@ mod imp {
         };
         agent_desktop_core::execute_chain(
             &mut offered([
-                rung(LEGACY_LABEL, flips, false, &mut legacy),
                 rung(
                     label,
                     pattern_ok && current != Some(ExpandKind::LeafNode),
                     true,
                     &mut pattern,
                 ),
+                rung(LEGACY_LABEL, flips, false, &mut legacy),
             ]),
             policy,
             deadline,

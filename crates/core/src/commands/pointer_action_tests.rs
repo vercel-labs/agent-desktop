@@ -91,7 +91,7 @@ fn point_args(snapshot_id: &str) -> crate::commands::point_resolve::PointResolve
         ref_id: Some(Box::leak(format!("@{snapshot_id}:e1").into_boxed_str())),
         xy: None,
         missing_input_message: "target required",
-        headed_requirement: crate::HeadedRequirement::None,
+        focuses_window: false,
     }
 }
 
@@ -256,6 +256,7 @@ impl ActionOps for ZeroSizeUnscrollableAdapter {
     fn scroll_into_view(
         &self,
         _handle: &NativeHandle,
+        _policy: crate::InteractionPolicy,
         _lease: &crate::InteractionLease,
     ) -> Result<(), AdapterError> {
         self.scrolls.fetch_add(1, Ordering::SeqCst);

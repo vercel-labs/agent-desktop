@@ -24,7 +24,11 @@ fn identity_unknown_error_pins_the_shared_payload() {
     );
     assert_eq!(
         error.suggestion.as_deref(),
-        Some("Retry after the target application finishes updating its accessibility tree")
+        Some(
+            "Retry after the target application finishes updating its accessibility tree. \
+             A large window can need more time than the budget allows, so retry the \
+             same command with a larger --timeout-ms."
+        )
     );
     assert_eq!(
         error.details,
@@ -37,6 +41,15 @@ fn identity_unknown_error_pins_the_shared_payload() {
     );
     assert!(error.is_explicitly_retryable());
     assert!(error.permits_retry_by_default());
+}
+
+#[test]
+fn identity_unknown_error_suggestion_names_the_larger_budget_flag() {
+    let entry = entry_with_role("button");
+    let error = identity_unknown_error(&entry);
+
+    let suggestion = error.suggestion.expect("a suggestion");
+    assert!(suggestion.contains("--timeout-ms"), "{suggestion}");
 }
 
 #[test]

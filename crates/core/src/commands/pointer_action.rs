@@ -75,7 +75,7 @@ fn resolve_point_from_entry(
             .with_details(details)
             .into());
         };
-        adapter.scroll_into_view(&handle, lease)?;
+        adapter.scroll_into_view(&handle, context.physical_input_policy(), lease)?;
         handle = resolve_saved_ref(adapter, entry, deadline, Some(lease))?;
         let observation = adapter.observe_pointer(&handle, deadline)?;
         bounds = observation.bounds;
@@ -237,7 +237,7 @@ pub(crate) fn focus_point_under_lease(
     adapter: &dyn PlatformAdapter,
     context: &CommandContext,
 ) -> Result<bool, AppError> {
-    if !args.headed_requirement.requires_focus() {
+    if !args.focuses_window {
         return Ok(false);
     }
     let Some(ref_id) = args.ref_id else {
@@ -312,7 +312,7 @@ fn scroll_point_target(
     let lease = adapter.acquire_interaction_lease(deadline)?;
     focus_point_under_lease(args, &lease, adapter, context)?;
     let handle = resolve_saved_ref(adapter, entry, deadline, Some(&lease))?;
-    adapter.scroll_into_view(&handle, &lease)?;
+    adapter.scroll_into_view(&handle, context.physical_input_policy(), &lease)?;
     Ok(())
 }
 

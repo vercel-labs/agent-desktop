@@ -1,16 +1,16 @@
 use super::*;
-use crate::{Action, ActionOps, HeadedRequirement, InputOps, ObservationOps, SystemOps};
+use crate::{Action, ActionOps, HeadedFocus, InputOps, ObservationOps, SystemOps};
 
-struct GeometryAdapter(HeadedRequirement);
+struct GeometryAdapter(HeadedFocus);
 
 impl ActionOps for GeometryAdapter {
-    fn headed_requirement(
+    fn headed_focus(
         &self,
         _: &NativeHandle,
         _: &ActionRequest,
         _: crate::Deadline,
-    ) -> Result<HeadedRequirement, AdapterError> {
-        Ok(self.0)
+    ) -> Result<Option<HeadedFocus>, AdapterError> {
+        Ok(Some(self.0))
     }
 }
 impl ObservationOps for GeometryAdapter {}
@@ -37,7 +37,7 @@ fn evidence() -> ActionabilityEvidence {
 fn check_gap(
     evidence: &ActionabilityEvidence,
     timeout: u64,
-    requirement: HeadedRequirement,
+    requirement: HeadedFocus,
 ) -> Result<ActionabilityReport, AdapterError> {
     let adapter = GeometryAdapter(requirement);
     check_with_stability_or_gap(
@@ -62,21 +62,16 @@ fn only_positive_timeout_application_pointers_preserve_a_geometry_gap() {
         }),
     ] {
         evidence.bounds = bounds;
-        let report = check_gap(
-            &evidence,
-            500,
-            HeadedRequirement::FocusedApplicationAndCursor,
-        )
-        .unwrap();
+        let report = check_gap(&evidence, 500, HeadedFocus::ApplicationAndCursor).unwrap();
         assert!(!report.actionable);
         assert!(report.verified_point.is_none());
         assert_eq!(
             report.pointer_delivery,
             super::super::PointerDelivery::Physical
         );
-        assert!(check_gap(&evidence, 0, HeadedRequirement::FocusedApplicationAndCursor).is_err());
-        assert!(check_gap(&evidence, 500, HeadedRequirement::FocusedWindowAndCursor).is_err());
-        let adapter = GeometryAdapter(HeadedRequirement::FocusedApplicationAndCursor);
+        assert!(check_gap(&evidence, 0, HeadedFocus::ApplicationAndCursor).is_err());
+        assert!(check_gap(&evidence, 500, HeadedFocus::WindowAndCursor).is_err());
+        let adapter = GeometryAdapter(HeadedFocus::ApplicationAndCursor);
         assert!(
             check_with_stability(
                 StabilityExpectation::permissive(None),
@@ -105,12 +100,7 @@ fn geometry_gap_never_masks_hidden_disabled_or_incomplete_state() {
                 .push(crate::tree::state::OFFSCREEN.into()),
         }
         assert!(
-            check_gap(
-                &evidence,
-                500,
-                HeadedRequirement::FocusedApplicationAndCursor
-            )
-            .is_err(),
+            check_gap(&evidence, 500, HeadedFocus::ApplicationAndCursor).is_err(),
             "variant {variant}"
         );
     }
@@ -118,7 +108,7 @@ fn geometry_gap_never_masks_hidden_disabled_or_incomplete_state() {
 
 #[test]
 fn geometry_gap_preserves_permanent_action_and_policy_refusals() {
-    let adapter = GeometryAdapter(HeadedRequirement::FocusedApplicationAndCursor);
+    let adapter = GeometryAdapter(HeadedFocus::ApplicationAndCursor);
     for (request, code) in [
         (
             ActionRequest::headed(Action::SetValue("text".into())),

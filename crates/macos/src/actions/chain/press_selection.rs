@@ -1,51 +1,58 @@
-use crate::actions::chain::chain_delivery::DeliveryOutcome;
+use agent_desktop_core::{AdapterError, DeliveryObservation, DeliveryOutcome};
+
+use crate::actions::DeliveryTracker;
 
 /// `AXPress` on a row or a cell means "select me", and a grid that is not the
 /// key view accepts it, answers `kAXErrorSuccess`, and selects nothing. The
 /// responder is not lying about reaching the application, only about what
 /// happened there, so reading the selection back is what tells the two apart.
-/// A selection that is still false is evidence of a delivery with no effect,
-/// which is the one result that lets the chain go on to write the container's
-/// selection instead of reporting a success the caller cannot see. An element
-/// that publishes no selection at all is unchanged: absence of evidence stops
-/// the chain exactly as it does today.
-fn outcome_from_selection(pressed: DeliveryOutcome, selected: Option<bool>) -> DeliveryOutcome {
-    if pressed != DeliveryOutcome::DeliveredUnverified {
-        return pressed;
+/// A selection that is still false is evidence that the press changed nothing,
+/// so the container's selection is written inside the same rung instead of
+/// reporting a success the caller cannot see. The press stays on record when
+/// that write sends nothing or cannot be verified. An element that publishes
+/// no selection at all is unchanged: absence of evidence ends the chain with
+/// the unverified press.
+pub(crate) fn press_then_select(
+    press: impl FnOnce() -> Result<DeliveryOutcome, AdapterError>,
+    read_selection: impl FnOnce() -> Option<bool>,
+    select_within_container: impl FnOnce() -> Result<DeliveryOutcome, AdapterError>,
+) -> Result<DeliveryOutcome, AdapterError> {
+    let pressed = press()?;
+    if pressed != DeliveryOutcome::Delivered(DeliveryObservation::Unverified) {
+        return Ok(pressed);
     }
-    match selected {
-        Some(true) => DeliveryOutcome::DeliveredVerified,
-        Some(false) => DeliveryOutcome::DeliveredWithoutEffect,
-        None => pressed,
+    match read_selection() {
+        Some(true) => Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified)),
+        None => Ok(pressed),
+        Some(false) => match select_within_container()
+            .map_err(|error| DeliveryTracker::from_delivered_units(1).annotate(error))?
+        {
+            selected @ DeliveryOutcome::Delivered(DeliveryObservation::Verified) => Ok(selected),
+            _ => Ok(pressed),
+        },
     }
 }
 
 #[cfg(target_os = "macos")]
 mod imp {
-    use agent_desktop_core::{AdapterError, Deadline};
+    use agent_desktop_core::{AdapterError, Deadline, DeliveryOutcome};
 
-    use super::outcome_from_selection;
-    use crate::actions::chain::chain_delivery::DeliveryOutcome;
     use crate::tree::AXElement;
 
-    pub(crate) fn press_or_report_no_effect(
+    pub(crate) fn press_or_select_container(
         element: &AXElement,
         deadline: Deadline,
     ) -> Result<DeliveryOutcome, AdapterError> {
-        let pressed =
-            crate::actions::ax_helpers::perform_observed_action(element, "AXPress", deadline)?;
-        if pressed != DeliveryOutcome::DeliveredUnverified {
-            return Ok(pressed);
-        }
-        Ok(outcome_from_selection(
-            pressed,
-            selection_after_press(element, deadline),
-        ))
+        super::press_then_select(
+            || crate::actions::ax_helpers::perform_observed_action(element, "AXPress", deadline),
+            || selection_after_press(element, deadline),
+            || crate::actions::select::container_select::select_within_container(element, deadline),
+        )
     }
 
     /// A selection appears a moment after the press that caused it. Reading it
-    /// once calls a press that worked an effectless one, and the chain then
-    /// writes a selection that was already on its way. The wait is the same
+    /// once calls a press that worked an effectless one, and the container
+    /// then gets a selection that was already on its way. The wait is the same
     /// bounded one the container write uses, and it ends the instant the
     /// selection turns on.
     fn selection_after_press(element: &AXElement, deadline: Deadline) -> Option<bool> {
@@ -72,46 +79,9 @@ mod imp {
     }
 }
 
-pub(crate) use imp::press_or_report_no_effect;
+#[cfg(target_os = "macos")]
+pub(crate) use imp::press_or_select_container;
 
 #[cfg(test)]
-mod tests {
-    use super::{DeliveryOutcome, outcome_from_selection};
-
-    #[test]
-    fn a_press_that_left_the_selection_false_is_a_delivery_without_effect() {
-        assert_eq!(
-            outcome_from_selection(DeliveryOutcome::DeliveredUnverified, Some(false)),
-            DeliveryOutcome::DeliveredWithoutEffect
-        );
-    }
-
-    #[test]
-    fn a_press_that_selected_the_target_is_verified_rather_than_merely_delivered() {
-        assert_eq!(
-            outcome_from_selection(DeliveryOutcome::DeliveredUnverified, Some(true)),
-            DeliveryOutcome::DeliveredVerified
-        );
-    }
-
-    #[test]
-    fn an_element_without_a_selection_keeps_todays_unverified_delivery() {
-        assert_eq!(
-            outcome_from_selection(DeliveryOutcome::DeliveredUnverified, None),
-            DeliveryOutcome::DeliveredUnverified
-        );
-    }
-
-    #[test]
-    fn a_selection_read_never_upgrades_or_downgrades_a_settled_outcome() {
-        for pressed in [
-            DeliveryOutcome::NotDelivered,
-            DeliveryOutcome::SatisfiedNoDelivery,
-            DeliveryOutcome::DeliveredVerified,
-        ] {
-            for selected in [Some(true), Some(false), None] {
-                assert_eq!(outcome_from_selection(pressed, selected), pressed);
-            }
-        }
-    }
-}
+#[path = "press_selection_tests.rs"]
+mod tests;

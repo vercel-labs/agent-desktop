@@ -5,8 +5,8 @@ use crate::{
     context::CommandContext,
     locator::live_locator::{
         LocatorMaterialization, LocatorResolution, LocatorResolveRequest, LocatorSelection,
-        ObservationRequest, ObservationRoot, ObservedObservation, resolve_query,
-        selects_tokenless_entry,
+        ObservationRequest, ObservationRoot, ObservedObservation, incomplete_locator_error,
+        resolve_query, selects_tokenless_entry,
     },
     refs::RefMap,
     refs::ref_root_read::{RootRead, read_saved_root},
@@ -59,7 +59,9 @@ pub(super) fn execute(
             .1
         }
     };
-    require_complete(&resolution)?;
+    if !resolution.meta.selection_complete {
+        return Err(incomplete_locator_error(&resolution).into());
+    }
     let ref_count = resolution.refmap.as_ref().map(RefMap::len);
     let snapshot_id = match resolution.refmap.take() {
         Some(refmap) => Some(persist_refmap(context, &refmap)?),
@@ -153,22 +155,6 @@ fn resolve_request(args: &FindArgs, deadline: crate::Deadline) -> LocatorResolve
             LocatorMaterialization::SelectedMatches
         },
     }
-}
-
-fn require_complete(resolution: &LocatorResolution) -> Result<(), AppError> {
-    if resolution.meta.selection_complete {
-        return Ok(());
-    }
-    Err(
-        AdapterError::timeout("Locator traversal did not produce an authoritative result")
-            .with_details(json!({
-                "kind": "locator_incomplete",
-                "observed_matches": resolution.meta.total_matches,
-                "query_stats": resolution.stats,
-                "roles_present": resolution.meta.roles_present,
-            }))
-            .into(),
-    )
 }
 
 fn persist_refmap(context: &CommandContext, refmap: &RefMap) -> Result<String, AppError> {

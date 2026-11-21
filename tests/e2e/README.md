@@ -127,7 +127,7 @@ python3 -m unittest discover -s tests/e2e -p 'test_*.py'
 | AE2 | CLI and native release-FFI consumers wait for a button enabled after 800 ms, dispatch exactly once, and perform one immediate check under timeout zero without a late effect. |
 | AE3 | A permanently disabled button with `--timeout-ms 2000` returns `TIMEOUT`, `details.kind=actionability_timeout`, and `details.last_report` near 2 s. |
 | AE4 | Two windows with the same title receive distinct ids; focusing the second id focuses that exact window. |
-| AE5 | Deterministic tests prove prompt isolation and nonprompting Automation probes; when the runner already has denied Automation TCC, a native headed Notification Center operation must return `PERM_DENIED`. Other TCC states are explicitly logged as unavailable rather than claimed as exercised. |
+| AE5 | Deterministic tests prove prompt isolation and nonprompting Automation probes. |
 | AE6 | One batch captures a pre-action baseline, clicks open a sheet, and reports `surface_appeared` without naming the surface title. |
 | AE7 | The same disabled action with no timeout flag returns the structured timeout near the untouched 5 s default. |
 

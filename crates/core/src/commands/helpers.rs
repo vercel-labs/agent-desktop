@@ -83,7 +83,7 @@ pub(crate) fn execute_ref_action_landing(
 ) -> Result<(Value, crate::adapter::NativeHandle), AppError> {
     let request = request.with_timeout_ms(args.timeout_ms);
     validate_post_action_wait(context)?;
-    if request.policy.is_headed() && request.action.headed_requirement().requires_cursor() {
+    if request.policy.is_headed() && request.action.headed_focus().uses_cursor() {
         super::point_resolve::require_pointer_capability(adapter)?;
     }
     let entry = load_ref_entry(&args.ref_id, context)?;

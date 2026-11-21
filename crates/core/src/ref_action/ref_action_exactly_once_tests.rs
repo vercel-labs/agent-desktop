@@ -133,6 +133,7 @@ impl ActionOps for DispatchGuardAdapter {
     fn scroll_into_view(
         &self,
         _handle: &NativeHandle,
+        _policy: crate::InteractionPolicy,
         _lease: &crate::InteractionLease,
     ) -> Result<(), AdapterError> {
         self.scroll_calls.fetch_add(1, Ordering::SeqCst);

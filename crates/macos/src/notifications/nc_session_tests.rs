@@ -1,7 +1,39 @@
 use super::{
-    NcSession, NcSessionOps, closed_center_policy_error, merge_session_result, nc_pid_from_output,
+    CLOCK_STATUS_ITEM_IDENTIFIER, NcSession, NcSessionOps, clock_status_item_index,
+    closed_center_policy_error, merge_session_result, nc_pid_from_output,
 };
 use agent_desktop_core::{AdapterError, Deadline, ErrorCode, ProcessIdentity};
+
+#[test]
+fn clock_status_item_index_finds_the_clock_identifier_among_other_items() {
+    let identifiers = vec![
+        Some("com.apple.menuextra.battery".to_string()),
+        None,
+        Some(CLOCK_STATUS_ITEM_IDENTIFIER.to_string()),
+        Some("com.apple.menuextra.wifi".to_string()),
+    ];
+
+    assert_eq!(clock_status_item_index(&identifiers), Some(2));
+}
+
+#[test]
+fn clock_status_item_index_returns_none_when_the_clock_item_is_absent() {
+    let identifiers = vec![
+        Some("com.apple.menuextra.battery".to_string()),
+        None,
+        Some(String::new()),
+    ];
+
+    assert_eq!(clock_status_item_index(&identifiers), None);
+    assert_eq!(clock_status_item_index(&[]), None);
+}
+
+#[test]
+fn clock_status_item_index_never_matches_a_description() {
+    let identifiers = vec![Some("Clock".to_string())];
+
+    assert_eq!(clock_status_item_index(&identifiers), None);
+}
 
 #[test]
 fn nc_pid_preserves_probe_errors() {

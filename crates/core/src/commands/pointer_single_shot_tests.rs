@@ -104,6 +104,7 @@ impl ActionOps for SingleShotScrollAdapter {
     fn scroll_into_view(
         &self,
         handle: &NativeHandle,
+        _policy: crate::InteractionPolicy,
         _lease: &InteractionLease,
     ) -> Result<(), AdapterError> {
         assert_eq!(*handle.downcast_ref::<u32>().unwrap(), 1);

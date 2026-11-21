@@ -68,7 +68,7 @@ fn should_fallback_after_value_verification(
     error: &AdapterError,
     policy: InteractionPolicy,
 ) -> bool {
-    crate::actions::background_effect::Effect::ShowsMenu.permitted(policy)
+    policy.allow_focus_steal
         && error.code == ErrorCode::ActionFailed
         && error
             .details

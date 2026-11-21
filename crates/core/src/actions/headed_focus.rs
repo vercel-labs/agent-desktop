@@ -1,6 +1,29 @@
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{AdapterError, AppError, ErrorCode, PlatformAdapter, ProcessIdentity, WindowInfo};
+
+/// What a headed action focuses before it is delivered, and whether it moves
+/// the pointer. It never decides whether the action may run: the interaction
+/// policy decides that from the effects the platform declares.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HeadedFocus {
+    Application,
+    ApplicationAndCursor,
+    Window,
+    WindowAndCursor,
+}
+
+impl HeadedFocus {
+    pub fn uses_cursor(self) -> bool {
+        matches!(self, Self::ApplicationAndCursor | Self::WindowAndCursor)
+    }
+
+    pub fn focuses_application(self) -> bool {
+        matches!(self, Self::Application | Self::ApplicationAndCursor)
+    }
+}
 
 /// Focuses the window a ref came from and returns whether it did. A ref
 /// captured through a process owner has no window to raise, so it returns

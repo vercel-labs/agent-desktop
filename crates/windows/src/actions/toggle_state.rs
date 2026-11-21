@@ -96,10 +96,7 @@ pub(crate) fn drive_toggle(
         })
         .map_err(after_delivery)?;
         if !moved {
-            return Ok(DeliveryOutcome::Delivered(match now {
-                Some(_) => agent_desktop_core::DeliveryObservation::NoEffect,
-                None => agent_desktop_core::DeliveryObservation::Unread,
-            }));
+            return Ok(DeliveryOutcome::observed(now.map(|_| false)));
         }
         if goal == ToggleGoal::Flip || goal.satisfied_by(now) {
             return Ok(DeliveryOutcome::Delivered(
@@ -153,13 +150,13 @@ mod imp {
             || drive_toggle(goal, deadline, &mut read, &mut || pattern_toggle(element));
         agent_desktop_core::execute_chain(
             &mut offered([
+                rung(TOGGLE_LABEL, toggle_ok, true, &mut pattern),
                 rung(
                     LEGACY_LABEL,
                     toggle_ok && legacy_default_action_available(element),
                     false,
                     &mut legacy,
                 ),
-                rung(TOGGLE_LABEL, toggle_ok, true, &mut pattern),
             ]),
             policy,
             deadline,

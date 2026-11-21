@@ -1,8 +1,7 @@
 #[cfg(target_os = "macos")]
 mod imp {
-    use crate::actions::chain::chain_delivery::DeliveryOutcome;
     use crate::tree::AXElement;
-    use agent_desktop_core::{AdapterError, Deadline};
+    use agent_desktop_core::{AdapterError, Deadline, DeliveryObservation, DeliveryOutcome};
     use std::time::{Duration, Instant};
 
     pub(crate) fn press_to_expand(
@@ -27,7 +26,7 @@ mod imp {
         let (satisfied, allow_toggle) =
             disclosure_plan(disclosed_state(element, deadline)?, expanded);
         if satisfied {
-            return Ok(DeliveryOutcome::SatisfiedNoDelivery);
+            return Ok(DeliveryOutcome::Satisfied);
         }
         let action = if expanded { "AXExpand" } else { "AXCollapse" };
         prepare(element, deadline)?;
@@ -137,7 +136,9 @@ mod imp {
             Err(failure) => return Err(failure),
         };
         match verify() {
-            Ok(DeliveryOutcome::DeliveredVerified) => Ok(DeliveryOutcome::DeliveredVerified),
+            Ok(verified @ DeliveryOutcome::Delivered(DeliveryObservation::Verified)) => {
+                Ok(verified)
+            }
             outcome if signal == PerformSignal::ReportedDelivered => {
                 outcome.map_err(after_delivery)
             }
@@ -146,7 +147,7 @@ mod imp {
     }
 
     fn stop_if_delivered(outcome: DeliveryOutcome) -> Option<DeliveryOutcome> {
-        outcome.was_delivered().then_some(outcome)
+        matches!(outcome, DeliveryOutcome::Delivered(_)).then_some(outcome)
     }
 
     fn disclosure_plan(current: Option<bool>, desired: bool) -> (bool, bool) {
@@ -163,7 +164,7 @@ mod imp {
             let current_state = disclosed_state(element, deadline)?;
             match current_state {
                 Some(current) if current == expanded => {
-                    return Ok(DeliveryOutcome::DeliveredVerified);
+                    return Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified));
                 }
                 _ => {}
             }
@@ -192,7 +193,7 @@ mod imp {
             .with_disposition(agent_desktop_core::DeliverySemantics::delivered_unverified())
             .with_suggestion("Inspect the expanded state before deciding whether to retry."))
         } else {
-            Ok(DeliveryOutcome::DeliveredUnverified)
+            Ok(DeliveryOutcome::Delivered(DeliveryObservation::Unverified))
         }
     }
 
@@ -235,18 +236,18 @@ mod imp {
     #[cfg(test)]
     mod tests {
         use super::{
-            DeliveryOutcome, disclosure_plan, stop_if_delivered, triangle_outcome,
-            unobserved_delivery,
+            DeliveryObservation, DeliveryOutcome, disclosure_plan, stop_if_delivered,
+            triangle_outcome, unobserved_delivery,
         };
         use crate::actions::ax_mutation::PerformSignal;
 
         #[test]
         fn a_row_expanded_through_its_triangle_is_verified_by_the_row_whatever_the_code() {
-            let verified = || Ok(DeliveryOutcome::DeliveredVerified);
-            let unchanged = || Ok(DeliveryOutcome::DeliveredUnverified);
+            let verified = || Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified));
+            let unchanged = || Ok(DeliveryOutcome::Delivered(DeliveryObservation::Unverified));
             assert_eq!(
                 triangle_outcome(Ok(PerformSignal::Uninformative), verified, -25205).unwrap(),
-                DeliveryOutcome::DeliveredVerified
+                DeliveryOutcome::Delivered(DeliveryObservation::Verified)
             );
             assert_eq!(
                 triangle_outcome(Ok(PerformSignal::ReportedUnsupported), verified, -25206).unwrap(),
@@ -280,25 +281,25 @@ mod imp {
             );
             assert_eq!(
                 unobserved_delivery(None, true).expect("unreadable state after delivery"),
-                DeliveryOutcome::DeliveredUnverified
+                DeliveryOutcome::Delivered(DeliveryObservation::Unverified)
             );
             assert_eq!(
                 stop_if_delivered(
                     unobserved_delivery(None, true).expect("unreadable state after delivery")
                 ),
-                Some(DeliveryOutcome::DeliveredUnverified)
+                Some(DeliveryOutcome::Delivered(DeliveryObservation::Unverified))
             );
         }
 
         #[test]
         fn delivered_outcomes_halt_further_mutation_strategies() {
             assert_eq!(
-                stop_if_delivered(DeliveryOutcome::DeliveredUnverified),
-                Some(DeliveryOutcome::DeliveredUnverified)
+                stop_if_delivered(DeliveryOutcome::Delivered(DeliveryObservation::Unverified)),
+                Some(DeliveryOutcome::Delivered(DeliveryObservation::Unverified))
             );
             assert_eq!(
-                stop_if_delivered(DeliveryOutcome::DeliveredVerified),
-                Some(DeliveryOutcome::DeliveredVerified)
+                stop_if_delivered(DeliveryOutcome::Delivered(DeliveryObservation::Verified)),
+                Some(DeliveryOutcome::Delivered(DeliveryObservation::Verified))
             );
             assert_eq!(stop_if_delivered(DeliveryOutcome::NotDelivered), None);
         }

@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use agent_desktop_core::{
     AdapterError, ChainRung, DeliveryObservation, DeliveryOutcome, DeliverySemantics, ErrorCode,
-    InteractionPolicy,
+    InteractionPolicy, StepMechanism,
 };
 
 use super::mutation::{WriteReply, with_value_chars};
@@ -135,11 +135,13 @@ pub(crate) fn replace_rungs<'a>(
         ChainRung {
             label: REPLACE_LABEL,
             effects: &[],
+            mechanism: StepMechanism::SemanticApi,
             run: Box::new(set),
         },
         ChainRung {
             label: REWRITE_LABEL,
             effects: &[],
+            mechanism: StepMechanism::SemanticApi,
             run: Box::new(rewrite),
         },
     ]
@@ -207,6 +209,7 @@ pub(crate) fn insert_rungs<'a>(
     vec![ChainRung {
         label: INSERT_LABEL,
         effects: &[],
+        mechanism: StepMechanism::SemanticApi,
         run: Box::new(move || insert_at_caret(port, text, secure)),
     }]
 }

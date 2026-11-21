@@ -38,12 +38,16 @@ impl AdapterError {
         self
     }
 
+    /// Adds `details`, merging two objects; a key in `details` wins.
     pub fn with_details(mut self, details: Value) -> Self {
         let retryability = crate::response::retryability::Retryability::from_details(&details);
         if retryability != crate::response::retryability::Retryability::Unspecified {
             self.retryability = retryability;
         }
-        self.details = Some(details);
+        self.details = Some(crate::response::details::merged(
+            self.details.take(),
+            details,
+        ));
         self
     }
 
@@ -134,9 +138,7 @@ impl AdapterError {
 
     /// As [`Self::ambiguous_process_target`], but for a caller that already
     /// has a richer details object of its own (candidate summaries, a
-    /// truncation flag) - built directly rather than through the plain
-    /// constructor's own details, which `with_details` would otherwise
-    /// discard wholesale in favor of this one.
+    /// truncation flag), which becomes the whole details.
     pub fn ambiguous_process_target_with_details(
         message: impl Into<String>,
         pids: &[crate::ProcessId],

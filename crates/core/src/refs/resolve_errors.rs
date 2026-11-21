@@ -13,7 +13,11 @@ pub fn identity_unknown_error(entry: &RefEntry) -> AdapterError {
         ErrorCode::Timeout,
         "Strict resolution could not determine candidate identity from the live accessibility evidence",
     )
-    .with_suggestion("Retry after the target application finishes updating its accessibility tree")
+    .with_suggestion(
+        "Retry after the target application finishes updating its accessibility tree. \
+         A large window can need more time than the budget allows, so retry the \
+         same command with a larger --timeout-ms.",
+    )
     .with_disposition(crate::DeliverySemantics::not_delivered())
     .with_details(json!({
         "kind": "resolution_identity_unknown",

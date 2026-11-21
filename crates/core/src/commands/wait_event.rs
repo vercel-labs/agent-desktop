@@ -60,7 +60,9 @@ pub(crate) fn wait_for_event(
             validate_signal_scope(&filter, &baseline)?;
             (Some(baseline), None)
         }
-        Some(Err(error)) if is_retryable(&error) => (None, Some(error_evidence(&error))),
+        Some(Err(error)) if error.is_retryable_poll_failure() => {
+            (None, Some(error_evidence(&error)))
+        }
         Some(Err(error)) => return Err(AppError::Adapter(error)),
         None => (None, None),
     };
@@ -125,7 +127,7 @@ pub(crate) fn wait_for_event(
                     }
                 }
             }
-            Err(err) if is_retryable(&err) => {
+            Err(err) if err.is_retryable_poll_failure() => {
                 last_error = Some(error_evidence(&err));
             }
             Err(err) => return Err(AppError::Adapter(err)),
@@ -233,16 +235,6 @@ fn find_match<'a>(
         }
         true
     })
-}
-
-/// Whether a capture error is worth polling past: the transient codes, minus
-/// the ones that say they settle. An `APP_UNRESPONSIVE` that names a stopped
-/// scoped target carries `retryable: false` and ends the wait at once.
-fn is_retryable(error: &AdapterError) -> bool {
-    matches!(
-        error.code,
-        ErrorCode::Timeout | ErrorCode::ElementNotFound | ErrorCode::AppUnresponsive
-    ) && error.permits_retry_by_default()
 }
 
 fn error_evidence(error: &AdapterError) -> Value {

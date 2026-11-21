@@ -8,7 +8,7 @@ pub(crate) struct PointResolveArgs<'a> {
     pub ref_id: Option<&'a str>,
     pub xy: Option<(f64, f64)>,
     pub missing_input_message: &'a str,
-    pub headed_requirement: crate::HeadedRequirement,
+    pub focuses_window: bool,
 }
 
 pub(crate) struct ResolvedPoint {

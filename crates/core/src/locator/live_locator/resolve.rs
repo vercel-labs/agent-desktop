@@ -69,7 +69,7 @@ pub(crate) fn resolve_query_from(
                     continue;
                 }
                 if !resolution.meta.selection_complete && requires_authoritative_result(request) {
-                    return Err(unknown_incomplete_error(&resolution).into());
+                    return Err(super::incomplete_locator_error(&resolution).into());
                 }
                 aggregate.merge_attempt(&resolution.stats);
                 aggregate.elapsed_us =
@@ -103,18 +103,6 @@ fn requires_authoritative_result(request: &LocatorResolveRequest) -> bool {
             request.selection,
             super::LocatorSelection::All { .. } | super::LocatorSelection::Count
         )
-}
-
-fn unknown_incomplete_error(resolution: &LocatorResolution) -> AdapterError {
-    AdapterError::timeout("Locator traversal returned incomplete evidence")
-        .with_suggestion("Retry with a narrower locator or a larger observation budget")
-        .with_details(json!({
-            "kind": "locator_incomplete",
-            "retryable": false,
-            "observed_matches": resolution.meta.total_matches,
-            "query_stats": resolution.stats,
-        }))
-        .with_disposition(crate::DeliverySemantics::not_delivered())
 }
 
 pub(super) fn has_deterministic_limit(stats: &LocatorStats) -> bool {

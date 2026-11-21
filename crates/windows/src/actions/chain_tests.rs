@@ -25,8 +25,8 @@ fn run_two(
     };
     execute_chain(
         &mut offered([
-            rung(LEGACY, legacy.0, false, &mut legacy_run),
             rung(PATTERN, pattern.0, true, &mut pattern_run),
+            rung(LEGACY, legacy.0, false, &mut legacy_run),
         ]),
         policy,
         deadline(5_000),
@@ -97,7 +97,7 @@ fn headless_background_rung_that_does_not_deliver_ends_in_policy_denied() {
 }
 
 #[test]
-fn headed_falls_through_to_the_pattern_after_a_clean_miss() {
+fn headed_never_runs_legacy_after_an_unverified_pattern_delivery() {
     let calls = Cell::new((0, 0));
     let steps = run_two(
         InteractionPolicy::headed(),
@@ -108,21 +108,21 @@ fn headed_falls_through_to_the_pattern_after_a_clean_miss() {
         ),
         &calls,
     )
-    .expect("pattern delivers");
-    assert_eq!(calls.get(), (1, 1));
-    assert!(matches!(steps[0].outcome, ActionStepOutcome::Skipped));
-    assert!(matches!(steps[1].outcome, ActionStepOutcome::Succeeded));
-    assert_eq!(steps[1].verified(), Some(false));
+    .expect("the pattern delivery ends the chain");
+    assert_eq!(calls.get(), (0, 1));
+    assert_eq!(steps.len(), 1);
+    assert!(matches!(steps[0].outcome, ActionStepOutcome::Succeeded));
+    assert_eq!(steps[0].verified(), Some(false));
 }
 
 #[test]
-fn headed_tries_the_pattern_after_a_legacy_write_that_had_no_effect() {
+fn headed_runs_the_verifiable_pattern_first_and_never_the_legacy_write() {
     let calls = Cell::new((0, 0));
     let steps = run_two(
         InteractionPolicy::headed(),
         (
             true,
-            DeliveryOutcome::Delivered(DeliveryObservation::NoEffect),
+            DeliveryOutcome::Delivered(DeliveryObservation::Unverified),
         ),
         (
             true,
@@ -130,10 +130,50 @@ fn headed_tries_the_pattern_after_a_legacy_write_that_had_no_effect() {
         ),
         &calls,
     )
-    .expect("pattern delivers");
+    .expect("the pattern write ends the chain");
+    assert_eq!(calls.get(), (0, 1));
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].verified(), Some(true));
+}
+
+#[test]
+fn headed_falls_back_to_legacy_when_the_pattern_delivers_nothing() {
+    let calls = Cell::new((0, 0));
+    let steps = run_two(
+        InteractionPolicy::headed(),
+        (
+            true,
+            DeliveryOutcome::Delivered(DeliveryObservation::Verified),
+        ),
+        (true, DeliveryOutcome::NotDelivered),
+        &calls,
+    )
+    .expect("legacy delivers after the pattern misses");
     assert_eq!(calls.get(), (1, 1));
-    assert_eq!(steps[0].verified(), Some(false));
+    assert_eq!(steps.len(), 2);
+    assert!(matches!(steps[0].outcome, ActionStepOutcome::Skipped));
     assert_eq!(steps[1].verified(), Some(true));
+}
+
+#[test]
+fn headless_keeps_an_acknowledged_legacy_write_unverified() {
+    let calls = Cell::new((0, 0));
+    let steps = run_two(
+        InteractionPolicy::headless(),
+        (
+            true,
+            DeliveryOutcome::Delivered(DeliveryObservation::Unverified),
+        ),
+        (
+            true,
+            DeliveryOutcome::Delivered(DeliveryObservation::Verified),
+        ),
+        &calls,
+    )
+    .expect("the legacy write ends the chain");
+    assert_eq!(calls.get(), (1, 0));
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].verified(), Some(false));
 }
 
 #[test]
@@ -168,4 +208,52 @@ fn a_legacy_not_enabled_refusal_is_an_absent_route_only_on_an_enabled_element() 
         0x8004_0201_u32 as i32,
         Some(true)
     ));
+}
+
+#[test]
+fn a_press_whose_target_vanishes_reports_delivered_unverified_and_no_safe_retry() {
+    use crate::actions::mutation::classify_write_failure;
+    use crate::system::runtime::hresult::UIA_E_ELEMENTNOTAVAILABLE;
+    use crate::tree::automation::UiaFailure;
+    use agent_desktop_core::{Action, ActionResult, DeliveryDisposition, RetryDisposition};
+
+    let mut press = || {
+        let delivered = classify_write_failure(
+            "DoDefaultAction",
+            LEGACY,
+            UiaFailure::Hresult(UIA_E_ELEMENTNOTAVAILABLE),
+        )?;
+        Ok(DeliveryOutcome::from_delivery(delivered, false))
+    };
+    let steps = execute_chain(
+        &mut offered([rung(LEGACY, true, false, &mut press)]),
+        InteractionPolicy::headless(),
+        deadline(5_000),
+        "retry",
+    )
+    .expect("a vanished target is not an error");
+    let result = ActionResult::from_execution(&Action::Click, steps);
+
+    assert_eq!(
+        result.disposition().delivery(),
+        DeliveryDisposition::DeliveredUnverified
+    );
+    assert_eq!(result.disposition().retry(), RetryDisposition::Unsafe);
+}
+
+#[test]
+fn a_pattern_that_cannot_be_obtained_stays_a_stale_reference_with_a_safe_retry() {
+    use crate::actions::mutation::classify_write_failure;
+    use crate::system::runtime::hresult::UIA_E_ELEMENTNOTAVAILABLE;
+    use crate::tree::automation::UiaFailure;
+    use agent_desktop_core::RetryDisposition;
+
+    let error = classify_write_failure(
+        "get_pattern",
+        LEGACY,
+        UiaFailure::Hresult(UIA_E_ELEMENTNOTAVAILABLE),
+    )
+    .expect_err("nothing was sent");
+    assert_eq!(error.code, ErrorCode::StaleRef);
+    assert_eq!(error.disposition.retry(), RetryDisposition::Safe);
 }

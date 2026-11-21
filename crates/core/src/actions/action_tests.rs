@@ -40,7 +40,7 @@ fn action_names_do_not_include_payloads() {
 }
 
 #[test]
-fn headed_requirements_distinguish_window_and_pointer_preconditions() {
+fn headed_focuss_distinguish_window_and_pointer_preconditions() {
     for action in [
         Action::Click,
         Action::DoubleClick,
@@ -51,8 +51,8 @@ fn headed_requirements_distinguish_window_and_pointer_preconditions() {
         Action::Drag(dummy_drag()),
     ] {
         assert_eq!(
-            action.headed_requirement(),
-            crate::HeadedRequirement::FocusedWindowAndCursor,
+            action.headed_focus(),
+            crate::HeadedFocus::WindowAndCursor,
             "{} must require focus plus cursor delivery",
             action.name()
         );
@@ -72,8 +72,8 @@ fn headed_requirements_distinguish_window_and_pointer_preconditions() {
         Action::Clear,
     ] {
         assert_eq!(
-            action.headed_requirement(),
-            crate::HeadedRequirement::FocusedWindow,
+            action.headed_focus(),
+            crate::HeadedFocus::Window,
             "{} must require focus without pointer movement",
             action.name()
         );

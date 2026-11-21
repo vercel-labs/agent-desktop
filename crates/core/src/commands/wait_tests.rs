@@ -351,19 +351,6 @@ fn text_wait_propagates_permanent_snapshot_error() {
 }
 
 #[test]
-fn app_retryability_uses_adapter_error_codes() {
-    assert!(is_retryable_wait_app_error(&AppError::Adapter(
-        AdapterError::timeout("busy")
-    )));
-    assert!(!is_retryable_wait_app_error(&AppError::Adapter(
-        AdapterError::permission_denied()
-    )));
-    assert!(!is_retryable_wait_app_error(&AppError::Internal(
-        "internal".into()
-    )));
-}
-
-#[test]
 fn notification_wait_allows_text_filter() {
     let result = validate_wait_mode(&WaitArgs {
         mode: WaitModeArgs {

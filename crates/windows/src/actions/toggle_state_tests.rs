@@ -46,11 +46,11 @@ fn an_observed_flip_is_verified_after_one_delivery() {
 }
 
 #[test]
-fn a_flip_the_readable_state_never_shows_is_no_effect_and_not_resent() {
+fn a_flip_the_readable_state_never_shows_is_unverified_and_not_resent() {
     let (outcome, flips) = drive(ToggleGoal::Checked(true), ToggleKind::Off, TWO_STATE, true);
     assert_eq!(
         outcome,
-        DeliveryOutcome::Delivered(agent_desktop_core::DeliveryObservation::NoEffect)
+        DeliveryOutcome::Delivered(agent_desktop_core::DeliveryObservation::Unverified)
     );
     assert_eq!(flips, 1);
 }

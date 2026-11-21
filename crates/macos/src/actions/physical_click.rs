@@ -1,5 +1,5 @@
 use agent_desktop_core::{
-    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionPolicy, MouseButton,
+    AdapterError, Deadline, DeliverySemantics, Effect, ErrorCode, InteractionPolicy, MouseButton,
     MouseEvent, MouseEventKind, Point,
 };
 
@@ -17,7 +17,14 @@ pub(crate) fn click_via_bounds(
     policy: InteractionPolicy,
     deadline: Deadline,
 ) -> Result<(), AdapterError> {
-    crate::actions::background_effect::Effect::PhysicalInput.refuse_unless_permitted(policy)?;
+    for effect in [Effect::FocusSteal, Effect::CursorMove] {
+        crate::actions::background_effect::require(
+            policy,
+            effect,
+            "physical pointer input",
+            "physical_input",
+        )?;
+    }
     let prepared =
         crate::actions::physical_target::PreparedPhysicalTarget::prepare(element, deadline)?;
     let read_deadline = deadline;

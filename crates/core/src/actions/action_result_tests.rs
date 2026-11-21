@@ -175,3 +175,13 @@ fn verified_text_value_does_not_claim_application_commit() {
     assert_eq!(details["verification_scope"], "element_value");
     assert_eq!(details["application_commit"], "not_verified");
 }
+
+#[test]
+fn an_annotation_keeps_the_details_an_inner_layer_set() {
+    let result = ActionResult::delivered_unverified("click")
+        .with_details(serde_json::json!({ "pointer": "verified" }))
+        .with_details(serde_json::json!({ "delivered_events": 2 }));
+    let details = result.details.unwrap();
+    assert_eq!(details["pointer"], "verified");
+    assert_eq!(details["delivered_events"], 2);
+}

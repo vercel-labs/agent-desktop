@@ -17,9 +17,9 @@ mod imp {
         el: &AXElement,
         name: &str,
         deadline: Deadline,
-    ) -> Result<crate::actions::chain::chain_delivery::DeliveryOutcome, AdapterError> {
+    ) -> Result<agent_desktop_core::DeliveryOutcome, AdapterError> {
         use crate::actions::activation_effect;
-        use crate::actions::chain::chain_delivery::DeliveryOutcome;
+        use agent_desktop_core::DeliveryOutcome;
         use ax_mutation::PerformSignal;
 
         if advertises_action(el, name, deadline) == Some(false) {
