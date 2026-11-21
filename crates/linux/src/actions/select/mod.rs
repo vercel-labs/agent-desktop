@@ -8,7 +8,7 @@ use serde_json::json;
 use zbus::zvariant::{OwnedValue, Structure, Value};
 
 use super::action_call::resolve_verb;
-use super::click::{POLL_STEP, invoke_verb, names_of, poll_until, refusal};
+use super::click::{POLL_STEP, invoke_verb, names_of, refusal};
 use super::context::Target;
 use super::select::select_exclusive::{SELECTION_INTERFACE, selected_count};
 use super::select::select_pointer::{Pointer, after_unproven_index};
@@ -189,8 +189,7 @@ fn select_through(
     let application_fires_no_change =
         is_gecko(&toolkit_of(target.bus, target.element, target.deadline));
     let observe = || -> Result<Option<bool>, AdapterError> {
-        let verified = poll_until(
-            target.deadline,
+        let verified = target.deadline.poll_until(
             SELECT_SETTLE,
             POLL_STEP,
             || {

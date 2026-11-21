@@ -5,7 +5,7 @@ use agent_desktop_core::{
 };
 use serde_json::json;
 
-use super::click::{POLL_STEP, poll_until};
+use super::click::POLL_STEP;
 use super::context::Target;
 use super::write::mutation::{WriteKind, WriteReply};
 use super::write::write_call::{Call, invoke};
@@ -63,9 +63,11 @@ fn grab_focus(target: &Target<'_>) -> Result<WriteReply, AdapterError> {
 
 fn focus_read_back(target: &Target<'_>) -> Option<bool> {
     let read = || target.view().ok().and_then(|after| after.state(FOCUSED));
-    let first = poll_until(target.deadline, FOCUS_SETTLE, POLL_STEP, read, |focused| {
-        *focused == Some(true)
-    });
+    let first = target
+        .deadline
+        .poll_until(FOCUS_SETTLE, POLL_STEP, read, |focused| {
+            *focused == Some(true)
+        });
     if first == Some(true) {
         std::thread::sleep(POLL_STEP);
     }

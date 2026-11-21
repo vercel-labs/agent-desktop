@@ -6,25 +6,22 @@ pub(crate) fn wait_for_menu(
     open: bool,
     deadline: Deadline,
 ) -> Result<(), AdapterError> {
-    use crate::tree::surfaces::is_menu_open;
-    use std::time::Duration;
-
-    loop {
-        let identity = crate::system::process::process_identity::require_core(&process)?;
-        let instant = deadline;
-        if is_menu_open(identity.pid(), instant)? == open {
-            crate::system::process::process_identity::require_core(&process)?;
-            return Ok(());
-        }
-        if deadline.is_expired() {
-            let message = if open {
-                "No context menu opened before the deadline"
-            } else {
-                "Context menu did not close before the deadline"
-            };
-            return Err(deadline.timeout_error().with_platform_detail(message));
-        }
-        let pause = deadline.remaining_slice(Duration::from_millis(50))?;
-        std::thread::sleep(pause);
+    use crate::system::process::process_identity::require_core;
+    let read = || {
+        let identity = require_core(&process)?;
+        crate::tree::surfaces::is_menu_open(identity.pid(), deadline).map(|state| state == open)
+    };
+    let step = std::time::Duration::from_millis(50);
+    if deadline.poll_until(deadline.remaining(), step, read, |read| {
+        !matches!(read, Ok(false))
+    })? {
+        require_core(&process)?;
+        return Ok(());
     }
+    let message = if open {
+        "No context menu opened before the deadline"
+    } else {
+        "Context menu did not close before the deadline"
+    };
+    Err(deadline.timeout_error().with_platform_detail(message))
 }

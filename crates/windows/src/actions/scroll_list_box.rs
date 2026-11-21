@@ -9,6 +9,7 @@
 #[cfg(target_os = "windows")]
 mod imp {
     use crate::actions::native_message::{find_unique, send};
+    use crate::actions::native_window::NativeWindow;
     use crate::tree::automation::automation_client;
     use crate::tree::element::UIAElement;
     use crate::tree::properties::property_ids::TreeProperty;
@@ -17,22 +18,23 @@ mod imp {
     use windows_sys::Win32::UI::Controls::GetListBoxInfo;
     use windows_sys::Win32::UI::WindowsAndMessaging::{LB_ERR, LB_FINDSTRINGEXACT, LB_SETTOPINDEX};
 
-    /// The list box window that owns the item, and the item's name.
-    pub(crate) fn native_list_box_item(element: &UIAElement) -> Option<(isize, String)> {
+    /// The list box window that owns the item, and the item's name. The list
+    /// box must belong to the item's verified process.
+    pub(crate) fn native_list_box_item(element: &UIAElement) -> Option<(NativeWindow, String)> {
         let LocatorField::Known(name) = read_one(element, TreeProperty::Name).text() else {
             return None;
         };
         let walker = automation_client().ok()?.get_raw_view_walker().ok()?;
         let parent = walker.get_parent(&element.0).ok()?;
         let hwnd: isize = parent.get_native_window_handle().ok()?.into();
-        (hwnd != 0 && unsafe { GetListBoxInfo(hwnd as *mut std::ffi::c_void) } > 0)
-            .then_some((hwnd, name))
+        let list = NativeWindow::of(hwnd, element)?;
+        (unsafe { GetListBoxInfo(hwnd as *mut std::ffi::c_void) } > 0).then_some((list, name))
     }
 
     /// Puts the named item at the top of the list box. `Ok(false)` when the
     /// list box refused the index.
     pub(crate) fn scroll_list_box_item(
-        list: isize,
+        list: &NativeWindow,
         name: &str,
         deadline: Deadline,
     ) -> Result<bool, AdapterError> {

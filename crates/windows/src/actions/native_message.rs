@@ -31,19 +31,23 @@ pub(crate) fn unique_index(first: isize, again: isize) -> Result<usize, AdapterE
 #[cfg(target_os = "windows")]
 mod imp {
     use super::{AdapterError, DeliverySemantics, ErrorCode, unique_index};
+    use crate::actions::native_window::NativeWindow;
     use agent_desktop_core::Deadline;
     use std::ffi::c_void;
     use windows_sys::Win32::UI::WindowsAndMessaging::{SMTO_ABORTIFHUNG, SendMessageTimeoutW};
 
     const SEND_CAP_MS: u64 = 2_000;
 
+    /// Sends `message` to `window` once its owner is checked.
     pub(crate) fn send(
-        hwnd: isize,
+        window: &NativeWindow,
         message: u32,
         wparam: usize,
         lparam: isize,
         deadline: Deadline,
     ) -> Result<isize, AdapterError> {
+        window.ensure_owned(window.hwnd)?;
+        let hwnd = window.hwnd;
         let budget = deadline
             .remaining()
             .as_millis()
@@ -73,7 +77,7 @@ mod imp {
     /// The index of the item named `name`, found with an exact-match message
     /// such as `CB_FINDSTRINGEXACT` or `LB_FINDSTRINGEXACT`.
     pub(crate) fn find_unique(
-        hwnd: isize,
+        window: &NativeWindow,
         find_message: u32,
         name: &str,
         deadline: Deadline,
@@ -88,7 +92,7 @@ mod imp {
         let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
         let find = |start: isize| {
             send(
-                hwnd,
+                window,
                 find_message,
                 start as usize,
                 wide.as_ptr() as isize,

@@ -161,6 +161,27 @@ impl Deadline {
         }
     }
 
+    /// Reads with `read` until `done` accepts the value or `budget`, capped by
+    /// this deadline, runs out, pausing `step` between reads, and returns the
+    /// last value read. The first read always runs, so a caller gets an
+    /// answer even from a deadline that has just expired.
+    pub fn poll_until<T>(
+        self,
+        budget: Duration,
+        step: Duration,
+        mut read: impl FnMut() -> T,
+        done: impl Fn(&T) -> bool,
+    ) -> T {
+        let end = self.capped(budget);
+        loop {
+            let value = read();
+            if done(&value) || end.is_expired() {
+                return value;
+            }
+            end.pause(step);
+        }
+    }
+
     /// Fails with [`Self::timeout_error`] once the deadline has expired.
     pub fn ensure_remaining(self) -> Result<(), AdapterError> {
         if self.is_expired() {

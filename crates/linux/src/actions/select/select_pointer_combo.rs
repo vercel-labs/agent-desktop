@@ -8,7 +8,7 @@ use serde_json::json;
 use super::select_pointer::{Pointer, already_satisfied, pointer_required};
 use super::select_popup::{Shown, commit, first_label};
 use super::select_search::{Hit, Search, name_matches, search};
-use crate::actions::click::{POLL_STEP, poll_until};
+use crate::actions::click::POLL_STEP;
 use crate::actions::context::Target;
 use crate::actions::popup_verify::name_open_overview;
 use crate::actions::select::{
@@ -159,8 +159,7 @@ fn popup_not_observed(overview: Option<bool>) -> AdapterError {
 }
 
 fn wait_closed(choices: &mut dyn Choices, closed: &[AtspiElement], deadline: Deadline) -> bool {
-    poll_until(
-        deadline,
+    deadline.poll_until(
         CLOSE_WAIT,
         POLL_STEP,
         || new_list(choices, closed).is_none(),
@@ -207,14 +206,14 @@ fn choose_by_pointer(
     }
     let pointer = pointer.ok_or_else(pointer_required)?;
     let opened = pointer.click(combo)?;
-    let popup = poll_until(
-        deadline,
-        POPUP_WAIT,
-        POLL_STEP,
-        || new_list(choices, &closed),
-        |popup| popup.is_some(),
-    )
-    .ok_or_else(|| popup_not_observed(choices.overview_open()))?;
+    let popup = deadline
+        .poll_until(
+            POPUP_WAIT,
+            POLL_STEP,
+            || new_list(choices, &closed),
+            |popup| popup.is_some(),
+        )
+        .ok_or_else(|| popup_not_observed(choices.overview_open()))?;
     let hit = match choices.find(&popup, wanted)? {
         Search::Found(hit) => hit,
         miss => {

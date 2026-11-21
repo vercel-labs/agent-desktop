@@ -87,15 +87,15 @@ Observation and semantic actions need no helper tool.
   requested depth cut. A shell with no document yet stays incomplete when the
   budget ends. A `--timeout` shorter than the first read returns `TIMEOUT`,
   never a partial tree.
-- **GTK and Chromium refs carry the element's address; Qt refs must have been
-  unique.** In a GTK or Chromium app a ref records the element's bus address and
+- **GTK refs carry the element's address; Chromium and Qt refs must have been
+  unique.** In a GTK app a ref records the element's bus address and
   every parent above it, so identical twins (two equal buttons, repeated row
   buttons) each keep their own ref. An action reads that chain again with no
   search: if a parent no longer lists its child (a list changed under it, a
   window closed) or the element's role, stable name, description or native id
   changed, the ref is `STALE_REF`, `retained_object_stale`, and never lands on
   a look-alike. Qt can hand a destroyed object's address to a new object, so a
-  Qt ref (and one from a toolkit that names none) resolves only when it was the
+  Chromium or Qt ref (and one from a toolkit that names none) resolves only when it was the
   only element in the window its snapshot captured with its role, native id,
   name and description, and exactly one live element still matches; a twin
   there is `AMBIGUOUS_TARGET`, `details.kind: identity_not_unique`, and a gone

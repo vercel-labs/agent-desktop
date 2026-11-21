@@ -177,3 +177,58 @@ fn a_reserved_tail_survives_time_spent_before_the_work_starts() {
     assert!(work.is_expired());
     assert_eq!(deadline.remaining(), Duration::from_millis(250));
 }
+
+#[test]
+fn a_poll_stops_at_the_first_accepted_read() {
+    let _clock = VirtualClock::freeze();
+    let mut reads = 0;
+
+    let value = Deadline::after(5_000).unwrap().poll_until(
+        Duration::from_millis(500),
+        Duration::from_millis(5),
+        || {
+            reads += 1;
+            reads
+        },
+        |value| *value == 3,
+    );
+
+    assert_eq!((value, reads), (3, 3));
+}
+
+#[test]
+fn a_poll_returns_the_last_read_when_its_budget_or_the_deadline_runs_out() {
+    let clock = VirtualClock::freeze();
+
+    let by_budget = Deadline::after(5_000).unwrap().poll_until(
+        Duration::from_millis(100),
+        Duration::from_millis(10),
+        || clock.elapsed(),
+        |_| false,
+    );
+    let start = clock.elapsed();
+    let by_deadline = Deadline::after(30).unwrap().poll_until(
+        Duration::from_millis(500),
+        Duration::from_millis(10),
+        || clock.elapsed() - start,
+        |_| false,
+    );
+
+    assert_eq!(by_budget, Duration::from_millis(100));
+    assert_eq!(by_deadline, Duration::from_millis(30));
+}
+
+#[test]
+fn a_poll_reads_once_even_from_an_expired_deadline() {
+    let _clock = VirtualClock::freeze();
+    let mut reads = 0;
+
+    Deadline::after(0).unwrap().poll_until(
+        Duration::from_millis(500),
+        Duration::from_millis(5),
+        || reads += 1,
+        |_| false,
+    );
+
+    assert_eq!(reads, 1);
+}

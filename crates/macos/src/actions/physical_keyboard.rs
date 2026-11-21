@@ -1,5 +1,5 @@
 use agent_desktop_core::{AdapterError, Deadline, ErrorCode, InteractionPolicy, KeyCombo};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::tree::AXElement;
 
@@ -122,21 +122,21 @@ fn wait_for_focused_element(
     pid: i32,
     deadline: Deadline,
 ) -> Result<(), AdapterError> {
-    let local_deadline = Instant::now() + Duration::from_millis(500);
-    loop {
-        if focused_element_matches(expected, pid, deadline)? {
-            return Ok(());
-        }
-        deadline.ensure_remaining()?;
-        if std::time::Instant::now() >= local_deadline {
-            return Err(AdapterError::timeout(
-                "Target element did not become focused before keyboard delivery",
-            )
-            .with_disposition(agent_desktop_core::DeliverySemantics::not_delivered()));
-        }
-        let pause = deadline.remaining_slice(Duration::from_millis(5))?;
-        std::thread::sleep(pause.min(Duration::from_millis(5)));
+    let read = || focused_element_matches(expected, pid, deadline);
+    let focused = deadline.poll_until(
+        Duration::from_millis(500),
+        Duration::from_millis(5),
+        read,
+        |read| !matches!(read, Ok(false)),
+    )?;
+    if focused {
+        return Ok(());
     }
+    deadline.ensure_remaining()?;
+    Err(
+        AdapterError::timeout("Target element did not become focused before keyboard delivery")
+            .with_disposition(agent_desktop_core::DeliverySemantics::not_delivered()),
+    )
 }
 
 fn verify_focused_element(

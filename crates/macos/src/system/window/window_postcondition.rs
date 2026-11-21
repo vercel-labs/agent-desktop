@@ -26,22 +26,20 @@ pub(crate) fn wait_for_minimized(
 
 fn wait_until(
     deadline: Deadline,
-    mut complete: impl FnMut() -> Result<bool, AdapterError>,
+    complete: impl FnMut() -> Result<bool, AdapterError>,
 ) -> Result<(), AdapterError> {
-    loop {
-        if complete().map_err(after_delivery)? {
-            return Ok(());
-        }
-        if deadline.is_expired() {
-            return Err(after_delivery(AdapterError::timeout(
-                "Window operation did not reach its requested postcondition",
-            )));
-        }
-        let pause = deadline
-            .remaining_slice(std::time::Duration::from_millis(10))
-            .map_err(after_delivery)?;
-        std::thread::sleep(pause.min(std::time::Duration::from_millis(10)));
+    let step = std::time::Duration::from_millis(10);
+    let reached = deadline
+        .poll_until(deadline.remaining(), step, complete, |read| {
+            !matches!(read, Ok(false))
+        })
+        .map_err(after_delivery)?;
+    if reached {
+        return Ok(());
     }
+    Err(after_delivery(AdapterError::timeout(
+        "Window operation did not reach its requested postcondition",
+    )))
 }
 
 fn geometry_matches(actual: Rect, expected: Rect, position: bool) -> bool {

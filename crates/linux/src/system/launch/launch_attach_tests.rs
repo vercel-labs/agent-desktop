@@ -122,3 +122,20 @@ fn a_launch_that_asks_for_a_mode_does_not_attach_to_a_process_in_another_mode() 
 
     assert_eq!(decide(&gui, &[daemon], true, false), Decision::Spawn);
 }
+
+#[test]
+fn a_launch_that_asks_for_a_mode_attaches_to_the_process_running_in_that_mode() {
+    let mut gui = keys(&["tool"]);
+    if let Some(identity) = gui.as_mut() {
+        identity
+            .argv
+            .get_or_insert_with(Vec::new)
+            .push("--gui".into());
+    }
+    let running = started_with(7, "tool", &["--gui"]);
+
+    assert_eq!(
+        decide(&gui, std::slice::from_ref(&running), true, false),
+        Decision::Attach(running)
+    );
+}

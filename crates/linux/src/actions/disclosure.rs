@@ -5,8 +5,8 @@ use serde_json::json;
 
 use super::action_call::resolve_verb;
 use super::click::{
-    POLL_STEP, POPUP_SETTLE, POPUP_STEP, invoke_verb, names_of, opens_popup, poll_until,
-    popup_inner, refusal, run_single_rung,
+    POLL_STEP, POPUP_SETTLE, POPUP_STEP, invoke_verb, names_of, opens_popup, popup_inner, refusal,
+    run_single_rung,
 };
 use super::context::Target;
 use super::toggle_state::{Flag, drive_to};
@@ -98,8 +98,7 @@ pub(crate) fn set_expanded(
                 None => invoke_verb(target, &action, names, verbs),
             },
             || {
-                poll_until(
-                    target.deadline,
+                target.deadline.poll_until(
                     budget,
                     step,
                     || {

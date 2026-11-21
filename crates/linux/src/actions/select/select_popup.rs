@@ -9,8 +9,7 @@ use super::select_identity::with_current_row;
 use super::select_search::{Hit, Search, name_matches, search};
 use crate::actions::action_call::resolve_verb;
 use crate::actions::click::{
-    POLL_STEP, deliver, invoke_verb, names_of, opens_popup, poll_until, popup_inner, refusal,
-    run_single_rung,
+    POLL_STEP, deliver, invoke_verb, names_of, opens_popup, popup_inner, refusal, run_single_rung,
 };
 use crate::actions::context::Target;
 use crate::actions::disclosure::set_expanded;
@@ -183,8 +182,7 @@ pub(in crate::actions) fn commit(
             return Ok(DeliveryOutcome::Delivered(DeliveryObservation::Unread));
         }
         deliver(committed, || {
-            poll_until(
-                target.deadline,
+            target.deadline.poll_until(
                 SELECT_SETTLE,
                 POLL_STEP,
                 || {

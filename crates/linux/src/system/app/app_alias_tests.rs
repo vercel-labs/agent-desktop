@@ -256,3 +256,56 @@ fn an_interpreter_running_the_entry_script_is_named_by_it() {
     assert!(opened_by_editor.is_empty());
     assert_eq!(through_env, ["Updater"]);
 }
+
+fn modes() -> AliasIndex {
+    AliasIndex::build(
+        &[
+            file("cal", "Calendar", "/bin/sleep --calendar"),
+            file("pick", "File Selection", "/bin/sleep --file-selection"),
+        ],
+        &[],
+    )
+}
+
+#[test]
+fn entries_that_differ_only_in_a_bare_option_name_only_their_own_process() {
+    let index = modes();
+
+    assert_eq!(
+        index.names_for(&running(&["sleep", "--calendar"])),
+        ["Calendar"]
+    );
+    assert_eq!(
+        index.ids_for(&running(&["sleep", "--file-selection", "--title=x"])),
+        ["pick"]
+    );
+}
+
+#[test]
+fn a_process_two_different_entries_could_be_gets_neither_alias() {
+    let index = modes();
+
+    assert!(
+        index
+            .names_for(&running(&["sleep", "--calendar", "--file-selection"]))
+            .is_empty()
+    );
+    assert!(index.names_for(&running(&["sleep", "--info"])).is_empty());
+}
+
+#[test]
+fn the_entry_with_the_most_arguments_in_the_process_wins_over_a_bare_entry() {
+    let index = AliasIndex::build(
+        &[
+            file("plain", "Plain", "/bin/sleep"),
+            file("cal", "Calendar", "/bin/sleep --calendar"),
+        ],
+        &[],
+    );
+
+    assert_eq!(
+        index.names_for(&running(&["sleep", "--calendar"])),
+        ["Calendar"]
+    );
+    assert_eq!(index.names_for(&running(&["sleep", "--info"])), ["Plain"]);
+}
