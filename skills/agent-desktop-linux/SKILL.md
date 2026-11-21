@@ -17,8 +17,8 @@ description: >
 
 # agent-desktop-linux
 
-The observe-act loop, refs, JSON envelope, sessions and tracing match every
-platform. This file covers only what differs on Linux.
+This file covers only what differs on Linux. The observe-act loop, refs, JSON
+envelope, sessions and tracing are the same on every platform.
 
 Needs Ubuntu 24.04+ (x86_64 or aarch64), a graphical session of the signed-in
 user and a running AT-SPI bus. Other distributions need the at-spi2-core bridge
@@ -161,6 +161,8 @@ nothing is drawn until an agent acts. On X11 each agent id then gets its own
 cursor; on Wayland none is drawn.
 
 ## What differs on Linux
+
+- Sandboxes are not available on Linux yet. To run agent-desktop in a container you manage yourself, see `agent-browser.dev/desktop/guides/docker-container`.
 
 - Firefox/Gecko `select` can change the selected value without firing `change`
   or `input` events, so dependent page handlers do not run. The result stays

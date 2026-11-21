@@ -1,10 +1,11 @@
 use crate::{
-    AdapterError, AdapterSession, AppInfo, CursorOverlayControl, Deadline,
-    DismissAllNotificationsRequest, DismissNotificationRequest, ImageBuffer, InteractionLease,
-    InteractionPolicy, KeyCombo, NotificationActionRequest, NotificationFilter, NotificationInfo,
-    OperationReport, PermissionReport, PermissionState, ProcessIdentity, SessionAffinity,
-    SignalBaseline, SignalFilter, WindowInfo, WindowOp, actions::action_result::ActionResult,
-    system::display_info::DisplayInfo, system::screenshot_target::ScreenshotTarget,
+    AdapterError, AdapterSession, AppInfo, CursorOverlayControl, Deadline, DeliverySemantics,
+    DismissAllNotificationsRequest, DismissNotificationRequest, ErrorCode, ImageBuffer,
+    InteractionLease, InteractionPolicy, KeyCombo, NotificationActionRequest, NotificationFilter,
+    NotificationInfo, OperationReport, PermissionReport, PermissionState, ProcessIdentity,
+    ProviderScriptOutput, ProviderScriptRequest, SessionAffinity, SignalBaseline, SignalFilter,
+    WindowInfo, WindowOp, actions::action_result::ActionResult, system::display_info::DisplayInfo,
+    system::screenshot_target::ScreenshotTarget,
 };
 
 pub trait SystemOps: Send + Sync {
@@ -76,6 +77,22 @@ pub trait SystemOps: Send + Sync {
         Err(AdapterError::not_supported("focus_window"))
     }
 
+    fn resolve_ref_focus_window(
+        &self,
+        entry: &crate::RefEntry,
+        _deadline: Deadline,
+    ) -> Result<WindowInfo, AdapterError> {
+        crate::saved_ref_focus_window(entry)
+    }
+
+    fn focus_app(
+        &self,
+        _process: ProcessIdentity,
+        _lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        Err(AdapterError::not_supported("focus_app"))
+    }
+
     fn launch_app(
         &self,
         _id: &str,
@@ -100,6 +117,19 @@ pub trait SystemOps: Send + Sync {
         _deadline: Deadline,
     ) -> Result<crate::system::process_state::ProcessState, AdapterError> {
         Err(AdapterError::not_supported("process_state"))
+    }
+
+    /// Runs one provider script under the platform's bounded process runner.
+    fn run_provider_script(
+        &self,
+        _request: &ProviderScriptRequest,
+    ) -> Result<ProviderScriptOutput, AdapterError> {
+        Err(AdapterError::new(
+            ErrorCode::PlatformNotSupported,
+            "Sandboxes are not available on this platform yet.",
+        )
+        .with_suggestion("Run the command on macOS to use a sandbox provider.")
+        .with_disposition(DeliverySemantics::not_delivered()))
     }
 
     fn supported_surfaces(&self) -> Vec<crate::adapter::SnapshotSurface> {
@@ -303,9 +333,8 @@ pub trait SystemOps: Send + Sync {
         Err(AdapterError::not_supported("window_op"))
     }
 
-    /// Resolves a live window by `WindowInfo.id`, corroborating the match against
-    /// `pid` and, when present, `title`. Opaque ids must not be parsed as numeric
-    /// outside the adapter; macOS uses `w-<kCGWindowNumber>`.
+    /// Resolves the exact window id against its stored pid and process instance.
+    /// Titles and bounds may change; opaque ids are interpreted only by the adapter.
     fn resolve_window_strict(
         &self,
         _win: &WindowInfo,

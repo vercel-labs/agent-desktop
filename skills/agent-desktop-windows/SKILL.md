@@ -16,8 +16,8 @@ description: >
 
 # agent-desktop-windows
 
-The observe-act loop, ref system, JSON envelope, sessions and tracing are the
-same on every platform. This file covers only what differs on Windows.
+This file covers only what differs on Windows. The observe-act loop, refs, JSON
+envelope, sessions and tracing are the same on every platform.
 
 Requires Windows 10 1809+ / Windows Server 2019+ (x64 or ARM64). Run it in the
 interactive desktop session of the signed-in user. Session 0 (services and
@@ -89,6 +89,8 @@ observation, actions and capture there fail or return nothing.
 - **Unsigned binary warnings are expected.** See `references/troubleshooting.md`.
 
 ## What differs on Windows
+
+- Sandboxes are not available on Windows yet. To run agent-desktop in a container you manage yourself, see `agent-browser.dev/desktop/guides/docker-container`.
 
 - Ref actions are semantic UI Automation calls in headless and `--headed` mode, except `right-click`, `double-click`, `triple-click`, `type` and `focus`, which are physical or take focus and need `--headed`.
 - A ref resolves only when it was the only element in the window its snapshot captured with its role, native id, name and description, and exactly one live element still matches. Uniqueness counts the whole window, not the shallow tree a `--skeleton` or `--max-depth` snapshot presents, so a twin below the cut still refuses the ref. Identical twins, such as several identical `Delete` buttons, are refused with `AMBIGUOUS_TARGET`, `details.kind: identity_not_unique`, before anything reaches the app; a live second match is `saved_ref_ambiguous`, and a removed element is `STALE_REF`, `saved_ref_absent`. Take a fresh snapshot after a list changes, and use `--headed mouse-click --xy` when you must pick one of two identical controls.

@@ -6,6 +6,7 @@ mod cli_args;
 mod command_policy;
 mod diagnostic;
 mod dispatch;
+mod mcp;
 mod visual_debug;
 
 /// Shared blanket-default `PlatformAdapter` test double, sourced once from
@@ -22,8 +23,9 @@ use agent_desktop_core::{
     response::output::{ErrorPayload, Response},
     session::resolve_active_session,
 };
-use clap::{CommandFactory, Parser};
+use clap::{CommandFactory, FromArgMatches};
 use cli::{Cli, Commands};
+use cli_args::sandbox::SandboxActionCli;
 use cli_args::skills::SkillsAction;
 use std::io::{BufWriter, Write};
 use std::process::ExitCode;
@@ -79,38 +81,24 @@ fn run() -> ExitCode {
         agent_desktop_windows::WindowsPrivateFile,
     ));
 
-    let mut cli = match Cli::try_parse() {
+    let matches = match root_command().try_get_matches() {
+        Ok(matches) => matches,
+        Err(e) => return report_parse_failure(e),
+    };
+    if let Some(("mcp", mcp_matches)) = matches.subcommand() {
+        return mcp::serve(mcp_matches);
+    }
+    let mut cli = match Cli::from_arg_matches(&matches) {
         Ok(c) => c,
-        Err(e) => {
-            if matches!(
-                e.kind(),
-                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
-            ) {
-                return match e.print() {
-                    Ok(()) => ExitCode::SUCCESS,
-                    Err(write_err) => report_output_failure(write_err),
-                };
-            }
-            let summary = diagnostic::clap_error_summary(&e.to_string());
-            let error = AppError::invalid_input(diagnostic::bounded_text(&summary, 512));
-            let command_name = diagnostic::clap_command_name(std::env::args().skip(1));
-            return if let Err(write_err) = emit_response(&Response::err(
-                &command_name,
-                ErrorPayload::from_app_error(&error),
-            )) {
-                report_output_failure(write_err)
-            } else {
-                ExitCode::from(EXIT_INVALID_ARGS)
-            };
-        }
+        Err(e) => return report_parse_failure(e),
     };
 
     init_tracing(cli.visual_debug.verbose);
 
-    let cmd = match cli.command.take() {
+    let mut cmd = match cli.command.take() {
         Some(c) => c,
         None => {
-            return match Cli::command().print_help() {
+            return match root_command().print_help() {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(write_err) => report_output_failure(write_err),
             };
@@ -118,7 +106,47 @@ fn run() -> ExitCode {
     };
 
     let cmd_name = cmd.name();
-    finish(cmd_name, execute(cli, cmd))
+    if let Commands::Sandbox(args) = &cmd
+        && let SandboxActionCli::Exec(exec) = &args.action
+    {
+        return dispatch::sandbox::run_exec(&cli, exec, cmd_name, &build_adapter());
+    }
+    let stdin = cli_args::stdin::input(&mut cmd).is_some();
+    if let Err(error) = cli_args::stdin::resolve_stdin_text(&mut cmd, std::io::stdin().lock()) {
+        return finish(cmd_name, Err(error));
+    }
+    finish(
+        cmd_name,
+        cli_args::stdin::redact_result(execute(cli, cmd), stdin),
+    )
+}
+
+/// The parsed command tree: every `Commands` variant plus `mcp`, which serves them.
+fn root_command() -> clap::Command {
+    Cli::command().subcommand(mcp::command())
+}
+
+fn report_parse_failure(e: clap::Error) -> ExitCode {
+    if matches!(
+        e.kind(),
+        clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
+    ) {
+        return match e.print() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(write_err) => report_output_failure(write_err),
+        };
+    }
+    let summary = diagnostic::clap_error_summary(&e.to_string());
+    let error = AppError::invalid_input(diagnostic::bounded_text(&summary, 512));
+    let command_name = diagnostic::clap_command_name(std::env::args().skip(1));
+    if let Err(write_err) = emit_response(&Response::err(
+        &command_name,
+        ErrorPayload::from_app_error(&error),
+    )) {
+        report_output_failure(write_err)
+    } else {
+        ExitCode::from(EXIT_INVALID_ARGS)
+    }
 }
 
 fn execute(cli: Cli, cmd: Commands) -> Result<serde_json::Value, AppError> {

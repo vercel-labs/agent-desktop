@@ -1,5 +1,56 @@
 # Changelog
 
+## [1.3.1](https://github.com/vercel-labs/agent-desktop/compare/v1.3.0...v1.3.1) (2026-11-13)
+
+### Bug Fixes
+
+* Keep a started `macos` sandbox running after the command that started it exits, including when the caller that launched it is later terminated. The VM host now runs in its own session. ([#672](https://github.com/vercel-labs/agent-desktop/pull/672))
+* On Linux, update rustix to 1.1.6 for RUSTSEC-2026-0486. agent-desktop does not call the affected functions. ([#670](https://github.com/vercel-labs/agent-desktop/pull/670))
+
+## [1.3.0](https://github.com/vercel-labs/agent-desktop/compare/v1.2.0...v1.3.0) (2026-11-11)
+
+### ⚠ BREAKING CHANGES
+
+* macOS `menu` and `menubar` snapshots no longer include `data.window`, because those surfaces belong to the application rather than a window. A caller that reads `data.window` for those surfaces must handle its absence. ([#376](https://github.com/vercel-labs/agent-desktop/pull/376))
+
+### Features
+
+* Add `agent-desktop sandbox`, which installs a desktop provider and creates, starts, stops, lists and removes sandboxes. `sandbox exec` runs a command in the guest and passes its stdout and exit status through. ([#505](https://github.com/vercel-labs/agent-desktop/pull/505))
+* Add the `macos` sandbox provider: a macOS VM built and signed on the user's Mac, set up by hand once, then cloned for each sandbox with its own SSH host key. ([#506](https://github.com/vercel-labs/agent-desktop/pull/506))
+
+### Performance
+
+* On macOS, read the app process inventory with libproc instead of spawning `ps`. ([#573](https://github.com/vercel-labs/agent-desktop/pull/573))
+
+### Bug Fixes
+
+* Close reachable invalid state transitions in sessions, refs, trace, MCP and waits. ([#602](https://github.com/vercel-labs/agent-desktop/pull/602))
+* On macOS, resolve native menus and verify lifecycle transitions. ([#376](https://github.com/vercel-labs/agent-desktop/pull/376))
+
+### Documentation
+
+* Upgrade the docs site to TypeScript 7. ([#622](https://github.com/vercel-labs/agent-desktop/pull/622))
+* Say that every local account can reach the `--cdp` port. ([#589](https://github.com/vercel-labs/agent-desktop/pull/589))
+
+## [1.2.0](https://github.com/vercel-labs/agent-desktop/compare/v1.1.0...v1.2.0) (2026-11-05)
+
+### Features
+
+* Add `agent-desktop mcp`, a Model Context Protocol server over stdio that exposes each leaf CLI command as a tool. Tool names and argument schemas come from the CLI definitions, and calls return the command's JSON envelope. ([#519](https://github.com/vercel-labs/agent-desktop/pull/519))
+* Accept `--stdin` for `type`, `set-value`, and `clipboard-set` to read UTF-8 text from a pipe or redirected file instead of a command-line argument. ([#373](https://github.com/vercel-labs/agent-desktop/pull/373))
+* On macOS, expose and select list rows whose selection can only be changed through their container. ([#503](https://github.com/vercel-labs/agent-desktop/pull/503))
+
+### Bug Fixes
+
+* Preserve partial snapshots and matched wait results when the observation deadline expires instead of failing while saving their refs. ([#372](https://github.com/vercel-labs/agent-desktop/pull/372))
+* On macOS, ignore exited apps in the workspace inventory instead of failing app discovery. ([#371](https://github.com/vercel-labs/agent-desktop/pull/371))
+* On macOS, draw the cursor overlay above menus and system panels. ([#511](https://github.com/vercel-labs/agent-desktop/pull/511))
+* On macOS, start the cursor overlay outside the caller's working directory so the overlay does not keep that directory in use. ([#381](https://github.com/vercel-labs/agent-desktop/pull/381))
+
+### Documentation
+
+* Document installation from Homebrew's default catalog with `brew install agent-desktop`. ([#524](https://github.com/vercel-labs/agent-desktop/pull/524))
+
 ## [1.1.0](https://github.com/vercel-labs/agent-desktop/compare/v1.0.2...v1.1.0) (2026-11-02)
 
 ### ⚠ BREAKING CHANGES

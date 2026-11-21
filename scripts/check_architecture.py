@@ -30,10 +30,10 @@ PLATFORM_FILES = {"lib.rs", "adapter.rs"}
 PLATFORM_OPTIONAL = {"adapter_tests.rs", "bin"}
 CORE_TOP_FILES = {"lib.rs"}
 CORE_DOMAINS = {"actionability", "actions", "adapter", "commands", "context", "cursor_overlay", "input",
-                "locator", "notifications", "ref_action", "refs", "response", "session", "snapshot",
-                "storage", "system", "trace", "tree", "wait"}
+                "locator", "notifications", "ref_action", "refs", "response", "sandbox", "session",
+                "snapshot", "storage", "system", "trace", "tree", "wait"}
 BINARY_TOP_FILES = {"main.rs", "Cargo.toml"}
-BINARY_DIRS = {"batch", "cli", "cli_args", "command_policy", "diagnostic", "dispatch",
+BINARY_DIRS = {"batch", "cli", "cli_args", "command_policy", "diagnostic", "dispatch", "mcp",
                "tests", "visual_debug"}
 CAPABILITY_HOMES = {
     "PlatformAdapter": ("adapter.rs",),
@@ -100,6 +100,19 @@ TEST_MODULE = re.compile(r"#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]\s*(?:pub(?:\s*\([^
 
 
 STR = re.compile(r"__S(\d+)__")
+
+PROVIDERS_DIR = "providers"
+PROVIDERS_SUFFIXES = {".sh", ".swift"}
+PROVIDERS_NETWORK = re.compile(
+    r"(?<![A-Za-z0-9_])(?:nc\s|socat|NWListener|NWConnection|AF_INET6?|PF_INET6?|sockaddr_in6?)(?![A-Za-z0-9_])")
+PROVIDERS_SOCKET = re.compile(r"(?<![A-Za-z0-9_])(?:socket\s*\(|listen\s*\(|bind\s*\(|VZVirtioSocket)")
+# A provider drives a desktop and serves nothing on a network. Only these files may hold a socket, and only the
+# local kind named beside them; a new entry is a review decision.
+PROVIDERS_SOCKET_ALLOWLIST = {
+    "providers/macos/vmhost.swift": "the machine's socket device, and a socket file in the sandbox for its owner",
+    "providers/macos/guestagent.swift": "the machine's socket device inside the guest, for the host alone",
+    "providers/macos/test-guest-channel.sh": "a socket file standing in for the machine's socket device in tests",
+}
 
 
 class Source:
@@ -220,6 +233,20 @@ def rs_files(root):
         for f in sorted(files):
             if f.endswith(".rs"):
                 yield os.path.join(base, f)
+
+
+def provider_files(root):
+    """Provider scripts under the top-level providers/ folder; none when it is absent."""
+    top = os.path.join(root, PROVIDERS_DIR)
+    if not os.path.isdir(top):
+        return []
+    found = []
+    for base, dirs, files in os.walk(top):
+        dirs[:] = sorted(d for d in dirs if d not in ("target", ".git", "node_modules"))
+        for f in sorted(files):
+            if os.path.splitext(f)[1] in PROVIDERS_SUFFIXES:
+                found.append(os.path.join(base, f))
+    return found
 
 
 def has_files(path):
@@ -391,6 +418,24 @@ def check(repo):
             err("G12", f"{rel} names {HOST_MARKER}, the marker of the removed command host")
     for stale in sorted(LISTENER_ALLOWLIST - serving):
         err("G12", f"LISTENER_ALLOWLIST lists {stale}, which no longer opens a listener")
+
+    provider_sockets = set()
+    for path in provider_files(repo):
+        rel = os.path.relpath(path, repo).replace(os.sep, "/")
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+        network = PROVIDERS_NETWORK.search(text)
+        local = PROVIDERS_SOCKET.search(text)
+        if network:
+            err("G12", f"{rel} reaches the network ({network.group(0).strip()}); a provider drives a desktop and "
+                       "serves nothing on a network")
+        if local and rel not in PROVIDERS_SOCKET_ALLOWLIST:
+            err("G12", f"{rel} opens a socket ({local.group(0).strip()}); a provider drives a desktop and "
+                       "serves nothing, so a socket here needs a PROVIDERS_SOCKET_ALLOWLIST entry in review")
+        if local:
+            provider_sockets.add(rel)
+    for stale in sorted(set(PROVIDERS_SOCKET_ALLOWLIST) - provider_sockets):
+        err("G12", f"PROVIDERS_SOCKET_ALLOWLIST lists {stale}, which no longer opens a socket")
 
     for p in PLATFORMS:
         if not os.path.exists(os.path.join(repo, "crates", p, "Cargo.toml")):
@@ -585,6 +630,10 @@ PLANTS = {
             ("crates/core/src/tree/mod.rs", "pub mod node;\n#[path = \"@ABS@/crates/core/src/input/mod.rs\"]\nmod misplaced;\n")],
 }
 PLANTS["G12"] = [
+    ("providers/macos/provider.sh", "#!/bin/sh\nsocat TCP-LISTEN:9000,fork EXEC:sh\n"),
+    ("providers/macos/vmhost.swift", "import Network\nlet l = try NWListener(using: .tcp)\n"),
+    ("providers/macos/vmhost.swift", "let d = VZVirtioSocketDeviceConfiguration()\n"),
+    ("providers/macos/guestagent.swift", "let fd = socket(AF_INET, SOCK_STREAM, 0)\n"),
     ("crates/macos/src/system/host.rs", "fn f() { let _ = std::os::unix::net::UnixListener::bind(\"/tmp/h.sock\"); }\n"),
     ("crates/core/src/system/host.rs", "fn f() { let _ = std::net::TcpListener::bind((\"127.0.0.1\", 0)); }\n"),
     ("crates/windows/src/system/host.rs", "fn f() { let _ = CreateNamedPipeW; }\n"),
@@ -596,9 +645,10 @@ SUPPORT = {"G2": {"crates/core/custom.rs": "fn main() {}\n"},
 
 def self_test():
     """Plant one violation per case in a minimal clean workspace; every case must fire, the clean tree must pass."""
-    global CORE_OS_ALLOWLIST, LISTENER_ALLOWLIST
+    global CORE_OS_ALLOWLIST, LISTENER_ALLOWLIST, PROVIDERS_SOCKET_ALLOWLIST
     saved = CORE_OS_ALLOWLIST
     saved_listeners = LISTENER_ALLOWLIST
+    saved_provider_sockets = PROVIDERS_SOCKET_ALLOWLIST
     tmp = tempfile.mkdtemp(prefix="arch-selftest-")
     try:
         def build(overrides):
@@ -620,6 +670,7 @@ def self_test():
 
         CORE_OS_ALLOWLIST = set()
         LISTENER_ALLOWLIST = set()
+        PROVIDERS_SOCKET_ALLOWLIST = {}
         build({})
         clean = check(tmp)
         if clean:
@@ -640,9 +691,15 @@ def self_test():
         build({})
         if not [e for e in check(tmp) if e.startswith("G12:") and "no longer" in e]:
             raise SystemExit("self-test: a stale LISTENER_ALLOWLIST entry was not reported")
+        LISTENER_ALLOWLIST = set()
+        PROVIDERS_SOCKET_ALLOWLIST = {"providers/macos/vmhost.swift": "self-test"}
+        build({})
+        if not [e for e in check(tmp) if e.startswith("G12:") and "no longer opens a socket" in e]:
+            raise SystemExit("self-test: a stale PROVIDERS_SOCKET_ALLOWLIST entry was not reported")
     finally:
         CORE_OS_ALLOWLIST = saved
         LISTENER_ALLOWLIST = saved_listeners
+        PROVIDERS_SOCKET_ALLOWLIST = saved_provider_sockets
         shutil.rmtree(tmp, ignore_errors=True)
 
 

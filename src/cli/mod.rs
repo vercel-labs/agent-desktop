@@ -20,6 +20,7 @@ use crate::cli_args::{
         DismissAllNotificationsCliArgs, DismissNotificationCliArgs, ListNotificationsCliArgs,
         NotificationActionCliArgs,
     },
+    sandbox::SandboxArgs,
     session::SessionArgs,
     skills::SkillsArgs,
     system::{
@@ -80,9 +81,9 @@ pub(crate) enum Commands {
     ScrollTo(RefArgs),
     #[command(about = "Send a key combo: return, escape, cmd+c, shift+tab ...")]
     Press(PressArgs),
-    #[command(about = "Hold a key or modifier down")]
+    #[command(about = "Hold a key or modifier down (fails closed in stateless mode; use press)")]
     KeyDown(KeyComboArgs),
-    #[command(about = "Release a held key or modifier")]
+    #[command(about = "Release a held key or modifier (fails closed in stateless mode; use press)")]
     KeyUp(KeyComboArgs),
     #[command(about = "Move cursor to element center or coordinates (requires --headed)")]
     Hover(HoverArgs),
@@ -166,6 +167,10 @@ pub(crate) enum Commands {
     CursorOverlay(CursorOverlayArgs),
     #[command(about = "Read merged session trace timelines")]
     Trace(TraceArgs),
+    #[command(
+        about = "Install providers and create, run, and remove local sandboxes (install, create, start, stop, status, list, rm, exec)"
+    )]
+    Sandbox(SandboxArgs),
 }
 
 #[derive(Clone, Copy)]
@@ -248,6 +253,7 @@ impl Commands {
             Self::Session(_) => CommandMetadata::new("session", false),
             Self::CursorOverlay(_) => CommandMetadata::new("cursor-overlay", false),
             Self::Trace(_) => CommandMetadata::new("trace", false),
+            Self::Sandbox(_) => CommandMetadata::new("sandbox", false),
         }
     }
 
@@ -309,6 +315,11 @@ impl Commands {
                 !matches!(&args.action, crate::cli_args::session::SessionAction::List)
             }
             Self::CursorOverlay(_) => true,
+            Self::Sandbox(args) => !matches!(
+                &args.action,
+                crate::cli_args::sandbox::SandboxActionCli::List
+                    | crate::cli_args::sandbox::SandboxActionCli::Status(_)
+            ),
             Self::Trace(args) => {
                 matches!(&args.action, crate::cli_args::trace::TraceAction::Export(_))
             }
