@@ -125,11 +125,11 @@ Global flags given to `mcp`, such as `--session`, `--headed` or `--trace`, apply
 
 ## Commands
 
-agent-desktop has 61 command names, 57 operational commands. The other four (`key-down`, `key-up`, `mouse-down`, `mouse-up`) refuse to run until a daemon can release a held key or button. [Commands](https://agent-browser.dev/desktop/commands) documents each one.
+agent-desktop has 62 command names, 58 operational commands. The other four (`key-down`, `key-up`, `mouse-down`, `mouse-up`) refuse to run until a daemon can release a held key or button. [Commands](https://agent-browser.dev/desktop/commands) documents each one.
 
 | Group | Commands |
 |---|---|
-| Observe | `snapshot`, `find`, `get`, `is`, `screenshot`, `list-surfaces` |
+| Observe | `snapshot`, `find`, `element-at`, `get`, `is`, `screenshot`, `list-surfaces` |
 | Act on a ref | `click`, `double-click`, `triple-click`, `right-click`, `type`, `set-value`, `clear`, `focus`, `select`, `toggle`, `check`, `uncheck`, `expand`, `collapse`, `scroll`, `scroll-to` |
 | Keyboard and mouse | `press`, `hover`, `drag`, `mouse-move`, `mouse-click`, `mouse-wheel`, `key-down`, `key-up`, `mouse-down`, `mouse-up` |
 | Apps and windows | `launch`, `close-app`, `list-apps`, `list-windows`, `list-displays`, `focus-window`, `resize-window`, `move-window`, `minimize`, `maximize`, `restore`, `open-system-surface` |
