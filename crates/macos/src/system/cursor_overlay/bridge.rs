@@ -159,6 +159,7 @@ pub(super) fn run(
     poses: &[CursorPose],
     fps: u32,
     instruction: &CursorOverlayInstruction,
+    highlight: bool,
     reduce_motion: bool,
     screen: &Rect,
 ) -> Result<(), AdapterError> {
@@ -189,17 +190,10 @@ pub(super) fn run(
             let placed = place_label(anchor, pill.size(), screen);
             [placed.x, placed.y, placed.width, placed.height]
         });
-    let mut flags = 0;
-    if reduce_motion {
-        flags |= REDUCE_MOTION;
-    }
     let target = instruction
         .target()
         .map(|rect| [rect.x, rect.y, rect.width, rect.height]);
-    if target.is_some() {
-        flags |= HIGHLIGHT;
-    }
-    flags |= pointer_flags(instruction);
+    let flags = render_flags(instruction, highlight, reduce_motion);
     let config = NativeRenderConfig {
         frame_seconds: 1.0 / f64::from(fps),
         label: label
@@ -232,6 +226,23 @@ pub(super) fn apply_style(style: &CursorOverlayStyle, image_changed: bool) {
         apply_image(ARROW_SLOT, style.image());
         apply_image(POINTER_SLOT, style.pointer_image());
     }
+}
+
+/// The target's bounds always reach the renderer, which keeps the pointing hand over a clicked
+/// control; `HIGHLIGHT` only asks it to outline them.
+fn render_flags(
+    instruction: &CursorOverlayInstruction,
+    highlight: bool,
+    reduce_motion: bool,
+) -> u8 {
+    let mut flags = pointer_flags(instruction);
+    if reduce_motion {
+        flags |= REDUCE_MOTION;
+    }
+    if highlight && instruction.target().is_some() {
+        flags |= HIGHLIGHT;
+    }
+    flags
 }
 
 fn pointer_flags(instruction: &CursorOverlayInstruction) -> u8 {
