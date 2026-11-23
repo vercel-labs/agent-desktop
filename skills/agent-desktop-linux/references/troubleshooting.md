@@ -182,8 +182,10 @@ D-Bus or X11 error.
   `mouse-down` and `mouse-up` are `POLICY_DENIED`, `not_delivered`, headless and
   `ACTION_NOT_SUPPORTED` with `--headed`. No event is sent. Use `press` with
   modifiers and `drag`.
-- `cursor-overlay` on Wayland: succeeds as a setting only. `enable` returns
-  `data.rendered: false` and no overlay is drawn, so do not wait for one.
+- `cursor-overlay` on Wayland without the agent-desktop GNOME Shell extension:
+  succeeds as a setting only. `enable` returns `data.rendered: false` and no
+  overlay is drawn, so do not wait for one. The SKILL.md section on the GNOME
+  Wayland extension shows how to install it.
 - `open-system-surface --surface taskbar`: `INVALID_ARGS`. Use the
   advertised GNOME surfaces; see `references/shell-tray-and-notifications.md`.
 - Ordinary app pointer commands and window screenshots on Wayland. Shell ref

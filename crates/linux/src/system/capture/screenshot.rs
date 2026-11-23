@@ -110,7 +110,11 @@ fn with_env<T>(
     };
     match route {
         Route::X11(display) => cursor_overlay::with_hidden(display, deadline, || run(&env)),
-        Route::Wayland => run(&env),
+        Route::Wayland => {
+            crate::system::shell::extension::extension_cursor::with_concealed(deadline, || {
+                run(&env)
+            })
+        }
     }
 }
 

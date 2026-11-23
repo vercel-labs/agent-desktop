@@ -23,6 +23,7 @@ A stale `WAYLAND_DISPLAY` from another session falls through to a working
 | `focus-window`, headed scoped `press` | EWMH activation, then keys for `press` | Refused with `ACTION_NOT_SUPPORTED`, cause `wayland_session`, Xwayland clients included |
 | Headless scoped `press` | Live display and frame focus guards, no activation | Live frame focus guard, no activation |
 | `screenshot` | Window or display; primary display by default | Portal consent; primary display by default, `--screen` picks a monitor |
+| Screen positions: `bounds`, `list-windows`, cursor overlay | The toolkit's own, or the X11 client origin | Only with the agent-desktop GNOME Shell extension: without it, GTK 4 nodes have no bounds, GTK 3, Qt and Chromium bounds are window-relative, and Xwayland bounds are X11 coordinates, which a fractional monitor scale multiplies (by 2 at 125%) |
 | Clipboard | Native selection owner | `wl-clipboard` |
 | GNOME Shell ref click, popup opener | `--headed`, receiver proof from the shell's own tree | Ref click refused with `wayland_session`, popup opener refused as unproven; see shell reference |
 
