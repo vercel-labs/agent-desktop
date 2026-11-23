@@ -33,7 +33,7 @@ Global flags work before or after the command name, so `agent-desktop --headed c
 
 `--wait-for`, `--wait-for-gone`, and `--wait-timeout` make a command wait for the UI to show its effect. The command runs first; then the flag polls the accessibility tree until the selector is satisfied or the timeout ends. [Waiting without sleeps](/desktop/guides/waiting) compares them with the [`wait`](/desktop/commands/wait) command.
 
-**Selector.** `role:text`, split at the first `:`. `button` matches by role, `:Saved` by text, and `button:Save` by both. Text is a case-insensitive substring of an element's name, value, or description. An empty selector returns `INVALID_ARGS` before the command runs.
+**Selector.** `role:text`, split at the first `:`. `button` matches by role, `:Saved` by text, and `button:Save` by both. Text is a substring of an element's name, value, or description, compared without case or accents. An empty selector returns `INVALID_ARGS` before the command runs.
 
 **Commands that accept them.** `snapshot`, `press`, `hover`, `drag`, and every ref action (`click`, `double-click`, `triple-click`, `right-click`, `type`, `set-value`, `clear`, `focus`, `select`, `toggle`, `check`, `uncheck`, `expand`, `collapse`, `scroll`, `scroll-to`). Every other command returns `INVALID_ARGS`. `snapshot --root` cannot combine with them, and a `batch` entry never inherits them.
 

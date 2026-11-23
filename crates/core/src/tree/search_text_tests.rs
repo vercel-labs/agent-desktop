@@ -29,10 +29,23 @@ fn contains_uses_ascii_fast_path_case_insensitively() {
 #[test]
 fn contains_handles_non_ascii_text() {
     assert!(contains("Résumé", &normalize("rés")));
-    assert_eq!(
-        normalize("  SAVE\tAs\n \u{200e}İ\u{a0}Σ  "),
-        "save as i\u{307} σ"
-    );
+    assert_eq!(normalize("  SAVE\tAs\n \u{200e}İ\u{a0}Σ  "), "save as i σ");
+}
+
+#[test]
+fn matching_ignores_accents_in_either_unicode_form() {
+    let composed = "Sin t\u{ed}tulo";
+    let decomposed = "Sin ti\u{301}tulo";
+    assert_eq!(normalize(composed), normalize(decomposed));
+    assert_eq!(normalize(decomposed), "sin titulo");
+    assert!(contains(
+        "Configuraci\u{f3}n del Sistema",
+        &normalize("configuracion")
+    ));
+    assert!(contains("Bater\u{ed}a", &normalize("bateri")));
+    assert!(contains("A\u{f1}o nuevo", &normalize("ano")));
+    assert!(contains("Pingu\u{308}ino", &normalize("pingüino")));
+    assert!(!contains("Bater\u{ed}a", &normalize("bateo")));
 }
 
 #[test]
