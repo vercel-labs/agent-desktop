@@ -19,6 +19,7 @@ pub enum ErrorCode {
     SandboxNotFound,
     PolicyDenied,
     AppUnresponsive,
+    TreeTooLarge,
     Internal,
 }
 
@@ -41,6 +42,7 @@ impl ErrorCode {
             Self::SandboxNotFound => "SANDBOX_NOT_FOUND",
             Self::PolicyDenied => "POLICY_DENIED",
             Self::AppUnresponsive => "APP_UNRESPONSIVE",
+            Self::TreeTooLarge => "TREE_TOO_LARGE",
             Self::Internal => "INTERNAL",
         }
     }
