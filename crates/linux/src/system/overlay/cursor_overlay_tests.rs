@@ -25,7 +25,7 @@ fn a_wayland_cursor_refusal_is_explicit_without_x11_fallback() {
         );
         let details = error.details.expect("explicit overlay state");
         assert_eq!(details["rendered"], false);
-        assert_eq!(details["cause"], "wayland_session");
+        assert_eq!(details["cause"], "shell_extension_absent");
         return;
     }
     let path = std::env::current_dir()
@@ -37,6 +37,10 @@ fn a_wayland_cursor_refusal_is_explicit_without_x11_fallback() {
         .args(["--exact", FILTER, "--nocapture"])
         .env(CHILD, "1")
         .env("WAYLAND_DISPLAY", &path)
+        .env(
+            "DBUS_SESSION_BUS_ADDRESS",
+            format!("unix:path={}.bus", path.display()),
+        )
         .output()
         .unwrap();
     drop(listener);

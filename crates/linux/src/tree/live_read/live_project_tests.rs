@@ -245,6 +245,17 @@ fn a_shown_node_of_a_mapped_wayland_frame_is_on_screen_and_not_hidden_with_no_re
 }
 
 #[test]
+fn a_shown_node_keeps_the_mapped_wayland_claim_when_the_shell_places_its_window() {
+    let read = with_states(
+        read_of(PUSH_BUTTON, "b", &[]),
+        &[VISIBLE, SHOWING, SENSITIVE],
+    );
+    let projected = state_in(&read, &wayland_placement().placed_by_shell((311, 187)));
+    assert_eq!(projected.offscreen, Some(false));
+    assert_eq!(projected.hidden, Some(false));
+}
+
+#[test]
 fn a_wayland_frame_with_unread_state_does_not_prove_visibility() {
     let read = with_states(
         read_of(PUSH_BUTTON, "b", &[]),

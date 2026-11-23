@@ -42,6 +42,8 @@ const benign = scan({
     "org.gnome.Shell@wayland.service",
     "user@1000.service",
     "ubuntu-appindicators@ubuntu.com",
+    "agent-desktop@agent-browser.dev",
+    "agent-desktop@agent-browser.dev.shell-extension.zip",
     "noreply@github.com",
     "12345+agent@users.noreply.github.com",
     "secret@router.example",

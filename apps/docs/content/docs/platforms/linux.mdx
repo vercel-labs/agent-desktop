@@ -75,9 +75,29 @@ Ref actions are semantic AT-SPI calls that never move the pointer or change the 
     <tr><td>Wait</td><td>All modes; <code>--notification</code> on GNOME</td><td></td><td></td></tr>
     <tr><td>Notifications</td><td><code>list-notifications</code>, even with the list closed</td><td>Every dismiss and action, on X11</td><td>GNOME Shell only; otherwise <code>PLATFORM_NOT_SUPPORTED</code></td></tr>
     <tr><td>Shell surfaces</td><td><code>snapshot --surface system-tray</code> with a StatusNotifierWatcher</td><td><code>open-system-surface</code> for <code>action-center</code>, and for <code>system-tray</code> when a StatusNotifierWatcher is present</td><td><code>quick-settings</code>, <code>taskbar</code>, <code>start-menu</code>, and <code>system-tray-overflow</code> refuse</td></tr>
-    <tr><td>System</td><td><code>status</code>, <code>permissions</code>, <code>version</code>, <code>batch</code>, <code>skills</code>, <code>session</code>, <code>trace</code>, <code>cursor-overlay</code></td><td></td><td>Wayland: the overlay setting saves with <code>rendered: false</code></td></tr>
+    <tr><td>System</td><td><code>status</code>, <code>permissions</code>, <code>version</code>, <code>batch</code>, <code>skills</code>, <code>session</code>, <code>trace</code>, <code>cursor-overlay</code></td><td></td><td>Wayland without the agent-desktop GNOME Shell extension: the overlay setting saves with <code>rendered: false</code></td></tr>
   </tbody>
 </table>
+
+## GNOME Wayland extension
+
+A Wayland client cannot draw above other windows or read where they sit, so on GNOME Wayland the cursor overlay and screen positions need the `agent-desktop@agent-browser.dev` GNOME Shell extension. With it enabled, `cursor-overlay enable` returns `rendered: true`, and the overlay travels, ripples, outlines and labels as on macOS and Windows, including custom cursor images; with GNOME animations turned off the cursor jumps to each target. After `type` or `set-value` it draws the typing caret in a native Wayland window and moves it after a `press`, except in a GTK 4 entry, which reports no character positions. No caret is drawn over an Xwayland window or in an X11 session. `snapshot --include-bounds`, `get`, and `list-windows` report screen positions for native Wayland windows, and `screenshot` hides the cursors while it captures. Without it, GTK 4 nodes have no bounds, and GTK 3, Qt, and Chromium bounds are relative to their own window. Pointer commands stay refused on Wayland either way.
+
+Install it from the source of the release you run, then log out and back in, because GNOME Shell loads a newly installed extension only at login:
+
+```bash
+git clone --depth 1 --branch "v$(agent-desktop --version | cut -d' ' -f2)" https://github.com/vercel-labs/agent-desktop
+gnome-extensions pack --force agent-desktop/crates/linux/gnome-shell-extension/agent-desktop@agent-browser.dev
+gnome-extensions install --force agent-desktop@agent-browser.dev.shell-extension.zip
+```
+
+After you log back in, enable it:
+
+```bash
+gnome-extensions enable agent-desktop@agent-browser.dev
+```
+
+A CLI and an extension from different releases can speak different protocol versions; the overlay then stays `rendered: false`. Install the extension from the matching release.
 
 ## App naming
 

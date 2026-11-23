@@ -17,6 +17,7 @@ pub(crate) use element::atspi_element;
 pub(crate) use element::child_list::list_children;
 pub(crate) use element::raw_node::{ChildAddress, RawNode};
 pub(crate) use hit_test::hit_test;
+pub(crate) use live_read::live_caret::{get_focused_insertion_caret, get_insertion_caret};
 pub(crate) use live_read::{
     get_element_bounds, get_live_actions, get_live_element, get_live_state, get_live_value,
 };
