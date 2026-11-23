@@ -109,8 +109,16 @@ fn with_env<T>(
         stopped: crate::system::process::proc_stat::is_stopped,
     };
     match route {
-        Route::X11(display) => cursor_overlay::with_hidden(display, deadline, || run(&env)),
-        Route::Wayland => run(&env),
+        Route::X11(display) => {
+            crate::system::overlay::renderer::client::with_concealed(display, deadline, || {
+                cursor_overlay::with_hidden(display, deadline, || run(&env))
+            })
+        }
+        Route::Wayland => {
+            crate::system::shell::extension::extension_cursor::with_concealed(deadline, || {
+                run(&env)
+            })
+        }
     }
 }
 

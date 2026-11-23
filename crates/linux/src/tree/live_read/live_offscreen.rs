@@ -14,6 +14,7 @@ use crate::system::x11::{self, DisplayReader, FrameFacts, MonitorReader, Monitor
 use crate::system::{ACCESSIBLE_INTERFACE, REGISTRY_ROOT_PATH, SharedBus, shell, within};
 use crate::tree::placement::Placement;
 use crate::tree::placement::offscreen::{OffscreenInput, offscreen};
+use crate::tree::placement::shell_place::ShellPlace;
 use crate::tree::properties::liveness::Liveness;
 use crate::tree::properties::node_read::{call, get_one, string_value};
 use crate::tree::properties::toolkit_trust::{read_toolkit, reports_global_position};
@@ -59,9 +60,17 @@ pub(crate) fn toolkit_of(bus: &SharedBus, element: &AtspiElement, deadline: Dead
 }
 
 /// Whether the application of `element` reports screen positions that are
-/// global.
+/// stage positions. A window the GNOME Shell extension places never does,
+/// whatever its toolkit claims: a native Wayland client cannot know where it
+/// sits, and an Xwayland client reports X11 coordinates.
 pub(crate) fn global_position(bus: &SharedBus, element: &AtspiElement, deadline: Deadline) -> bool {
     reports_global_position(&toolkit_of(bus, element, deadline))
+        && shell_place(bus, element, deadline).is_none()
+}
+
+fn shell_place(bus: &SharedBus, element: &AtspiElement, deadline: Deadline) -> Option<ShellPlace> {
+    let connection = bus.get(deadline).ok()?;
+    crate::tree::placement::shell_space::frame_place(connection.inner(), element, deadline)
 }
 
 /// The frame's iconified bit, title and screen extents. A missing or unreadable
@@ -149,6 +158,9 @@ fn place(bus: &SharedBus, element: &AtspiElement, deadline: Deadline) -> Placeme
         return placed;
     };
     placed.frame_iconified = read.iconified;
+    if let Some(shell) = shell_place(bus, element, deadline) {
+        return placed.placed_by_shell(shell);
+    }
     if element.is_menu_target()
         && matches!(
             read.role,

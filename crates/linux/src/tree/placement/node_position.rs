@@ -3,6 +3,8 @@ use agent_desktop_core::BoundsSpace;
 use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
 
 use super::frame_geometry::{pointer_bounds, popup_origin};
+use super::shell_place::ShellPlace;
+use super::shell_space::{frame_place, map_read, place_read};
 use crate::system::process::toolkit_id::ToolkitId;
 use crate::system::window::window_position::{origin_of_client, rect_of_client};
 use crate::system::x11::map::ClientMatch;
@@ -223,12 +225,32 @@ fn place_of(
     })
 }
 
-/// Puts the node rectangles of a finished walk where a pointer can be aimed
-/// when the application's toolkit reports no global position. A toolkit with
-/// global positions is left as read. Anything else gets its window-coordinate
-/// rectangles moved to the window's X11 client origin, the window itself gets
-/// the rectangle its client draws, and the rectangles it cannot place are
-/// dropped.
+/// Moves every placed node of a native Wayland window from its
+/// window-coordinate rectangle to `origin`.
+fn place_native_walk(
+    connection: &zbus::Connection,
+    walk: &mut Walk<ObservedRead>,
+    origin: (i32, i32),
+    deadline: Deadline,
+) -> Result<(), AdapterError> {
+    let elements = placed_elements(&mut walk.root);
+    let windows = geometry_or_unknown(within(deadline, window_rectangles(connection, &elements)))?;
+    let mut next = windows.iter();
+    for_each_read(&mut walk.root, &mut |read| {
+        if read.node.extents.present().copied().is_none_or(is_sentinel) {
+            return;
+        }
+        place_read(read, origin, next.next().copied().flatten());
+    });
+    Ok(())
+}
+
+/// Puts the node rectangles of a finished walk where a pointer can be aimed.
+/// A window the GNOME Shell extension places takes its stage rectangles. A
+/// toolkit with global positions is otherwise left as read. Anything else
+/// gets its window-coordinate rectangles moved to the window's X11 client
+/// origin, the window itself gets the rectangle its client draws, and the
+/// rectangles it cannot place are dropped.
 pub(crate) fn place_nodes(
     bus: &SharedBus,
     walk: &mut Walk<ObservedRead>,
@@ -247,6 +269,17 @@ pub(crate) fn place_nodes(
         Err(error) => return Err(error),
     };
     let app_root = AtspiElement::new(element.bus_name(), REGISTRY_ROOT_PATH, element.pid());
+    match frame_place(connection.inner(), &element, deadline) {
+        Some(ShellPlace::Xwayland(map)) => {
+            for_each_read(&mut walk.root, &mut |read| map_read(read, map));
+            return Ok(());
+        }
+        Some(ShellPlace::Native(origin)) => {
+            place_native_walk(connection.inner(), walk, origin, deadline)?;
+            return Ok(());
+        }
+        None => {}
+    }
     let toolkit = geometry_or_unknown(within(
         deadline,
         read_toolkit(connection.inner(), &app_root),
@@ -293,6 +326,21 @@ pub(crate) fn place_single(
         }
         Err(error) => return Err(error),
     };
+    match frame_place(connection.inner(), &element, deadline) {
+        Some(ShellPlace::Xwayland(map)) => {
+            map_read(read, map);
+            return Ok(());
+        }
+        Some(ShellPlace::Native(origin)) => {
+            let window = geometry_or_unknown(within(
+                deadline,
+                read_window_extents_async(connection.inner(), &element),
+            ))?;
+            place_read(read, origin, window);
+            return Ok(());
+        }
+        None => {}
+    }
     let app_root = AtspiElement::new(element.bus_name(), REGISTRY_ROOT_PATH, element.pid());
     let toolkit = geometry_or_unknown(within(
         deadline,

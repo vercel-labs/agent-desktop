@@ -1,25 +1,30 @@
-//! A session-scoped X11 overlay retained by the server between adapter calls.
+//! The cursor overlay's entry point. On X11 the renderer process draws it;
+//! a process that cannot start the renderer, such as an FFI host, falls back
+//! to a static cursor window retained by the server between adapter calls.
+//! On Wayland the GNOME Shell extension draws the overlay.
 use x11rb::connection::Connection;
 use x11rb::protocol::shape::{ConnectionExt as _, SK};
 use x11rb::protocol::xproto::*;
 
-use agent_desktop_core::{AdapterError, CursorOverlayControl, Deadline, FileLock};
+use agent_desktop_core::{AdapterError, CursorOverlayControl, CursorPhase, Deadline, FileLock};
 
 #[path = "cursor_overlay_capture.rs"]
 mod capture;
 #[path = "cursor_overlay_draw.rs"]
 mod draw;
 #[path = "cursor_overlay_visual.rs"]
-mod visual;
+pub(super) mod visual;
 
 pub(crate) use capture::with_hidden;
 
-fn error(detail: impl std::fmt::Display) -> AdapterError {
+pub(super) fn error(detail: impl std::fmt::Display) -> AdapterError {
     AdapterError::internal("The X11 cursor overlay could not be updated")
         .with_platform_detail(detail.to_string())
 }
 
-fn connect(display: &str) -> Result<(x11rb::rust_connection::RustConnection, usize), AdapterError> {
+pub(super) fn connect(
+    display: &str,
+) -> Result<(x11rb::rust_connection::RustConnection, usize), AdapterError> {
     let (connection, root) = crate::system::x11::control_display::open(display)
         .ok_or_else(|| error("The display did not answer the cursor connection"))?;
     let index = connection
@@ -37,10 +42,25 @@ pub(crate) fn update(control: &CursorOverlayControl) -> Result<(), AdapterError>
     let display = match crate::system::display::display_server::require(deadline)? {
         crate::system::display::route::Route::X11(display) => display,
         crate::system::display::route::Route::Wayland => {
-            return Err(AdapterError::not_supported("cursor overlay on Wayland")
-                .with_details(serde_json::json!({"rendered": false, "cause": "wayland_session"})));
+            return crate::system::shell::extension::extension_cursor::update_cursor(
+                control, deadline,
+            );
         }
     };
+    if super::renderer::client::update_cursor(&display, control, deadline)?.is_ok() {
+        return Ok(());
+    }
+    if control.instruction().is_some_and(|instruction| {
+        matches!(
+            instruction.phase(),
+            CursorPhase::Caret | CursorPhase::CaretFollow
+        )
+    }) {
+        return Err(AdapterError::not_supported(
+            "typing caret on the in-process X11 cursor overlay",
+        )
+        .with_suggestion("Run the agent-desktop CLI, which starts the X11 cursor renderer"));
+    }
     let root = agent_desktop_core::session::agent_desktop_dir().map_err(error)?;
     let _lock = FileLock::acquire(
         &root.join(".x11-cursor.lock"),
@@ -61,7 +81,10 @@ mod tests;
 #[path = "cursor_overlay_cli_tests.rs"]
 mod cli_tests;
 
-const OWNER: &[u8] = b"_AGENT_DESKTOP_CURSOR_OWNER";
+pub(super) const OWNER: &[u8] = b"_AGENT_DESKTOP_CURSOR_OWNER";
+/// Marks a window the renderer process draws, which the in-process overlay
+/// and the renderer's sweep of left-behind windows both leave alone.
+pub(super) const RENDERER: &[u8] = b"_AGENT_DESKTOP_CURSOR_RENDERER";
 
 pub(in crate::system) fn is_overlay(
     connection: &x11rb::rust_connection::RustConnection,
@@ -108,6 +131,12 @@ fn apply(display: &str, control: &CursorOverlayControl) -> Result<(), AdapterErr
         .reply()
         .map_err(error)?
         .atom;
+    let renderer = connection
+        .intern_atom(false, RENDERER)
+        .map_err(error)?
+        .reply()
+        .map_err(error)?
+        .atom;
     let mut found = false;
     for window in connection
         .query_tree(root)
@@ -121,6 +150,14 @@ fn apply(display: &str, control: &CursorOverlayControl) -> Result<(), AdapterErr
             .map_err(error)?
             .reply();
         let Ok(property) = property else { continue };
+        let drawn_by_renderer = connection
+            .get_property(false, window, renderer, AtomEnum::ANY, 0, 0)
+            .map_err(error)?
+            .reply()
+            .is_ok_and(|reply| reply.type_ != x11rb::NONE);
+        if drawn_by_renderer {
+            continue;
+        }
         let Ok((session, agent)) =
             serde_json::from_slice::<(String, Option<String>)>(&property.value)
         else {

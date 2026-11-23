@@ -13,6 +13,9 @@ pub trait SystemOps: Send + Sync {
         Err(AdapterError::not_supported("update_cursor_overlay"))
     }
 
+    /// Called by the CLI before it parses its arguments, and by no other
+    /// host. `Some` when this process was started as the cursor overlay's
+    /// renderer: the adapter runs it and gives back how it ended.
     fn run_cursor_overlay_child(&self) -> Option<Result<(), AdapterError>> {
         None
     }

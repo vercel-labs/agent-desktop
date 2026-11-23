@@ -88,6 +88,7 @@ CORE_OS_ALLOWLIST = {
 # is a review decision. Test files and inline test modules are not scanned.
 LISTENER_ALLOWLIST = {
     "crates/core/src/system/cdp_endpoint.rs",
+    "crates/linux/src/system/overlay/renderer/child.rs",
     "crates/macos/src/system/cursor_overlay/child.rs",
     "crates/windows/src/system/cursor_overlay/server.rs",
 }

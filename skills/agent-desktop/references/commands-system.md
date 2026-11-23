@@ -197,18 +197,18 @@ On macOS:
 - `--travel-ms MIN,MAX` needs `30 ≤ MIN ≤ MAX`. Travel max plus `--dwell-ms` must be at most 700 ms, or the command returns `INVALID_ARGS`.
 - Reduce Motion skips travel and dwell. Physical headed drags keep their own motion.
 
-On macOS and Windows:
+On macOS, Windows, and X11:
 
-- The label is a black pill with white text in the system font (SF Pro on macOS, Segoe UI on Windows), sized to the text and set below and right of the cursor's tip. A label wider than 360 pt is cut with an ellipsis, and an empty label shows no pill.
+- The label is a black pill with white text in the system font (SF Pro on macOS, Segoe UI on Windows, the semibold sans-serif fontconfig picks on X11), sized to the text and set below and right of the cursor's tip. A label wider than 360 pt is cut with an ellipsis, and an empty label shows no pill.
 - `--accent` colours the cursor body as well as the ripple, the element outline and the caret; `--fill` gives the body a different colour.
 - `--image` and `--pointer-image` take a PNG of at most 2 MiB and 1024 pixels per side, drawn at `--size` with the hotspot on the point the cursor targets. Relative paths resolve at `enable`. `--fill` and `--rim` conflict with `--image`. A missing or invalid image falls back to the arrow. With `--image`, `enable` draws no greeting.
 - The pointer image shows on arrival at a pressable control. Text fields keep the arrow.
 
 Windows accepts the motion settings but keeps its built-in motion.
 
-On macOS and Windows, after `type` or `set-value` lands, the overlay draws the agent's caret, a thin bar in the accent color, at the field's insertion point and leaves the element outline off. `type --interval-ms` moves the caret with each keystroke while the cursor stays put. A field that reports no insertion point keeps the outline and gets no caret. The caret goes away when the cursor sets off for somewhere else, and stays for another `type` into the same field. After `press` delivers, a caret that is showing moves to the focused field's new insertion point, or disappears when the focused element has none. `type` plays the click ripple only when its field does not already have keyboard focus.
+On macOS, Windows, X11, and GNOME Wayland with the agent-desktop extension, after `type` or `set-value` lands, the overlay draws the agent's caret, a thin bar in the accent color, at the field's insertion point and leaves the element outline off. `type --interval-ms` moves the caret with each keystroke while the cursor stays put. A field that reports no insertion point keeps the outline and gets no caret. The caret goes away when the cursor sets off for somewhere else, and stays for another `type` into the same field. After `press` delivers, a caret that is showing moves to the focused field's new insertion point, or disappears when the focused element has none. `type` plays the click ripple only when its field does not already have keyboard focus.
 
-Multi-agent cursors (macOS and Windows): start with `session start --cursor --multi-agent`, then pass the returned session id to every subagent.
+Multi-agent cursors (macOS, Windows, X11, and GNOME Wayland with the agent-desktop extension): start with `session start --cursor --multi-agent`, then pass the returned session id to every subagent.
 
 - Desktop UI actions then require an agent id: global `--agent-id <id>` or `AGENT_DESKTOP_AGENT_ID`. The flag wins. Observations, clipboard commands and session administration do not need one.
 - An id has 1 to 64 letters, digits, `-` or `_`. It is scoped by session. Each distinct id gets its own cursor, and a reused id reuses its cursor.

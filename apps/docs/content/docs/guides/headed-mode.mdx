@@ -87,4 +87,4 @@ A headless failure usually means the semantic path is missing or the UI changed.
 
 ## See where actions land
 
-The agent cursor overlay draws a cursor, a ripple, and an element highlight where each action lands. It is presentation only and never changes what an action does. Enable it once per session with `session start --cursor` or `cursor-overlay enable`; a headed command hides it while it dispatches real input. See [`cursor-overlay`](/desktop/commands/system#cursor-overlay).
+The agent cursor overlay draws a cursor, a ripple, and an element highlight where each action lands. It is presentation only and never changes what an action does. Enable it once per session with `session start --cursor` or `cursor-overlay enable`; on Windows a headed command hides it while it dispatches real input. On macOS and Linux the cursor stays where it last landed, and its next move starts from there. See [`cursor-overlay`](/desktop/commands/system#cursor-overlay).
