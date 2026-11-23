@@ -80,6 +80,7 @@ Errors specific to `launch`:
     <tr><td><code>APP_NOT_FOUND</code></td><td>The name does not resolve to an app.</td></tr>
     <tr><td><code>AMBIGUOUS_TARGET</code></td><td>Several running instances match.</td></tr>
     <tr><td><code>APP_UNRESPONSIVE</code></td><td>The process exited before it showed a window.</td></tr>
+    <tr><td><code>ACTION_NOT_SUPPORTED</code></td><td>macOS: <code>--arg</code> or <code>--env</code> on an app that is already running, without <code>--no-attach</code>. An attached instance never receives them. Drop them to attach, or pass <code>--no-attach</code> to start a second instance.</td></tr>
     <tr><td><code>ACTION_FAILED</code>, <code>details.kind: cdp_requires_fresh_launch</code></td><td><code>--cdp</code> on an app that is already running. <code>launch</code> never quits a running app for you; run <code>close-app</code>, then launch again.</td></tr>
     <tr><td><code>INVALID_ARGS</code>, <code>details.kind: cdp_port_in_use</code> or <code>cdp_switch_conflict</code></td><td>The named port is bound, or an <code>--arg</code> sets a remote-debugging switch that <code>--cdp</code> owns.</td></tr>
     <tr><td><code>ACTION_FAILED</code>, <code>details.kind: cdp_endpoint_unavailable</code></td><td>The app started but no verified DevTools endpoint answered. The app stays running.</td></tr>

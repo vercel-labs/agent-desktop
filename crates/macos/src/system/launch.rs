@@ -4,9 +4,8 @@ use agent_desktop_core::{
 };
 use std::time::{Duration, Instant};
 
-const MAX_ARGUMENT_COUNT: usize = 256;
-const MAX_ENVIRONMENT_COUNT: usize = 256;
-const MAX_LAUNCH_TEXT_BYTES: usize = 1024 * 1024;
+use super::launch_validation::{validate_attach_options, validate_launch_options};
+
 const STARTUP_GRACE: Duration = Duration::from_millis(1500);
 
 enum LaunchTarget {
@@ -29,6 +28,7 @@ pub(crate) fn launch_app_impl(
     };
     ensure_launch_budget(deadline, id).map_err(before_launch)?;
     let initial = matching_apps(id, deadline).map_err(before_launch)?;
+    validate_attach_options(options, &initial).map_err(before_launch)?;
     if options.attach_if_running && initial.len() == 1 && !options.activate {
         let app = initial[0].clone();
         let instance = required_instance(&app).map_err(before_launch)?;
@@ -338,42 +338,6 @@ fn validate_app_identifier(id: &str) -> Result<(), AdapterError> {
         )
         .with_details(serde_json::json!({ "app_name": id }))
         .with_suggestion("Use an app name like 'Safari' or bundle ID like 'com.apple.Safari'."));
-    }
-    Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn validate_launch_options(options: &LaunchOptions) -> Result<(), AdapterError> {
-    if options.cwd.is_some() {
-        return Err(AdapterError::new(
-            ErrorCode::ActionNotSupported,
-            "macOS Launch Services does not support an exact launch working directory",
-        )
-        .with_suggestion("Remove --cwd, or start the app through a dedicated launcher script"));
-    }
-    if options.args.len() > MAX_ARGUMENT_COUNT || options.env.len() > MAX_ENVIRONMENT_COUNT {
-        return Err(AdapterError::new(
-            ErrorCode::InvalidArgs,
-            "Launch argument or environment entry count exceeds the supported limit",
-        ));
-    }
-    let text_bytes = options
-        .args
-        .iter()
-        .map(String::len)
-        .chain(
-            options
-                .env
-                .iter()
-                .map(|(key, value)| key.len() + value.len()),
-        )
-        .try_fold(0_usize, usize::checked_add)
-        .ok_or_else(|| AdapterError::new(ErrorCode::InvalidArgs, "Launch options are too large"))?;
-    if text_bytes > MAX_LAUNCH_TEXT_BYTES {
-        return Err(AdapterError::new(
-            ErrorCode::InvalidArgs,
-            "Launch argument and environment data exceeds one MiB",
-        ));
     }
     Ok(())
 }
