@@ -135,8 +135,16 @@ fn read_health_failed(properties: &ElementProperties) -> bool {
 /// `state_reader.rs:57-59`'s sibling `pressed` arm has no counterpart here;
 /// see `resolve_states`'s doc comment for why the role that arm needs can
 /// never reach this function.
+/// A radio button implements `SelectionItem`, not `Toggle`, so its checked
+/// state is `SelectionItem.IsSelected`: without it, `check` on a radio could
+/// never verify, and `is --property checked` would always answer false.
 fn push_toggle_state(properties: &ElementProperties, role: &str, states: &mut Vec<String>) {
     let Some(toggle) = properties.gated_number(TreeProperty::ToggleState) else {
+        if role == "radiobutton"
+            && properties.gated_flag(TreeProperty::SelectionItemIsSelected) == Some(true)
+        {
+            states.push(state::CHECKED.to_string());
+        }
         return;
     };
     if roles::is_toggleable_role(role) {
