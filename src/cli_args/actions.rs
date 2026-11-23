@@ -235,9 +235,23 @@ pub(crate) struct MouseMoveArgs {
 pub(crate) struct MouseClickArgs {
     #[arg(
         long,
+        required_unless_present = "window_xy",
+        conflicts_with_all = ["window_xy", "window_id"],
         help = "Absolute coordinates as x,y; requires --headed; write a negative value with = (--xy=-100,50)"
     )]
-    pub xy: String,
+    pub xy: Option<String>,
+    #[arg(
+        long,
+        requires = "window_id",
+        help = "Window-relative points as x,y from the top-left of the frame (macOS)"
+    )]
+    pub window_xy: Option<String>,
+    #[arg(
+        long,
+        requires = "window_xy",
+        help = "Exact window ID from list-windows"
+    )]
+    pub window_id: Option<String>,
     #[arg(
         long,
         default_value = "left",

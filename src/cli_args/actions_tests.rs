@@ -137,6 +137,36 @@ fn mouse_click_args_batch_json_without_modifiers_key_still_deserializes() {
 }
 
 #[test]
+fn mouse_click_cli_requires_one_complete_coordinate_target() {
+    let scoped = MouseClickArgs::try_parse_from([
+        "mouse-click",
+        "--window-id",
+        "w-25",
+        "--window-xy",
+        "10,20",
+    ])
+    .unwrap();
+    assert_eq!(scoped.window_id.as_deref(), Some("w-25"));
+    assert_eq!(scoped.window_xy.as_deref(), Some("10,20"));
+    assert!(scoped.xy.is_none());
+
+    for args in [
+        vec!["--window-id", "w-25"],
+        vec!["--window-xy", "10,20"],
+        vec![
+            "--xy",
+            "10,20",
+            "--window-id",
+            "w-25",
+            "--window-xy",
+            "10,20",
+        ],
+    ] {
+        assert!(MouseClickArgs::try_parse_from(["mouse-click"].into_iter().chain(args)).is_err());
+    }
+}
+
+#[test]
 fn mouse_point_args_cli_modifiers_repeatable_flag_parses() {
     let args =
         MousePointArgs::try_parse_from(["mouse-down", "--xy", "10,20", "--modifiers", "ctrl"])

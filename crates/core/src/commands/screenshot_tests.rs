@@ -120,6 +120,7 @@ fn args() -> ScreenshotArgs {
         app: None,
         window_id: None,
         screen: None,
+        window_frame: false,
         output_path: None,
     }
 }

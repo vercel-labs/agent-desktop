@@ -127,6 +127,8 @@ Global flags given to `mcp`, such as `--session`, `--headed` or `--trace`, apply
 
 agent-desktop has 61 command names, 57 operational commands. The other four (`key-down`, `key-up`, `mouse-down`, `mouse-up`) refuse to run until a daemon can release a held key or button. [Commands](https://agent-browser.dev/desktop/commands) documents each one.
 
+On macOS, use `mouse-click --window-id w-4521 --window-xy 120,95` to click a point inside a window without moving the system pointer. See [window-relative clicks](https://agent-browser.dev/desktop/commands/mouse#click-inside-a-window-on-macos).
+
 | Group | Commands |
 |---|---|
 | Observe | `snapshot`, `find`, `get`, `is`, `screenshot`, `list-surfaces` |

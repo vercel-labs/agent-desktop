@@ -5,6 +5,7 @@ use std::sync::Mutex;
 
 struct ModifierCaptureAdapter {
     captured: Mutex<Option<MouseEvent>>,
+    window_click: Mutex<Option<(String, MouseEvent)>>,
     presented: Mutex<Vec<crate::CursorOverlayControl>>,
 }
 
@@ -12,6 +13,7 @@ impl ModifierCaptureAdapter {
     fn new() -> Self {
         Self {
             captured: Mutex::new(None),
+            window_click: Mutex::new(None),
             presented: Mutex::new(Vec::new()),
         }
     }
@@ -40,6 +42,41 @@ impl InputOps for ModifierCaptureAdapter {
         *self.captured.lock().unwrap() = Some(event);
         Ok(crate::adapter::test_report())
     }
+
+    fn mouse_click_for_window(
+        &self,
+        window_id: &str,
+        event: MouseEvent,
+        _lease: &crate::InteractionLease,
+    ) -> Result<crate::OperationReport, AdapterError> {
+        *self.window_click.lock().unwrap() = Some((window_id.to_owned(), event));
+        Ok(crate::adapter::test_report())
+    }
+}
+
+#[test]
+fn window_click_uses_only_the_scoped_route() {
+    let adapter = ModifierCaptureAdapter::new();
+    for headed in [false, true] {
+        execute(
+            MouseClickArgs {
+                x: 10.0,
+                y: 20.0,
+                button: MouseButton::Left,
+                count: 1,
+                modifiers: Vec::new(),
+                window_id: Some("w-25".into()),
+            },
+            &adapter,
+            &CommandContext::default().with_headed(headed),
+        )
+        .unwrap();
+
+        let (id, event) = adapter.window_click.lock().unwrap().take().unwrap();
+        assert_eq!(id, "w-25");
+        assert_eq!(event.point, Point { x: 10.0, y: 20.0 });
+        assert!(adapter.captured.lock().unwrap().is_none());
+    }
 }
 
 /// F10 regression: `mouse-click` previously hardcoded `modifiers: Vec::new()`
@@ -57,6 +94,7 @@ fn requested_modifiers_reach_the_dispatched_mouse_event() {
             button: MouseButton::Left,
             count: 1,
             modifiers: vec![Modifier::Meta, Modifier::Shift],
+            window_id: None,
         },
         &adapter,
         &CommandContext::default().with_headed(true),
@@ -81,6 +119,7 @@ fn no_modifiers_requested_dispatches_empty_modifiers() {
             button: MouseButton::Left,
             count: 1,
             modifiers: Vec::new(),
+            window_id: None,
         },
         &adapter,
         &CommandContext::default().with_headed(true),
@@ -113,6 +152,7 @@ fn headed_mouse_click_presents_agent_cursor_after_delivery() {
             button: MouseButton::Left,
             count: 1,
             modifiers: Vec::new(),
+            window_id: None,
         },
         &adapter,
         &context,
@@ -140,6 +180,7 @@ fn zero_clicks_fail_before_dispatch() {
             button: MouseButton::Left,
             count: 0,
             modifiers: Vec::new(),
+            window_id: None,
         },
         &adapter,
         &CommandContext::default().with_headed(true),
@@ -161,6 +202,7 @@ fn excessive_click_count_fails_before_dispatch() {
             button: MouseButton::Left,
             count: crate::MAX_MOUSE_CLICK_COUNT + 1,
             modifiers: Vec::new(),
+            window_id: None,
         },
         &adapter,
         &CommandContext::default().with_headed(true),

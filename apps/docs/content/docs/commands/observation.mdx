@@ -173,7 +173,7 @@ agent-desktop is @s30sxlstqzdq8x:e45 --property enabled
 Captures an app window or a display as a PNG. A screenshot is evidence for you, not proof that an action worked.
 
 ```bash
-agent-desktop screenshot [PATH] [--app NAME] [--window-id ID] [--screen N]
+agent-desktop screenshot [PATH] [--app NAME] [--window-id ID] [--window-frame] [--screen N]
 ```
 
 <table>
@@ -185,6 +185,7 @@ agent-desktop screenshot [PATH] [--app NAME] [--window-id ID] [--screen N]
     <tr><td><code>--app NAME</code></td><td>none</td><td>Capture this app's window.</td></tr>
     <tr><td><code>--window-id ID</code></td><td>none</td><td>Capture one window by id.</td></tr>
     <tr><td><code>--screen N</code></td><td>none</td><td>Capture the display at index <code>N</code> of <code>list-displays</code>, where <code>0</code> is the primary. Cannot combine with <code>--app</code> or <code>--window-id</code>.</td></tr>
+    <tr><td><code>--window-frame</code></td><td>off</td><td>Capture the window frame without its drop shadow. Requires <code>--window-id</code>.</td></tr>
   </tbody>
 </table>
 

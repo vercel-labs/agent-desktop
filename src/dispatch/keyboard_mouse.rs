@@ -116,7 +116,16 @@ pub(super) fn mouse_click(
     adapter: &dyn PlatformAdapter,
     context: &CommandContext,
 ) -> Result<Value, AppError> {
-    let (x, y) = parse_xy(&args.xy)?;
+    let coordinates = match (&args.xy, &args.window_xy, &args.window_id) {
+        (Some(xy), None, None) => xy,
+        (None, Some(xy), Some(id)) if !id.is_empty() => xy,
+        _ => {
+            return Err(AppError::invalid_input(
+                "Use --xy for a desktop click or --window-id with --window-xy for a window click",
+            ));
+        }
+    };
+    let (x, y) = parse_xy(coordinates)?;
     mouse_click_command::execute(
         mouse_click_command::MouseClickArgs {
             x,
@@ -124,6 +133,7 @@ pub(super) fn mouse_click(
             button: parse_mouse_button(&args.button)?,
             count: args.count,
             modifiers: parse_modifiers(&args.modifiers)?,
+            window_id: args.window_id,
         },
         adapter,
         context,
