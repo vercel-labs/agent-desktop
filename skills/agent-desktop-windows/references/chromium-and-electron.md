@@ -63,3 +63,14 @@ combination was unique in the window when you took it and still is. Bounds are
 never identity. A ref to one of several unnamed elements that share role,
 AutomationId and description returns `AMBIGUOUS_TARGET`; use headed coordinate
 input from a parent's bounds, or a CDP client (`launch --cdp`).
+
+## Buttons That Only Open or Close
+
+A popover trigger (`popovertarget`), a `<summary>`, or a WinUI expander header
+shows up as a `menubutton` that offers Expand and Collapse but no Invoke.
+Chromium accepts the legacy default action on these buttons and changes
+nothing. For such a button, `click` expands it when it is collapsed and
+collapses it when it is expanded, then reads the state back, so the step is
+`ExpandCollapsePattern.Expand` or `ExpandCollapsePattern.Collapse` and the
+result is `delivered_verified`. `expand` and `collapse` do the same thing
+without toggling. A button that also offers Invoke still clicks through Invoke.

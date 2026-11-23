@@ -104,7 +104,7 @@ observation, actions and capture there fail or return nothing.
 - `references/permissions-and-elevation.md`: integrity levels, UIPI, blocked
   combos, protected processes, the cross-process interaction lease.
 - `references/chromium-and-electron.md`: settle timing, covered-window hazard,
-  WPF wrong-provider trap, unnamed web content.
+  WPF wrong-provider trap, unnamed web content, buttons that only open or close.
 - `references/troubleshooting.md`: symptom-to-cause map, action verification
   outcomes, saving a document headless, install warnings.
 
