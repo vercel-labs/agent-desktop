@@ -18,7 +18,12 @@ windows.
   surface returns `WINDOW_NOT_FOUND` with a suggestion that names
   `open-system-surface`.
 - **`quick-settings` returns `INVALID_ARGS`** and names
-  `action-center`, where the quick actions live.
+  `action-center`, where the quick actions live before Windows 11. On
+  Windows 11 they live in the separate Quick Settings flyout, which no kind
+  covers.
+- **`action-center` is the notification center.** Before Windows 11 the
+  adapter raises it with Win+A. From Windows 11 (build 22000) it uses Win+N,
+  because Win+A opens Quick Settings there.
 - **`start-menu` is whatever the Win key raises.** Before Windows 11 that is a
   search overlay whose root holds a `SearchTextBox`, not a tile grid. Drive it
   as a search surface.

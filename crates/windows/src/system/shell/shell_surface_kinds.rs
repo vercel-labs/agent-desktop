@@ -1,9 +1,12 @@
 use agent_desktop_core::SnapshotSurface;
 
+use super::shell_surface::build_number;
+
 #[cfg(target_os = "windows")]
 const _: () = {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse as win32;
     assert!(VK_A == 0x41);
+    assert!(VK_N == 0x4E);
     assert!(VK_LWIN == win32::VK_LWIN);
     assert!(VK_ESCAPE == win32::VK_ESCAPE);
 };
@@ -29,6 +32,7 @@ const SYS_PAGER_CLASS: &str = "SysPager";
 const OVERFLOW_WINDOW_CLASS: &str = "NotifyIconOverflowWindow";
 
 pub(crate) const VK_A: u16 = 0x41;
+pub(crate) const VK_N: u16 = 0x4E;
 pub(crate) const VK_LWIN: u16 = 0x5B;
 pub(crate) const VK_ESCAPE: u16 = 0x1B;
 
@@ -113,7 +117,7 @@ pub(crate) enum SurfaceRaise {
 }
 
 /// The dismiss half of [`SurfaceRaise`]: the Action Center closes on its
-/// Win+A toggle, and the Start overlay closes on Esc - measured, because on
+/// accelerator toggle, and the Start overlay closes on Esc - measured, because on
 /// this build the Meta toggle re-raises it rather than dismissing it. The
 /// always-up tray family has nothing to dismiss.
 ///
@@ -227,7 +231,43 @@ const KINDS: &[SurfaceKindRow] = &[
     },
 ];
 
+/// The first Windows 11 build. From this build on, Win+A raises Quick
+/// Settings in a `ShellHost`-hosted `ControlCenterWindow`, which carries none
+/// of the Action Center landmarks, and the notification center that does carry
+/// them is a `ShellExperienceHost` `Windows.UI.Core.CoreWindow` raised by
+/// Win+N. Measured on build 26300: Win+A put `ControlCenterWindow` in the
+/// foreground, and Win+N put the `ShellExperienceHost` `CoreWindow` there,
+/// whose notification list the reader then read.
+pub(crate) const FIRST_WINDOWS_11_BUILD: u32 = 22_000;
+
+/// The Action Center row for Windows 11 builds. Only the accelerator differs
+/// from the row in [`KINDS`]: the hosting image, class and landmarks hold on
+/// both shells, and Win+N toggles the center closed as Win+A does before
+/// Windows 11.
+const WINDOWS_11_ACTION_CENTER: SurfaceKindRow = SurfaceKindRow {
+    kind: SnapshotSurface::ActionCenter,
+    family: SurfaceFamily::Immersive {
+        expected_class: CORE_WINDOW_CLASS,
+        host_images: ACTION_CENTER_HOSTS,
+        landmarks: ACTION_CENTER_LANDMARKS,
+    },
+    raise: SurfaceRaise::Accelerator {
+        modifiers: &[VK_LWIN],
+        key: VK_N,
+    },
+    dismiss: SurfaceDismiss::Toggle,
+    exists_on_build: true,
+    capability_holder: None,
+};
+
 pub(crate) fn row_for(kind: SnapshotSurface) -> Option<&'static SurfaceKindRow> {
+    row_for_build(kind, build_number())
+}
+
+pub(crate) fn row_for_build(kind: SnapshotSurface, build: u32) -> Option<&'static SurfaceKindRow> {
+    if kind == SnapshotSurface::ActionCenter && build >= FIRST_WINDOWS_11_BUILD {
+        return Some(&WINDOWS_11_ACTION_CENTER);
+    }
     KINDS.iter().find(|row| row.kind == kind)
 }
 
