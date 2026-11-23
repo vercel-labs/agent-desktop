@@ -85,7 +85,7 @@ impl WindowOwnerSnapshot {
 
     pub(crate) fn require_match(&self, identifier: &str) -> Result<(), AdapterError> {
         if self.matching_pids(identifier).is_empty() {
-            require_complete(&self.skipped)?;
+            require_complete(&self.skipped, Wanted::from(identifier))?;
         }
         Ok(())
     }
@@ -110,16 +110,6 @@ pub(crate) fn list_apps_inventory_until(deadline: Instant) -> Result<AppInventor
         return Ok(inventory);
     }
     list_apps_with(deadline, |_| true, true)
-}
-
-pub(crate) fn require_complete(skipped: &[serde_json::Value]) -> Result<(), AdapterError> {
-    if skipped.is_empty() {
-        return Ok(());
-    }
-    Err(records::with_skipped(
-        inventory_error("AppKit application inventory skipped records"),
-        skipped,
-    ))
 }
 
 /// Apps named `name`, optionally pinned to `bundle_id`. Without one, a bundle
@@ -163,7 +153,7 @@ pub(crate) fn focused_owner_until(deadline: Instant) -> Result<Option<WindowOwne
     let bytes = crate::system::appkit_bridge::focused_snapshot_json()?;
     ensure_before_deadline(deadline)?;
     let snapshot = window_owner_snapshot_from_json(&bytes, deadline)?;
-    require_complete(&snapshot.skipped)?;
+    require_complete(&snapshot.skipped, Wanted::Any)?;
     Ok(snapshot.frontmost().cloned())
 }
 
@@ -393,8 +383,16 @@ mod tests;
 
 #[path = "workspace_apps_records.rs"]
 mod records;
+
+#[path = "workspace_apps_complete.rs"]
+mod complete;
+pub(crate) use complete::{Wanted, inventory_operation, require_complete};
 use records::bridged_snapshot;
 
 #[cfg(test)]
 #[path = "workspace_apps_skip_tests.rs"]
 mod skip_tests;
+
+#[cfg(test)]
+#[path = "workspace_apps_lookup_tests.rs"]
+pub(crate) mod lookup_tests;

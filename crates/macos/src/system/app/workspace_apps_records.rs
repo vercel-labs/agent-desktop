@@ -30,7 +30,10 @@ pub(super) fn bridged_snapshot(bytes: &[u8]) -> Result<BridgedWorkspaceSnapshot,
             _ => None,
         });
         if let Some(field) = field {
-            skipped.push(json!({"pid": app["pid"].as_i64().unwrap_or(0), "field": field}));
+            let pid = app["pid"]
+                .as_i64()
+                .map_or_else(|| app["pid"].clone(), Value::from);
+            skipped.push(json!({"pid": pid, "field": field}));
             false
         } else {
             seen.insert(app["pid"].as_i64(), app.clone()).is_none()

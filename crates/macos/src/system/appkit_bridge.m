@@ -112,6 +112,32 @@ static NSString *agent_desktop_non_blank(NSString *value) {
     return trimmed.length == 0 ? nil : value;
 }
 
+static void agent_desktop_put_bounded(NSMutableDictionary *record, NSString *key, NSString *value) {
+    if (value != nil && [value lengthOfBytesUsingEncoding:NSUTF8StringEncoding] <= 16384) {
+        record[key] = value;
+    }
+}
+
+static NSDictionary *agent_desktop_processless_record(NSRunningApplication *app, int32_t pid, NSUInteger index) {
+    NSMutableDictionary *record = [@{
+        @"pid": @(pid),
+        @"field": @"pid",
+        @"index": @(index),
+        @"terminated": @(app.isTerminated),
+    } mutableCopy];
+    agent_desktop_put_bounded(record, @"name", agent_desktop_non_blank(app.localizedName));
+    agent_desktop_put_bounded(record, @"bundle_id", agent_desktop_non_blank(app.bundleIdentifier));
+    agent_desktop_put_bounded(record, @"executable", agent_desktop_non_blank(app.executableURL.lastPathComponent));
+    NSDate *launchDate = app.launchDate;
+    if (launchDate != nil) {
+        double seconds = launchDate.timeIntervalSince1970;
+        if (isfinite(seconds) && seconds > 0.0) {
+            record[@"launch_time"] = @(seconds);
+        }
+    }
+    return record;
+}
+
 static NSString *agent_desktop_application_name(NSRunningApplication *app) {
     NSString *name = agent_desktop_non_blank(app.localizedName);
     if (name == nil) {
@@ -178,7 +204,7 @@ AgentDesktopBytesResult agent_desktop_copy_workspace_snapshot_json(uint8_t front
                 }
                 int32_t pid = app.processIdentifier;
                 if (pid <= 0) {
-                    [skipped addObject:@{@"pid": @(pid), @"field": @"pid", @"index": @(index)}];
+                    [skipped addObject:agent_desktop_processless_record(app, pid, index)];
                     continue;
                 }
                 NSApplicationActivationPolicy policy = app.activationPolicy;

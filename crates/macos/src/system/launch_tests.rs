@@ -108,3 +108,22 @@ fn launch_options_enforce_a_bounded_text_budget() {
 
     assert_eq!(error.code, ErrorCode::InvalidArgs);
 }
+
+/// Launch first looks its target up by display name, bundle ID or executable
+/// name, to attach to it or to know which instances already run. A live record
+/// without the alias it compares keeps that lookup waiting; a record with
+/// every alias lets a lookup for another app finish empty.
+#[test]
+fn launch_waits_for_a_record_without_the_alias_it_compares() {
+    use crate::system::app::workspace_apps::lookup_tests::{
+        ABSENT, assert_app_lookup_waited_for, incomplete_identities, install_phantom, phantom,
+    };
+    for (record, text) in incomplete_identities() {
+        let _snapshot = install_phantom(&record);
+        let error = matching_apps(text, Deadline::after(1_000).unwrap()).unwrap_err();
+        assert_app_lookup_waited_for(&error, &record);
+    }
+    let _snapshot = install_phantom(&phantom());
+    let apps = matching_apps(ABSENT, Deadline::after(10_000).unwrap()).unwrap();
+    assert!(apps.is_empty());
+}

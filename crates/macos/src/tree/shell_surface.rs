@@ -66,7 +66,10 @@ pub(crate) fn resolve_surface(
             }
         }
     }
-    crate::system::app::workspace_apps::require_complete(&inventory.skipped)?;
+    crate::system::app::workspace_apps::require_complete(
+        &inventory.skipped,
+        crate::system::app::workspace_apps::Wanted::Any,
+    )?;
     Err(AdapterError::new(
         ErrorCode::WindowNotFound,
         format!(

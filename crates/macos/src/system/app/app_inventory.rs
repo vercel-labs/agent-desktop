@@ -2,6 +2,7 @@ use agent_desktop_core::{AdapterError, AppInfo, ErrorCode, ProcessId, WindowFilt
 use std::time::Instant;
 
 use crate::system::{app::workspace_apps, process::process_apps, window::window_inventory};
+use workspace_apps::Wanted;
 
 pub(crate) fn list_apps_complete_until(deadline: Instant) -> Result<Vec<AppInfo>, AdapterError> {
     stabilize_apps_until(deadline, || capture_complete_apps(deadline))
@@ -34,7 +35,7 @@ pub(crate) fn list_apps_scoped_until(
 fn capture_complete_apps(deadline: Instant) -> Result<Vec<AppInfo>, AdapterError> {
     ensure_before_deadline(deadline)?;
     let inventory = workspace_apps::list_apps_inventory_until(deadline)?;
-    workspace_apps::require_complete(&inventory.skipped)?;
+    workspace_apps::require_complete(&inventory.skipped, Wanted::Any)?;
     let apps =
         complete_apps_from_sources(Ok(inventory.apps), process_apps::list_apps_until(deadline))?;
     ensure_before_deadline(deadline)?;
@@ -55,6 +56,7 @@ fn capture_scoped_apps(
     let apps = scoped_apps_from_sources(
         workspace_apps::list_apps_scoped_until(name, bundle_id, deadline),
         process,
+        Wanted::App { name, bundle_id },
     )?;
     ensure_before_deadline(deadline)?;
     validate_app_instances(apps)
@@ -63,16 +65,25 @@ fn capture_scoped_apps(
 pub(in crate::system) fn scoped_apps_from_sources(
     workspace: Result<agent_desktop_core::AppInventory, AdapterError>,
     process: Result<Vec<AppInfo>, AdapterError>,
+    wanted: Wanted<'_>,
 ) -> Result<Vec<AppInfo>, AdapterError> {
     let workspace = workspace?;
     let apps = complete_apps_from_sources(Ok(workspace.apps), process)?;
     if apps.is_empty() {
-        workspace_apps::require_complete(&workspace.skipped)?;
+        workspace_apps::require_complete(&workspace.skipped, wanted)?;
     }
     Ok(apps)
 }
 
+/// Retries `capture` as one inventory operation until two reads in a row agree.
 pub(in crate::system) fn stabilize_apps_until(
+    deadline: Instant,
+    capture: impl FnMut() -> Result<Vec<AppInfo>, AdapterError>,
+) -> Result<Vec<AppInfo>, AdapterError> {
+    workspace_apps::inventory_operation(|| stabilize_apps(deadline, capture))
+}
+
+fn stabilize_apps(
     deadline: Instant,
     mut capture: impl FnMut() -> Result<Vec<AppInfo>, AdapterError>,
 ) -> Result<Vec<AppInfo>, AdapterError> {

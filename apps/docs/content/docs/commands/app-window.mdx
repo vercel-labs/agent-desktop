@@ -177,6 +177,8 @@ agent-desktop list-apps [--app NAME] [--timeout-ms MS]
 
 `presentation` is `foreground` for apps with ordinary windows and `background` for apps with no Dock or taskbar entry. When the platform could not read every process in time, the result adds `complete: false` and a `skipped` array: treat a missing app as unknown, not absent.
 
+On macOS, a `skipped` record with `field: "pid"` is an app record with no process. It carries `terminated` and, where AppKit still knows them, `name`, `bundle_id`, `executable` and `launch_time`. A lookup by name, bundle ID or executable stays unknown while one of these live records could be that app: one of its `name`, `bundle_id` and `executable` matches, or the record lacks one of them. Other lookups proceed once the same records come back on consecutive reads of one command.
+
 `--app` takes the `list-apps` name; Linux also accepts a desktop-entry name. See [Linux](/desktop/platforms/linux#app-naming).
 
 ## list-windows
