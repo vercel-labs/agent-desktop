@@ -74,13 +74,13 @@ fn malformed_travel_ranges_are_parse_errors() {
 
 #[test]
 fn out_of_budget_motion_is_invalid_args() {
-    let error = parse(&["--travel-ms", "300,600", "--dwell-ms", "150"])
+    let error = parse(&["--travel-ms", "300,2700", "--dwell-ms", "150"])
         .unwrap()
         .enable
         .to_core()
         .expect_err("travel plus dwell exceeds the budget");
     assert_eq!(error.code(), "INVALID_ARGS");
-    assert!(error.to_string().contains("700 ms"));
+    assert!(error.to_string().contains("2800 ms"));
     let error = parse(&["--bow", "5"])
         .unwrap()
         .enable

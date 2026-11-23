@@ -24,6 +24,7 @@ struct DragCaptureAdapter {
     focused_bounds: Option<Rect>,
     drag_failure: Option<DeliverySemantics>,
     drag_report: Option<crate::OperationReport>,
+    travel_render_ms: u64,
 }
 
 impl DragCaptureAdapter {
@@ -37,6 +38,7 @@ impl DragCaptureAdapter {
             focused_bounds: None,
             drag_failure: None,
             drag_report: None,
+            travel_render_ms: 0,
         }
     }
 
@@ -140,6 +142,12 @@ impl SystemOps for DragCaptureAdapter {
     }
 
     fn update_cursor_overlay(&self, control: &CursorOverlayControl) -> Result<(), AdapterError> {
+        if control
+            .instruction()
+            .is_some_and(|instruction| instruction.phase() == crate::CursorPhase::Travel)
+        {
+            std::thread::sleep(std::time::Duration::from_millis(self.travel_render_ms));
+        }
         self.presented.lock().unwrap().push(control.clone());
         Ok(())
     }
@@ -398,3 +406,34 @@ mod wait_scope_tests;
 
 #[path = "drag_overlay_report_tests.rs"]
 mod overlay_report_tests;
+
+#[test]
+fn long_travel_still_presents_the_drag_phase_within_the_default_timeout() {
+    for travel in [(1_000, 1_200), (2_000, 2_300), (2_500, 2_500)] {
+        let mut adapter = DragCaptureAdapter::new();
+        adapter.travel_render_ms = travel.1;
+        let mut motion = crate::CursorMotionProfile::default();
+        motion.set_travel_ms(travel.0, travel.1);
+        let config = crate::CursorOverlayConfig::enabled(None, 6)
+            .and_then(|config| config.with_motion(motion))
+            .expect("valid config");
+        let context = CommandContext::default()
+            .with_headed(true)
+            .with_cursor_overlay_session("test-session", config);
+
+        execute(xy_args(None), &adapter, &context).expect("drag succeeds");
+
+        let phases: Vec<_> = adapter
+            .presented
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(CursorOverlayControl::instruction)
+            .map(|instruction| instruction.phase())
+            .collect();
+        assert!(
+            phases.contains(&crate::CursorPhase::Drag),
+            "travel {travel:?} presented {phases:?}"
+        );
+    }
+}

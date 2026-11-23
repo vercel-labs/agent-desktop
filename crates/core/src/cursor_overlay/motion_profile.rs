@@ -1,4 +1,4 @@
-use super::timing::CURSOR_MOTION_BUDGET_MS;
+use super::timing::{CURSOR_ARRIVAL_MARGIN_MS, CURSOR_ARRIVAL_TIMEOUT_MS, CURSOR_MOTION_BUDGET_MS};
 use crate::{AdapterError, ErrorCode};
 use serde::{Deserialize, Serialize};
 
@@ -73,6 +73,15 @@ impl CursorMotionProfile {
             )));
         }
         Ok(())
+    }
+
+    /// How long a renderer may take to report arrival for this profile: travel plus
+    /// dwell plus `CURSOR_ARRIVAL_MARGIN_MS`, and never less than `CURSOR_ARRIVAL_TIMEOUT_MS`.
+    pub fn arrival_timeout_ms(&self) -> u64 {
+        self.travel_max_ms
+            .saturating_add(self.dwell_ms)
+            .saturating_add(CURSOR_ARRIVAL_MARGIN_MS)
+            .max(CURSOR_ARRIVAL_TIMEOUT_MS)
     }
 
     pub fn set_travel_ms(&mut self, min: u64, max: u64) {
