@@ -6,6 +6,7 @@ use crate::{
 };
 
 const ELEMENT_TOKEN_PREFIX: &str = "axtok1:";
+const OWNED_TOKEN_PREFIX: &str = "axtok2:";
 
 /// The retained object that is a genuine element token. A platform that keeps
 /// only a positional path or a runtime id retains a location, not a handle, so
@@ -21,7 +22,7 @@ pub fn element_token(entry: &RefEntry) -> Option<&str> {
 /// Whether a retained object value is a genuine element token rather than a
 /// retained location.
 pub fn is_element_token(token: &str) -> bool {
-    token.starts_with(ELEMENT_TOKEN_PREFIX)
+    token.starts_with(ELEMENT_TOKEN_PREFIX) || token.starts_with(OWNED_TOKEN_PREFIX)
 }
 
 pub fn has_meaningful_identity(entry: &RefEntry) -> bool {
@@ -81,7 +82,7 @@ pub fn identity_match(
             crate::tree::accname::non_blank(Some(expected)),
             actual_identifiers.retained_object(),
         ) {
-            (Some(expected), Some(actual)) => equality_match(expected, actual),
+            (Some(expected), Some(actual)) => match_token(entry, expected, actual),
             _ => IdentityMatch::Unknown,
         };
     }
@@ -90,6 +91,31 @@ pub fn identity_match(
     }
 
     stable_text_match(entry, actual_name, actual_value, actual_description)
+}
+
+fn match_token(entry: &RefEntry, expected: &str, actual: &str) -> IdentityMatch {
+    if expected == actual {
+        return IdentityMatch::Match;
+    }
+    let (Some(expected), Some(actual)) = (
+        expected.strip_prefix(ELEMENT_TOKEN_PREFIX),
+        actual.strip_prefix(OWNED_TOKEN_PREFIX),
+    ) else {
+        return IdentityMatch::NoMatch;
+    };
+    let Some(instance) = entry
+        .process
+        .process_instance
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    else {
+        return IdentityMatch::Unknown;
+    };
+    let owner = format!("{}:{instance}:", entry.process.pid);
+    match actual.strip_prefix(&owner) {
+        Some(actual) => equality_match(expected, actual),
+        None => IdentityMatch::NoMatch,
+    }
 }
 
 fn native_id_match(entry: &RefEntry, actual_identifiers: &IdentifierEvidence) -> IdentityMatch {
