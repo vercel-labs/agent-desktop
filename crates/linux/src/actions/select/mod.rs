@@ -236,10 +236,12 @@ fn select_through(
     if let Some(holder) = &holder {
         let verified_node = &verified_node;
         let deliver = &deliver;
+        // Use write_counted which verifies presented children count matches SelectChild count for GTK4,
+        // and propagates selection_index_unproven so after_unproven_index can fall back to pointer on headed X11.
         rungs.push(Rung {
             label: SELECT_CHILD_LABEL,
             run: Box::new(move || {
-                let reply = super::select::select_index::write(holder, verified_node);
+                let reply = super::select::select_index::write_counted(holder, verified_node);
                 deliver(reply).and_then(unchanged_is_ignored)
             }),
         });
