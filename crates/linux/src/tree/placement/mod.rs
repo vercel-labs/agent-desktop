@@ -5,6 +5,7 @@ pub(super) mod node_position;
 pub(crate) mod offscreen;
 pub(super) mod placed_states;
 pub(super) mod popup_position;
+pub(crate) mod shell_space;
 
 use super::Extents;
 use super::surfaces::window_tie::WindowTie;
@@ -24,7 +25,14 @@ pub(crate) struct Placement {
     pub(crate) popup_origin: Option<(i32, i32)>,
     pub(crate) x11: Option<WindowX11State>,
     pub(crate) displays: Option<Vec<Extents>>,
+    /// The toolkit reports window-relative positions in a Wayland session. It
+    /// stays set when the GNOME Shell extension places the window, so a node
+    /// whose rectangle cannot be read still falls back to its frame's mapped
+    /// state.
     pub(crate) wayland_unplaced: bool,
+    /// Where the frame's window coordinates start on screen, from the GNOME
+    /// Shell extension, for a native Wayland window it placed.
+    pub(crate) shell_origin: Option<(i32, i32)>,
     /// The frame maps to several display windows that nothing tells apart.
     pub(crate) tie: Option<WindowTie>,
 }
@@ -32,3 +40,14 @@ pub(crate) struct Placement {
 pub(crate) mod popup_frame;
 pub(super) mod snapshot_visibility;
 pub(crate) mod visibility;
+
+impl Placement {
+    /// The placement once the GNOME Shell extension has said where the frame's
+    /// window coordinates start. Everything already read is kept.
+    pub(crate) fn placed_by_shell(self, origin: (i32, i32)) -> Self {
+        Self {
+            shell_origin: Some(origin),
+            ..self
+        }
+    }
+}

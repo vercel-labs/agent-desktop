@@ -160,6 +160,35 @@ and returns `data.rendered: false` without drawing an overlay.
 nothing is drawn until an agent acts. On X11 each agent id then gets its own
 cursor; on Wayland none is drawn.
 
+## GNOME Wayland extension
+
+A Wayland client cannot read where its windows sit. The
+`agent-desktop@agent-browser.dev` extension runs inside GNOME Shell and reports
+each window's place. With it enabled, `snapshot --include-bounds`, `get` and
+`list-windows` report screen positions for native Wayland windows. Without it,
+a GTK 4 node has no bounds, and GTK 3, Qt and Chromium bounds are relative to
+their own window.
+
+Install it from the source of the agent-desktop release you run, then log out
+and back in. GNOME Shell loads a newly installed extension only at login:
+
+```bash
+git clone --depth 1 --branch "v$(agent-desktop --version | cut -d' ' -f2)" https://github.com/vercel-labs/agent-desktop
+gnome-extensions pack --force agent-desktop/crates/linux/gnome-shell-extension/agent-desktop@agent-browser.dev
+gnome-extensions install --force agent-desktop@agent-browser.dev.shell-extension.zip
+```
+
+After you log back in, enable it:
+
+```bash
+gnome-extensions enable agent-desktop@agent-browser.dev
+```
+
+A CLI and an extension from different releases may speak different protocol
+versions. Then positions stay as they are without the extension; install the
+extension from the matching release. Pointer commands stay refused on Wayland
+with or without it.
+
 ## What differs on Linux
 
 - Sandboxes are not available on Linux yet. To run agent-desktop in a container you manage yourself, see `agent-browser.dev/desktop/guides/docker-container`.

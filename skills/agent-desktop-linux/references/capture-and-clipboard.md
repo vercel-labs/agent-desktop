@@ -46,7 +46,7 @@ agent-desktop screenshot /tmp/everything.png
 
 ## `screenshot` on Wayland
 
-Wayland has no window position and no per-window capture. The portal's
+Wayland has no per-window capture. The portal's
 `Screenshot` captures the desktop; the CLI returns the primary display by
 default, cropping the image on a multi-monitor desktop. `--screen N` selects
 another monitor.

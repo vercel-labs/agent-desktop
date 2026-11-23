@@ -3,6 +3,7 @@ use agent_desktop_core::BoundsSpace;
 use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
 
 use super::frame_geometry::{pointer_bounds, popup_origin};
+use super::shell_space::{frame_origin, place_read};
 use crate::system::process::toolkit_id::ToolkitId;
 use crate::system::window::window_position::{origin_of_client, rect_of_client};
 use crate::system::x11::map::ClientMatch;
@@ -247,6 +248,21 @@ pub(crate) fn place_nodes(
         Err(error) => return Err(error),
     };
     let app_root = AtspiElement::new(element.bus_name(), REGISTRY_ROOT_PATH, element.pid());
+    if let Some(origin) = frame_origin(connection.inner(), &element, deadline) {
+        let elements = placed_elements(&mut walk.root);
+        let windows = geometry_or_unknown(within(
+            deadline,
+            window_rectangles(connection.inner(), &elements),
+        ))?;
+        let mut next = windows.iter();
+        for_each_read(&mut walk.root, &mut |read| {
+            if read.node.extents.present().copied().is_none_or(is_sentinel) {
+                return;
+            }
+            place_read(read, origin, next.next().copied().flatten());
+        });
+        return Ok(());
+    }
     let toolkit = geometry_or_unknown(within(
         deadline,
         read_toolkit(connection.inner(), &app_root),
@@ -293,6 +309,14 @@ pub(crate) fn place_single(
         }
         Err(error) => return Err(error),
     };
+    if let Some(origin) = frame_origin(connection.inner(), &element, deadline) {
+        let window = geometry_or_unknown(within(
+            deadline,
+            read_window_extents_async(connection.inner(), &element),
+        ))?;
+        place_read(read, origin, window);
+        return Ok(());
+    }
     let app_root = AtspiElement::new(element.bus_name(), REGISTRY_ROOT_PATH, element.pid());
     let toolkit = geometry_or_unknown(within(
         deadline,

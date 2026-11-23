@@ -2,7 +2,7 @@ use agent_desktop_core::{AdapterError, Deadline, DeliverySemantics, WindowFilter
 use serde_json::json;
 
 use super::window_order::front_to_back;
-use super::window_position::place_windows;
+use super::window_position::{place_shell_windows, place_windows};
 use crate::system::SharedBus;
 use crate::system::process::proc_scan::find_running;
 use crate::system::process::proc_stat;
@@ -13,6 +13,7 @@ use crate::system::registry::listed_window::ListedWindow;
 use crate::system::registry::registry_app::RegistryApp;
 use crate::system::registry::registry_frames::RootRead;
 use crate::system::registry::{Registry, read_registry_for, read_registry_query};
+use crate::system::shell::extension::extension_place::live_windows;
 use crate::system::signal::signal_inventory::{Pass, read_selected, run_pass_with};
 use crate::system::x11::stacking::client_stack;
 use crate::system::x11::window::desktops::{self, Desktops};
@@ -104,6 +105,9 @@ pub(crate) fn list_windows(
         &state,
         desktops.finish(deadline).flatten().as_ref(),
     );
+    if let Some(shell) = live_windows(deadline) {
+        place_shell_windows(&mut pass.windows, &shell);
+    }
     let mut windows = pass.windows;
     if filter.focused_only {
         windows.retain(|window| window.info.state.is_focused);
