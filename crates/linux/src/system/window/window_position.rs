@@ -2,6 +2,8 @@ use agent_desktop_core::Rect;
 
 use super::listed_twins::listed_client;
 use crate::system::registry::listed_window::ListedWindow;
+use crate::system::shell::extension::extension_place::matching_window;
+use crate::system::shell::extension::extension_window::ShellWindow;
 use crate::system::x11::map::ClientMatch;
 use crate::system::x11::twin_tie::tied_agree;
 use crate::system::x11::window::desktops::Desktops;
@@ -109,6 +111,23 @@ pub(crate) fn place_windows(
     }
 }
 
+/// Gives each listed native Wayland window the visible frame rectangle GNOME
+/// Shell manages for it, as the X11 path gives the visible client rectangle.
+/// A window the extension does not name exactly once keeps what it had.
+pub(crate) fn place_shell_windows(listed: &mut [ListedWindow], shell: &[ShellWindow]) {
+    for window in listed.iter_mut() {
+        let Some(extents) = window.frame.extents else {
+            continue;
+        };
+        let size = (extents.width, extents.height);
+        if let Some((found, _)) =
+            matching_window(shell, window.frame.pid, &window.frame.title, size)
+        {
+            window.info.bounds = Some(Rect::from(found.frame));
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "window_position_tests.rs"]
 mod tests;
@@ -116,3 +135,7 @@ mod tests;
 #[cfg(test)]
 #[path = "window_position_rect_tests.rs"]
 mod rect_tests;
+
+#[cfg(test)]
+#[path = "window_position_shell_tests.rs"]
+mod shell_tests;
