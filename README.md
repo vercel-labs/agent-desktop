@@ -132,7 +132,7 @@ agent-desktop has 61 command names, 57 operational commands. The other four (`ke
 | Observe | `snapshot`, `find`, `get`, `is`, `screenshot`, `list-surfaces` |
 | Act on a ref | `click`, `double-click`, `triple-click`, `right-click`, `type`, `set-value`, `clear`, `focus`, `select`, `toggle`, `check`, `uncheck`, `expand`, `collapse`, `scroll`, `scroll-to` |
 | Keyboard and mouse | `press`, `hover`, `drag`, `mouse-move`, `mouse-click`, `mouse-wheel`, `key-down`, `key-up`, `mouse-down`, `mouse-up` |
-| Apps and windows | `launch`, `close-app`, `list-apps`, `list-windows`, `list-displays`, `focus-window`, `resize-window`, `move-window`, `minimize`, `maximize`, `restore`, `open-system-surface` |
+| Apps and windows | `launch`, `close-app`, `list-apps`, `list-windows`, `list-displays`, `focus-window`, `resize-window`, `move-window`, `minimize`, `maximize`, [`restore`](https://agent-browser.dev/desktop/commands/app-window#restore), `open-system-surface` |
 | Notifications | `list-notifications`, `dismiss-notification`, `dismiss-all-notifications`, `notification-action` |
 | Clipboard | `clipboard-get`, `clipboard-set`, `clipboard-clear` |
 | Wait | `wait` |
