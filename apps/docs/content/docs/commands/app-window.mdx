@@ -390,13 +390,13 @@ agent-desktop maximize [--app NAME] [--window-id ID]
 
 ## restore
 
-Restores a minimized or maximized window. Flags are the same as [`minimize`](#minimize).
+Restores a minimized window. The effect on a maximized window depends on the platform. Flags are the same as [`minimize`](#minimize).
 
 ```bash
 agent-desktop restore [--app NAME] [--window-id ID]
 ```
 
-`restore` has no single read-back across its cases, so a successful report is `delivered_unverified`:
+On macOS and Windows, a successful restore confirms the window is no longer minimized. The receipt sets `disposition.delivery` to `delivered_verified` and `details.verification_scope` to `window_minimized_state`. Linux reports `delivered_unverified` on success, as shown in this example.
 
 ```json
 {
@@ -417,4 +417,4 @@ agent-desktop restore [--app NAME] [--window-id ID]
 }
 ```
 
-Check the window with `list-windows` afterward. Platform limits are the same as `resize-window`.
+Use `list-windows` to check the window's position and size. Platform limits are the same as `resize-window`.
