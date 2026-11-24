@@ -176,6 +176,7 @@ fn snapshot_args_cli_timeout_preserves_the_core_default_when_omitted() {
     let args = SnapshotArgs::try_parse_from(["snapshot"]).unwrap();
     assert_eq!(args.timeout_ms, None);
     assert!(!args.force_electron_a11y);
+    assert_eq!(args.since, None);
 }
 
 #[test]
@@ -206,4 +207,18 @@ fn snapshot_args_batch_json_defaults_timeout_and_force_electron_a11y_when_absent
 
     assert_eq!(args.timeout_ms, None);
     assert!(!args.force_electron_a11y);
+    assert_eq!(args.since, None);
+}
+
+#[test]
+fn snapshot_args_cli_and_batch_accept_since_snapshot_id() {
+    let cli = SnapshotArgs::try_parse_from(["snapshot", "--since", "s8f3k2p9"]).unwrap();
+    assert_eq!(cli.since.as_deref(), Some("s8f3k2p9"));
+
+    let batch: SnapshotArgs = serde_json::from_value(serde_json::json!({
+        "app": "Finder",
+        "since": "s8f3k2p9"
+    }))
+    .unwrap();
+    assert_eq!(batch.since.as_deref(), Some("s8f3k2p9"));
 }

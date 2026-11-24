@@ -129,6 +129,7 @@ fn invalid_snapshot_root_is_rejected_before_permission_preflight() {
         root: Some("bad-root".into()),
         timeout_ms: None,
         force_electron_a11y: false,
+        since: None,
     });
 
     let err = preflight(&command, &report).expect_err("invalid root fails first");
@@ -217,4 +218,36 @@ fn a_multi_agent_desktop_action_needs_an_agent_id_on_every_platform() {
     assert!(!agent_id_missing(&click, true, Some("agent-a")));
     assert!(!agent_id_missing(&click, false, None));
     assert!(!agent_id_missing(&Commands::Status, true, None));
+}
+
+#[test]
+fn invalid_snapshot_since_is_rejected_before_permission_preflight() {
+    let report = PermissionReport {
+        accessibility: PermissionState::Denied {
+            suggestion: "grant accessibility".into(),
+        },
+        screen_recording: PermissionState::Granted,
+        automation: PermissionState::NotRequired,
+    };
+    let command = Commands::Snapshot(SnapshotArgs {
+        scope: WindowScope {
+            app: None,
+            window_id: None,
+        },
+        tree: SnapshotTreeArgs {
+            max_depth: 10,
+            include_bounds: false,
+            interactive_only: false,
+            compact: false,
+            skeleton: false,
+        },
+        surface: crate::cli_args::Surface::Window,
+        root: None,
+        timeout_ms: None,
+        force_electron_a11y: false,
+        since: Some("../escape".into()),
+    });
+
+    let err = preflight(&command, &report).expect_err("invalid since fails first");
+    assert_eq!(err.code(), "INVALID_ARGS");
 }

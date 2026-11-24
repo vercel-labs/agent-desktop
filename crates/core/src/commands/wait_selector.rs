@@ -5,7 +5,7 @@ use crate::{
     commands::{query, snapshot as snapshot_cmd, wait_timeout},
     context::CommandContext,
     refs::refs_store::RefStore,
-    snapshot::{self, emit_snapshot_saved},
+    snapshot,
     system::process_state::ProcessState,
     trace::trace_artifacts,
 };
@@ -28,12 +28,31 @@ pub fn execute(
     adapter: &dyn PlatformAdapter,
     context: &CommandContext,
 ) -> Result<Value, AppError> {
-    execute_with_ref(input, None, adapter, context)
+    execute_with_options(input, None, None, adapter, context)
+}
+
+pub(crate) fn execute_since(
+    input: WaitSelectorInput,
+    since: Option<&str>,
+    adapter: &dyn PlatformAdapter,
+    context: &CommandContext,
+) -> Result<Value, AppError> {
+    execute_with_options(input, None, since, adapter, context)
 }
 
 pub(crate) fn execute_with_ref(
+    input: WaitSelectorInput,
+    entry: Option<&crate::RefEntry>,
+    adapter: &dyn PlatformAdapter,
+    context: &CommandContext,
+) -> Result<Value, AppError> {
+    execute_with_options(input, entry, None, adapter, context)
+}
+
+fn execute_with_options(
     mut input: WaitSelectorInput,
     entry: Option<&crate::RefEntry>,
+    since: Option<&str>,
     adapter: &dyn PlatformAdapter,
     context: &CommandContext,
 ) -> Result<Value, AppError> {
@@ -121,9 +140,13 @@ pub(crate) fn execute_with_ref(
         },
     );
     match result {
-        Ok(Some(SelectorCompletion::Matched(result))) => {
-            materialized_response(*result, context, &input, deadline.elapsed().as_millis())
-        }
+        Ok(Some(SelectorCompletion::Matched(result))) => materialized_since_response(
+            *result,
+            context,
+            &input,
+            since,
+            deadline.elapsed().as_millis(),
+        ),
         Ok(Some(SelectorCompletion::Absent)) => Ok(target_absent_response(
             &input.query_raw,
             deadline.elapsed().as_millis(),
@@ -290,17 +313,33 @@ fn build_snapshot(
     snapshot::build_for_owners(adapter, &input.opts, owners, deadline)
 }
 
+#[cfg(test)]
 fn materialized_response(
-    mut result: snapshot::SnapshotResult,
+    result: snapshot::SnapshotResult,
     context: &CommandContext,
     input: &WaitSelectorInput,
     elapsed_ms: u128,
 ) -> Result<Value, AppError> {
-    let store = RefStore::for_session(context.session_id())?;
-    let snapshot_id = result.save_refmap(&store)?;
-    trace_artifacts::copy_refmap_if_full(context, &store, &snapshot_id, &result.refmap)?;
-    result.bind_snapshot_id(snapshot_id);
-    emit_snapshot_saved(context, &result)?;
+    materialized_since_response(result, context, input, None, elapsed_ms)
+}
+
+fn materialized_since_response(
+    result: snapshot::SnapshotResult,
+    context: &CommandContext,
+    input: &WaitSelectorInput,
+    since: Option<&str>,
+    elapsed_ms: u128,
+) -> Result<Value, AppError> {
+    let (result, evaluation) =
+        snapshot::since::persist_wait_snapshot(result, context, &input.opts, since)?;
+    if let Some(evaluation) = evaluation {
+        return snapshot::since::format_since_snapshot_fields(
+            &result,
+            &evaluation,
+            Some(elapsed_ms),
+            Some(&input.query_raw),
+        );
+    }
     snapshot_cmd::format_snapshot_fields(&result, Some(elapsed_ms), Some(&input.query_raw))
 }
 

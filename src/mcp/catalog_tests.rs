@@ -241,3 +241,17 @@ fn stdin_input_is_not_exposed_to_mcp_calls() {
         );
     }
 }
+
+#[test]
+fn desktop_snapshot_exposes_since_in_mcp_schema_and_argv() {
+    let tool = tool_at(&["snapshot"]);
+    let definition = tool.definition();
+    let since_schema = &definition["inputSchema"]["properties"]["since"];
+    assert_eq!(since_schema["type"], "string");
+    let mut arguments = Map::new();
+    arguments.insert("since".into(), Value::from("s8f3k2p9"));
+    assert_eq!(
+        tool.argv(&arguments).unwrap(),
+        ["snapshot", "--since=s8f3k2p9"]
+    );
+}

@@ -44,6 +44,7 @@ fn supported_surface_requests_do_not_discover_unrelated_capabilities() {
             root_ref: None,
             timeout_ms: None,
             force_electron_a11y: false,
+            since: None,
         },
         &ScopedSurface,
         &context,

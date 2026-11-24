@@ -8,6 +8,7 @@ Captures the accessibility tree as JSON. Interactive elements get qualified refs
 
 ```bash
 agent-desktop snapshot --app "System Settings" -i --compact
+agent-desktop snapshot --app "System Settings" -i --compact --since s8f3k2p9
 agent-desktop snapshot --app "App" --skeleton -i --compact
 agent-desktop snapshot --root @s8f3k2p9:e3 -i --compact
 agent-desktop snapshot --app "App" --surface menu -i
@@ -35,6 +36,10 @@ Choose the scope:
 - `--skeleton` clamps depth to 3 and adds `children_count` to cut containers. Each cut branch exposes its deepest safely resolvable drill target, or its nearest resolvable ancestor when the boundary has no stable identity.
 - `--root <REF>` starts from a ref found earlier. Re-drilling a root replaces the refs from that root's previous drill, and those of any drill made under it. Refs outside the drilled subtree keep working, skeleton refs inside it are replaced, and the new refs join the same snapshot id. A drill inherits the whole-window identity count of its snapshot, so its refs resolve like the skeleton's. `--root` cannot combine with `--surface` or `--wait-for`.
 - `--max-depth` (default 10) limits depth. Reach deeper subtrees with `--root`.
+- `--since <SNAPSHOT_ID>` diffs against a stored snapshot for the same window and scope. It always issues a fresh `snapshot_id` and valid refs:
+  - When unchanged, `data` omits `tree` and sets `"since_status": "unchanged"` and `"unchanged": true`.
+  - When changed, `data` omits `tree` and sets `"since_status": "delta"`, `"unchanged": false`, and `"delta": { "added": [...], "updated": [...], "removed": [...] }`. Cleared optional fields appear as explicit `null` (or `[]` for cleared arrays), and index or identity shifts emit `removed` plus `added`.
+  - When the baseline cannot be diffed, `data` falls back to a full `tree` with `"since_status"` set to `unknown_baseline`, `expired`, `window_mismatch`, `scope_mismatch`, or `incomplete`.
 - Use `--include-bounds` only when you need coordinates.
 - With `--app` and no `--window-id`, `snapshot` and `find` take the app's only visible window, else its only focused window, and answer `AMBIGUOUS_TARGET` with the candidates when neither settles it. Pass `--window-id` when an app has several windows.
 - On macOS, `menu` and `menubar` are application-owned and skip window selection. If you pass `--window-id`, it selects the owning app for that surface.

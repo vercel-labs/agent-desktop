@@ -34,4 +34,10 @@ pub(crate) struct SnapshotArgs {
     )]
     #[serde(default)]
     pub force_electron_a11y: bool,
+    #[arg(
+        long,
+        value_name = "SNAPSHOT_ID",
+        help = "Compare against a prior snapshot and return only changes when possible"
+    )]
+    pub since: Option<String>,
 }

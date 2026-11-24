@@ -64,7 +64,11 @@ impl RefStore {
     }
 
     pub fn save_snapshot(&self, snapshot_id: &str, refmap: &RefMap) -> Result<(), AppError> {
-        self.with_write_lock(|| self.save_snapshot_unlocked(snapshot_id, refmap))
+        self.with_write_lock(|| {
+            self.save_snapshot_unlocked(snapshot_id, refmap)?;
+            self.remove_expired_snapshot_unlocked(snapshot_id);
+            Ok(())
+        })
     }
 
     pub(crate) fn update_existing_snapshot<T>(
@@ -288,6 +292,9 @@ impl RefStore {
 /// widening those fields' visibility beyond this module tree. The module
 /// itself is `pub(crate)` so its standalone, non-`RefStore` age-based-prune
 /// helper is reachable from other commands that need the same TTL sweep.
+#[path = "refs_store_baseline.rs"]
+pub(crate) mod baseline;
+
 #[path = "refs_store_prune.rs"]
 pub(crate) mod prune;
 

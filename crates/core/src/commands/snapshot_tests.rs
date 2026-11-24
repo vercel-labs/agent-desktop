@@ -155,6 +155,7 @@ fn base_args() -> SnapshotArgs {
         root_ref: None,
         timeout_ms: None,
         force_electron_a11y: false,
+        since: None,
     }
 }
 

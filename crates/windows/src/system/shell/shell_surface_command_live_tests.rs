@@ -89,6 +89,7 @@ fn snapshot_command(kind: SnapshotSurface) -> serde_json::Value {
             root_ref: None,
             timeout_ms: Some(10_000),
             force_electron_a11y: false,
+            since: None,
         },
         &adapter,
         &context,
