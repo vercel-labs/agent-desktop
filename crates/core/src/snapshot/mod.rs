@@ -26,10 +26,19 @@ pub struct SnapshotResult {
 
 impl SnapshotResult {
     pub(crate) fn save_refmap(&self, store: &RefStore) -> Result<String, AppError> {
+        self.save_refmap_with_baseline(store, None)
+    }
+
+    pub(crate) fn save_refmap_with_baseline(
+        &self,
+        store: &RefStore,
+        baseline: Option<&baseline::SnapshotBaseline>,
+    ) -> Result<String, AppError> {
+        let refmap = crate::refs::refs_store::baseline::RefMapRef(&self.refmap);
         if self.complete {
-            store.save_new_snapshot(&self.refmap)
+            store.save_new_snapshot_with_baseline(&refmap, baseline)
         } else {
-            store.save_new_snapshot_detached(&self.refmap)
+            store.save_new_snapshot_detached_with_baseline(&refmap, baseline)
         }
     }
 
@@ -171,24 +180,78 @@ pub fn run_with_context(
     context: &CommandContext,
     timeout_ms: u64,
 ) -> Result<SnapshotResult, AppError> {
+    let (result, _) = run_since_with_context(
+        adapter,
+        opts,
+        &SnapshotExecution {
+            target: SnapshotTarget {
+                app_name: target.app_name,
+                window_id: target.window_id,
+            },
+            since: None,
+            timeout_ms,
+        },
+        context,
+    )?;
+    Ok(result)
+}
+
+pub(crate) struct SnapshotExecution<'a> {
+    pub(crate) target: SnapshotTarget<'a>,
+    pub(crate) since: Option<&'a str>,
+    pub(crate) timeout_ms: u64,
+}
+
+pub(crate) fn run_since_with_context(
+    adapter: &dyn PlatformAdapter,
+    opts: &TreeOptions,
+    exec: &SnapshotExecution<'_>,
+    context: &CommandContext,
+) -> Result<(SnapshotResult, Option<since::SinceEvaluation>), AppError> {
     let mut result = build(
         adapter,
         opts,
-        target.app_name,
-        target.window_id,
-        crate::Deadline::after(timeout_ms)?,
+        exec.target.app_name,
+        exec.target.window_id,
+        crate::Deadline::after(exec.timeout_ms)?,
     )?;
+    let new_raw_tree = result.tree.clone();
+    let new_baseline = baseline::SnapshotBaseline::from_snapshot_result(&result, opts, None);
+    baseline::redact_sensitive_tree_values(&mut result);
+
     let store = RefStore::for_session(context.session_id())?;
-    let snapshot_id = result.save_refmap(&store)?;
+    let lookup = match exec.since {
+        Some(baseline_id) => Some(store.load_baseline(baseline_id)?),
+        None => None,
+    };
+    let snapshot_id = result.save_refmap_with_baseline(&store, Some(&new_baseline))?;
     trace_artifacts::copy_refmap_if_full(context, &store, &snapshot_id, &result.refmap)?;
-    result.bind_snapshot_id(snapshot_id);
-    emit_snapshot_saved(context, &result)?;
-    Ok(result)
+    result.bind_snapshot_id(snapshot_id.clone());
+    let evaluation = match (exec.since, lookup) {
+        (Some(baseline_id), Some(lookup)) => Some(since::evaluate_since(
+            baseline_id,
+            lookup,
+            &new_baseline,
+            &snapshot_id,
+            &new_raw_tree,
+        )),
+        _ => None,
+    };
+    emit_snapshot_saved_with_since(context, &result, evaluation.as_ref())?;
+    Ok((result, evaluation))
 }
 
 pub(crate) fn emit_snapshot_saved(
     context: &CommandContext,
     result: &SnapshotResult,
+) -> Result<(), AppError> {
+    emit_snapshot_saved_with_since(context, result, None)
+}
+
+pub(crate) fn emit_snapshot_saved_with_since(
+    context: &CommandContext,
+    result: &SnapshotResult,
+    since: Option<&since::SinceEvaluation>,
 ) -> Result<(), AppError> {
     context.trace_lazy("snapshot.saved", || {
         let mut fields = json!({
@@ -201,12 +264,25 @@ pub(crate) fn emit_snapshot_saved(
         if let Some(reason) = &result.identity_unproven {
             fields["identity_unproven"] = json!(reason);
         }
+        if let Some(since) = since {
+            fields["since_status"] = json!(since.status.as_str());
+        }
         fields
     })
 }
 
+pub(crate) mod baseline;
+pub(crate) mod baseline_hash;
+pub(crate) mod baseline_identity;
+pub(crate) mod baseline_node;
+pub(crate) mod baseline_owner;
+pub(crate) mod baseline_presentation;
+pub(crate) mod baseline_scope;
+pub(crate) mod delta;
 pub mod hints;
 pub(crate) mod ref_owner_observation;
+pub(crate) mod since;
+pub(crate) mod since_status;
 pub(crate) mod snapshot_owner;
 pub(crate) mod snapshot_ref;
 pub mod snapshot_surface;

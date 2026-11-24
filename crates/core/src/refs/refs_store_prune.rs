@@ -49,6 +49,7 @@ impl RefStore {
         let Ok(entries) = std::fs::read_dir(&snapshots) else {
             return;
         };
+        let mut evicted = Vec::new();
         for entry in entries.flatten() {
             if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
                 continue;
@@ -59,9 +60,17 @@ impl RefStore {
             }
             let copy = std::fs::read(duplicates.join(format!("{id}.json")));
             let original = std::fs::read(entry.path().join("refmap.json"));
-            if copy.is_ok_and(|copy| original.is_ok_and(|original| copy == original)) {
-                let _ = std::fs::remove_dir_all(entry.path());
+            if copy.is_ok_and(|copy| original.is_ok_and(|original| copy == original))
+                && std::fs::remove_dir_all(entry.path()).is_ok()
+            {
+                evicted.push(id);
             }
+        }
+        if !evicted.is_empty() {
+            let _ = self.with_write_lock(|| {
+                self.record_expired_snapshots_unlocked(&evicted);
+                Ok(())
+            });
         }
         let pointer = self.base_dir.join(super::LATEST_SNAPSHOT_FILE);
         if let Ok(Some(latest)) = self.latest_snapshot_id()
@@ -109,15 +118,19 @@ impl RefStore {
             .collect();
         dated.sort_by(|left, right| (left.0, &left.1).cmp(&(right.0, &right.1)));
         let mut remove_count = dated.len().saturating_sub(PRUNE_LOW_WATER);
+        let mut evicted = Vec::new();
         for (_, id, path) in dated {
             if remove_count == 0 {
                 break;
             }
             if id != latest_id {
-                let _ = std::fs::remove_dir_all(path);
+                if std::fs::remove_dir_all(path).is_ok() {
+                    evicted.push(id);
+                }
                 remove_count -= 1;
             }
         }
+        self.record_expired_snapshots_unlocked(&evicted);
         Ok(())
     }
 }

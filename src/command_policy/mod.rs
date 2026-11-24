@@ -1,5 +1,6 @@
 use agent_desktop_core::{
-    AdapterError, AppError, DeliverySemantics, ErrorCode, PermissionReport, refs::validate_ref_id,
+    AdapterError, AppError, DeliverySemantics, ErrorCode, PermissionReport,
+    refs::{validate_ref_id, validate_snapshot_id},
 };
 
 use crate::cli::Commands;
@@ -143,6 +144,9 @@ pub(crate) fn requires_permission_report(cmd: &Commands) -> bool {
 fn validate_args(cmd: &Commands) -> Result<(), AppError> {
     match cmd {
         Commands::Snapshot(args) => {
+            if let Some(since) = &args.since {
+                validate_snapshot_id(since)?;
+            }
             if let Some(root) = &args.root {
                 if args.surface != crate::cli_args::Surface::Window {
                     return Err(AppError::invalid_input(

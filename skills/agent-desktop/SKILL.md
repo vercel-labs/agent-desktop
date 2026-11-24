@@ -37,7 +37,7 @@ Use `find` when you know the role or exact name. Otherwise map the app first and
 agent-desktop snapshot --skeleton --app "Notes" -i --compact   # shallow map, children_count on cut branches
 agent-desktop snapshot --root @s8f3k2p9:e3 -i --compact        # drill into one region
 agent-desktop click @s8f3k2p9:e12                              # act on a qualified ref
-agent-desktop snapshot --root @s8f3k2p9:e3 -i --compact        # verify: re-read the same region
+agent-desktop snapshot --app "Notes" -i --compact --since s8f3k2p9   # verify: emit delta or unchanged
 ```
 
 - A small app needs no skeleton. Take a full `snapshot -i`.

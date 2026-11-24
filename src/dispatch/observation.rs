@@ -29,6 +29,7 @@ pub(super) fn snapshot(
             root_ref: args.root,
             timeout_ms: args.timeout_ms,
             force_electron_a11y: args.force_electron_a11y,
+            since: args.since,
         },
         adapter,
         context,

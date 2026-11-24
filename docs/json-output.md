@@ -52,6 +52,14 @@ a `TIMEOUT` error no longer signals an oversized tree. A `--root` drill-down is
 unaffected: it replaces refs inside an existing snapshot, so an incomplete
 observation still returns `TIMEOUT` rather than a partial tree.
 
+## Incremental snapshot diffing (`--since`)
+
+When `snapshot --since <snapshot_id>` is passed, `data` always includes a fresh `snapshot_id` (with valid refs saved in `RefStore`), `since`, and `since_status`:
+
+- `"since_status": "unchanged"` with `"unchanged": true` omits `tree` and `delta` when the canonical tree is identical for the same owner and scope.
+- `"since_status": "delta"` with `"unchanged": false` omits `tree` and returns `"delta": { "added": [...], "updated": [...], "removed": [...] }`. Cleared optional fields in `updated` serialize as explicit `null`, cleared arrays (`states`, `available_actions`, `dom_classes`) as `[]`, and index or identity shifts as `removed` plus `added`. Secure field values are compared by pre-redaction digest and emitted as `{ "redacted": true }` when non-empty.
+- `"since_status"` set to `unknown_baseline`, `expired`, `window_mismatch`, `scope_mismatch`, or `incomplete` falls back to a full `tree` payload.
+
 Version 2.1 replaces the 2.0 `error.retry_command` string with the structured
 `error.recovery` object and adds `error.disposition`. Consumers must select a
 recovery strategy from `recovery.strategy` only when `disposition.retry` is

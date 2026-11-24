@@ -98,6 +98,8 @@ On macOS, `menu` and `menubar` snapshots belong to the application, so `data.app
 
 A snapshot that runs out of budget still returns `ok: true`, with `"complete": false`, `"truncated": true`, `nodes_observed`, and `"subtree_truncated": true` on each cut node. Read `data.complete` before you treat a tree as whole. Node fields are in [Snapshots and refs](/desktop/snapshots-and-refs), and partial observations in [Skeleton and drill-down](/desktop/skeleton-and-drill-down#partial-observations).
 
+When `snapshot --since <snapshot_id>` runs, `data` always carries a fresh `snapshot_id`, valid refs, `since`, and `since_status`: `unchanged` (with `unchanged: true` and no `tree`), `delta` (with `unchanged: false`, `delta: { added, updated, removed }`, explicit `null` for cleared optional fields, and no `tree`), or a fallback reason (`unknown_baseline`, `expired`, `window_mismatch`, `scope_mismatch`, or `incomplete`) with the full `tree`.
+
 ## Action results and disposition
 
 A ref action such as `click`, `type`, or `toggle` returns `data.action` and `data.disposition`, and can add `steps` (each mechanism tried), `post_state`, `surfaces` (surfaces open once the action settled), and `details`. `disposition` has two fields, `delivery` and `retry`; on success, `delivery` is `delivered_verified`, `delivered_unverified`, or `not_delivered` (already satisfied). What each value proves, and when a retry is safe, is in [Errors and recovery](/desktop/errors-and-recovery#disposition).

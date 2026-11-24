@@ -34,6 +34,7 @@ fn snapshot_args(surface: SnapshotSurface) -> agent_desktop_core::commands::snap
         root_ref: None,
         timeout_ms: None,
         force_electron_a11y: false,
+        since: None,
     }
 }
 

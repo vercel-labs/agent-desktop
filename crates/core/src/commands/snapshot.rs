@@ -3,9 +3,8 @@ use crate::{
     adapter::{PlatformAdapter, SnapshotSurface},
     commands::{wait_selector, wait_selector::WaitSelectorInput},
     context::CommandContext,
-    refs::validate_ref_id,
-    snapshot,
-    snapshot::snapshot_ref,
+    refs::{refs_store::RefStore, validate_ref_id, validate_snapshot_id},
+    snapshot::{self, baseline, since, snapshot_ref},
 };
 use serde_json::{Value, json};
 
@@ -29,6 +28,7 @@ pub struct SnapshotArgs {
     /// need to guess at guidance. Threaded into the request's observation
     /// mode.
     pub force_electron_a11y: bool,
+    pub since: Option<String>,
 }
 
 fn tree_options(args: &SnapshotArgs) -> crate::adapter::TreeOptions {
@@ -62,6 +62,10 @@ pub fn execute(
         "tree: snapshot"
     );
 
+    if let Some(since_id) = args.since.as_deref() {
+        validate_snapshot_id(since_id)?;
+    }
+
     if let Some(root) = args.root_ref.as_deref() {
         if context.wait_selector().is_some() {
             return Err(AppError::invalid_input_with_suggestion(
@@ -76,20 +80,34 @@ pub fn execute(
     adapter.check_surface_support(args.surface)?;
 
     let opts = tree_options(&args);
+    let timeout_ms = args
+        .timeout_ms
+        .unwrap_or(snapshot::DEFAULT_SNAPSHOT_TIMEOUT_MS);
 
     if let Some(root) = args.root_ref {
-        return format_result(snapshot_ref::run_from_ref_with_context(
-            adapter,
-            &opts,
-            &root,
-            context,
-            args.timeout_ms
-                .unwrap_or(snapshot::DEFAULT_SNAPSHOT_TIMEOUT_MS),
-        )?);
+        let lookup = match args.since.as_deref() {
+            Some(since_id) => {
+                Some(RefStore::for_session(context.session_id())?.load_baseline(since_id)?)
+            }
+            None => None,
+        };
+        let mut result =
+            snapshot_ref::run_from_ref_with_context(adapter, &opts, &root, context, timeout_ms)?;
+        let new_raw_tree = result.tree.clone();
+        let new_baseline =
+            baseline::SnapshotBaseline::from_snapshot_result(&result, &opts, Some(&root));
+        baseline::redact_sensitive_tree_values(&mut result);
+        if let (Some(since_id), Some(lookup)) = (args.since.as_deref(), lookup) {
+            let new_id = result.snapshot_id.as_deref().unwrap_or("");
+            let evaluation =
+                since::evaluate_since(since_id, lookup, &new_baseline, new_id, &new_raw_tree);
+            return since::format_since_snapshot_fields(&result, &evaluation, None, None);
+        }
+        return format_result(result);
     }
 
     if let Some(wait) = context.wait_selector() {
-        return wait_selector::execute(
+        return wait_selector::execute_since(
             WaitSelectorInput {
                 query_raw: wait.query_raw.clone(),
                 gone: wait.gone,
@@ -98,22 +116,29 @@ pub fn execute(
                 opts,
                 timeout_ms: wait.timeout_ms,
             },
+            args.since.as_deref(),
             adapter,
             context,
         );
     }
 
-    let result = snapshot::run_with_context(
+    let (result, evaluation) = snapshot::run_since_with_context(
         adapter,
         &opts,
-        &snapshot::SnapshotTarget {
-            app_name: args.app.as_deref(),
-            window_id: args.window_id.as_deref(),
+        &snapshot::SnapshotExecution {
+            target: snapshot::SnapshotTarget {
+                app_name: args.app.as_deref(),
+                window_id: args.window_id.as_deref(),
+            },
+            since: args.since.as_deref(),
+            timeout_ms,
         },
         context,
-        args.timeout_ms
-            .unwrap_or(snapshot::DEFAULT_SNAPSHOT_TIMEOUT_MS),
     )?;
+
+    if let Some(evaluation) = evaluation {
+        return since::format_since_snapshot_fields(&result, &evaluation, None, None);
+    }
 
     format_result(result)
 }
