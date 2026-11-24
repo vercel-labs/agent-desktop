@@ -71,6 +71,7 @@ fn a_second_lease_times_out_and_drop_releases_the_first() {
     drop(first);
     acquire_unix_interaction_lease_at(Deadline::after(100).unwrap(), &root).unwrap();
     std::fs::remove_dir_all(root).unwrap();
+    assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());
 }
 
 #[test]
@@ -156,6 +157,8 @@ fn subprocess_inherited_fd_is_closed() {
 
 #[test]
 fn different_home_subprocess_contends_and_crash_releases() {
+    use std::os::fd::AsRawFd;
+
     let _test_guard = interaction_lease_test_guard();
     let token = crate::refs::new_snapshot_id();
     let directory = std::env::temp_dir().join(format!("agent-desktop-lock-proof-{token}"));
@@ -184,10 +187,42 @@ fn different_home_subprocess_contends_and_crash_releases() {
             Err(error) => error,
         };
     assert_eq!(error.code, ErrorCode::Timeout);
+    let lock_file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(interaction_lock_path_at(&interaction_root).unwrap())
+        .unwrap();
+    let adopt_error = adopt_inherited_unix_interaction_lease_at(
+        lock_file.as_raw_fd(),
+        Deadline::after(25).unwrap(),
+        &interaction_root,
+    )
+    .err()
+    .expect("an independently opened descriptor must contend for the held lease");
+    drop(lock_file);
     let _ = child.kill();
     reap_child(&mut child, Duration::from_secs(60));
     acquire_unix_interaction_lease_at(Deadline::after(1_000).unwrap(), &interaction_root).unwrap();
     std::fs::remove_dir_all(directory).unwrap();
+    assert_eq!(error.details.as_ref().unwrap()["kind"], "lock_timeout");
+    let payload = crate::response::output::ErrorPayload::from_app_error(&error.into());
+    let json = serde_json::to_value(payload).unwrap();
+    assert_eq!(json["disposition"]["delivery"], "not_delivered");
+    assert_eq!(json["disposition"]["retry"], "safe");
+    assert_eq!(json["recovery"]["retryable"], true);
+    assert_eq!(
+        json["suggestion"],
+        "The desktop interaction lease did not become available before the deadline"
+    );
+    assert_eq!(adopt_error.code, ErrorCode::Timeout);
+    assert_eq!(
+        adopt_error.details.as_ref().unwrap()["kind"],
+        "lock_timeout"
+    );
+    assert_eq!(
+        adopt_error.disposition,
+        crate::DeliverySemantics::not_delivered()
+    );
 }
 
 #[test]

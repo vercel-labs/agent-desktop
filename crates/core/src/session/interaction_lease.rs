@@ -108,14 +108,7 @@ impl InteractionLease {
 pub fn acquire_unix_interaction_lease(
     deadline: Deadline,
 ) -> Result<InteractionLease, AdapterError> {
-    let process_guard = crate::session::process_lease_guard::ProcessLeaseGuard::acquire(deadline)?;
-    let path = interaction_lock_path_at(std::path::Path::new("/tmp"))?;
-    let lock = FileLock::acquire(&path, deadline, "desktop interaction lease")?;
-    Ok(InteractionLease::from_file_lock(
-        deadline,
-        lock,
-        process_guard,
-    ))
+    acquire_unix_interaction_lease_at(deadline, std::path::Path::new("/tmp"))
 }
 
 #[cfg(unix)]
@@ -134,14 +127,15 @@ fn interaction_lock_path_at(root: &std::path::Path) -> Result<PathBuf, AdapterEr
     Ok(directory.join("interaction.lock"))
 }
 
-#[cfg(all(unix, test))]
+#[cfg(unix)]
 fn acquire_unix_interaction_lease_at(
     deadline: Deadline,
     root: &std::path::Path,
 ) -> Result<InteractionLease, AdapterError> {
     let process_guard = crate::session::process_lease_guard::ProcessLeaseGuard::acquire(deadline)?;
     let path = interaction_lock_path_at(root)?;
-    let lock = FileLock::acquire(&path, deadline, "test desktop interaction lease")?;
+    let lock = FileLock::acquire(&path, deadline, "desktop interaction lease")
+        .map_err(annotate_interaction_lease_timeout)?;
     Ok(InteractionLease::from_file_lock(
         deadline,
         lock,
@@ -165,12 +159,24 @@ fn adopt_inherited_unix_interaction_lease_at(
         &path,
         deadline,
         "inherited desktop interaction lease",
-    )?;
+    )
+    .map_err(annotate_interaction_lease_timeout)?;
     Ok(InteractionLease::from_file_lock(
         deadline,
         lock,
         process_guard,
     ))
+}
+
+#[cfg(unix)]
+fn annotate_interaction_lease_timeout(error: AdapterError) -> AdapterError {
+    if error.code == ErrorCode::Timeout {
+        error.unsent().with_suggestion(
+            "The desktop interaction lease did not become available before the deadline",
+        )
+    } else {
+        error
+    }
 }
 
 #[cfg(unix)]

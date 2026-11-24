@@ -111,7 +111,7 @@ Use `agent-desktop` to see and operate desktop apps. Before the first use, run
 `agent-desktop skills get desktop` and `agent-desktop skills get platform`, and follow them.
 ```
 
-Retry a failed command only when `error.disposition.retry` is `safe`. See [JSON output](https://agent-browser.dev/desktop/json-output) for the envelope, error codes, and exit codes.
+Retry a failed command only when `error.disposition.retry` is `safe`. For a safe lease timeout, retry when the desktop interaction lease is available. See [JSON output](https://agent-browser.dev/desktop/json-output) for the envelope, error codes, and exit codes.
 
 ### MCP
 

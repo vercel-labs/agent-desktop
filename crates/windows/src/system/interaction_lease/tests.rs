@@ -118,6 +118,14 @@ fn cross_process_contention_times_out_with_lock_timeout_kind() {
         reap_child(&mut child, Duration::from_secs(60));
         acquire_at(&root, Deadline::after(1_000).unwrap()).unwrap();
         std::fs::remove_dir_all(&root).unwrap();
+        assert_eq!(
+            error.disposition,
+            agent_desktop_core::DeliverySemantics::not_delivered()
+        );
+        assert_eq!(
+            error.suggestion.as_deref(),
+            Some("The desktop interaction lease did not become available before the deadline")
+        );
     });
 }
 
@@ -143,6 +151,10 @@ fn in_process_second_acquire_times_out_with_process_lock_kind() {
         drop(first);
         acquire_at(&root, Deadline::after(1_000).unwrap()).unwrap();
         std::fs::remove_dir_all(&root).unwrap();
+        assert_eq!(
+            error.disposition,
+            agent_desktop_core::DeliverySemantics::not_delivered()
+        );
     });
 }
 

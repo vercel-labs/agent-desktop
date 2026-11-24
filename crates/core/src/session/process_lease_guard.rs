@@ -44,8 +44,14 @@ impl Drop for ProcessLeaseGuard {
 }
 
 fn timeout(deadline: Deadline, contention_count: u64) -> AdapterError {
-    deadline.timeout_error().with_details(serde_json::json!({
-        "kind": "interaction_process_lock_timeout",
-        "contention_count": contention_count,
-    }))
+    deadline
+        .timeout_error()
+        .with_details(serde_json::json!({
+            "kind": "interaction_process_lock_timeout",
+            "contention_count": contention_count,
+        }))
+        .unsent()
+        .with_suggestion(
+            "The desktop interaction lease did not become available before the deadline",
+        )
 }

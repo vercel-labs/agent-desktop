@@ -22,7 +22,9 @@ mod sid;
 
 use std::path::{Path, PathBuf};
 
-use agent_desktop_core::{AdapterError, Deadline, ErrorCode, InteractionLease, ProcessLeaseGuard};
+use agent_desktop_core::{
+    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionLease, ProcessLeaseGuard,
+};
 use windows_sys::Win32::Foundation::{
     CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_ACCESS_DENIED,
     ERROR_SHARING_VIOLATION, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
@@ -298,12 +300,18 @@ struct WindowsLeaseGuard {
 }
 
 fn lock_timeout(deadline: Deadline, path: &Path, contention_count: u64) -> AdapterError {
-    deadline.timeout_error().with_details(serde_json::json!({
-        "kind": "lock_timeout",
-        "purpose": LEASE_PURPOSE,
-        "path": path.display().to_string(),
-        "contention_count": contention_count,
-    }))
+    deadline
+        .timeout_error()
+        .with_details(serde_json::json!({
+            "kind": "lock_timeout",
+            "purpose": LEASE_PURPOSE,
+            "path": path.display().to_string(),
+            "contention_count": contention_count,
+        }))
+        .with_disposition(DeliverySemantics::not_delivered())
+        .with_suggestion(
+            "The desktop interaction lease did not become available before the deadline",
+        )
 }
 
 fn policy_denied(kind: Option<&str>, message: &str) -> AdapterError {

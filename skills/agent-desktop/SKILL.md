@@ -63,6 +63,7 @@ agent-desktop snapshot --root @s8f3k2p9:e3 -i --compact        # verify: re-read
 Action results carry `data.disposition` and errors carry `error.disposition`, each with `delivery` and `retry`. Observation commands such as `snapshot` have none on success; their errors, and every `INVALID_ARGS` refusal, carry `not_delivered` and `retry: safe`.
 
 - Retry or substitute an action only when `disposition.retry` is `safe`. Only `not_delivered` is safe.
+- If acquiring the desktop interaction lease times out with `retry: safe`, retry when the lease is available.
 - Any other delivery value means the action may have landed. A repeat can click, type or submit twice, and `toggle` can undo itself.
 - On a result that is not safe, read the live state (`get`, `is`, or a fresh snapshot) and decide from that. `details.post_state` helps when present.
 - Branch on `error.code` and `error.disposition`. Message and suggestion text can change.

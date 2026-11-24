@@ -92,6 +92,8 @@ A macOS <code>TIMEOUT</code> with <code>details.kind: "focus_verification"</code
 
 `retry` follows from `delivery`: only `not_delivered` is `safe`, `unknown` stays `unknown`, and every other value is `unsafe`. A refusal that cannot have delivered anything is stamped `not_delivered`: an argument error, a failure before dispatch, and any error from a read-only command such as `snapshot` or `find`.
 
+A timeout while acquiring the desktop interaction lease before dispatch reports `delivery: "not_delivered"` and `retry: "safe"`. Retry when the lease is available.
+
 **Retry or substitute an action only when `disposition.retry` is `safe`.** When it is `unsafe` or `unknown`, observe first: take a snapshot, read the element with `get` or `is`, or check the app, and decide from what you see. A repeated `click` can submit twice, and a repeated `toggle` undoes itself.
 
 ## Recovery strategies
