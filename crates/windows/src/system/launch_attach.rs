@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use agent_desktop_core::{
@@ -41,6 +42,19 @@ pub(super) fn prepare(
             exact_matches.push((row, token, process));
         }
     }
+    // Chromium/Electron apps can run their main process and helper processes
+    // from the same executable. Only the root process is the launchable app;
+    // child helpers must not turn one running app into an ambiguous target.
+    // Keep separate roots ambiguous so we never guess between app instances.
+    let roots = same_image_roots(
+        &exact_matches
+            .iter()
+            .map(|(row, _, _)| row.clone())
+            .collect::<Vec<_>>(),
+    );
+    if !roots.is_empty() {
+        exact_matches.retain(|(row, _, _)| roots.contains(&u32::from(row.pid)));
+    }
     if exact_matches.len() > 1 {
         let rows = exact_matches
             .iter()
@@ -56,6 +70,27 @@ pub(super) fn prepare(
         ));
     }
     Ok((executable, None))
+}
+
+fn same_image_roots(matches: &[ProcessRow]) -> HashSet<u32> {
+    let candidate_pids: HashSet<u32> = matches.iter().map(|row| u32::from(row.pid)).collect();
+    let child_pids: HashSet<u32> = matches
+        .iter()
+        .filter(|row| {
+            row.parent_pid
+                .is_some_and(|parent_pid| candidate_pids.contains(&u32::from(parent_pid)))
+        })
+        .map(|row| u32::from(row.pid))
+        .collect();
+    let roots: HashSet<u32> = candidate_pids.difference(&child_pids).copied().collect();
+
+    // A malformed or stale parent graph must preserve the existing fail-closed
+    // ambiguity behavior instead of hiding every candidate.
+    if roots.is_empty() {
+        candidate_pids
+    } else {
+        roots
+    }
 }
 
 pub(super) fn matching_processes(image: &str) -> Result<Vec<ProcessRow>, AdapterError> {
@@ -120,5 +155,43 @@ impl ProcessPin {
 
     fn image_path(&self) -> Option<PathBuf> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn process(pid: u32, parent_pid: Option<u32>) -> ProcessRow {
+        ProcessRow {
+            pid: ProcessId::from(pid),
+            parent_pid: parent_pid.map(ProcessId::from),
+            name: "app.exe".to_string(),
+        }
+    }
+
+    #[test]
+    fn same_image_helpers_collapse_to_their_root_process() {
+        let matches = [
+            process(10, None),
+            process(11, Some(10)),
+            process(12, Some(11)),
+        ];
+
+        assert_eq!(same_image_roots(&matches), HashSet::from([10]));
+    }
+
+    #[test]
+    fn separate_same_image_roots_remain_ambiguous_candidates() {
+        let matches = [process(10, None), process(20, None), process(21, Some(20))];
+
+        assert_eq!(same_image_roots(&matches), HashSet::from([10, 20]));
+    }
+
+    #[test]
+    fn a_cyclic_parent_snapshot_preserves_all_candidates() {
+        let matches = [process(10, Some(11)), process(11, Some(10))];
+
+        assert_eq!(same_image_roots(&matches), HashSet::from([10, 11]));
     }
 }
