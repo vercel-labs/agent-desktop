@@ -41,6 +41,7 @@ pub fn execute(
                 )?,
                 None => crate::actions::headed_focus::focus_process_window(
                     process.clone(),
+                    Some(live.name.as_str()),
                     adapter,
                     context,
                     &lease,

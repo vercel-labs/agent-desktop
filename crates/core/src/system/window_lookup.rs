@@ -6,12 +6,14 @@ use serde_json::json;
 
 pub(crate) fn find_window_for_process(
     process: ProcessIdentity,
+    app: Option<&str>,
     adapter: &dyn PlatformAdapter,
     deadline: crate::Deadline,
 ) -> Result<WindowInfo, AppError> {
+    let scoped_app = app.filter(|name| !name.is_empty());
     let filter = WindowFilter {
         focused_only: false,
-        app: None,
+        app: scoped_app.map(str::to_string),
     };
     let same_pid: Vec<_> = adapter
         .list_windows(&filter, deadline)?
@@ -37,12 +39,17 @@ pub(crate) fn find_window_for_process(
         .into_iter()
         .filter(|window| window.process_instance.as_deref() == Some(process.instance.as_str()))
         .collect();
-    select_window(
-        candidates,
-        crate::AdapterError::new(
+    let empty_error = match scoped_app {
+        Some(name) => crate::AdapterError::app_has_no_window(name),
+        None => crate::AdapterError::new(
             ErrorCode::WindowNotFound,
             "No window found for the selected process instance",
-        ),
+        )
+        .with_suggestion("Run 'list-windows' to see available windows."),
+    };
+    select_window(
+        candidates,
+        empty_error,
         "Multiple windows matched the selected process instance",
     )
 }

@@ -67,6 +67,7 @@ fn resolve_window(
     let app = super::helpers::resolve_app(app, adapter, deadline)?;
     window_lookup::find_window_for_process(
         super::helpers::process_identity(&app)?,
+        Some(app.name.as_str()),
         adapter,
         deadline,
     )
