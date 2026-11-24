@@ -252,10 +252,23 @@ fn remap_native_failure(error: AdapterError) -> AdapterError {
     if error.code == ErrorCode::Timeout {
         return error;
     }
-    let mut mapped = AdapterError::new(ErrorCode::AppUnresponsive, error.message.clone())
-        .with_details(serde_json::json!({ "kind": "native_enumeration_failure" }));
+    let mut details = serde_json::json!({ "kind": "native_enumeration_failure" });
+    if let Some(serde_json::Value::Object(map)) = error.details {
+        if let Some(target) = details.as_object_mut() {
+            for (k, v) in map {
+                if k != "kind" {
+                    target.insert(k, v);
+                }
+            }
+        }
+    }
+    let mut mapped =
+        AdapterError::new(ErrorCode::AppUnresponsive, error.message.clone()).with_details(details);
     if let Some(detail) = error.platform_detail.as_deref() {
         mapped = mapped.with_platform_detail(detail.to_string());
+    }
+    if let Some(suggestion) = error.suggestion.as_deref() {
+        mapped = mapped.with_suggestion(suggestion);
     }
     mapped
 }

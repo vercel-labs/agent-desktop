@@ -50,6 +50,10 @@ observation, actions and capture there fail or return nothing.
   splatting operator and deletes the argument before the binary sees it, so
   `set-value @s8f3k2p9:e1 hi` fails `INVALID_ARGS`. Write
   `set-value '@s8f3k2p9:e1' hi`. cmd.exe and bash need no quoting.
+- **Subshell window stations (`WinSta0\exebox-...`).** Background agent terminals
+  can spawn on an isolated desktop station where `EnumWindows` returns
+  `INTERNAL: EnumWindows failed to enumerate top-level windows`. Ensure the
+  calling process runs in the user's interactive desktop station (`WinSta0\default`).
 - **A window behind another window is drivable. A minimized one is not.**
   Every element of a minimized window reports `offscreen` and ref actions
   fail. Run `restore --app <image>` and snapshot again. Do not use
