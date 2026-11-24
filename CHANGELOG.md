@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* Add `element-at --xy X,Y`, which returns the ref of the element under a screen point and whether the point reaches it, so a point from a screenshot can become a ref action instead of a physical click.
+
 ## [1.3.1](https://github.com/vercel-labs/agent-desktop/compare/v1.3.0...v1.3.1) (2026-11-13)
 
 ### Bug Fixes
