@@ -332,6 +332,7 @@ pub trait SystemOps: Send + Sync {
         &self,
         _win: &WindowInfo,
         _op: WindowOp,
+        _policy: InteractionPolicy,
         _lease: &InteractionLease,
     ) -> Result<OperationReport, AdapterError> {
         Err(AdapterError::not_supported("window_op"))

@@ -10,6 +10,15 @@ use crate::system::window::window_id;
 use crate::system::x11::twin_tie::Twins;
 use crate::tree::Extents;
 
+fn run(
+    world: &impl OpWorld,
+    win: &WindowInfo,
+    op: &WindowOp,
+    deadline: Deadline,
+) -> Result<OperationReport, AdapterError> {
+    super::run(world, win, op, InteractionPolicy::headed(), deadline)
+}
+
 #[path = "window_op_refusal_tests.rs"]
 mod refusals;
 

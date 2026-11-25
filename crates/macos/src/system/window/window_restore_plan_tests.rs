@@ -129,3 +129,32 @@ fn an_unreadable_work_area_is_an_error() {
     );
     assert!(plan.is_err());
 }
+
+#[test]
+fn headless_policy_refuses_to_unminimize_and_headed_allows_it() {
+    let refused = WindowRestorePlan::Unminimize
+        .permitted_by(InteractionPolicy::headless())
+        .unwrap_err();
+    assert_eq!(refused.code.as_str(), "POLICY_DENIED");
+    assert!(refused.suggestion.unwrap().contains("--headed"));
+    assert_eq!(
+        WindowRestorePlan::Unminimize
+            .permitted_by(InteractionPolicy::headed())
+            .unwrap(),
+        WindowRestorePlan::Unminimize
+    );
+}
+
+#[test]
+fn headless_policy_keeps_frame_moves_quiet() {
+    for plan in [
+        WindowRestorePlan::SetFrame(frame(0.0, 400.0)),
+        WindowRestorePlan::AlreadyNormal,
+        WindowRestorePlan::Unrecorded,
+    ] {
+        assert_eq!(
+            plan.permitted_by(InteractionPolicy::headless()).unwrap(),
+            plan
+        );
+    }
+}

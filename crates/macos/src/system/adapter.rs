@@ -252,9 +252,10 @@ impl SystemOps for MacOSAdapter {
         &self,
         win: &WindowInfo,
         op: WindowOp,
+        policy: agent_desktop_core::InteractionPolicy,
         lease: &InteractionLease,
     ) -> Result<OperationReport, AdapterError> {
-        crate::system::window::window_frame::window_op(win, op, lease.deadline())
+        crate::system::window::window_frame::window_op(win, op, policy, lease.deadline())
     }
 
     fn list_notifications(

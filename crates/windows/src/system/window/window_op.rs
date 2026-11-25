@@ -1,11 +1,13 @@
 #[cfg(target_os = "windows")]
 use crate::system::runtime::hresult::win32_last_error;
 use agent_desktop_core::{
-    AdapterError, Deadline, DeliverySemantics, ErrorCode, WindowInfo, WindowOp,
+    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionPolicy, WindowInfo, WindowOp,
 };
 
 use super::window_identity::WindowIdentityEvidence;
-use super::window_op_verb::{ShowVerb, verb_is_satisfied};
+use super::window_op_verb::{
+    ShowVerb, restore_command, restore_goes_below_foreground, verb_is_satisfied,
+};
 use super::window_op_wait::wait_for_placement;
 use super::window_ops::parse_handle;
 
@@ -43,6 +45,7 @@ fn ensure_window_is_pumping(_handle: super::window_enum::WindowHandle) -> Result
 pub(crate) fn window_op_impl(
     win: &WindowInfo,
     op: WindowOp,
+    policy: InteractionPolicy,
     deadline: Deadline,
 ) -> Result<(), AdapterError> {
     deadline.ensure_remaining().map_err(before_write)?;
@@ -62,7 +65,7 @@ pub(crate) fn window_op_impl(
     evidence.verify_stored().map_err(before_write)?;
     ensure_window_is_pumping(handle).map_err(before_write)?;
     let plan = Placement::plan(&op).map_err(before_write)?;
-    apply(handle, &evidence, plan, deadline)
+    apply(handle, &evidence, plan, policy, deadline)
 }
 
 /// What one window operation writes and what the readback must then show.
@@ -133,17 +136,24 @@ fn apply(
     handle: super::window_enum::WindowHandle,
     evidence: &WindowIdentityEvidence<'_>,
     plan: Placement,
+    policy: InteractionPolicy,
     deadline: Deadline,
 ) -> Result<(), AdapterError> {
     ensure_owned_before(evidence)?;
     match plan {
         Placement::Frame { origin, size } => set_window_pos(handle, origin, size)?,
-        Placement::Show(verb) => show_window(handle, verb)?,
+        Placement::Show(verb) => show_window(handle, verb, policy)?,
     }
     wait_for_placement(deadline, || {
         ensure_owned_after(evidence)?;
         placement_is_satisfied(handle, plan)
-    })
+    })?;
+    match plan {
+        Placement::Show(verb) if restore_goes_below_foreground(verb, policy) => {
+            place_below_foreground(handle)
+        }
+        _ => Ok(()),
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -151,6 +161,7 @@ fn apply(
     _handle: super::window_enum::WindowHandle,
     _evidence: &WindowIdentityEvidence<'_>,
     _plan: Placement,
+    _policy: InteractionPolicy,
     _deadline: Deadline,
 ) -> Result<(), AdapterError> {
     Err(AdapterError::not_supported("window_op"))
@@ -179,19 +190,55 @@ fn placement_is_satisfied(
 fn show_window(
     handle: super::window_enum::WindowHandle,
     verb: ShowVerb,
+    policy: InteractionPolicy,
 ) -> Result<(), AdapterError> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, ShowWindowAsync,
-    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SW_MAXIMIZE, SW_MINIMIZE, ShowWindowAsync};
 
     let command = match verb {
         ShowVerb::Minimize => SW_MINIMIZE,
         ShowVerb::Maximize => SW_MAXIMIZE,
-        ShowVerb::Restore => SW_RESTORE,
+        ShowVerb::Restore => restore_command(policy),
     };
     if unsafe { ShowWindowAsync(handle, command) } == 0 {
         return Err(before_write(win32_last_error("ShowWindowAsync failed")));
     }
+    Ok(())
+}
+
+/// Puts a window directly below the user's foreground window without
+/// activating it, so a window shown without activation lands in front of the
+/// windows beneath the user's and not at the bottom of the order.
+#[cfg(target_os = "windows")]
+fn place_below_foreground(handle: super::window_enum::WindowHandle) -> Result<(), AdapterError> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos,
+    };
+
+    let foreground = unsafe { GetForegroundWindow() };
+    if foreground.is_null() || foreground == handle {
+        return Ok(());
+    }
+    let ok = unsafe {
+        SetWindowPos(
+            handle,
+            foreground,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
+        )
+    };
+    if ok == 0 {
+        return Err(after_write(win32_last_error(
+            "SetWindowPos below the foreground window failed",
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn place_below_foreground(_handle: super::window_enum::WindowHandle) -> Result<(), AdapterError> {
     Ok(())
 }
 

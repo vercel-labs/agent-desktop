@@ -15,7 +15,11 @@ pub struct MoveWindowArgs {
     pub y: f64,
 }
 
-pub fn execute(args: MoveWindowArgs, adapter: &dyn PlatformAdapter) -> Result<Value, AppError> {
+pub fn execute(
+    args: MoveWindowArgs,
+    adapter: &dyn PlatformAdapter,
+    policy: crate::InteractionPolicy,
+) -> Result<Value, AppError> {
     crate::Point {
         x: args.x,
         y: args.y,
@@ -30,6 +34,7 @@ pub fn execute(args: MoveWindowArgs, adapter: &dyn PlatformAdapter) -> Result<Va
             x: args.x,
             y: args.y,
         },
+        policy,
         &lease,
     )?;
     operation_response(&report, json!({ "x": args.x, "y": args.y }))

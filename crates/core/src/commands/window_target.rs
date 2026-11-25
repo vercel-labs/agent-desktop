@@ -14,6 +14,7 @@ pub(crate) fn window_op_command(
     args: AppArgs,
     adapter: &dyn PlatformAdapter,
     op: WindowOp,
+    policy: crate::InteractionPolicy,
 ) -> Result<Value, AppError> {
     let deadline = crate::Deadline::standard()?;
     let win = resolve_window(
@@ -24,8 +25,22 @@ pub(crate) fn window_op_command(
     )?;
     let lease = adapter.acquire_interaction_lease(deadline)?;
     let live = revalidate_window_for_mutation(adapter, &win, &lease)?;
-    let report = adapter.window_op(&live, op, &lease)?;
+    refuse_minimizing_the_focused_window(&live, &op, policy)?;
+    let report = adapter.window_op(&live, op, policy, &lease)?;
     super::operation_response::operation_response(&report, json!({}))
+}
+
+/// The window manager hands the focus to another window when the focused one
+/// minimizes, so a headless minimize of it would move the user's focus.
+fn refuse_minimizing_the_focused_window(
+    live: &WindowInfo,
+    op: &WindowOp,
+    policy: crate::InteractionPolicy,
+) -> Result<(), AppError> {
+    if matches!(op, WindowOp::Minimize) && live.state.is_focused {
+        policy.require(crate::Effect::FocusSteal, "minimize of the focused window")?;
+    }
+    Ok(())
 }
 
 pub(crate) fn resolve_window_for_app(
@@ -90,3 +105,7 @@ pub(crate) fn revalidate_window_for_mutation(
     }
     Ok(live)
 }
+
+#[cfg(test)]
+#[path = "window_target_tests.rs"]
+mod tests;

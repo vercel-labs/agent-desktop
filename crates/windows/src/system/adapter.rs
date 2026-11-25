@@ -214,11 +214,16 @@ impl SystemOps for WindowsAdapter {
         &self,
         win: &WindowInfo,
         op: WindowOp,
+        policy: agent_desktop_core::InteractionPolicy,
         lease: &InteractionLease,
     ) -> Result<OperationReport, AdapterError> {
         let readback = crate::system::window::window_op_readback::window_readback(&op);
-        let dispatched =
-            crate::system::window::window_op::window_op_impl(win, op.clone(), lease.deadline());
+        let dispatched = crate::system::window::window_op::window_op_impl(
+            win,
+            op.clone(),
+            policy,
+            lease.deadline(),
+        );
         OperationReport::from_window_dispatch(win, &op, readback, dispatched)
     }
 

@@ -126,9 +126,10 @@ impl SystemOps for LinuxAdapter {
         &self,
         win: &WindowInfo,
         op: WindowOp,
+        policy: agent_desktop_core::InteractionPolicy,
         lease: &InteractionLease,
     ) -> Result<OperationReport, AdapterError> {
-        window_op::window_op(self.bus(), win, op, lease)
+        window_op::window_op(self.bus(), win, op, policy, lease)
     }
 
     fn press_key_for_app(

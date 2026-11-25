@@ -385,7 +385,7 @@ agent-desktop minimize [--app NAME] [--window-id ID]
 }
 ```
 
-A minimized window reports its elements as offscreen, so ref actions on it fail until you [`restore`](#restore) it. A window manager can ignore a minimize sent within about 250 ms of a restore, so read the window state before you retry. Platform limits are the same as `resize-window`.
+Headless `minimize` of the window that has the focus fails with `POLICY_DENIED`, because the system moves the focus when that window minimizes. Pass `--headed` to allow it. A minimized window reports its elements as offscreen, so ref actions on it fail until you [`restore`](#restore) it. A window manager can ignore a minimize sent within about 250 ms of a restore, so read the window state before you retry. Platform limits are the same as `resize-window`.
 
 ## maximize
 
@@ -397,7 +397,7 @@ agent-desktop maximize [--app NAME] [--window-id ID]
 
 ## restore
 
-Restores a minimized or maximized window. Flags are the same as [`minimize`](#minimize).
+Restores a minimized or maximized window. Flags are the same as [`minimize`](#minimize). Un-minimizing a window raises it. Headless, Windows restores it without activation and puts it directly below the foreground window. macOS and Linux have no quiet way to do it, so headless `restore` of a minimized window fails with `POLICY_DENIED` and nothing is sent; pass `--headed`. Restoring a maximized window stays headless.
 
 ```bash
 agent-desktop restore [--app NAME] [--window-id ID]

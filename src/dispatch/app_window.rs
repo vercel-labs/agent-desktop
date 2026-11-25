@@ -123,6 +123,7 @@ pub(super) fn focus_window(
 pub(super) fn resize_window(
     args: ResizeWindowCliArgs,
     adapter: &dyn PlatformAdapter,
+    context: &agent_desktop_core::context::CommandContext,
 ) -> Result<Value, AppError> {
     resize_window_command::execute(
         resize_window_command::ResizeWindowArgs {
@@ -132,12 +133,14 @@ pub(super) fn resize_window(
             height: args.height,
         },
         adapter,
+        context.physical_input_policy(),
     )
 }
 
 pub(super) fn move_window(
     args: MoveWindowCliArgs,
     adapter: &dyn PlatformAdapter,
+    context: &agent_desktop_core::context::CommandContext,
 ) -> Result<Value, AppError> {
     move_window_command::execute(
         move_window_command::MoveWindowArgs {
@@ -147,35 +150,51 @@ pub(super) fn move_window(
             y: args.y,
         },
         adapter,
+        context.physical_input_policy(),
     )
 }
 
-pub(super) fn minimize(args: AppRefArgs, adapter: &dyn PlatformAdapter) -> Result<Value, AppError> {
+pub(super) fn minimize(
+    args: AppRefArgs,
+    adapter: &dyn PlatformAdapter,
+    context: &agent_desktop_core::context::CommandContext,
+) -> Result<Value, AppError> {
     minimize_command::execute(
         helpers::AppArgs {
             app: args.scope.app,
             window_id: args.scope.window_id,
         },
         adapter,
+        context.physical_input_policy(),
     )
 }
 
-pub(super) fn maximize(args: AppRefArgs, adapter: &dyn PlatformAdapter) -> Result<Value, AppError> {
+pub(super) fn maximize(
+    args: AppRefArgs,
+    adapter: &dyn PlatformAdapter,
+    context: &agent_desktop_core::context::CommandContext,
+) -> Result<Value, AppError> {
     maximize_command::execute(
         helpers::AppArgs {
             app: args.scope.app,
             window_id: args.scope.window_id,
         },
         adapter,
+        context.physical_input_policy(),
     )
 }
 
-pub(super) fn restore(args: AppRefArgs, adapter: &dyn PlatformAdapter) -> Result<Value, AppError> {
+pub(super) fn restore(
+    args: AppRefArgs,
+    adapter: &dyn PlatformAdapter,
+    context: &agent_desktop_core::context::CommandContext,
+) -> Result<Value, AppError> {
     restore_command::execute(
         helpers::AppArgs {
             app: args.scope.app,
             window_id: args.scope.window_id,
         },
         adapter,
+        context.physical_input_policy(),
     )
 }

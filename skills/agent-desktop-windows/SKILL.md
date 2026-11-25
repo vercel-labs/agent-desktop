@@ -30,7 +30,7 @@ Use `$env:NAME = 'value'` for environment variables.
 ## Platform behavior
 
 - A covered window can be driven headless; minimized controls report offscreen.
-  Restore a minimized target and observe again rather than focusing it by reflex.
+  Restore a minimized target and observe again rather than focusing it by reflex. Headless `restore` un-minimizes without taking the foreground.
 - UIPI (User Interface Privilege Isolation) blocks input into a higher-integrity
   process. Ask the user to run the CLI at the target's integrity level when needed;
   a working observation does not establish input permission.
