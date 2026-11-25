@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use super::{GHOSTS, settle_abandoned_waiters};
+use super::{GHOSTS, abandoned_waiter_epoch, settle_abandoned_waiters};
 use crate::refs::refs_test_support::HomeGuard;
 use crate::{Deadline, FileLock};
 
@@ -111,13 +111,37 @@ fn an_acquirer_waits_for_an_abandoned_helper_to_finish_before_reading_the_lock_a
         GHOSTS.vanished(&finisher_path);
     });
 
-    let settled = settle_abandoned_waiters(&path, Deadline::after(5_000).unwrap());
+    let settled = settle_abandoned_waiters(
+        &path,
+        Deadline::after(5_000).unwrap(),
+        abandoned_waiter_epoch(),
+    );
 
     finisher.join().unwrap();
     assert!(settled);
     assert!(!settle_abandoned_waiters(
         &path,
-        Deadline::after(5_000).unwrap()
+        Deadline::after(5_000).unwrap(),
+        abandoned_waiter_epoch(),
+    ));
+}
+
+#[test]
+fn an_abandoned_helper_that_vanishes_during_try_lock_still_prompts_a_retry() {
+    let path = std::path::PathBuf::from("/abandoned-helper-vanished-mid-try-probe");
+    GHOSTS.appeared(&path);
+    let before = abandoned_waiter_epoch();
+    GHOSTS.vanished(&path);
+
+    assert!(settle_abandoned_waiters(
+        &path,
+        Deadline::after(5_000).unwrap(),
+        before,
+    ));
+    assert!(!settle_abandoned_waiters(
+        &path,
+        Deadline::after(5_000).unwrap(),
+        abandoned_waiter_epoch(),
     ));
 }
 
@@ -127,7 +151,11 @@ fn an_abandoned_helper_that_never_finishes_costs_the_acquirer_only_the_grace() {
     GHOSTS.appeared(&path);
 
     let started = Instant::now();
-    let settled = settle_abandoned_waiters(&path, Deadline::after(5_000).unwrap());
+    let settled = settle_abandoned_waiters(
+        &path,
+        Deadline::after(5_000).unwrap(),
+        abandoned_waiter_epoch(),
+    );
 
     GHOSTS.vanished(&path);
     assert!(!settled);
