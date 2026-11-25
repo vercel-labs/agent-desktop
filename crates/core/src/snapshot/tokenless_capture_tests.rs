@@ -1,4 +1,4 @@
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::tokenless_capture_support::*;
 use crate::locator::live_locator::ObservationRequest;
@@ -105,7 +105,7 @@ fn the_whole_window_read_carries_the_forced_renderer_hint() {
     assert!(captured.identity_unproven.is_none());
     let (anchor_ref, anchor) = named(&captured.refmap, "Sidebar");
     assert!(
-        anchor.identity.unique_at_capture,
+        anchor.identity.proof.is_unique(),
         "the forced read is adopted and proves the anchor"
     );
     assert!(anchor.source.renderer_accessibility_forced);
@@ -197,4 +197,36 @@ fn a_deep_capture_cut_short_is_flagged_as_unproven() {
         captured.identity_unproven.as_deref(),
         Some("the window read was cut short")
     );
+}
+
+static CENSUS_BUDGET_MS: AtomicU64 = AtomicU64::new(0);
+
+fn records_its_budget(
+    request: &ObservationRequest,
+    tree: AccessibilityNode,
+) -> Result<AccessibilityNode, AdapterError> {
+    CENSUS_BUDGET_MS.store(
+        u64::try_from(request.deadline.remaining().as_millis()).unwrap_or(u64::MAX),
+        Ordering::SeqCst,
+    );
+    Ok(tree)
+}
+
+#[test]
+fn the_census_gets_the_snapshot_budget_less_only_the_shallow_walk_reserve() {
+    let _guard = HomeGuard::new();
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
+    let adapter = CaptureAdapter::new(anchored_window());
+    adapter.fault_whole_read(records_its_budget);
+
+    crate::snapshot::build(
+        &adapter,
+        &skeleton_opts(),
+        Some("Fixture"),
+        None,
+        Deadline::after(20_000).expect("a 20 s deadline"),
+    )
+    .expect("the window snapshots");
+
+    assert_eq!(CENSUS_BUDGET_MS.load(Ordering::SeqCst), 19_250);
 }

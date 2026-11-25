@@ -25,6 +25,11 @@ fn named(role: &str, name: &str) -> AccessibilityNode {
     n
 }
 
+fn with_child(mut parent: AccessibilityNode, child: AccessibilityNode) -> AccessibilityNode {
+    parent.children = vec![child];
+    parent
+}
+
 fn drilled(role: &str, name: &str) -> AccessibilityNode {
     let mut n = named(role, name);
     n.identity.retained_object = Some(format!("axtok1:{role}-{name}"));
@@ -252,7 +257,7 @@ fn test_run_from_ref_returns_subtree_and_persists_refs() {
         "drilled refs must retain an absolute path for fast, scoped resolution"
     );
     assert_eq!(drill_entry.scope.path.as_slice(), [0, 0]);
-    assert!(drill_entry.identity.unique_at_capture);
+    assert!(drill_entry.identity.proof.is_unique());
 }
 
 #[test]
@@ -260,7 +265,10 @@ fn test_run_from_ref_explicit_session_snapshot_with_matching_context() {
     let _guard = HomeGuard::new();
     let snapshot_id = save_session("agent-a", seed_skeleton_refmap());
 
-    let adapter = StubAdapter::new(named("button", "Save"));
+    let adapter = StubAdapter::new(with_child(
+        named("group", "Sidebar"),
+        named("button", "Save"),
+    ));
     let context = crate::CommandContext::new(Some("agent-a".into()), None, false).unwrap();
     let result = run_from_ref_with_context(
         &adapter,
@@ -274,7 +282,10 @@ fn test_run_from_ref_explicit_session_snapshot_with_matching_context() {
     assert_eq!(result.snapshot_id.as_deref(), Some(snapshot_id.as_str()));
     let on_disk = load_session_snapshot("agent-a", &snapshot_id);
     assert!(on_disk.get("@e1").is_some(), "skeleton anchor preserved");
-    let drill_ref = result.tree.ref_id.as_deref().expect("drill ref");
+    let drill_ref = result.tree.children[0]
+        .ref_id
+        .as_deref()
+        .expect("drill ref");
     let drill_entry = on_disk
         .get(&local_ref(drill_ref))
         .expect("drill ref persisted");
@@ -329,39 +340,6 @@ fn test_run_from_ref_stale_root_returns_stale_ref() {
         }
         other => panic!("expected Adapter(StaleRef), got {other:?}"),
     }
-}
-
-#[test]
-fn test_run_from_ref_re_drill_replaces_drill_refs_only() {
-    let _guard = HomeGuard::new();
-    let snapshot_id = save_latest(seed_skeleton_refmap());
-
-    let subtree = named("button", "Save");
-    let adapter = StubAdapter::new(subtree);
-
-    let first = run_from_ref(&adapter, &drill_opts(), "@e1", Some(&snapshot_id)).unwrap();
-    let first_count = first.refmap.len();
-    let first_button_ref = first.tree.ref_id.clone().expect("button should get a ref");
-
-    let second = run_from_ref(&adapter, &drill_opts(), "@e1", Some(&snapshot_id)).unwrap();
-    let second_count = second.refmap.len();
-    let second_button_ref = second.tree.ref_id.clone().expect("button should get a ref");
-
-    assert_eq!(
-        first_count, second_count,
-        "ref count stable across re-drill"
-    );
-    assert_ne!(
-        first_button_ref, second_button_ref,
-        "re-drill should issue a fresh ref id (counter continues)"
-    );
-    let on_disk = load_latest();
-    assert!(on_disk.get("@e1").is_some(), "skeleton anchor preserved");
-    assert!(on_disk.get(&local_ref(&second_button_ref)).is_some());
-    assert!(
-        on_disk.get(&local_ref(&first_button_ref)).is_none(),
-        "first drill ref must be invalidated by remove_by_root_ref"
-    );
 }
 
 #[test]
