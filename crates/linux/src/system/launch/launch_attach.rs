@@ -73,7 +73,7 @@ fn decide_by(
     match found.as_slice() {
         [] => Decision::Spawn,
         _ if !attach_if_running => Decision::Refuse(pids()),
-        [_] if has_arguments => Decision::Forward,
+        [_, ..] if has_arguments => Decision::Forward,
         [one] => Decision::Attach((*one).clone()),
         _ => Decision::Ambiguous(pids()),
     }
