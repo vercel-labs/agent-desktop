@@ -58,6 +58,7 @@ fn facts<'a>(
         role,
         subrole,
         native_id,
+        window_live: true,
     }
 }
 
@@ -158,4 +159,17 @@ fn a_bare_token_saved_before_core_tagged_tokens_is_refused_not_resolved_by_field
 
     saved.identity.retained_object = Some("token:axtok1:00ff".into());
     assert!(super::super::retained::refuse_untagged_token(&saved).is_ok());
+}
+
+#[test]
+fn token_mismatch_refuses_an_element_whose_window_closed() {
+    let stored = entry("button");
+    let mut orphan = facts(7, Some("AXButton"), None, None);
+    orphan.window_live = false;
+
+    assert_eq!(
+        token_mismatch(&stored, &orphan),
+        Some(RetainedMismatch::Window)
+    );
+    assert_eq!(RetainedMismatch::Window.reason(), "window");
 }
