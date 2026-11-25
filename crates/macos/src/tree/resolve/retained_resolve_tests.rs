@@ -173,3 +173,35 @@ fn token_mismatch_refuses_an_element_whose_window_closed() {
     );
     assert_eq!(RetainedMismatch::Window.reason(), "window");
 }
+
+#[test]
+fn a_token_whose_element_has_no_open_window_is_stale() {
+    let deadline = Deadline::after(5000).unwrap();
+    let listing = std::process::Command::new("ps")
+        .args(["-x", "-o", "pid="])
+        .output()
+        .expect("ps runs");
+    let (pid, application) = String::from_utf8_lossy(&listing.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse::<i32>().ok())
+        .map(|pid| (pid, crate::tree::properties::element::element_for_pid(pid)))
+        .find(|(_, element)| {
+            crate::tree::surface_read::string(element, "AXRole", deadline)
+                .is_ok_and(|role| role.as_deref() == Some("AXApplication"))
+        })
+        .expect("a running process that serves accessibility");
+    let token = super::super::retained::capture(&application)
+        .unwrap()
+        .expect("the application element yields a token");
+    let mut saved = entry("application");
+    saved.process.pid = ProcessId::new(pid as u32);
+    saved.identity.retained_object =
+        Some(agent_desktop_core::refs::ref_identity::tagged_element_token(&token));
+
+    let error = resolve_saved_token(&saved, deadline)
+        .map(|_| ())
+        .expect_err("an element outside every open window is refused");
+
+    assert_eq!(error.code, agent_desktop_core::ErrorCode::StaleRef);
+    assert_eq!(error.details.as_ref().expect("details")["reason"], "window");
+}
