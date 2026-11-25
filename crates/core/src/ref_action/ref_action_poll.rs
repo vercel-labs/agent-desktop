@@ -133,7 +133,7 @@ fn ensure_before_deadline(
     Ok(())
 }
 
-fn is_permanent_error(code: &ErrorCode) -> bool {
+pub(crate) fn is_permanent_error(code: &ErrorCode) -> bool {
     matches!(
         code,
         ErrorCode::PermDenied

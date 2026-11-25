@@ -136,6 +136,12 @@ pub(crate) fn after_scroll(mut error: AdapterError) -> AdapterError {
     if error.disposition == crate::DeliverySemantics::Unknown {
         error.disposition = crate::DeliverySemantics::not_delivered();
     }
+    note_preparatory_scroll(error)
+}
+
+/// Records the scroll as an effect without touching the disposition, for exits
+/// where the requested action may have been sent after the scroll.
+pub(crate) fn note_preparatory_scroll(mut error: AdapterError) -> AdapterError {
     let details = error.details.get_or_insert_with(|| json!({}));
     if let Some(details) = details.as_object_mut() {
         details.insert("preparatory_scroll".into(), "may_have_changed_view".into());

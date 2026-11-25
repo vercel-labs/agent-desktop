@@ -13,6 +13,7 @@ struct ScrollRecoveryAdapter {
     dispatch_calls: AtomicU32,
     stays_offscreen: bool,
     scroll_should_fail: bool,
+    dispatch_fails: bool,
     scroll_policy: std::sync::Mutex<Option<crate::InteractionPolicy>>,
 }
 
@@ -25,6 +26,7 @@ impl ScrollRecoveryAdapter {
             dispatch_calls: AtomicU32::new(0),
             stays_offscreen,
             scroll_should_fail,
+            dispatch_fails: false,
             scroll_policy: std::sync::Mutex::new(None),
         }
     }
@@ -93,6 +95,9 @@ impl ActionOps for ScrollRecoveryAdapter {
         _lease: &crate::InteractionLease,
     ) -> Result<ActionResult, AdapterError> {
         self.dispatch_calls.fetch_add(1, Ordering::SeqCst);
+        if self.dispatch_fails {
+            return Err(AdapterError::new(ErrorCode::ActionFailed, "write failed"));
+        }
         Ok(ActionResult::delivered_unverified("expand"))
     }
 }
@@ -245,4 +250,67 @@ fn scroll_recovery_runs_under_the_request_policy() {
         execute_entry(&adapter, &entry(), request).expect("the recovered target dispatches");
         assert_eq!(*adapter.scroll_policy.lock().unwrap(), Some(policy));
     }
+}
+
+fn refusal_with_failed_visible(code: ErrorCode) -> AdapterError {
+    AdapterError::new(code, "refused").with_details(serde_json::json!({
+        "checks": [
+            {"check": "visible", "status": "fail"},
+            {"check": "supported_action", "status": "fail"}
+        ]
+    }))
+}
+
+#[test]
+fn a_terminal_refusal_never_scrolls_the_view() {
+    let request = ActionRequest::headless(Action::Expand);
+    for code in [ErrorCode::PolicyDenied, ErrorCode::ActionNotSupported] {
+        assert!(
+            !crate::ref_action::ref_action_wait_evidence::should_scroll_after_preflight(
+                &request,
+                &refusal_with_failed_visible(code.clone()),
+            ),
+            "a {code:?} refusal must not scroll"
+        );
+    }
+    assert!(crate::ref_action::ref_action_wait_evidence::should_scroll_after_preflight(
+        &request,
+        &refusal_with_failed_visible(ErrorCode::ActionFailed),
+    ));
+}
+
+#[test]
+fn a_dispatch_failure_after_a_scroll_reports_the_scroll() {
+    let mut adapter = ScrollRecoveryAdapter::new(false, false);
+    adapter.dispatch_fails = true;
+
+    let error =
+        execute_entry(&adapter, &entry(), ActionRequest::headless(Action::Expand)).unwrap_err();
+
+    assert_eq!(adapter.scroll_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(adapter.dispatch_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        error
+            .details
+            .as_ref()
+            .and_then(|details| details.get("preparatory_scroll"))
+            .and_then(serde_json::Value::as_str),
+        Some("may_have_changed_view")
+    );
+    assert_eq!(error.disposition, crate::DeliverySemantics::Unknown);
+}
+
+#[test]
+fn a_failed_scroll_attempt_reports_the_scroll() {
+    let adapter = ScrollRecoveryAdapter::new(true, true);
+
+    let error =
+        execute_entry(&adapter, &entry(), ActionRequest::headless(Action::Expand)).unwrap_err();
+
+    assert!(
+        error
+            .details
+            .as_ref()
+            .is_some_and(|details| details.get("preparatory_scroll").is_some())
+    );
 }
