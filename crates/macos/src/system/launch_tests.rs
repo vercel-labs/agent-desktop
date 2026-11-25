@@ -2,24 +2,51 @@ use super::*;
 use crate::system::launch_frontmost::{frontmost_is, owner_is_target};
 
 #[test]
-fn no_attach_requests_a_fresh_application_instance() {
-    let options = LaunchOptions {
-        attach_if_running: false,
-        ..Default::default()
+fn documents_forwarded_to_a_running_instance_are_sent_but_never_verified() {
+    let target = LaunchTarget::Forwarded {
+        pid: own_pid(),
+        process_instance: "running".into(),
     };
 
-    assert!(crate::system::launch_workspace::creates_new_instance(
-        &options
-    ));
+    let result = result_from_launched(
+        &(own_pid(), "running".into()),
+        None,
+        "Fixture",
+        target_facts(&target),
+    )
+    .expect("the pid is in range");
+
+    assert_eq!(
+        result.disposition,
+        DeliverySemantics::delivered_unverified()
+    );
 }
 
 #[test]
-fn default_launch_allows_attaching_to_a_running_instance() {
-    let options = LaunchOptions::default();
+fn a_forward_must_land_on_the_instance_that_was_running() {
+    let target = LaunchTarget::Forwarded {
+        pid: own_pid(),
+        process_instance: "running".into(),
+    };
 
-    assert!(!crate::system::launch_workspace::creates_new_instance(
-        &options
-    ));
+    let error = validate_launched_target(&target, &(own_pid(), "another".into()))
+        .expect_err("a different instance is not the one the documents were meant for");
+
+    assert_eq!(error.code, ErrorCode::AppUnresponsive);
+}
+
+#[test]
+fn plain_arguments_for_a_running_instance_are_refused_with_nothing_sent() {
+    let arguments = LaunchArguments {
+        documents: Vec::new(),
+        plain: vec!["--flag".into()],
+    };
+
+    let error = arguments_cannot_reach("Fixture", &arguments);
+
+    assert_eq!(error.code, ErrorCode::ActionFailed);
+    assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+    assert_eq!(error.details.expect("details")["arguments"][0], "--flag");
 }
 
 #[test]
