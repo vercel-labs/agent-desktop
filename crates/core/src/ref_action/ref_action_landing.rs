@@ -10,4 +10,5 @@ pub(crate) struct RefActionLanding {
     pub(crate) pre: crate::trace::trace_artifacts::ArtifactOutcome,
     pub(crate) deadline: Deadline,
     pub(crate) lease_started: std::time::Instant,
+    pub(crate) surfaces_of: Option<crate::ProcessIdentity>,
 }

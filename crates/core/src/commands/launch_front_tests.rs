@@ -106,3 +106,99 @@ fn a_launch_that_may_take_the_focus_is_not_guarded() {
     assert!(value.get("focus_returned").is_none());
     assert!(gave_back_to.is_empty());
 }
+
+mod attach {
+    use std::sync::Arc;
+
+    use super::*;
+
+    struct Attached {
+        now: Arc<Mutex<FrontView>>,
+        gave_back_to: Mutex<Vec<String>>,
+    }
+
+    fn window(id: &str, pid: u32) -> FrontWindow {
+        FrontWindow { id: id.into(), pid }
+    }
+
+    fn view(id: &str, pid: u32, windows: &[&str]) -> FrontView {
+        FrontView {
+            focused: Some(window(id, pid)),
+            top: Some(window(id, pid)),
+            windows: windows.iter().map(|id| (*id).into()).collect(),
+        }
+    }
+
+    impl ObservationOps for Attached {
+        fn query_app_inventory(
+            &self,
+            query: crate::AppInventoryQuery<'_>,
+            _deadline: crate::Deadline,
+        ) -> Result<crate::AppInventory, AdapterError> {
+            Ok(query.answer(Vec::new()))
+        }
+    }
+    impl ActionOps for Attached {}
+    impl InputOps for Attached {}
+
+    impl SystemOps for Attached {
+        crate::adapter::guarded_interaction_lease!();
+
+        /// An attach: the running instance gets the request, the call returns
+        /// at once with that instance's pid, and its new window shows later.
+        fn launch_app(
+            &self,
+            _id: &str,
+            _options: &LaunchOptions,
+            _lease: InteractionLease,
+        ) -> Result<crate::system::launch_result::LaunchResult, AdapterError> {
+            let now = Arc::clone(&self.now);
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(120));
+                *now.lock().unwrap() = view("late", 77, &["user", "late"]);
+            });
+            Ok(crate::system::launch_result::LaunchResult {
+                app: "Editor".into(),
+                pid: ProcessId::new(77),
+                process_instance: Some("77:1".into()),
+                window: None,
+                guidance: crate::LaunchGuidance::default(),
+                disposition: crate::DeliverySemantics::not_delivered(),
+            })
+        }
+
+        fn read_front(&self, _deadline: crate::Deadline) -> Result<FrontView, AdapterError> {
+            Ok(self.now.lock().unwrap().clone())
+        }
+
+        fn give_back(
+            &self,
+            window: &FrontWindow,
+            _lease: &InteractionLease,
+        ) -> Result<(), AdapterError> {
+            self.gave_back_to.lock().unwrap().push(window.id.clone());
+            *self.now.lock().unwrap() = view(&window.id, 1, &["user", "late"]);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_launch_that_attached_to_a_running_instance_is_guarded_and_the_instance_is_the_target() {
+        let desk = Attached {
+            now: Arc::new(Mutex::new(view("user", 1, &["user"]))),
+            gave_back_to: Mutex::new(Vec::new()),
+        };
+        let value = execute(
+            LaunchArgs {
+                app: "org.example.EditorLauncher".into(),
+                options: LaunchOptions::default(),
+            },
+            &desk,
+            InteractionPolicy::headless(),
+        )
+        .unwrap();
+        assert_eq!(value["disposition"]["delivery"], "not_delivered");
+        assert_eq!(value["focus_returned"], true);
+        assert_eq!(desk.gave_back_to.lock().unwrap().as_slice(), ["user"]);
+    }
+}

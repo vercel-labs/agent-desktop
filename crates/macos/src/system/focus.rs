@@ -67,7 +67,7 @@ fn capture_identity(
 }
 
 #[cfg(target_os = "macos")]
-fn is_frontmost(
+pub(crate) fn is_frontmost(
     identity: crate::system::process::process_identity::ProcessIdentity,
     deadline: Deadline,
 ) -> Result<bool, AdapterError> {

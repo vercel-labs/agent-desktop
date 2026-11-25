@@ -1,6 +1,6 @@
 use crate::{
     ActionRequest, ActionResult, AdapterError, Deadline,
-    ref_action::ref_action_context::RefActionContext,
+    ref_action::ref_action_context::RefActionContext, ref_action::ref_action_dispatched,
     ref_action::ref_action_landing::RefActionLanding,
     ref_action::ref_action_poll::execute_poll_loop,
     ref_action::ref_action_poll_state::RefActionPollState,
@@ -20,11 +20,19 @@ pub(crate) fn execute_with_auto_wait(
 ) -> Result<ActionResult, AdapterError> {
     let landing = execute_with_auto_wait_and_lease(context, request)?;
     drop(landing.lease);
+    let mut result = landing.result;
+    crate::ref_action::ref_action_dispatched::read_surfaces_after_release(
+        context.adapter,
+        landing.surfaces_of,
+        &landing.handle,
+        landing.deadline,
+        &mut result,
+    );
     crate::ref_action::finish_artifacts(
         RefActionContext::new(context, landing.deadline),
         &landing.pre,
     );
-    Ok(landing.result)
+    Ok(result)
 }
 
 pub(crate) fn execute_with_auto_wait_and_lease(
@@ -79,7 +87,12 @@ fn execute_with_deadline(
         }
         let lease_started = std::time::Instant::now();
         match execute_single_shot(context, request.clone(), deadline, &lease) {
-            Ok((mut result, handle)) => {
+            Ok(dispatched) => {
+                let ref_action_dispatched::DispatchedAction {
+                    mut result,
+                    handle,
+                    surfaces_of,
+                } = dispatched;
                 state.attach_transient_ambiguity(&mut result);
                 state.attach_wait_metrics(
                     &mut result,
@@ -93,6 +106,7 @@ fn execute_with_deadline(
                     pre,
                     deadline,
                     lease_started,
+                    surfaces_of,
                 });
             }
             Err(error) => {
