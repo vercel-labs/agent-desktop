@@ -41,6 +41,43 @@ fn a_chord_presses_and_releases_every_modifier_around_the_key() {
 }
 
 #[test]
+fn navigation_keys_post_the_extended_flag_on_press_and_release() {
+    reset();
+    let combo = KeyCombo {
+        key: "left".into(),
+        modifiers: vec![Modifier::Shift],
+    };
+    synthesize_key(&combo, Deadline::after(5_000).expect("bounded deadline"))
+        .expect("an ample deadline must succeed");
+
+    let recorded = sink::recorded();
+    assert_eq!(recorded[0].flags, 0, "shift is not an extended key");
+    assert_eq!(recorded[1].vk, keyboard_map::VK_LEFT);
+    assert_eq!(recorded[1].flags, KEYEVENTF_EXTENDEDKEY);
+    assert_eq!(recorded[2].vk, keyboard_map::VK_LEFT);
+    assert_eq!(recorded[2].flags, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP);
+}
+
+#[test]
+fn every_navigation_key_and_delete_is_extended_and_letters_are_not() {
+    for vk in [
+        keyboard_map::VK_PRIOR,
+        keyboard_map::VK_NEXT,
+        keyboard_map::VK_END,
+        keyboard_map::VK_HOME,
+        keyboard_map::VK_LEFT,
+        keyboard_map::VK_UP,
+        keyboard_map::VK_RIGHT,
+        keyboard_map::VK_DOWN,
+        keyboard_map::VK_DELETE,
+    ] {
+        assert!(is_extended_key(vk), "vk {vk:#x}");
+    }
+    assert!(!is_extended_key(keyboard_map::VK_BACK));
+    assert!(!is_extended_key(0x41));
+}
+
+#[test]
 fn an_unknown_key_name_is_rejected_before_any_injection() {
     reset();
     let combo = KeyCombo {
