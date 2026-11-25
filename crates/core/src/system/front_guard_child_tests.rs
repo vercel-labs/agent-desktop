@@ -165,7 +165,6 @@ fn a_helper_still_running_at_the_command_deadline_is_reported_as_pending() {
 fn an_intrusion_while_the_post_release_reads_run_is_given_back_when_it_is_seen() {
     let desk = Arc::new(Desk::new(true));
     let lease = lease_of(&desk, 5_000);
-    let started = Instant::now();
     let (_, outcome, pending) = guarded_deferred(
         &*desk,
         InteractionPolicy::headless(),
@@ -177,19 +176,20 @@ fn an_intrusion_while_the_post_release_reads_run_is_given_back_when_it_is_seen()
     assert_eq!(outcome, FrontOutcome::Clean);
     drop(lease);
     *desk.kids.lock().unwrap() = vec![300];
-    let intruder = Arc::clone(&desk);
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(280));
-        *intruder.now.lock().unwrap() = front("child", &["user", "child"]);
-    });
+    let mut reads_done = None;
     let ((), resolution) = pending.unwrap().run_around(&*desk, || {
-        std::thread::sleep(Duration::from_millis(400));
+        std::thread::sleep(Duration::from_millis(120));
+        *desk.now.lock().unwrap() = front("child", &["user", "child"]);
+        std::thread::sleep(Duration::from_millis(500));
+        reads_done = Some(Instant::now());
     });
     assert_eq!(resolution.outcome, FrontOutcome::GivenBack);
-    let gave_back = desk.gave_back_at().unwrap().duration_since(started);
+    let gave_back = desk.gave_back_at().expect("a give-back");
+    let reads_done = reads_done.unwrap();
     assert!(
-        gave_back < Duration::from_millis(440),
-        "given back at {gave_back:?}, while the 400 ms of reads still ran"
+        gave_back < reads_done,
+        "give-back happened {:?} after post-release reads finished instead of while they ran",
+        gave_back.saturating_duration_since(reads_done)
     );
 }
 
