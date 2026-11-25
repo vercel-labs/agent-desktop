@@ -3,43 +3,42 @@
 //! user's window, and the foreground return.
 
 use agent_desktop_core::{
-    AdapterError, Deadline, FrontView, FrontWindow, InteractionLease, WindowFilter,
+    AdapterError, Deadline, FrontView, FrontWindow, InteractionLease, WindowInfo, WindowState,
 };
 
-use super::window_enum::{EnumeratedWindow, WindowHandle, enumerate_top_level};
-use super::window_ops::{list_windows_live, window_id};
+use super::window_enum::{EnumeratedWindow, WindowHandle};
+use super::window_ops::window_id;
 
 const GIVE_BACK_BUDGET_MS: u64 = 1_500;
 
 /// Whether an enumerated window can be the one the user sees in front: shown,
 /// not cloaked, not minimized, not a tool window, and not empty.
-fn can_be_front(window: &EnumeratedWindow) -> bool {
+pub(crate) fn can_be_front(window: &EnumeratedWindow) -> bool {
     window.visible && !window.cloaked && !window.iconic && !window.tool && !window.is_zero_sized()
 }
 
-/// The top window and every listed window, from a z-order that runs top to
-/// bottom.
-pub(crate) fn order_of(order: &[EnumeratedWindow]) -> (Option<usize>, Vec<usize>) {
-    let top = order.iter().position(can_be_front);
-    let listed = order
-        .iter()
-        .enumerate()
-        .filter(|(_, window)| window.visible && !window.cloaked)
-        .map(|(index, _)| index)
-        .collect();
-    (top, listed)
-}
-
+/// One cheap pass over the z-order: the foreground window, the top window and
+/// the handles of every shown window. The guard calls this every few
+/// milliseconds, so nothing is read about a window except `IsWindowVisible`
+/// until the first candidate for the top, and the pass reads only that
+/// candidate's cloak, style and rectangle, in the order of the z-order, until
+/// one qualifies.
 #[cfg(target_os = "windows")]
 pub(crate) fn read_front(_deadline: Deadline) -> Result<FrontView, AdapterError> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, IsWindowVisible};
 
-    let mut order = Vec::new();
-    enumerate_top_level(|window| {
-        order.push(window);
+    let mut windows = Vec::new();
+    let mut top = None;
+    super::window_enum::enumerate_handles(|handle| {
+        if unsafe { IsWindowVisible(handle) } == 0 {
+            return true;
+        }
+        windows.push(window_id(handle));
+        if top.is_none() && can_be_front(&super::window_enum::describe(handle)) {
+            top = Some(handle);
+        }
         true
-    })?;
-    let (top, listed) = order_of(&order);
+    });
     let foreground = unsafe { GetForegroundWindow() };
     let front_window = |handle: WindowHandle| {
         let pid = super::frame_identity::application_pid(handle)?;
@@ -48,10 +47,6 @@ pub(crate) fn read_front(_deadline: Deadline) -> Result<FrontView, AdapterError>
             pid: pid.get(),
         })
     };
-    let mut windows: Vec<String> = listed
-        .iter()
-        .map(|index| window_id(order[*index].handle))
-        .collect();
     if !foreground.is_null() && !windows.contains(&window_id(foreground)) {
         windows.push(window_id(foreground));
     }
@@ -59,7 +54,7 @@ pub(crate) fn read_front(_deadline: Deadline) -> Result<FrontView, AdapterError>
         focused: (!foreground.is_null())
             .then(|| front_window(foreground))
             .flatten(),
-        top: top.and_then(|index| front_window(order[index].handle)),
+        top: top.and_then(front_window),
         windows,
     })
 }
@@ -163,22 +158,26 @@ pub(crate) fn keep_below(_window: &FrontWindow, _above: &FrontWindow) -> Result<
     Err(AdapterError::not_supported("keep_below"))
 }
 
-/// Returns the foreground to the user's window through the same route
-/// `focus-window` uses.
+/// Returns the foreground to the user's window through the route
+/// `focus-window` uses. The window is resolved from its handle and its
+/// process, not found through a full window listing, which costs far more
+/// than the return itself.
 pub(crate) fn give_back(
     window: &FrontWindow,
     lease: &InteractionLease,
 ) -> Result<(), AdapterError> {
     let budget = Deadline::detached_after(GIVE_BACK_BUDGET_MS)?;
-    let filter = WindowFilter {
-        focused_only: false,
-        app: None,
+    let pid = agent_desktop_core::ProcessId::new(window.pid);
+    let stored = WindowInfo {
+        id: window.id.clone(),
+        title: String::new(),
+        app: String::new(),
+        pid,
+        process_instance: crate::system::process_identity::token_for_pid(pid)?,
+        bounds: None,
+        state: WindowState::default(),
     };
-    let id = window.id.clone();
-    let target = list_windows_live(&filter, budget)?
-        .into_iter()
-        .find(|candidate| candidate.id == id && candidate.pid.get() == window.pid)
-        .ok_or_else(|| AdapterError::stale_ref_because("The user's window has closed"))?;
+    let target = super::window_resolve::resolve_window_strict(&stored, budget)?;
     super::window_activate::focus_window(&target, &lease.with_deadline(budget)).map(drop)
 }
 

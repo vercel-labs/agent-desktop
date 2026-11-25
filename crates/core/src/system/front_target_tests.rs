@@ -19,6 +19,7 @@ fn the_target_process_owns_its_windows_new_or_old() {
     let target = FrontTarget {
         pid: Some(7),
         image: None,
+        forwarded: false,
     };
     assert!(target.owns(&window(7), false, || None, 0));
     assert!(target.owns(&window(7), true, || None, 0));
@@ -38,9 +39,26 @@ fn a_new_process_of_the_launched_program_owns_a_new_window() {
 }
 
 #[test]
-fn a_process_that_existed_before_the_capture_is_the_users() {
-    let target = FrontTarget::program("kate");
+fn a_launch_that_a_running_instance_took_owns_the_window_that_instance_opens() {
+    let target = FrontTarget::program("nautilus");
+    assert!(target.owns(&window(50), true, || process("nautilus", 1_000), 9_500));
+}
+
+#[test]
+fn a_process_that_existed_before_the_capture_is_not_a_command_on_a_process_target() {
+    let target = FrontTarget {
+        pid: Some(7),
+        image: Some("kate".into()),
+        forwarded: false,
+    };
     assert!(!target.owns(&window(50), true, || process("kate", 1_000), 9_500));
+    assert!(target.owns(&window(50), true, || process("kate", 10_000), 9_500));
+}
+
+#[test]
+fn a_running_process_of_another_program_is_the_users_even_for_a_launch() {
+    let target = FrontTarget::program("nautilus");
+    assert!(!target.owns(&window(50), true, || process("firefox", 1_000), 9_500));
 }
 
 #[test]

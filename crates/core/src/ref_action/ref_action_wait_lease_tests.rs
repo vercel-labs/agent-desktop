@@ -12,6 +12,7 @@ struct DoubleCheckAdapter {
     timeout_ms: u64,
     expected_deadline: Option<crate::Deadline>,
     available_action: &'static str,
+    surface_reads_under_lease: std::sync::Mutex<Vec<bool>>,
 }
 
 struct DoubleCheckLeaseGuard(Arc<AtomicBool>);
@@ -81,6 +82,18 @@ impl ObservationOps for DoubleCheckAdapter {
         Ok(crate::adapter::hit_test::HitTestResult::ReachesTarget)
     }
     crate::adapter::saved_ref_scope!("button", Some("Run"));
+
+    fn list_surfaces(
+        &self,
+        _process: crate::ProcessIdentity,
+        _deadline: crate::Deadline,
+    ) -> Result<Vec<crate::SurfaceInfo>, AdapterError> {
+        self.surface_reads_under_lease
+            .lock()
+            .unwrap()
+            .push(self.lease_held.load(Ordering::SeqCst));
+        Ok(Vec::new())
+    }
 }
 
 impl ActionOps for DoubleCheckAdapter {
@@ -143,6 +156,27 @@ fn stability_revalidates_once_under_lease_before_dispatch() {
     assert_eq!(metrics["lease_contention_count"], 3);
     assert!(metrics["lease_hold_ms"].as_u64().is_some());
     assert!(!adapter.lease_held.load(Ordering::SeqCst));
+}
+
+/// The overlay read after a click that may open a window is a post-action
+/// read: it must run once the interaction lease is released, so an
+/// application that answers slowly while it opens a modal never holds the
+/// lease for other agents.
+#[test]
+fn the_overlay_read_after_a_click_runs_after_the_lease_is_released() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
+    let adapter = adapter(1, 5_000, None);
+    run_with_entry(
+        &adapter,
+        ActionRequest::headless(Action::Click),
+        5_000,
+        &entry(),
+    );
+
+    assert_eq!(
+        *adapter.surface_reads_under_lease.lock().unwrap(),
+        vec![false]
+    );
 }
 
 fn entry_with_mismatched_bounds_hash() -> RefEntry {
@@ -352,6 +386,7 @@ fn adapter(
         timeout_ms,
         expected_deadline,
         available_action: capability::CLICK,
+        surface_reads_under_lease: std::sync::Mutex::new(Vec::new()),
     }
 }
 

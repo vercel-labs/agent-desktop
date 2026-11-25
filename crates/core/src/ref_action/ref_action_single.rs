@@ -1,6 +1,7 @@
 use crate::{
-    ActionRequest, ActionResult, AdapterError, NativeHandle, ref_action::into_adapter_error,
+    ActionRequest, AdapterError, ref_action::into_adapter_error,
     ref_action::ref_action_context::RefActionContext,
+    ref_action::ref_action_dispatched::DispatchedAction,
     ref_action::ref_action_wait_context::RefActionWaitContext,
 };
 
@@ -9,7 +10,7 @@ pub(crate) fn execute_single_shot(
     request: ActionRequest,
     deadline: crate::Deadline,
     lease: &crate::InteractionLease,
-) -> Result<(ActionResult, NativeHandle), AdapterError> {
+) -> Result<DispatchedAction, AdapterError> {
     let keyboard_is_aimed_at_the_element = request.action.delivered_by_keyboard()
         && !context.adapter.keyboard_needs_window_activation();
     if request.headed_focus().is_some() && !keyboard_is_aimed_at_the_element {
