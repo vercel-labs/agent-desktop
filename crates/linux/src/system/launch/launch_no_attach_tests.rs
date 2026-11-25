@@ -61,19 +61,22 @@ fn another_invocation_of_the_same_interpreter_is_never_the_running_instance() {
     let plan = resolve("/usr/bin/python3", &wanted, &fixture.search, &index).expect("resolve");
 
     for running in [other_code, other_script] {
-        for attach in [true, false] {
-            assert_eq!(
-                decide_plan(&plan, std::slice::from_ref(&running), attach, true),
-                Decision::Spawn
-            );
-        }
+        assert_eq!(
+            decide_plan(&plan, std::slice::from_ref(&running), true, true),
+            Decision::Spawn
+        );
+        assert_eq!(
+            decide_plan(&plan, std::slice::from_ref(&running), false, true),
+            Decision::Refuse(vec![1]),
+            "--no-attach refuses on any running process of the program"
+        );
     }
     let bare = resolve("/usr/bin/python3", &[], &fixture.search, &index).expect("resolve");
     assert_eq!(
         decide_plan(
             &bare,
             &[running_with("/usr/bin/python3", &["/opt/other.py"])],
-            false,
+            true,
             false
         ),
         Decision::Spawn
@@ -148,8 +151,24 @@ fn a_path_is_not_a_document_for_an_entry_that_takes_none() {
     let (_fixture, program, plan) = entry_for("--new-window");
     let running = running_with_words(&program, &["--new-window", "/opt/other-script"]);
 
+    assert_eq!(decide_plan(&plan, &[running], true, false), Decision::Spawn);
+}
+
+#[test]
+fn no_attach_with_arguments_refuses_on_an_instance_started_with_other_documents() {
+    let (fixture, program, _plan) = entry_for("--new-window %U");
+    let index = crate::system::app::alias_cache::AliasCache::new().index(&fixture.search.data_dirs);
+    let arguments = ["--new-window".to_owned(), "/home/user/scratch".to_owned()];
+    let plan = resolve("files", &arguments, &fixture.search, &index).expect("resolve");
+    let running = running_with_words(&program, &["--new-window", "/home/user/other"]);
+
     assert_eq!(
-        decide_plan(&plan, &[running], false, false),
-        Decision::Spawn
+        decide_plan(&plan, std::slice::from_ref(&running), false, true),
+        Decision::Refuse(vec![1])
+    );
+    assert_eq!(
+        decide_plan(&plan, std::slice::from_ref(&running), true, true),
+        Decision::Forward,
+        "without --no-attach the instance is the one the arguments are forwarded to"
     );
 }
