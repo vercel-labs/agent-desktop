@@ -1,4 +1,5 @@
 pub(crate) mod action_call;
+mod adapter;
 pub(crate) mod chain;
 pub(crate) mod click;
 pub(crate) mod context;
