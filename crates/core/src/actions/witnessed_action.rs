@@ -2,8 +2,9 @@
 //! target's own state: a click, a select. The adapter reads a witness before
 //! the action; the dispatch result chooses one of two explicit steps; a strong
 //! change upgrades a delivery to verified, and the verdict and the changes are
-//! reported. A delivered result never becomes undelivered, and the witness
-//! never makes an error of its own.
+//! reported. A delivered result never becomes undelivered, an unclear answer
+//! with a strong change becomes a verified success, and the witness never
+//! makes an error of its own.
 
 use crate::actions::{
     effect_witness::{EffectWitness, verdict},
@@ -42,6 +43,7 @@ pub(crate) fn execute_witnessed_action(
     lease: &InteractionLease,
 ) -> Result<ActionResult, AdapterError> {
     let deadline = lease.deadline();
+    let action_name = request.action.name();
     let before = adapter.read_effect_witness(handle, deadline).ok();
     let dispatch = adapter.execute_action(handle, request, lease);
     let Some(before) = before else {
@@ -52,9 +54,10 @@ pub(crate) fn execute_witnessed_action(
         WitnessStep::Read => after_changes(adapter.read_effect_witness(handle, deadline), &before),
     };
     match changes {
-        Some(changes) => dispatch
-            .map(|result| with_changes(result, &changes))
-            .map_err(|error| error_with_changes(error, &changes)),
+        Some(changes) => match dispatch {
+            Ok(result) => Ok(with_changes(result, &changes)),
+            Err(error) => settle_unclear_answer(error, &changes, action_name),
+        },
         None => dispatch.map(adapter_proof),
     }
 }
@@ -97,12 +100,25 @@ fn with_changes(result: ActionResult, changes: &[WitnessChange]) -> ActionResult
     result
 }
 
-/// An unclear answer with a strong change was delivered: the error stays, as
-/// the platform reported it, but its disposition says what the witness saw.
-fn error_with_changes(mut error: AdapterError, changes: &[WitnessChange]) -> AdapterError {
+/// An unclear answer is settled by what the witness saw. A strong change
+/// proves the action landed, so the command succeeds as a verified delivery
+/// and keeps the platform's report in `details`. Any other verdict leaves the
+/// error as the platform reported it, with the verdict added.
+fn settle_unclear_answer(
+    mut error: AdapterError,
+    changes: &[WitnessChange],
+    action: &str,
+) -> Result<ActionResult, AdapterError> {
     let effect = verdict(changes);
     if effect == ObservedEffect::Observed {
-        error.disposition = DeliverySemantics::delivered_verified();
+        let report = serde_json::json!({
+            "code": error.code,
+            "message": error.message,
+            "details": error.details,
+        });
+        let result = ActionResult::delivered_unverified(action)
+            .with_details(serde_json::json!({ "platform_report": report }));
+        return Ok(with_changes(result, changes));
     }
     let details = error.details.get_or_insert_with(|| serde_json::json!({}));
     if let Some(details) = details.as_object_mut() {
@@ -111,7 +127,7 @@ fn error_with_changes(mut error: AdapterError, changes: &[WitnessChange]) -> Ada
             details.insert("witness_diff".into(), serde_json::json!(changes));
         }
     }
-    error
+    Err(error)
 }
 
 #[cfg(test)]

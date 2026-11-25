@@ -126,15 +126,24 @@ fn a_weak_or_no_change_leaves_the_delivery_as_it_was() {
 }
 
 #[test]
-fn an_unclear_answer_with_a_strong_change_is_delivered_and_stays_an_error() {
+fn an_unclear_answer_with_a_strong_change_is_a_verified_success() {
     let adapter = adapter(
         vec![Ok(witness(false, "A")), Ok(witness(true, "A"))],
         uncertain(),
     );
-    let error = run(&adapter).unwrap_err();
+    let result = run(&adapter).expect("an observed effect is a success");
 
-    assert_eq!(error.disposition, DeliverySemantics::delivered_verified());
-    assert_eq!(error.details.unwrap()["effect"], "observed");
+    assert_eq!(
+        result.disposition(),
+        DeliverySemantics::delivered_verified()
+    );
+    assert_eq!(result.effect, Some(ObservedEffect::Observed));
+    let details = result.details.unwrap();
+    assert_eq!(
+        details["witness_diff"],
+        serde_json::json!(["target_selected"])
+    );
+    assert_eq!(details["platform_report"]["message"], "unclear");
     assert_eq!(*adapter.read_count.lock().unwrap(), 2);
 }
 
