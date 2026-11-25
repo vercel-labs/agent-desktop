@@ -64,49 +64,6 @@ pub(crate) fn read_front(_deadline: Deadline) -> Result<FrontView, AdapterError>
     Err(AdapterError::not_supported("read_front"))
 }
 
-/// Puts a window directly below the user's foreground window without
-/// activating it, so a window shown without activation lands in front of the
-/// windows beneath the user's and not at the bottom of the order.
-#[cfg(target_os = "windows")]
-pub(crate) fn place_below_foreground(
-    handle: super::window_enum::WindowHandle,
-) -> Result<(), AdapterError> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos,
-    };
-
-    let foreground = unsafe { GetForegroundWindow() };
-    if foreground.is_null() || foreground == handle {
-        return Ok(());
-    }
-    let ok = unsafe {
-        SetWindowPos(
-            handle,
-            foreground,
-            0,
-            0,
-            0,
-            0,
-            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
-        )
-    };
-    if ok == 0 {
-        return Err(super::window_op::after_write(
-            crate::system::runtime::hresult::win32_last_error(
-                "SetWindowPos below the foreground window failed",
-            ),
-        ));
-    }
-    Ok(())
-}
-
-#[cfg(not(target_os = "windows"))]
-pub(crate) fn place_below_foreground(
-    _handle: super::window_enum::WindowHandle,
-) -> Result<(), AdapterError> {
-    Ok(())
-}
-
 /// The executable name and start time of the process behind a window.
 pub(crate) fn front_process(pid: u32) -> Option<agent_desktop_core::FrontProcess> {
     let pid = agent_desktop_core::ProcessId::new(pid);

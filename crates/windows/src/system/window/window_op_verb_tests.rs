@@ -8,13 +8,11 @@ fn a_headless_restore_un_minimizes_without_activating() {
 }
 
 #[test]
-fn only_a_headless_restore_is_placed_below_the_foreground_window() {
+fn a_headless_restore_of_a_minimized_window_is_refused_and_a_maximized_one_is_not() {
     let headless = InteractionPolicy::headless();
-    assert!(restore_goes_below_foreground(ShowVerb::Restore, headless));
-    assert!(!restore_goes_below_foreground(
-        ShowVerb::Restore,
-        InteractionPolicy::headed()
-    ));
-    assert!(!restore_goes_below_foreground(ShowVerb::Minimize, headless));
-    assert!(!restore_goes_below_foreground(ShowVerb::Maximize, headless));
+    let error = restore_permitted(true, headless).unwrap_err();
+    assert_eq!(error.code, agent_desktop_core::ErrorCode::PolicyDenied);
+    assert!(error.suggestion.unwrap().contains("--headed"));
+    assert!(restore_permitted(false, headless).is_ok());
+    assert!(restore_permitted(true, InteractionPolicy::headed()).is_ok());
 }

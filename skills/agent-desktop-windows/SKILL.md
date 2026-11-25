@@ -30,7 +30,7 @@ Use `$env:NAME = 'value'` for environment variables.
 ## Platform behavior
 
 - A covered window can be driven headless; minimized controls report offscreen.
-  Restore a minimized target and observe again rather than focusing it by reflex. Headless `restore` un-minimizes without taking the foreground.
+  Headless `restore` of a minimized window is refused with `POLICY_DENIED` and nothing is sent, because some applications (the Management Console, Character Map) activate themselves when restored whatever show command is used. Stop on that refusal; restoring a maximized window stays headless.
 - UIPI (User Interface Privilege Isolation) blocks input into a higher-integrity
   process. Ask the user to run the CLI at the target's integrity level when needed;
   a working observation does not establish input permission.

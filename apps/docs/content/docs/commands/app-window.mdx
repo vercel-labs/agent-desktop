@@ -396,7 +396,7 @@ agent-desktop maximize [--app NAME] [--window-id ID]
 
 ## restore
 
-Restores a minimized or maximized window. Flags are the same as [`minimize`](#minimize). Un-minimizing a window raises it. Headless, Windows restores it without activation and puts it directly below the foreground window. macOS and Linux have no quiet way to do it, so headless `restore` of a minimized window fails with `POLICY_DENIED` and nothing is sent; pass `--headed`. Restoring a maximized window stays headless.
+Restores a minimized or maximized window. Flags are the same as [`minimize`](#minimize). Un-minimizing a window raises it, and no platform has a quiet way to do it: applications such as the Windows Management Console activate themselves while they come back. Headless `restore` of a minimized window therefore fails with `POLICY_DENIED` and nothing is sent on macOS, Windows and Linux; pass `--headed`. Restoring a maximized window stays headless.
 
 ```bash
 agent-desktop restore [--app NAME] [--window-id ID]
