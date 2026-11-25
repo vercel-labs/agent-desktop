@@ -4,6 +4,7 @@ pub(crate) mod window_ax_state;
 pub(crate) mod window_bridge;
 pub(crate) mod window_frame;
 pub(crate) mod window_frame_place;
+pub(crate) mod window_front;
 pub(crate) mod window_inventory;
 pub(crate) mod window_inventory_global;
 pub(crate) mod window_ops;

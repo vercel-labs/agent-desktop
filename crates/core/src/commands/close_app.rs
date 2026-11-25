@@ -1,6 +1,10 @@
 use crate::{AppError, adapter::PlatformAdapter, commands::operation_response::operation_response};
 use serde_json::{Value, json};
 
+/// How long the front guard keeps watching after a headless close returns: a
+/// closing application can raise a save prompt or hand the focus elsewhere.
+const CLOSE_SETTLE: std::time::Duration = std::time::Duration::from_millis(500);
+
 pub struct CloseAppArgs {
     pub app: String,
     pub force: bool,
@@ -28,7 +32,21 @@ pub fn execute(args: CloseAppArgs, adapter: &dyn PlatformAdapter) -> Result<Valu
         &expected,
         lease.deadline(),
     )?;
-    let report = adapter.close_app(&live, args.force, &lease, args.policy)?;
+    let (report, front) = crate::system::front_guard::guarded(
+        adapter,
+        args.policy,
+        &lease,
+        crate::system::front_guard::FrontWatch {
+            owned_pid: Some(live.pid.get()),
+            settle: CLOSE_SETTLE,
+        },
+        || adapter.close_app(&live, args.force, &lease, args.policy),
+    );
+    let mut report = report.map_err(|mut error| {
+        front.note_in_error(&mut error);
+        error
+    })?;
+    front.note_in(&mut report.result.details);
     operation_response(
         &report,
         json!({

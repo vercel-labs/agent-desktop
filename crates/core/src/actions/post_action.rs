@@ -3,8 +3,44 @@ use crate::{
     InteractionLease, LiveElement, NativeHandle, PlatformAdapter,
 };
 
-/// Executes once, then verifies stateful actions from fresh platform observations.
+/// How long the front guard keeps watching after a headless action that can
+/// open a window returns: a dialog can take the focus a moment after the
+/// application acknowledges the action.
+const ACTION_SETTLE: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Executes once, then verifies stateful actions from fresh platform
+/// observations. A headless action that can open a window runs under the front
+/// guard, which gives the user's focus and window order back if the window
+/// takes them.
 pub fn execute_verified_action(
+    adapter: &dyn PlatformAdapter,
+    handle: &NativeHandle,
+    request: ActionRequest,
+    lease: &InteractionLease,
+) -> Result<ActionResult, AdapterError> {
+    if !request.action.can_open_window() {
+        return run_verified_action(adapter, handle, request, lease);
+    }
+    let policy = request.policy;
+    let (result, front) = crate::system::front_guard::guarded(
+        adapter,
+        policy,
+        lease,
+        crate::system::front_guard::FrontWatch {
+            owned_pid: None,
+            settle: ACTION_SETTLE,
+        },
+        || run_verified_action(adapter, handle, request, lease),
+    );
+    let mut result = result.map_err(|mut error| {
+        front.note_in_error(&mut error);
+        error
+    })?;
+    front.note_in(&mut result.details);
+    Ok(result)
+}
+
+fn run_verified_action(
     adapter: &dyn PlatformAdapter,
     handle: &NativeHandle,
     mut request: ActionRequest,

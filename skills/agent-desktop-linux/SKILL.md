@@ -69,8 +69,10 @@ use a private session and runtime directory for isolated work.
 - `launch` accepts a program on PATH, an absolute path, an installed desktop id,
   or an unambiguous desktop entry name. Use process and window identity from
   observations rather than guessing from a window title. Without `--activate`,
-  a launch on X11 gives the focus back to the window that had it when the new
-  window took it, and reports `focus_returned: true`.
+  a launch on X11 gives the focus and the window order back to the window that
+  had them when a new window took them, and reports `focus_returned: true`, or
+  `false` with a suggestion when it could not. A headless click that opens a
+  dialog is guarded the same way (`details.focus_returned`).
 - Sandboxes are not available on Linux yet. To run agent-desktop in a container you manage yourself, see `agent-browser.dev/desktop/guides/docker-container`.
 
 ## Troubleshooting

@@ -45,9 +45,10 @@ Use `$env:NAME = 'value'` for environment variables.
 - `agent-desktop launch` takes an absolute executable path or a bare program name in the
   Windows or System32 directory, not an arbitrary display name or a PATH search.
   Without `--activate` the process starts with a show-window hint that asks for no
-  activation. An application that activates itself anyway gets the foreground
-  taken back for the window that had it, and the result reports
-  `focus_returned: true`. A window you switched to is never touched.
+  activation. A window that opens and takes the foreground or the top of the
+  window order is sent back below the window that had it, the foreground is
+  returned, and the result reports `focus_returned: true`, or `false` with a
+  suggestion when it could not be. A window you switched to is never touched.
 - Chromium/Electron trees can be thin while accessibility settles. Finish a
   bounded observation before concluding that content is absent.
 - An open application menu is the `menu` surface; there is no `menubar` surface.

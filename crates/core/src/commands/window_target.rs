@@ -26,8 +26,39 @@ pub(crate) fn window_op_command(
     let lease = adapter.acquire_interaction_lease(deadline)?;
     let live = revalidate_window_for_mutation(adapter, &win, &lease)?;
     refuse_minimizing_the_focused_window(&live, &op, policy)?;
-    let report = adapter.window_op(&live, op, policy, &lease)?;
+    let report = guarded_window_op(adapter, &live, op, policy, &lease)?;
     super::operation_response::operation_response(&report, json!({}))
+}
+
+/// How long the front guard keeps watching after a window operation that can
+/// change the window order returns.
+const WINDOW_SETTLE: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// Runs a minimize, maximize or restore under the front guard. A move or a
+/// resize never changes the window order and does not come through here.
+fn guarded_window_op(
+    adapter: &dyn PlatformAdapter,
+    live: &WindowInfo,
+    op: WindowOp,
+    policy: crate::InteractionPolicy,
+    lease: &crate::InteractionLease,
+) -> Result<crate::OperationReport, AppError> {
+    let (report, front) = crate::system::front_guard::guarded(
+        adapter,
+        policy,
+        lease,
+        crate::system::front_guard::FrontWatch {
+            owned_pid: Some(live.pid.get()),
+            settle: WINDOW_SETTLE,
+        },
+        || adapter.window_op(live, op, policy, lease),
+    );
+    let mut report = report.map_err(|mut error| {
+        front.note_in_error(&mut error);
+        error
+    })?;
+    front.note_in(&mut report.result.details);
+    Ok(report)
 }
 
 /// The window manager hands the focus to another window when the focused one

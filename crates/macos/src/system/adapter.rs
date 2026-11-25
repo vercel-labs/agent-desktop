@@ -105,6 +105,21 @@ impl SystemOps for MacOSAdapter {
         crate::system::focus::focus_process(&process, lease.deadline())
     }
 
+    fn read_front(
+        &self,
+        deadline: Deadline,
+    ) -> Result<agent_desktop_core::FrontView, AdapterError> {
+        crate::system::window::window_front::read_front(deadline)
+    }
+
+    fn give_back(
+        &self,
+        window: &agent_desktop_core::FrontWindow,
+        _lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        crate::system::window::window_front::give_back(window)
+    }
+
     fn launch_app(
         &self,
         id: &str,

@@ -279,23 +279,7 @@ pub trait SystemOps: Send + Sync {
         policy: InteractionPolicy,
         lease: &InteractionLease,
     ) -> Result<ActionResult, AdapterError> {
-        let refusal = || {
-            AdapterError::stale_ref_because(
-                "The named window's exact focus could not be confirmed, so no key was sent",
-            )
-            .with_suggestion(if policy.is_headed() {
-                "Ensure the named window remains active before retrying; a sibling window or another application's menu can hold the keyboard".to_owned()
-            } else {
-                format!("{} Or name the already active window.", crate::headed_mode_suggestion("brings the named window to the foreground before sending keys"))
-            })
-            .with_details(serde_json::json!({
-                "check": "window_active",
-                "cause": "exact_window_focus_unconfirmed",
-                "physical_delivery_started": false,
-                "window_id": window.id,
-            }))
-            .with_disposition(crate::DeliverySemantics::not_delivered())
-        };
+        let refusal = || super::window_key_refusal::exact_focus_unconfirmed(window, policy);
         let instance = window
             .process_instance
             .as_deref()
@@ -326,6 +310,28 @@ pub trait SystemOps: Send + Sync {
         _deadline: Deadline,
     ) -> Result<(), AdapterError> {
         Err(AdapterError::not_supported("wait_for_menu"))
+    }
+
+    /// What the user sees in front. Cheap: the front guard polls it.
+    fn read_front(&self, _deadline: Deadline) -> Result<crate::FrontView, AdapterError> {
+        Err(AdapterError::not_supported("read_front"))
+    }
+
+    fn keep_below(
+        &self,
+        _window: &crate::FrontWindow,
+        _above: &crate::FrontWindow,
+        _lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        Err(AdapterError::not_supported("keep_below"))
+    }
+
+    fn give_back(
+        &self,
+        _window: &crate::FrontWindow,
+        _lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        Err(AdapterError::not_supported("give_back"))
     }
 
     fn window_op(
