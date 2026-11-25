@@ -60,9 +60,6 @@ impl ObservationOps for DispatchGuardAdapter {
         if self.mode == "resolve_timeout" {
             return Err(AdapterError::timeout("strict resolution timed out"));
         }
-        if self.mode == "resolve_timeout_under_lease" && self.lease_held.load(Ordering::SeqCst) {
-            return Err(AdapterError::timeout("strict re-resolution timed out"));
-        }
         if self.mode == "resolve_uncertain" {
             return Err(AdapterError::timeout("strict resolution was uncertain")
                 .with_disposition(crate::DeliverySemantics::uncertain()));
@@ -126,7 +123,26 @@ impl ObservationOps for DispatchGuardAdapter {
     ) -> Result<crate::adapter::hit_test::HitTestResult, AdapterError> {
         Ok(crate::adapter::hit_test::HitTestResult::ReachesTarget)
     }
-    crate::adapter::saved_ref_scope!("button", Some("Run"));
+    crate::adapter::saved_ref_scope!(@inventory);
+    crate::adapter::saved_ref_anchor!();
+
+    fn observe_tree(
+        &self,
+        root: crate::locator::live_locator::ObservationRoot<'_>,
+        _request: &crate::locator::live_locator::ObservationRequest,
+    ) -> Result<crate::locator::live_locator::ObservedTree, AdapterError> {
+        let confirming = matches!(
+            root,
+            crate::locator::live_locator::ObservationRoot::Element { .. }
+        );
+        if self.mode == "confirm_timeout_under_lease"
+            && confirming
+            && self.lease_held.load(Ordering::SeqCst)
+        {
+            return Err(AdapterError::timeout("element confirmation timed out"));
+        }
+        crate::adapter::saved_ref_tree(root, "button", Some("Run"))
+    }
 }
 
 impl ActionOps for DispatchGuardAdapter {
@@ -280,8 +296,8 @@ fn poll_resolution_timeout_is_retry_safe_before_dispatch() {
 }
 
 #[test]
-fn under_lease_resolution_timeout_is_retry_safe_before_dispatch() {
-    let adapter = DispatchGuardAdapter::new("resolve_timeout_under_lease", 0);
+fn under_lease_confirmation_timeout_is_retry_safe_before_dispatch() {
+    let adapter = DispatchGuardAdapter::new("confirm_timeout_under_lease", 0);
     let err = execute(&adapter, 500).unwrap_err();
 
     assert_eq!(err.code, ErrorCode::Timeout);

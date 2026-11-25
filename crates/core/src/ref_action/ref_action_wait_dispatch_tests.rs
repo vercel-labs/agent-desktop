@@ -137,8 +137,11 @@ fn a_cut_short_count_under_the_lease_waits_again_within_the_budget() {
     assert_eq!(adapter.dispatches.load(Ordering::SeqCst), 1);
 }
 
+/// The count is read before the lease now, so a cut-short first count is
+/// simply read again by the wait, and the timeout reports what the wait last
+/// saw: the target is disabled.
 #[test]
-fn a_budget_spent_after_a_refusal_reports_that_refusal() {
+fn a_budget_spent_on_a_disabled_target_reports_the_actionability_timeout() {
     let mut adapter = DispatchReadAdapter::new(false);
     adapter.disabled_after_a_read = true;
 
@@ -146,10 +149,7 @@ fn a_budget_spent_after_a_refusal_reports_that_refusal() {
 
     assert_eq!(error.code, ErrorCode::Timeout);
     let details = error.details.expect("timeout details");
-    assert_eq!(details["refusal"]["code"], "TIMEOUT");
-    assert_eq!(
-        details["refusal"]["details"]["kind"],
-        "resolution_identity_unknown"
-    );
+    assert_eq!(details["kind"], "actionability_timeout");
+    assert_eq!(details["last_report"]["phase"], "preflight");
     assert_eq!(adapter.dispatches.load(Ordering::SeqCst), 0);
 }

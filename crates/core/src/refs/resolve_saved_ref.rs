@@ -10,6 +10,9 @@ use crate::{
     refs::resolve_errors::{absent, identity_twins, identity_unknown_error, identity_unproven},
 };
 
+#[path = "saved_ref_landing.rs"]
+pub(crate) mod saved_ref_landing;
+
 /// The depth a whole-window observation reaches: the limit a snapshot walk
 /// supports, so a ref taken from the deepest snapshot node is inside the scope
 /// it is captured from and resolved against.
@@ -36,29 +39,14 @@ pub fn resolve_saved_ref(
     land_in_scope(adapter, entry, &observed, found, deadline, lease)
 }
 
-/// Lands a tokenless saved ref at its recorded path and confirms the landed
-/// element against the full predicate, skipping the whole-window count.
-///
-/// The count is what proves the ref still unique, so this handle may only feed
-/// a wait that runs a full [`resolve_saved_ref`] under the interaction lease
-/// before acting, or a presentation that never acts, such as placing the cursor
-/// overlay. A landing that fails or does not confirm falls back to the full
-/// resolution, so a moved, missing or twinned element gets the same verdict
-/// either way and only the common case is cheaper.
+/// Lands a saved ref at its recorded path and confirms it, skipping the
+/// whole-window count when it can; see [`saved_ref_landing`].
 pub(crate) fn land_saved_ref(
     adapter: &dyn PlatformAdapter,
     entry: &RefEntry,
     deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
-    if element_token(entry).is_none()
-        && entry.identity.proof.is_unique()
-        && entry.scope.chain.is_empty()
-        && let Ok(handle) = adapter.resolve_locator_anchor(entry, None, deadline)
-        && confirm_landed_element(adapter, entry, &handle, deadline).is_ok()
-    {
-        return Ok(handle);
-    }
-    resolve_saved_ref(adapter, entry, deadline, None)
+    saved_ref_landing::land_saved_ref_counted(adapter, entry, deadline).map(|(handle, _)| handle)
 }
 
 fn refuse_unless_unique(entry: &RefEntry) -> Result<(), AdapterError> {
