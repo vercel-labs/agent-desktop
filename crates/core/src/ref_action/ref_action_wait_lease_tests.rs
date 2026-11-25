@@ -12,6 +12,8 @@ struct DoubleCheckAdapter {
     timeout_ms: u64,
     expected_deadline: Option<crate::Deadline>,
     available_action: &'static str,
+    surface_reads_under_lease: std::sync::Mutex<Vec<bool>>,
+    witness_reads: std::sync::Mutex<Vec<(bool, u64)>>,
 }
 
 struct DoubleCheckLeaseGuard(Arc<AtomicBool>);
@@ -81,6 +83,30 @@ impl ObservationOps for DoubleCheckAdapter {
         Ok(crate::adapter::hit_test::HitTestResult::ReachesTarget)
     }
     crate::adapter::saved_ref_scope!("button", Some("Run"));
+
+    fn read_effect_witness(
+        &self,
+        _handle: &NativeHandle,
+        deadline: crate::Deadline,
+    ) -> Result<crate::EffectWitness, AdapterError> {
+        self.witness_reads.lock().unwrap().push((
+            self.lease_held.load(Ordering::SeqCst),
+            deadline.remaining_ms(),
+        ));
+        Ok(crate::EffectWitness::default())
+    }
+
+    fn list_surfaces(
+        &self,
+        _process: crate::ProcessIdentity,
+        _deadline: crate::Deadline,
+    ) -> Result<Vec<crate::SurfaceInfo>, AdapterError> {
+        self.surface_reads_under_lease
+            .lock()
+            .unwrap()
+            .push(self.lease_held.load(Ordering::SeqCst));
+        Ok(Vec::new())
+    }
 }
 
 impl ActionOps for DoubleCheckAdapter {
@@ -352,6 +378,8 @@ fn adapter(
         timeout_ms,
         expected_deadline,
         available_action: capability::CLICK,
+        surface_reads_under_lease: std::sync::Mutex::new(Vec::new()),
+        witness_reads: std::sync::Mutex::new(Vec::new()),
     }
 }
 
@@ -363,3 +391,6 @@ fn bounds() -> crate::Rect {
         height: 10.0,
     }
 }
+
+#[path = "ref_action_wait_release_tests.rs"]
+mod release_tests;

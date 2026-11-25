@@ -36,31 +36,80 @@ pub(crate) fn witness_step(dispatch: &Result<ActionResult, AdapterError>) -> Wit
     }
 }
 
+/// How long one witness read waits. The witness is a single read that never
+/// waits for an effect to land, so an application that does not answer it, for
+/// example one that has just opened a modal dialog, costs this much and no more.
+pub(crate) const WITNESS_READ_BUDGET: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// The witness read that follows a delivered action, kept for the caller to
+/// run once it has released the interaction lease: the lease covers resolving
+/// the target and dispatching to it, not waiting for the application to answer.
+pub(crate) struct PendingWitness {
+    before: EffectWitness,
+}
+
+impl PendingWitness {
+    pub(crate) fn settle(
+        self,
+        adapter: &dyn PlatformAdapter,
+        handle: &NativeHandle,
+        deadline: crate::Deadline,
+        result: ActionResult,
+    ) -> ActionResult {
+        let after = adapter.read_effect_witness(handle, deadline.capped(WITNESS_READ_BUDGET));
+        match after_changes(after, &self.before) {
+            Some(changes) => with_changes(result, &changes),
+            None => adapter_proof(result),
+        }
+    }
+}
+
+/// A dispatch result and the witness read still owed for it.
+pub(crate) type Witnessed = (Result<ActionResult, AdapterError>, Option<PendingWitness>);
+
+pub(crate) fn dispatch_witnessed(
+    adapter: &dyn PlatformAdapter,
+    handle: &NativeHandle,
+    request: ActionRequest,
+    lease: &InteractionLease,
+) -> Witnessed {
+    let deadline = lease.deadline();
+    let action_name = request.action.name();
+    let before = adapter
+        .read_effect_witness(handle, deadline.capped(WITNESS_READ_BUDGET))
+        .ok();
+    let dispatch = adapter
+        .execute_action(handle, request, lease)
+        .map_err(crate::actions::post_action::settle_disposition);
+    let Some(before) = before else {
+        return (dispatch, None);
+    };
+    match (witness_step(&dispatch), dispatch) {
+        (WitnessStep::Read, Ok(result)) => (Ok(result), Some(PendingWitness { before })),
+        (WitnessStep::Read, Err(error)) => {
+            let after = adapter.read_effect_witness(handle, deadline.capped(WITNESS_READ_BUDGET));
+            let settled = match after_changes(after, &before) {
+                Some(changes) => settle_unclear_answer(error, &changes, action_name),
+                None => Err(error),
+            };
+            (settled, None)
+        }
+        (WitnessStep::Leave, dispatch) => (dispatch.map(adapter_proof), None),
+    }
+}
+
+#[cfg(test)]
 pub(crate) fn execute_witnessed_action(
     adapter: &dyn PlatformAdapter,
     handle: &NativeHandle,
     request: ActionRequest,
     lease: &InteractionLease,
 ) -> Result<ActionResult, AdapterError> {
-    let deadline = lease.deadline();
-    let action_name = request.action.name();
-    let before = adapter.read_effect_witness(handle, deadline).ok();
-    let dispatch = adapter
-        .execute_action(handle, request, lease)
-        .map_err(crate::actions::post_action::settle_disposition);
-    let Some(before) = before else {
-        return dispatch;
-    };
-    let changes = match witness_step(&dispatch) {
-        WitnessStep::Leave => None,
-        WitnessStep::Read => after_changes(adapter.read_effect_witness(handle, deadline), &before),
-    };
-    match changes {
-        Some(changes) => match dispatch {
-            Ok(result) => Ok(with_changes(result, &changes)),
-            Err(error) => settle_unclear_answer(error, &changes, action_name),
-        },
-        None => dispatch.map(adapter_proof),
+    match dispatch_witnessed(adapter, handle, request, lease) {
+        (Ok(result), Some(pending)) => {
+            Ok(pending.settle(adapter, handle, lease.deadline(), result))
+        }
+        (dispatch, _) => dispatch,
     }
 }
 

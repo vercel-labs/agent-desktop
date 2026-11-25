@@ -189,7 +189,7 @@ fn window_info_from_record(
     })
 }
 
-fn ax_window_element_for_number(
+pub(crate) fn ax_window_element_for_number(
     pid: i32,
     window_number: i64,
     fallback_title: Option<&str>,

@@ -8,19 +8,20 @@ use super::*;
 use crate::adapter::{ActionOps, InputOps, ObservationOps, SystemOps};
 use crate::{FrontWindow, InteractionPolicy};
 
-fn win(id: &str, pid: u32) -> FrontWindow {
+pub(super) fn win(id: &str, pid: u32) -> FrontWindow {
     FrontWindow { id: id.into(), pid }
 }
 
-fn pid_of(id: &str) -> u32 {
+pub(super) fn pid_of(id: &str) -> u32 {
     match id {
         "new" => 9,
         "mine" => 5,
+        "forwarded" => 7,
         _ => 1,
     }
 }
 
-fn front(id: &str, windows: &[&str]) -> FrontView {
+pub(super) fn front(id: &str, windows: &[&str]) -> FrontView {
     FrontView {
         focused: Some(win(id, pid_of(id))),
         top: Some(win(id, pid_of(id))),
@@ -28,19 +29,21 @@ fn front(id: &str, windows: &[&str]) -> FrontView {
     }
 }
 
-struct Desk {
-    now: Mutex<FrontView>,
-    calls: Mutex<Vec<String>>,
-    reads: Mutex<u32>,
+pub(super) struct Desk {
+    pub(super) now: Mutex<FrontView>,
+    pub(super) calls: Mutex<Vec<String>>,
+    pub(super) reads: Mutex<u32>,
+    gave_back_at: Mutex<Option<Instant>>,
     obeys: bool,
 }
 
 impl Desk {
-    fn new(obeys: bool) -> Self {
+    pub(super) fn new(obeys: bool) -> Self {
         Self {
             now: Mutex::new(front("user", &["user"])),
             calls: Mutex::new(Vec::new()),
             reads: Mutex::new(0),
+            gave_back_at: Mutex::new(None),
             obeys,
         }
     }
@@ -49,11 +52,25 @@ impl Desk {
         *self.now.lock().unwrap() = front("mine", &["user", "mine"]);
     }
 
-    fn intrude(&self) {
+    pub(super) fn intrude_top_only(&self) {
+        let mut view = front("user", &["user", "new"]);
+        view.top = Some(win("new", pid_of("new")));
+        *self.now.lock().unwrap() = view;
+    }
+
+    pub(super) fn intrude_through_a_running_instance(&self) {
+        *self.now.lock().unwrap() = front("forwarded", &["user", "forwarded"]);
+    }
+
+    pub(super) fn intrude(&self) {
         *self.now.lock().unwrap() = front("new", &["user", "new"]);
     }
 
-    fn calls(&self) -> Vec<String> {
+    pub(super) fn gave_back_at(&self) -> Option<Instant> {
+        *self.gave_back_at.lock().unwrap()
+    }
+
+    pub(super) fn calls(&self) -> Vec<String> {
         self.calls.lock().unwrap().clone()
     }
 }
@@ -74,6 +91,10 @@ impl SystemOps for Desk {
             9 => Some(crate::FrontProcess {
                 image: "fixture".into(),
                 started_ms: now,
+            }),
+            7 => Some(crate::FrontProcess {
+                image: "fixture".into(),
+                started_ms: 1,
             }),
             5 => Some(crate::FrontProcess {
                 image: "editor".into(),
@@ -106,6 +127,10 @@ impl SystemOps for Desk {
         window: &FrontWindow,
         _lease: &InteractionLease,
     ) -> Result<(), AdapterError> {
+        self.gave_back_at
+            .lock()
+            .unwrap()
+            .get_or_insert_with(Instant::now);
         self.calls
             .lock()
             .unwrap()
@@ -117,19 +142,19 @@ impl SystemOps for Desk {
     }
 }
 
-fn watch() -> FrontWatch {
+pub(super) fn watch() -> FrontWatch {
     FrontWatch {
         target: FrontTarget::program("fixture"),
         settle: Duration::from_millis(60),
     }
 }
 
-fn lease(desk: &impl SystemOps) -> InteractionLease {
+pub(super) fn lease(desk: &impl SystemOps) -> InteractionLease {
     desk.acquire_interaction_lease(Deadline::standard().unwrap())
         .unwrap()
 }
 
-fn run<T>(
+pub(super) fn run<T>(
     desk: &Desk,
     policy: InteractionPolicy,
     command: impl FnOnce(&DispatchMark) -> T,
@@ -188,7 +213,7 @@ fn a_front_that_cannot_be_returned_reports_the_failure() {
     let desk = Desk::new(false);
     let (_, outcome) = run(&desk, InteractionPolicy::headless(), |_| {
         desk.intrude();
-        std::thread::sleep(Duration::from_millis(150));
+        std::thread::sleep(Duration::from_millis(1_000));
     });
     assert_eq!(outcome, FrontOutcome::GiveBackFailed);
     assert!(!outcome.focus_returned());
@@ -277,75 +302,4 @@ fn an_outcome_is_noted_under_focus_returned_and_a_clean_one_adds_nothing() {
             .unwrap()
             .contains("focus-window")
     );
-}
-
-fn watch_for(settle_ms: u64) -> FrontWatch {
-    FrontWatch {
-        target: FrontTarget::program("fixture"),
-        settle: Duration::from_millis(settle_ms),
-    }
-}
-
-#[test]
-fn the_settle_runs_from_the_dispatch_beside_the_reads_after_it() {
-    let desk = Desk::new(true);
-    let started = Instant::now();
-    let (_, outcome) = guarded(
-        &desk,
-        InteractionPolicy::headless(),
-        &lease(&desk),
-        watch_for(200),
-        |mark| {
-            mark.dispatched();
-            std::thread::sleep(Duration::from_millis(150));
-        },
-    )
-    .unwrap();
-    let elapsed = started.elapsed();
-    assert_eq!(outcome, FrontOutcome::Clean);
-    assert!(
-        elapsed >= Duration::from_millis(195) && elapsed < Duration::from_millis(245),
-        "the watch ends at dispatch plus the settle, not at return plus the settle: {elapsed:?}"
-    );
-}
-
-#[test]
-fn a_command_that_outlasts_the_settle_ends_the_watch_at_its_return() {
-    let desk = Desk::new(true);
-    let started = Instant::now();
-    guarded(
-        &desk,
-        InteractionPolicy::headless(),
-        &lease(&desk),
-        watch_for(50),
-        |mark| {
-            mark.dispatched();
-            std::thread::sleep(Duration::from_millis(150));
-        },
-    )
-    .unwrap();
-    assert!(started.elapsed() < Duration::from_millis(190));
-}
-
-#[test]
-fn a_window_that_opens_after_the_return_but_inside_dispatch_plus_settle_is_returned() {
-    let desk = Desk::new(true);
-    let (_, outcome) = guarded(
-        &desk,
-        InteractionPolicy::headless(),
-        &lease(&desk),
-        watch_for(250),
-        |mark| {
-            mark.dispatched();
-            std::thread::scope(|scope| {
-                scope.spawn(|| {
-                    std::thread::sleep(Duration::from_millis(150));
-                    desk.intrude();
-                });
-                std::thread::sleep(Duration::from_millis(20));
-            });
-        },
-    )
-    .unwrap();
-    assert_eq!(outcome, FrontOutcome::GivenBack);
 }

@@ -1,3 +1,4 @@
+use crate::actions::witnessed_action::{PendingWitness, Witnessed};
 use crate::system::front_guard::DispatchMark;
 use crate::{
     Action, ActionRequest, ActionResult, AdapterError, DeliverySemantics, ErrorCode,
@@ -38,8 +39,27 @@ pub fn execute_verified_action(
     request: ActionRequest,
     lease: &InteractionLease,
 ) -> Result<ActionResult, AdapterError> {
+    let deadline = lease.deadline();
+    let (result, pending) = execute_verified_deferred(adapter, handle, request, lease)?;
+    Ok(match pending {
+        Some(pending) => pending.settle(adapter, handle, deadline, result),
+        None => result,
+    })
+}
+
+/// As [`execute_verified_action`], but a witness read still owed after the
+/// delivery is returned instead of run, so the caller reads it once it has
+/// released the interaction lease.
+pub(crate) fn execute_verified_deferred(
+    adapter: &dyn PlatformAdapter,
+    handle: &NativeHandle,
+    request: ActionRequest,
+    lease: &InteractionLease,
+) -> Result<(ActionResult, Option<PendingWitness>), AdapterError> {
     if !request.action.can_open_window() {
-        return run_verified_action(adapter, handle, request, lease, &DispatchMark::default());
+        let (result, pending) =
+            run_verified_action(adapter, handle, request, lease, &DispatchMark::default());
+        return result.map(|result| (result, pending));
     }
     let policy = request.policy;
     let target = request.expected_process.as_ref().map_or_else(
@@ -56,15 +76,44 @@ pub fn execute_verified_action(
         },
         |mark| run_verified_action(adapter, handle, request, lease, mark),
     )?;
+    let (result, pending) = result;
     let mut result = result.map_err(|mut error| {
         front.note_in_error(&mut error);
         error
     })?;
     front.note_in(&mut result.details);
-    Ok(result)
+    Ok((result, pending))
 }
 
 fn run_verified_action(
+    adapter: &dyn PlatformAdapter,
+    handle: &NativeHandle,
+    request: ActionRequest,
+    lease: &InteractionLease,
+    mark: &DispatchMark,
+) -> Witnessed {
+    let action = request.action.clone();
+    if action.witnesses_effect() {
+        return crate::actions::witnessed_action::dispatch_witnessed(
+            adapter, handle, request, lease,
+        );
+    }
+    if !action.requires_state_readback() {
+        mark.dispatched();
+        return (
+            adapter
+                .execute_action(handle, request, lease)
+                .map_err(settle_disposition),
+            None,
+        );
+    }
+    (
+        run_readback_action(adapter, handle, request, lease, mark),
+        None,
+    )
+}
+
+fn run_readback_action(
     adapter: &dyn PlatformAdapter,
     handle: &NativeHandle,
     mut request: ActionRequest,
@@ -72,17 +121,6 @@ fn run_verified_action(
     mark: &DispatchMark,
 ) -> Result<ActionResult, AdapterError> {
     let action = request.action.clone();
-    if action.witnesses_effect() {
-        return crate::actions::witnessed_action::execute_witnessed_action(
-            adapter, handle, request, lease,
-        );
-    }
-    if !action.requires_state_readback() {
-        mark.dispatched();
-        return adapter
-            .execute_action(handle, request, lease)
-            .map_err(settle_disposition);
-    }
     let deadline = lease.deadline();
     let before = matches!(action, Action::TypeText(_) | Action::Toggle)
         .then(|| adapter.get_live_element(handle, deadline).ok())

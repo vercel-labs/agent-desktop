@@ -108,12 +108,16 @@ pub(crate) fn execute_ref_action_landing(
             return Err(AppError::Adapter(error));
         }
     };
-    let value = serde_json::to_value(landing.result).map_err(|error| {
-        post_delivery_error(AppError::Json(error), json!({ "action": "delivered" }))
-    })?;
     let lease_hold_ms =
         u64::try_from(landing.lease_started.elapsed().as_millis()).unwrap_or(u64::MAX);
     drop(landing.lease);
+    let result =
+        landing
+            .after_release
+            .settle(adapter, &landing.handle, landing.deadline, landing.result);
+    let value = serde_json::to_value(result).map_err(|error| {
+        post_delivery_error(AppError::Json(error), json!({ "action": "delivered" }))
+    })?;
     let mut outcome = apply_post_action_wait(value, Some(&entry), adapter, context);
     update_lease_hold_ms(&mut outcome, lease_hold_ms);
     crate::ref_action::finish_artifacts(

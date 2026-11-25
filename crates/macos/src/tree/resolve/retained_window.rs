@@ -24,9 +24,7 @@ pub(super) fn owning_window_is_live(
     }
     let pid = crate::system::process::process_identity::to_pid_t(entry.process.pid)?;
     let application = crate::tree::properties::element::element_for_pid(pid);
-    let Some(container) = read_or_dead(element, "AXWindow", deadline)? else {
-        return Ok(false);
-    };
+    let container = read_or_dead(element, "AXWindow", deadline)?;
     let windows = super::resolve_ax_read::read_array(&application, "AXWindows", deadline)?
         .unwrap_or_default();
     let is_open = |candidate: &AXElement| {
@@ -34,13 +32,27 @@ pub(super) fn owning_window_is_live(
             .iter()
             .any(|window| crate::tree::properties::capabilities::same_element(window, candidate))
     };
-    let mut current = container;
+    reaches_open_window(element, container, is_open, |node| {
+        read_or_dead(node, "AXParent", deadline)
+    })
+}
+
+/// Walks from the element's window container (or the element itself when it
+/// reports none, as a window does) up through its parents until it meets an
+/// open window. A chain that ends first belongs to a window that is gone.
+fn reaches_open_window<T: Clone>(
+    element: &T,
+    container: Option<T>,
+    is_open: impl Fn(&T) -> bool,
+    mut parent: impl FnMut(&T) -> Result<Option<T>, AdapterError>,
+) -> Result<bool, AdapterError> {
+    let mut current = container.unwrap_or_else(|| element.clone());
     for _ in 0..OWNER_HOPS {
         if is_open(&current) {
             return Ok(true);
         }
-        match read_or_dead(&current, "AXParent", deadline)? {
-            Some(parent) => current = parent,
+        match parent(&current)? {
+            Some(next) => current = next,
             None => return Ok(false),
         }
     }
@@ -66,3 +78,7 @@ fn read_or_dead(
         other => other,
     }
 }
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "retained_window_tests.rs"]
+mod tests;
