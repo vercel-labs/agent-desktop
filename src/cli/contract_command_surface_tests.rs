@@ -9,6 +9,7 @@ const NON_COMMAND_MODULES: &[&str] = &[
     "find_live",
     "helpers",
     "helpers_test_support",
+    "helpers_witnessed",
     "input_hold_policy",
     "launch_cdp_test_support",
     "mod",

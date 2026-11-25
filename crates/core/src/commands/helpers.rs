@@ -11,7 +11,7 @@ use crate::{
 use serde_json::{Value, json};
 
 #[path = "post_action_observation.rs"]
-mod post_action_observation;
+pub(crate) mod post_action_observation;
 
 pub(crate) use crate::system::app_lookup::{
     process_identity, resolve_app, revalidate_app_for_mutation,
@@ -128,38 +128,7 @@ pub(crate) fn execute_ref_action_dispatching(
         request,
         dispatch,
     );
-    let (result, lease, pre, deadline, lease_started) = match action_result {
-        Ok(result) => result,
-        Err(mut error) => {
-            if error.disposition.delivery() == crate::DeliveryDisposition::DeliveryUncertain
-                && let Some(wait) = context.wait_selector()
-            {
-                let observation = post_action_observation::observe(wait, &entry, adapter);
-                error = post_action_observation::attach(error, observation);
-            }
-            return Err(AppError::Adapter(error));
-        }
-    };
-    let value = serde_json::to_value(result).map_err(|error| {
-        post_delivery_error(AppError::Json(error), json!({ "action": "delivered" }))
-    })?;
-    let lease_hold_ms = u64::try_from(lease_started.elapsed().as_millis()).unwrap_or(u64::MAX);
-    drop(lease);
-    let mut outcome = apply_post_action_wait(value, Some(&entry), adapter, context);
-    update_lease_hold_ms(&mut outcome, lease_hold_ms);
-    crate::ref_action::finish_artifacts(
-        crate::ref_action::ref_action_context::RefActionContext::new(
-            RefActionWaitContext {
-                adapter,
-                entry: &entry,
-                ref_id: &args.ref_id,
-                context,
-            },
-            deadline,
-        ),
-        &pre,
-    );
-    outcome
+    super::helpers_witnessed::finish(action_result, &args.ref_id, &entry, adapter, context)
 }
 
 pub(crate) fn apply_post_action_wait(
@@ -238,7 +207,7 @@ fn finish_post_action_wait(
     }
 }
 
-fn update_lease_hold_ms(result: &mut Result<Value, AppError>, lease_hold_ms: u64) {
+pub(crate) fn update_lease_hold_ms(result: &mut Result<Value, AppError>, lease_hold_ms: u64) {
     fn update(value: &mut Value, lease_hold_ms: u64) {
         if let Some(object) = value.as_object_mut() {
             if let Some(auto_wait) = object.get_mut("auto_wait").and_then(Value::as_object_mut) {
@@ -274,7 +243,7 @@ pub(crate) fn validate_post_action_wait(context: &CommandContext) -> Result<(), 
     Ok(())
 }
 
-fn post_delivery_error(error: AppError, result: Value) -> AppError {
+pub(crate) fn post_delivery_error(error: AppError, result: Value) -> AppError {
     let mut adapter_error = match error {
         AppError::Adapter(error) => error,
         other => crate::AdapterError::internal(other.to_string()),

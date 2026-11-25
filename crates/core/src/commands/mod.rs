@@ -20,6 +20,7 @@ pub mod focus;
 pub mod focus_window;
 pub mod get;
 pub mod helpers;
+pub mod helpers_witnessed;
 pub mod hover;
 mod input_hold_policy;
 pub mod is_check;

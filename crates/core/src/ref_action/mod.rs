@@ -7,7 +7,7 @@ use crate::ref_action::ref_action_wait_support::{after_scroll, trace_scroll_erro
 use crate::refs::{RefEntry, resolve_saved_ref::resolve_saved_ref};
 use crate::{AdapterError, AppError, actionability};
 use serde_json::json;
-
+pub(crate) mod dispatch_witness;
 pub(crate) mod presentation;
 pub(crate) mod ref_action_actionability;
 pub(crate) mod ref_action_context;

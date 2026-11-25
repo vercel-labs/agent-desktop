@@ -3,7 +3,6 @@ use crate::{
     ref_action::ref_action_context::RefActionContext,
     ref_action::ref_action_poll::execute_poll_loop,
     ref_action::ref_action_poll_state::RefActionPollState,
-    ref_action::ref_action_single::execute_single_shot,
     ref_action::ref_action_wait_context::RefActionWaitContext,
     ref_action::ref_action_wait_support::enrich_with_process_state,
 };
@@ -48,7 +47,39 @@ pub(crate) fn execute_with_auto_wait_and_lease(
     AdapterError,
 > {
     let deadline = operation_deadline(&request)?;
-    let result = execute_with_deadline(context, request, deadline, dispatch);
+    let result = execute_with_deadline(context, request, deadline, dispatch, None);
+    result.map_err(|error| {
+        if deadline.is_expired() {
+            error
+        } else {
+            enrich_with_process_state(context.adapter, context.entry, error, deadline)
+        }
+    })
+}
+
+/// The witnessed form of [`execute_with_auto_wait_and_lease`]: `witness` sees
+/// this delivery from inside the lease its action ran under.
+pub(crate) fn execute_with_auto_wait_and_lease_witnessed(
+    context: RefActionWaitContext<'_>,
+    request: ActionRequest,
+    dispatch: impl Fn(
+        RefActionContext<'_>,
+        ActionRequest,
+        &crate::InteractionLease,
+    ) -> Result<ActionResult, AppError>,
+    witness: &dyn crate::ref_action::dispatch_witness::DispatchWitness,
+) -> Result<
+    (
+        ActionResult,
+        crate::InteractionLease,
+        crate::trace::trace_artifacts::ArtifactOutcome,
+        Deadline,
+        std::time::Instant,
+    ),
+    AdapterError,
+> {
+    let deadline = operation_deadline(&request)?;
+    let result = execute_with_deadline(context, request, deadline, dispatch, Some(witness));
     result.map_err(|error| {
         if deadline.is_expired() {
             error
@@ -67,6 +98,7 @@ fn execute_with_deadline(
         ActionRequest,
         &crate::InteractionLease,
     ) -> Result<ActionResult, AppError>,
+    witness: Option<&dyn crate::ref_action::dispatch_witness::DispatchWitness>,
 ) -> Result<
     (
         ActionResult,
@@ -108,7 +140,14 @@ fn execute_with_deadline(
             request.timeout_ms = Some(deadline.remaining_ms());
         }
         let lease_started = std::time::Instant::now();
-        match execute_single_shot(context, request.clone(), deadline, &lease, &dispatch) {
+        match crate::ref_action::ref_action_single::execute_witnessed(
+            context,
+            request.clone(),
+            deadline,
+            &lease,
+            &dispatch,
+            witness,
+        ) {
             Ok(mut result) => {
                 state.attach_transient_ambiguity(&mut result);
                 state.attach_wait_metrics(

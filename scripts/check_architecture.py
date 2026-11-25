@@ -30,8 +30,8 @@ PLATFORM_FILES = {"lib.rs", "adapter.rs"}
 PLATFORM_OPTIONAL = {"adapter_tests.rs", "bin"}
 CORE_TOP_FILES = {"lib.rs"}
 CORE_DOMAINS = {"actionability", "actions", "adapter", "commands", "context", "cursor_overlay", "input",
-                "locator", "notifications", "ref_action", "refs", "response", "sandbox", "session",
-                "snapshot", "storage", "system", "trace", "tree", "wait"}
+                "locator", "menu_origin", "notifications", "ref_action", "refs", "response", "sandbox",
+                "session", "snapshot", "storage", "system", "trace", "tree", "wait"}
 BINARY_TOP_FILES = {"main.rs", "Cargo.toml"}
 BINARY_DIRS = {"batch", "cli", "cli_args", "command_policy", "diagnostic", "dispatch", "mcp",
                "tests", "visual_debug"}

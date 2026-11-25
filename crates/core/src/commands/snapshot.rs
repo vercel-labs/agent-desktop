@@ -115,7 +115,9 @@ pub fn execute(
             .unwrap_or(snapshot::DEFAULT_SNAPSHOT_TIMEOUT_MS),
     )?;
 
-    format_result(result)
+    let mut body = format_snapshot_fields(&result, None, None)?;
+    crate::menu_origin::annotate(&mut body, &result, args.surface, context);
+    Ok(body)
 }
 
 fn format_result(result: snapshot::SnapshotResult) -> Result<Value, AppError> {

@@ -359,7 +359,7 @@ fn headed_click_does_not_resolve_before_window_focus_and_dispatch() {
     let context = crate::CommandContext::default();
     let deadline = Deadline::standard().unwrap();
     let lease = InteractionLease::guarded(deadline, ()).unwrap();
-    crate::ref_action::ref_action_single::execute_single_shot(
+    crate::ref_action::ref_action_single::execute_witnessed(
         crate::ref_action::ref_action_wait_context::RefActionWaitContext {
             adapter: &adapter,
             entry: &entry,
@@ -374,6 +374,7 @@ fn headed_click_does_not_resolve_before_window_focus_and_dispatch() {
             assert_eq!(adapter.0.resolved.load(Ordering::SeqCst), 0);
             Ok(ActionResult::delivered_unverified("click"))
         },
+        None,
     )
     .unwrap();
 }

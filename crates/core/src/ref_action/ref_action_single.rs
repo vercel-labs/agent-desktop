@@ -13,7 +13,9 @@ pub(crate) fn dispatch_resolved(
     crate::ref_action::dispatch_resolved_landing(target, request, lease).map(|(result, _)| result)
 }
 
-pub(crate) fn execute_single_shot(
+/// The witnessed dispatch: `witness` is told about this delivery from inside
+/// the lease, and its own failures never reach the caller's result.
+pub(crate) fn execute_witnessed(
     context: RefActionWaitContext<'_>,
     request: ActionRequest,
     deadline: crate::Deadline,
@@ -23,6 +25,7 @@ pub(crate) fn execute_single_shot(
         ActionRequest,
         &crate::InteractionLease,
     ) -> Result<ActionResult, crate::AppError>,
+    witness: Option<&dyn crate::ref_action::dispatch_witness::DispatchWitness>,
 ) -> Result<ActionResult, AdapterError> {
     let keyboard_is_aimed_at_the_element = request.action.delivered_by_keyboard()
         && !context.adapter.keyboard_needs_window_activation();
@@ -50,5 +53,28 @@ pub(crate) fn execute_single_shot(
             .map_err(crate::ref_action::into_adapter_error)?;
         }
     }
-    dispatch(RefActionContext::new(context, deadline), request, lease).map_err(into_adapter_error)
+    if let Some(witness) = witness {
+        witness.started(context.ref_id, context.entry, context.adapter, deadline);
+    }
+    let result = dispatch(RefActionContext::new(context, deadline), request, lease)
+        .map_err(into_adapter_error);
+    if let Some(witness) = witness {
+        match &result {
+            Ok(action_result) => witness.settled(
+                context.ref_id,
+                context.entry,
+                crate::ref_action::dispatch_witness::DispatchOutcome::Delivered(action_result),
+                context.adapter,
+                deadline,
+            ),
+            Err(error) => witness.settled(
+                context.ref_id,
+                context.entry,
+                crate::ref_action::dispatch_witness::DispatchOutcome::Failed(error),
+                context.adapter,
+                deadline,
+            ),
+        }
+    }
+    result
 }

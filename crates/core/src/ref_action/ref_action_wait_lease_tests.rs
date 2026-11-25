@@ -332,6 +332,7 @@ fn lease_acquisition_receives_the_exact_original_deadline() {
         ActionRequest::headless(Action::Click),
         deadline,
         crate::ref_action::ref_action_single::dispatch_resolved,
+        None,
     )
     .err()
     .unwrap();
