@@ -119,3 +119,19 @@ fn an_unsent_error_is_not_delivered_unless_it_already_carries_stronger_evidence(
         .unsent();
     assert_eq!(kept.disposition, crate::DeliverySemantics::uncertain());
 }
+
+#[test]
+fn a_plain_timeout_does_not_blame_a_busy_application() {
+    let hint = AdapterError::timeout("late").suggestion.unwrap();
+    assert!(!hint.contains("busy"), "{hint}");
+}
+
+#[test]
+fn an_ambiguous_process_name_names_a_remedy_that_exists() {
+    let pids = [crate::ProcessId::new(10), crate::ProcessId::new(11)];
+    let hint = AdapterError::ambiguous_process_target("two", &pids)
+        .suggestion
+        .unwrap();
+    assert!(!hint.contains("no pid or instance flag"), "{hint}");
+    assert!(hint.contains("Quit all but one"), "{hint}");
+}

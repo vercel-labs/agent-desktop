@@ -142,17 +142,22 @@ fn require_active(
 }
 
 fn window_not_active(window: &WindowInfo) -> AdapterError {
-    AdapterError::stale_ref_because(
-        "The named window's exact focus could not be confirmed, so no key was sent",
+    AdapterError::new(
+        ErrorCode::ActionFailed,
+        "The named window does not hold keyboard focus, so no key was sent",
     )
-    .with_suggestion("Bring the named window to the front, refresh list-windows, and retry")
     .with_details(json!({
-        "check": "exact_window_focus",
+        "check": "window_active",
         "cause": "exact_window_focus_unconfirmed",
         "window_id": window.id,
         "physical_delivery_started": false,
     }))
     .with_disposition(DeliverySemantics::not_delivered())
+}
+
+fn window_identity_missing() -> AdapterError {
+    AdapterError::stale_ref_because("The named window has no process identity, so no key was sent")
+        .with_suggestion("Run 'list-windows' again and use the window's current id")
 }
 
 fn after_delivery(
@@ -238,7 +243,7 @@ pub(crate) fn press_key_for_window(
         .process_instance
         .as_deref()
         .filter(|instance| !instance.is_empty())
-        .ok_or_else(|| window_not_active(window))?;
+        .ok_or_else(window_identity_missing)?;
     press_in(Press {
         physical: &LiveWorld { bus, lease },
         keys: &LiveKeys { bus },

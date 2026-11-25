@@ -109,7 +109,7 @@ pub(super) fn evaluate_locator_tree_in(
             .get(index)
             .ok_or_else(|| AdapterError::internal("selected locator node is out of bounds"))?;
         let mut entry = ref_entry(node, &tree.source, &normalized);
-        entry.identity.unique_at_capture = proof.proves_node(&entry, index);
+        entry.identity.proof = proof.proof_of_node(&entry, index);
         selected_matches.push(LocatorMatch {
             data,
             document_order: node.document_order,

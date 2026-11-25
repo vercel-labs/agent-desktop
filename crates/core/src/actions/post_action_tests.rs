@@ -357,6 +357,9 @@ mod budget_tests;
 #[path = "post_action_text_tests.rs"]
 mod text_tests;
 
+#[path = "post_action_refusal_tests.rs"]
+mod refusal_tests;
+
 /// A newline left in a field is content, so a clear that leaves one is not
 /// verified; a RichEdit's own terminator is removed where the value is read.
 #[test]

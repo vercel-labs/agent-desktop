@@ -4,6 +4,17 @@ use crate::{
     locator::live_locator::{ObservationRequest, ObservationRoot, ObservedTree},
 };
 
+/// What a census leaves of the snapshot's budget for the shallow walk that
+/// stands in when the census cannot finish. A shallow walk is a small fraction of
+/// a whole-window read, so the census gets the rest of the caller's budget rather
+/// than a fixed share of it: a caller who raises `--timeout-ms` for a large window
+/// gives that whole raise to the census.
+const SHALLOW_FALLBACK_RESERVE: std::time::Duration = std::time::Duration::from_millis(750);
+
+fn census_deadline(deadline: crate::Deadline) -> crate::Deadline {
+    deadline.reserving(SHALLOW_FALLBACK_RESERVE.min(deadline.remaining() / 4))
+}
+
 /// One window capture: the observation every ref is counted against, plus the
 /// logical depth the presented tree is cut at when that observation reaches
 /// deeper than the caller asked for.
@@ -53,7 +64,7 @@ pub(crate) fn capture_window(
     let shallow = depth < crate::refs::resolve_saved_ref::WHOLE_WINDOW_DEPTH;
     let mut unproven = None;
     if shallow && !adapter.retains_element_tokens() {
-        let attempt = deadline.capped(deadline.remaining() * 3 / 4);
+        let attempt = census_deadline(deadline);
         match whole_window(adapter, opts, window, attempt) {
             Ok(observed) => {
                 return Ok(WindowCapture {
@@ -124,7 +135,7 @@ pub(crate) fn capture_application(
     let shallow = depth < crate::refs::resolve_saved_ref::WHOLE_WINDOW_DEPTH;
     let mut unproven = None;
     if shallow && !adapter.retains_element_tokens() {
-        let attempt = deadline.capped(deadline.remaining() * 3 / 4);
+        let attempt = census_deadline(deadline);
         match whole_application(adapter, opts, app, surface, attempt) {
             Ok(observed) => {
                 return Ok(WindowCapture {

@@ -329,9 +329,16 @@ fn window_scoped_press_rechecks_exact_focus_before_synthesis() {
             });
             if changed {
                 let error = result.unwrap_err();
-                assert_eq!(error.code, ErrorCode::StaleRef);
+                assert_eq!(error.code, ErrorCode::ActionFailed);
                 assert!(not_delivered(&error));
                 assert!(physical.sent_nothing());
+                let hint = error.suggestion.as_deref().unwrap();
+                if wayland {
+                    assert!(!hint.contains("Retry with --headed"), "{hint}");
+                    assert!(hint.contains("global press"), "{hint}");
+                } else {
+                    assert!(hint.contains("--headed"), "{hint}");
+                }
             } else {
                 assert!(result.is_ok());
                 assert_eq!(physical.count("sent"), 1);
@@ -364,7 +371,8 @@ fn window_scoped_press_refuses_unknown_or_mismatched_focus_without_synthesis() {
             deadline: deadline(),
         })
         .unwrap_err();
-        assert_eq!(error.code, ErrorCode::StaleRef);
+        assert_eq!(error.code, ErrorCode::ActionFailed);
+        assert_eq!(check_of(&error).as_deref(), Some("window_active"));
         assert!(not_delivered(&error));
         assert!(physical.sent_nothing());
     }
