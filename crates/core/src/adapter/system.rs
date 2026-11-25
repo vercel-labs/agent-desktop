@@ -1,11 +1,11 @@
 use crate::{
     AdapterError, AdapterSession, AppInfo, CursorOverlayControl, Deadline, DeliverySemantics,
-    DismissAllNotificationsRequest, DismissNotificationRequest, ErrorCode, ImageBuffer,
-    InteractionLease, InteractionPolicy, KeyCombo, NotificationActionRequest, NotificationFilter,
-    NotificationInfo, OperationReport, PermissionReport, PermissionState, ProcessIdentity,
-    ProviderScriptOutput, ProviderScriptRequest, SessionAffinity, SignalBaseline, SignalFilter,
-    WindowInfo, WindowOp, actions::action_result::ActionResult, system::display_info::DisplayInfo,
-    system::screenshot_target::ScreenshotTarget,
+    DismissAllNotificationsRequest, DismissNotificationRequest, ErrorCode, FrontWindow,
+    ImageBuffer, InteractionLease, InteractionPolicy, KeyCombo, NotificationActionRequest,
+    NotificationFilter, NotificationInfo, OperationReport, PermissionReport, PermissionState,
+    ProcessIdentity, ProviderScriptOutput, ProviderScriptRequest, SessionAffinity, SignalBaseline,
+    SignalFilter, WindowInfo, WindowOp, actions::action_result::ActionResult,
+    system::display_info::DisplayInfo, system::screenshot_target::ScreenshotTarget,
 };
 
 pub trait SystemOps: Send + Sync {
@@ -311,26 +311,24 @@ pub trait SystemOps: Send + Sync {
         Err(AdapterError::not_supported("read_front"))
     }
 
-    /// The executable name and start time of `pid`, which the front guard
-    /// reads to tell the command target's new windows from the user's.
     fn front_process(&self, _pid: u32) -> Option<crate::FrontProcess> {
+        None
+    }
+
+    fn spawned_descendants(&self, _root: u32, _since_ms: u64) -> Option<Vec<u32>> {
         None
     }
 
     fn keep_below(
         &self,
-        _window: &crate::FrontWindow,
-        _above: &crate::FrontWindow,
+        _window: &FrontWindow,
+        _above: &FrontWindow,
         _lease: &InteractionLease,
     ) -> Result<(), AdapterError> {
         Err(AdapterError::not_supported("keep_below"))
     }
 
-    fn give_back(
-        &self,
-        _window: &crate::FrontWindow,
-        _lease: &InteractionLease,
-    ) -> Result<(), AdapterError> {
+    fn give_back(&self, _win: &FrontWindow, _lease: &InteractionLease) -> Result<(), AdapterError> {
         Err(AdapterError::not_supported("give_back"))
     }
 

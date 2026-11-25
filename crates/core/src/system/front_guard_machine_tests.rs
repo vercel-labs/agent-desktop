@@ -10,6 +10,7 @@ fn view(focused: &str, top: &str, windows: &[&str]) -> FrontView {
         focused: Some(win(focused, pid_of(focused))),
         top: Some(win(top, pid_of(top))),
         windows: windows.iter().map(|id| (*id).into()).collect(),
+        ..Default::default()
     }
 }
 
@@ -17,7 +18,7 @@ fn prior() -> FrontView {
     view("user", "user", &["user", "other"])
 }
 
-fn machine() -> FrontGuardMachine<'static> {
+fn machine() -> FrontGuardMachine {
     FrontGuardMachine::new(
         prior(),
         Box::new(|window, is_new| is_new && window.pid == 900),

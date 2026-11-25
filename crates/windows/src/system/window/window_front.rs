@@ -25,15 +25,23 @@ pub(crate) fn can_be_front(window: &EnumeratedWindow) -> bool {
 /// one qualifies.
 #[cfg(target_os = "windows")]
 pub(crate) fn read_front(_deadline: Deadline) -> Result<FrontView, AdapterError> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, IsWindowVisible};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId, IsWindowVisible,
+    };
 
     let mut windows = Vec::new();
+    let mut owners = Vec::new();
     let mut top = None;
     super::window_enum::enumerate_handles(|handle| {
         if unsafe { IsWindowVisible(handle) } == 0 {
             return true;
         }
         windows.push(window_id(handle));
+        let mut owner = 0_u32;
+        unsafe { GetWindowThreadProcessId(handle, &mut owner) };
+        if owner != 0 && !owners.contains(&owner) {
+            owners.push(owner);
+        }
         if top.is_none() && can_be_front(&super::window_enum::describe(handle)) {
             top = Some(handle);
         }
@@ -56,6 +64,7 @@ pub(crate) fn read_front(_deadline: Deadline) -> Result<FrontView, AdapterError>
             .flatten(),
         top: top.and_then(front_window),
         windows,
+        owners,
     })
 }
 
@@ -64,47 +73,28 @@ pub(crate) fn read_front(_deadline: Deadline) -> Result<FrontView, AdapterError>
     Err(AdapterError::not_supported("read_front"))
 }
 
-/// Puts a window directly below the user's foreground window without
-/// activating it, so a window shown without activation lands in front of the
-/// windows beneath the user's and not at the bottom of the order.
-#[cfg(target_os = "windows")]
-pub(crate) fn place_below_foreground(
-    handle: super::window_enum::WindowHandle,
-) -> Result<(), AdapterError> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos,
-    };
-
-    let foreground = unsafe { GetForegroundWindow() };
-    if foreground.is_null() || foreground == handle {
-        return Ok(());
-    }
-    let ok = unsafe {
-        SetWindowPos(
-            handle,
-            foreground,
-            0,
-            0,
-            0,
-            0,
-            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
-        )
-    };
-    if ok == 0 {
-        return Err(super::window_op::after_write(
-            crate::system::runtime::hresult::win32_last_error(
-                "SetWindowPos below the foreground window failed",
-            ),
-        ));
-    }
-    Ok(())
-}
-
-#[cfg(not(target_os = "windows"))]
-pub(crate) fn place_below_foreground(
-    _handle: super::window_enum::WindowHandle,
-) -> Result<(), AdapterError> {
-    Ok(())
+/// The running processes that descend from `root` and started at or after
+/// `since_ms`, from the Toolhelp snapshot's parent ids. Only a descendant's
+/// start time is read.
+pub(crate) fn spawned_descendants(root: u32, since_ms: u64) -> Option<Vec<u32>> {
+    let rows = crate::system::app_ops::process_snapshot().ok()?;
+    let parents: Vec<(u32, u32)> = rows
+        .iter()
+        .map(|row| (row.pid.get(), row.parent.get()))
+        .collect();
+    Some(agent_desktop_core::spawned_descendants_of(
+        root,
+        since_ms,
+        &parents,
+        |pid| {
+            crate::system::process_identity::ProcessIdentity::capture(
+                agent_desktop_core::ProcessId::new(pid),
+            )
+            .ok()
+            .flatten()
+            .map(|identity| identity.started_unix_ms())
+        },
+    ))
 }
 
 /// The executable name and start time of the process behind a window.

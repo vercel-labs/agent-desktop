@@ -133,6 +133,10 @@ impl SystemOps for LinuxAdapter {
         crate::system::focus::focus_front::front_process(pid)
     }
 
+    fn spawned_descendants(&self, root: u32, since_ms: u64) -> Option<Vec<u32>> {
+        crate::system::focus::focus_front::spawned_descendants(root, since_ms)
+    }
+
     fn keep_below(
         &self,
         window: &agent_desktop_core::FrontWindow,
