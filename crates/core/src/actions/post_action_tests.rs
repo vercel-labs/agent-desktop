@@ -342,27 +342,6 @@ fn missing_before_evidence_does_not_block_or_repeat_headed_or_headless_delivery(
 }
 
 #[test]
-fn a_refusal_without_a_disposition_is_not_delivered_and_safe() {
-    for action in [Action::Click, Action::Select("x".into())] {
-        for code in [ErrorCode::ActionNotSupported, ErrorCode::InvalidArgs] {
-            let mut adapter = adapter(element(None, &[]), element(None, &[]));
-            adapter.execution = Err(AdapterError::new(code, "refused"));
-            let error = execute(&adapter, action.clone()).unwrap_err();
-            assert_eq!(error.disposition, DeliverySemantics::not_delivered());
-        }
-    }
-}
-
-#[test]
-fn a_refusal_that_reports_a_send_keeps_its_disposition() {
-    let mut adapter = adapter(element(None, &[]), element(None, &[]));
-    adapter.execution = Err(AdapterError::new(ErrorCode::ActionNotSupported, "late")
-        .with_disposition(DeliverySemantics::delivered_unverified()));
-    let error = execute(&adapter, Action::Click).unwrap_err();
-    assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
-}
-
-#[test]
 fn clicks_do_not_read_a_target_that_navigation_can_destroy() {
     let adapter = adapter(element(None, &[]), element(None, &[]));
     execute(&adapter, Action::Click).unwrap();
@@ -378,6 +357,9 @@ mod budget_tests;
 #[path = "post_action_text_tests.rs"]
 mod text_tests;
 
+#[path = "post_action_refusal_tests.rs"]
+mod refusal_tests;
+
 /// A newline left in a field is content, so a clear that leaves one is not
 /// verified; a RichEdit's own terminator is removed where the value is read.
 #[test]
@@ -386,12 +368,4 @@ fn clear_that_leaves_a_newline_is_not_verified() {
     let error = execute(&adapter, Action::Clear).unwrap_err();
     assert_eq!(error.code, ErrorCode::ActionFailed);
     assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
-}
-
-#[test]
-fn an_error_of_another_kind_without_a_disposition_is_never_marked_not_delivered() {
-    let mut adapter = adapter(element(None, &[]), element(None, &[]));
-    adapter.execution = Err(AdapterError::timeout("late"));
-    let error = execute(&adapter, Action::Click).unwrap_err();
-    assert_ne!(error.disposition, DeliverySemantics::not_delivered());
 }
