@@ -242,19 +242,47 @@ fn surface_kind(
         Some("AXWindow") => read_string(element, "AXSubrole", deadline)?,
         _ => None,
     };
-    Ok(kind_of(role.as_deref(), subrole.as_deref()))
+    let dialog = subrole.as_deref() == Some("AXDialog");
+    let (modal, minimized) = if dialog {
+        (
+            crate::tree::surface_read::boolean(element, "AXModal", deadline)?,
+            crate::tree::surface_read::boolean(element, "AXMinimized", deadline)?,
+        )
+    } else {
+        (None, None)
+    };
+    Ok(classify_surface(
+        role.as_deref(),
+        subrole.as_deref(),
+        modal,
+        minimized,
+    ))
 }
 
-/// A system dialog is the window a system service opens for an application,
-/// such as the AirDrop panel of a share. A dialog subrole belongs to a window;
-/// a sheet and a popover have their own role, so only a window's subrole is
-/// read.
-fn kind_of(role: Option<&str>, subrole: Option<&str>) -> Option<&'static str> {
-    match (subrole, role) {
-        (Some("AXSheet"), _) | (_, Some("AXSheet")) => Some("sheet"),
-        (Some("AXPopover"), _) | (_, Some("AXPopover")) => Some("popover"),
-        (Some("AXDialog" | "AXSystemDialog" | "AXAlert"), _) => Some("alert"),
-        _ => None,
+/// The kind of surface an element is. `AXDialog` is a window style, not a
+/// prompt: a fixed-size ordinary window carries it too. A dialog is an alert
+/// only when it is modal, and a minimized window is on the Dock, never in
+/// front of the application, so it holds nothing up whatever it carries. A
+/// system dialog is the window a system service opens for an application,
+/// such as the AirDrop panel of a share, and is always an alert. A dialog
+/// subrole belongs to a window, so only a window's subrole is read.
+fn classify_surface(
+    role: Option<&str>,
+    subrole: Option<&str>,
+    modal: Option<bool>,
+    minimized: Option<bool>,
+) -> Option<&'static str> {
+    match subrole {
+        Some("AXSheet") => Some("sheet"),
+        Some("AXPopover") => Some("popover"),
+        Some("AXAlert" | "AXSystemDialog") => Some("alert"),
+        Some("AXDialog") if modal == Some(true) && minimized != Some(true) => Some("alert"),
+        Some("AXDialog") => None,
+        _ => match role {
+            Some("AXSheet") => Some("sheet"),
+            Some("AXPopover") => Some("popover"),
+            _ => None,
+        },
     }
 }
 

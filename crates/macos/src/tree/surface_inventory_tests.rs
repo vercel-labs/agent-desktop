@@ -106,18 +106,55 @@ fn a_failed_inventory_does_not_hide_the_surface_below_the_target() {
 }
 
 #[test]
-fn a_system_dialog_is_listed_as_an_alert_like_a_dialog() {
+fn a_dialog_style_window_is_an_alert_only_when_it_is_modal_and_on_screen() {
     assert_eq!(
-        super::kind_of(Some("AXWindow"), Some("AXSystemDialog")),
+        classify_surface(Some("AXWindow"), Some("AXDialog"), Some(true), Some(false)),
         Some("alert")
     );
     assert_eq!(
-        super::kind_of(Some("AXWindow"), Some("AXDialog")),
+        classify_surface(Some("AXWindow"), Some("AXDialog"), Some(true), None),
         Some("alert")
     );
-    assert_eq!(super::kind_of(Some("AXSheet"), None), Some("sheet"));
     assert_eq!(
-        super::kind_of(Some("AXWindow"), Some("AXStandardWindow")),
+        classify_surface(Some("AXWindow"), Some("AXDialog"), Some(false), Some(false)),
+        None,
+        "a fixed-size ordinary window carries the dialog subrole"
+    );
+    assert_eq!(
+        classify_surface(Some("AXWindow"), Some("AXDialog"), None, None),
+        None
+    );
+    assert_eq!(
+        classify_surface(Some("AXWindow"), Some("AXDialog"), Some(true), Some(true)),
+        None,
+        "a minimized window holds nothing up"
+    );
+}
+
+#[test]
+fn sheets_popovers_and_alert_subroles_keep_their_kinds() {
+    assert_eq!(
+        classify_surface(Some("AXSheet"), None, None, None),
+        Some("sheet")
+    );
+    assert_eq!(
+        classify_surface(Some("AXWindow"), Some("AXSheet"), None, None),
+        Some("sheet")
+    );
+    assert_eq!(
+        classify_surface(Some("AXPopover"), None, None, None),
+        Some("popover")
+    );
+    assert_eq!(
+        classify_surface(Some("AXWindow"), Some("AXAlert"), None, Some(false)),
+        Some("alert")
+    );
+    assert_eq!(
+        classify_surface(Some("AXWindow"), Some("AXSystemDialog"), None, None),
+        Some("alert")
+    );
+    assert_eq!(
+        classify_surface(Some("AXWindow"), Some("AXStandardWindow"), None, None),
         None
     );
 }
