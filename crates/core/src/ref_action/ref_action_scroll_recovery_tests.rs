@@ -299,7 +299,7 @@ fn a_dispatch_failure_after_a_scroll_reports_the_scroll() {
             .and_then(serde_json::Value::as_str),
         Some("may_have_changed_view")
     );
-    assert_eq!(error.disposition, crate::DeliverySemantics::Unknown);
+    assert_eq!(error.disposition, crate::DeliverySemantics::uncertain());
 }
 
 #[test]

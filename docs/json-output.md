@@ -80,7 +80,10 @@ is one of `unknown`, `safe` or `unsafe`, and it follows from `delivery`:
 
 `unknown` means the command established nothing about delivery. A failure of a
 mutating command that carries no delivery evidence, such as a `TIMEOUT` on an
-operation that may already have landed, keeps it. A read-only command sends
+operation that may already have landed, keeps it. An element action that
+fails with no disposition and a code other than `ACTION_NOT_SUPPORTED` or
+`INVALID_ARGS` is reported as `delivery_uncertain` and `unsafe`, because the
+adapter call may already have written. A read-only command sends
 nothing and invalid arguments never reach the application, so their errors, and
 a lookup failure such as `APP_NOT_FOUND`, carry `not_delivered`. Treat `unknown`
 as not safe to retry automatically: read `error.code` and the message, and
