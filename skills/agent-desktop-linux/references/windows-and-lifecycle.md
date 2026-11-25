@@ -61,7 +61,9 @@ agent-desktop launch gnome-text-editor --arg=/tmp/note.txt
   command is spawned so that it forwards them to the running instance; a
   launcher that exits cleanly and shows no owner within about 2 s ends as
   `ok: true`, `delivered_unverified`, with no `window` and a `suggestion` that
-  points at `list-windows`. `--no-attach` refuses any verified running match,
+  points at `list-windows`. `--no-attach` refuses any running process of the same program (the same
+  executable, or the interpreter running the same script) whatever its
+  arguments,
   with or without `--arg`, before anything is sent: `ACTION_FAILED`,
   `not_delivered`, with the pids. Without it, several verified matches are
   `AMBIGUOUS_TARGET`.
