@@ -40,34 +40,39 @@ impl Pending {
 /// the same path waits for these to finish instead of reading that brief hold
 /// as another command holding the lock.
 struct Ghosts {
-    blocked: Mutex<BTreeMap<PathBuf, usize>>,
+    state: Mutex<(BTreeMap<PathBuf, usize>, u64)>,
     finished: Condvar,
 }
 
 static GHOSTS: Ghosts = Ghosts {
-    blocked: Mutex::new(BTreeMap::new()),
+    state: Mutex::new((BTreeMap::new(), 0)),
     finished: Condvar::new(),
 };
 
 impl Ghosts {
-    fn counts(&self) -> MutexGuard<'_, BTreeMap<PathBuf, usize>> {
-        self.blocked
+    fn state(&self) -> MutexGuard<'_, (BTreeMap<PathBuf, usize>, u64)> {
+        self.state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    fn vanished_epoch(&self) -> u64 {
+        self.state().1
+    }
+
     fn appeared(&self, path: &Path) {
-        *self.counts().entry(path.to_path_buf()).or_insert(0) += 1;
+        *self.state().0.entry(path.to_path_buf()).or_insert(0) += 1;
     }
 
     fn vanished(&self, path: &Path) {
-        let mut counts = self.counts();
-        if let Some(count) = counts.get_mut(path) {
+        let mut state = self.state();
+        if let Some(count) = state.0.get_mut(path) {
             *count -= 1;
             if *count == 0 {
-                counts.remove(path);
+                state.0.remove(path);
             }
         }
+        state.1 = state.1.wrapping_add(1);
         self.finished.notify_all();
     }
 }
@@ -78,23 +83,31 @@ impl Ghosts {
 /// behind another holder, and the acquirer queues behind it in the kernel.
 const ABANDONED_HELPER_GRACE: Duration = Duration::from_millis(250);
 
+/// Reads the current abandoned-waiter completion epoch before a non-blocking
+/// lock attempt, so `settle_abandoned_waiters` detects a helper that released
+/// the lock between `try_lock` and the ghost check.
+pub(crate) fn abandoned_waiter_epoch() -> u64 {
+    GHOSTS.vanished_epoch()
+}
+
 /// Waits, in real time, for the abandoned helpers of this process that are
 /// blocked on `path` to finish, for at most the grace and the remaining budget.
-/// Returns `true` when it waited and none is left, so the caller tries the lock
-/// again; `false` when there was none or one is still blocked.
-pub(crate) fn settle_abandoned_waiters(path: &Path, deadline: Deadline) -> bool {
+/// Returns `true` when it waited and none is left, or when an abandoned helper
+/// finished since `before_epoch`, so the caller tries the lock again; `false`
+/// when none finished and none is left, or one is still blocked.
+pub(crate) fn settle_abandoned_waiters(path: &Path, deadline: Deadline, before_epoch: u64) -> bool {
     let real_end = Instant::now() + deadline.remaining().min(ABANDONED_HELPER_GRACE);
-    let mut counts = GHOSTS.counts();
+    let mut state = GHOSTS.state();
     let mut waited = false;
-    while counts.contains_key(path) {
+    while state.0.contains_key(path) {
         let left = real_end.saturating_duration_since(Instant::now());
         if left.is_zero() {
             return false;
         }
         waited = true;
-        counts = crate::wait::deadline::wait_for_event(&GHOSTS.finished, counts, left);
+        state = crate::wait::deadline::wait_for_event(&GHOSTS.finished, state, left);
     }
-    waited
+    waited || state.1 != before_epoch
 }
 
 /// Blocks in the kernel for the lock until `deadline`. The blocking call runs on
