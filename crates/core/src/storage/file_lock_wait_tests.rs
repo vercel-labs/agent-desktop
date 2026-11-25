@@ -1,5 +1,6 @@
 use std::time::{Duration, Instant};
 
+use super::{GHOSTS, settle_abandoned_waiters};
 use crate::refs::refs_test_support::HomeGuard;
 use crate::{Deadline, FileLock};
 
@@ -78,4 +79,57 @@ fn three_agents_looping_on_one_lock_take_turns_instead_of_one_repeating() {
         .unwrap();
 
     assert!(longest_streak <= 8, "one agent kept the lock: {order:?}");
+}
+
+#[test]
+fn a_timed_out_waiter_then_release_then_a_new_acquire_succeeds_under_a_frozen_clock() {
+    let home = HomeGuard::new();
+    let path = lock_path(&home);
+    for _ in 0..20 {
+        let clock = crate::wait::deadline::VirtualClock::freeze();
+        let held = FileLock::acquire(&path, Deadline::after(2_000).unwrap(), "held").unwrap();
+        let timed_out = FileLock::acquire(&path, Deadline::after(2_000).unwrap(), "late")
+            .err()
+            .expect("a held lock times out");
+        assert_eq!(timed_out.code, crate::ErrorCode::Timeout);
+        assert_eq!(clock.elapsed(), Duration::from_millis(2_000));
+        drop(held);
+
+        let next = FileLock::acquire(&path, Deadline::after(2_000).unwrap(), "next")
+            .expect("the abandoned waiter must not take the next acquirer's turn");
+        drop(next);
+    }
+}
+
+#[test]
+fn an_acquirer_waits_for_an_abandoned_helper_to_finish_before_reading_the_lock_as_held() {
+    let path = std::path::PathBuf::from("/abandoned-helper-registry-probe");
+    GHOSTS.appeared(&path);
+    let finisher_path = path.clone();
+    let finisher = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(100));
+        GHOSTS.vanished(&finisher_path);
+    });
+
+    let settled = settle_abandoned_waiters(&path, Deadline::after(5_000).unwrap());
+
+    finisher.join().unwrap();
+    assert!(settled);
+    assert!(!settle_abandoned_waiters(
+        &path,
+        Deadline::after(5_000).unwrap()
+    ));
+}
+
+#[test]
+fn an_abandoned_helper_that_never_finishes_costs_the_acquirer_only_the_grace() {
+    let path = std::path::PathBuf::from("/abandoned-helper-never-finishes-probe");
+    GHOSTS.appeared(&path);
+
+    let started = Instant::now();
+    let settled = settle_abandoned_waiters(&path, Deadline::after(5_000).unwrap());
+
+    GHOSTS.vanished(&path);
+    assert!(!settled);
+    assert!(started.elapsed() < Duration::from_secs(2));
 }
