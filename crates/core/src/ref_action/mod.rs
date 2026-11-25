@@ -4,7 +4,7 @@ use crate::adapter::{NativeHandle, PlatformAdapter};
 use crate::context::CommandContext;
 use crate::ref_action::ref_action_context::RefActionContext;
 use crate::ref_action::ref_action_wait_support::{
-    after_scroll, note_preparatory_scroll, note_scroll_if, trace_scroll_error,
+    note_preparatory_scroll, note_scroll_if, require_route_before_scroll, trace_scroll_error,
 };
 use crate::refs::{RefEntry, resolve_saved_ref::resolve_saved_ref};
 use crate::{AdapterError, AppError, actionability};
@@ -92,6 +92,7 @@ pub(crate) fn dispatch_resolved_landing(
             ) {
                 return Err(error.into());
             }
+            require_route_before_scroll(target.adapter, &handle, &request, lease)?;
             scrolled = true;
             let recovered = match target.adapter.scroll_ref_into_view(
                 target.entry,
@@ -115,12 +116,12 @@ pub(crate) fn dispatch_resolved_landing(
                 Some(handle) => handle,
                 None => {
                     resolve_saved_ref(target.adapter, target.entry, target.deadline, Some(lease))
-                        .map_err(after_scroll)?
+                        .map_err(note_preparatory_scroll)?
                 }
             };
             let scrolled_target = ResolvedRefAction::new(target, &handle);
             stable_preflight(&scrolled_target, &request)
-                .map_err(|error| after_scroll(into_adapter_error(error)))?
+                .map_err(|error| note_preparatory_scroll(into_adapter_error(error)))?
         }
     };
     if preflight.pointer_delivery == actionability::PointerDelivery::Semantic {

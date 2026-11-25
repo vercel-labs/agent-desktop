@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use agent_desktop_core::{
     AdapterError, Deadline, ErrorCode, ProcessId, WindowFilter, WindowInfo,
@@ -15,6 +15,11 @@ use super::launch_attach::{image_of, same_file};
 
 const POLL_START: Duration = Duration::from_millis(50);
 const POLL_LIMIT: Duration = Duration::from_millis(250);
+
+/// How long a launch that may have been forwarded to a running instance keeps
+/// looking for the window it opens after its own launcher is gone. A forward
+/// opens its window in another process a moment after the launcher exits.
+const FORWARD_GRACE: Duration = Duration::from_millis(3_000);
 
 /// Where the wait for a launch's window stands. The wait ends in exactly one
 /// of three ways, and each way is a different honest answer for the caller:
@@ -99,6 +104,13 @@ fn all_windows() -> WindowFilter {
     }
 }
 
+/// Whether the wait may end because the launcher is gone. A launch that can
+/// be a forward keeps looking for the window of the instance it forwarded to
+/// until the grace after the launcher's exit has passed.
+pub(super) fn forward_search_over(forwardable: bool, finished: Instant, now: Instant) -> bool {
+    !forwardable || now.saturating_duration_since(finished) >= FORWARD_GRACE
+}
+
 pub(super) fn should_poll_after_first_observation(timeout_ms: u64) -> bool {
     timeout_ms > 0
 }
@@ -141,11 +153,18 @@ pub(super) fn observe_window(
     let polls = should_poll_after_first_observation(options.timeout_ms);
     let mut state = Watch::Polling;
     let mut interval = POLL_START;
+    let mut finished_at: Option<Instant> = None;
     loop {
         let seen = observe_window_once(target, deadline)?;
         let sight = if seen.is_some() {
             Sight::Window
-        } else if launch_finished(pid) {
+        } else if launch_finished(pid)
+            && forward_search_over(
+                target.resident.is_some(),
+                *finished_at.get_or_insert_with(Instant::now),
+                Instant::now(),
+            )
+        {
             Sight::NothingLeftRunning
         } else if !polls || deadline.remaining().is_zero() {
             Sight::OutOfTime
