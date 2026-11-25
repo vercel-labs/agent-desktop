@@ -39,7 +39,7 @@ pub(crate) fn ref_entry_from_node(
                 .native_id
                 .clone()
                 .filter(|id| !id.value.trim().is_empty()),
-            unique_at_capture: false,
+            proof: crate::IdentityProof::Unproven,
         },
         geometry: crate::RefGeometry {
             bounds,
@@ -263,9 +263,11 @@ impl<'a> AllocationPlan<'a> {
         }
     }
 
-    fn proven(&self, entry: &RefEntry, path: &[usize]) -> bool {
+    fn proof(&self, entry: &RefEntry, path: &[usize]) -> crate::IdentityProof {
         self.capture
-            .is_some_and(|capture| capture.proves(entry, path))
+            .map_or(crate::IdentityProof::Unproven, |capture| {
+                capture.proof_at(entry, path)
+            })
     }
 }
 
@@ -279,6 +281,17 @@ fn skeleton_anchor_entry(
     entry
 }
 
+/// A name on a mutable-value element whose value went unread may be that value,
+/// and a value is never identity, so it is not recorded.
+fn forget_name_of_unread_value(entry: &mut RefEntry, plan: &AllocationPlan, path: &[usize]) {
+    let unread = plan
+        .capture
+        .is_some_and(|capture| capture.value_unread_at(path));
+    if unread && crate::tree::roles::is_mutable_value_role(&entry.identity.role) {
+        entry.identity.name = None;
+    }
+}
+
 fn allocate_refs_at_path(
     mut node: AccessibilityNode,
     refmap: &mut RefMap,
@@ -287,8 +300,14 @@ fn allocate_refs_at_path(
     plan: &AllocationPlan,
 ) -> Result<AccessibilityNode, crate::AppError> {
     let node_is_ref_able = is_ref_able(&node);
+    let drill_root = config
+        .scope
+        .root_ref_id
+        .filter(|_| path.as_slice() == config.scope.path_prefix);
 
-    if node_is_ref_able {
+    if let Some(root_ref_id) = drill_root {
+        node.ref_id = Some(root_ref_id.to_string());
+    } else if node_is_ref_able {
         let mut entry = ref_entry_from_node(
             &node,
             &config.source,
@@ -296,7 +315,8 @@ fn allocate_refs_at_path(
             path,
         );
         entry.scope.path_is_absolute = config.scope.root_ref_id.is_some();
-        entry.identity.unique_at_capture = plan.proven(&entry, path);
+        forget_name_of_unread_value(&mut entry, plan, path);
+        entry.identity.proof = plan.proof(&entry, path);
         entry.source.renderer_accessibility_forced = config.options.force_renderer_accessibility;
         if !config.options.include_bounds && has_meaningful_identity(&entry) {
             entry.geometry.bounds = None;
@@ -304,11 +324,13 @@ fn allocate_refs_at_path(
         node.ref_id = allocate_observed_ref(refmap, entry)?;
     }
 
-    let is_skeleton_anchor = !node_is_ref_able && plan.skeleton_anchors.contains(path.as_slice());
+    let is_skeleton_anchor = drill_root.is_none()
+        && !node_is_ref_able
+        && plan.skeleton_anchors.contains(path.as_slice());
 
     if is_skeleton_anchor {
         let mut entry = skeleton_anchor_entry(&node, &config.source, path);
-        entry.identity.unique_at_capture = plan.proven(&entry, path);
+        entry.identity.proof = plan.proof(&entry, path);
         entry.source.renderer_accessibility_forced = config.options.force_renderer_accessibility;
         if !config.options.include_bounds && has_meaningful_identity(&entry) {
             entry.geometry.bounds = None;

@@ -14,7 +14,7 @@ fn minimal_entry(role: &str) -> RefEntry {
             value: None,
             description: None,
             native_id: None,
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
         },
         geometry: crate::RefGeometry {
             bounds_space: None,
@@ -192,7 +192,7 @@ fn ref_entry_full_roundtrip_preserves_all_fields() {
                 kind: crate::IdentifierKind::AxIdentifier,
                 value: "email-field".into(),
             }),
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
         },
         geometry: crate::RefGeometry {
             bounds_space: None,
