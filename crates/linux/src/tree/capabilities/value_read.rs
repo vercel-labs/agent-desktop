@@ -1,9 +1,9 @@
 use agent_desktop_core::AdapterError;
 use zbus::Connection;
-use zbus::zvariant::OwnedValue;
+use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 
 use crate::system::PROPERTIES_INTERFACE;
-use crate::tree::properties::node_read::call;
+use crate::tree::properties::node_read::{NULL_PATH, call};
 use crate::tree::vocabulary::role_numbers::{
     COMBO_BOX, DIAL, ENTRY, LEVEL_BAR, PROGRESS_BAR, SCROLL_BAR, SLIDER, SPIN_BUTTON, TABLE_CELL,
     TERMINAL, TEXT,
@@ -13,6 +13,8 @@ use crate::tree::{AtspiElement, Field, RawNode};
 
 const VALUE_INTERFACE: &str = "org.a11y.atspi.Value";
 const TEXT_INTERFACE: &str = "org.a11y.atspi.Text";
+const SELECTION_INTERFACE: &str = "org.a11y.atspi.Selection";
+const ACCESSIBLE_INTERFACE: &str = "org.a11y.atspi.Accessible";
 const MAX_TEXT_CHARACTERS: i32 = 64 * 1024;
 
 /// Where a node's value comes from, decided from what the node is.
@@ -23,6 +25,7 @@ pub(crate) enum ValueSource {
     Numeric,
     Text,
     CellText,
+    SelectedChild,
 }
 
 /// The value of a node and whether it was cut to fit the field budget.
@@ -74,6 +77,9 @@ pub(crate) fn value_source(node: &RawNode) -> ValueSource {
     let (source, interface) = match *role {
         SLIDER | SPIN_BUTTON | PROGRESS_BAR | SCROLL_BAR | LEVEL_BAR | DIAL => {
             (ValueSource::Numeric, VALUE_INTERFACE)
+        }
+        COMBO_BOX if !node.traits.interfaces.is_failed() && !advertises(node, TEXT_INTERFACE) => {
+            (ValueSource::SelectedChild, SELECTION_INTERFACE)
         }
         ENTRY | COMBO_BOX => (ValueSource::Text, TEXT_INTERFACE),
         TABLE_CELL => (ValueSource::CellText, TEXT_INTERFACE),
@@ -200,6 +206,40 @@ async fn read_text(
     })
 }
 
+/// The value of a combo box that has no `Text` interface: the name of its
+/// first selected child, which is the item the box shows. A combo with no
+/// selected child has no value.
+async fn read_selected_child(
+    connection: &Connection,
+    element: &AtspiElement,
+    max_bytes: usize,
+) -> Result<ValueRead, zbus::Error> {
+    let (bus, path) = call(
+        connection,
+        element,
+        SELECTION_INTERFACE,
+        "GetSelectedChild",
+        &(0i32,),
+    )
+    .await?
+    .body()
+    .deserialize::<(String, OwnedObjectPath)>()?;
+    if bus.is_empty() || path.as_str() == NULL_PATH {
+        return Ok(ValueRead::absent());
+    }
+    let child = AtspiElement::new(bus, path.to_string(), element.pid());
+    let name = property(connection, &child, ACCESSIBLE_INTERFACE, "Name").await?;
+    let name = name.downcast_ref::<&str>()?.to_owned();
+    if name.is_empty() {
+        return Ok(ValueRead::absent());
+    }
+    let (kept, cut) = truncate_to_boundary(name, max_bytes);
+    Ok(ValueRead {
+        value: Field::Present(kept),
+        truncated: cut,
+    })
+}
+
 /// Reads the value of a node that has a value source. A node with none is
 /// answered-absent without a bus call; a read that fails is a failure, never
 /// an empty value.
@@ -218,6 +258,9 @@ pub(crate) async fn read_value(
         ValueSource::Numeric => read_number(connection, &node.element).await,
         ValueSource::Text => read_text(connection, &node.element, max_bytes).await,
         ValueSource::CellText => read_cell_text(connection, &node.element, max_bytes).await,
+        ValueSource::SelectedChild => {
+            read_selected_child(connection, &node.element, max_bytes).await
+        }
     };
     match outcome {
         Ok(value) => Ok(value),
