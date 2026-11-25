@@ -140,6 +140,14 @@ impl ObservationOps for WindowsAdapter {
         deadline: Deadline,
     ) -> Result<Option<String>, AdapterError> {
         let read = crate::tree::live_read::read_live_element(handle, deadline)?;
+        if let Some(length) = read.value_oversize {
+            return Err(
+                agent_desktop_core::adapter::live_element::value_exceeds_read_limit(
+                    length,
+                    crate::tree::properties::MAX_EVIDENCE_CHARS,
+                ),
+            );
+        }
         Ok(crate::tree::live_read::live_value(&read))
     }
 

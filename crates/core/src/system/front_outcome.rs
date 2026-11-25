@@ -29,6 +29,15 @@ impl FrontOutcome {
         self == Self::GivenBack
     }
 
+    /// Says in a result's `details` that the watch ran out while a process the
+    /// target spawned was still running and had shown no window.
+    pub(crate) fn note_watch_in(reason: &'static str, details: &mut Option<Value>) {
+        let object = details.get_or_insert_with(|| json!({}));
+        if let Some(object) = object.as_object_mut() {
+            object.insert("front_watch".into(), json!(reason));
+        }
+    }
+
     /// The same record on an error a guarded command ended with.
     pub(crate) fn note_in_error(self, error: &mut crate::AdapterError) {
         self.note_in(&mut error.details);

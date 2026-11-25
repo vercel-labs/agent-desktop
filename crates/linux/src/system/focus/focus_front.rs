@@ -55,6 +55,7 @@ pub(crate) fn view_of(active: Option<u32>, clients: &[X11Client], stack: &[u32])
             })
             .find_map(|id| window_of(*id)),
         windows: clients.iter().map(|client| client.id.to_string()).collect(),
+        owners: clients.iter().filter_map(|client| client.pid).collect(),
     }
 }
 
@@ -66,17 +67,47 @@ const USER_HZ: u64 = 100;
 pub(crate) fn front_process(pid: u32) -> Option<FrontProcess> {
     let facts = process_facts::read(pid)?;
     let started = proc_stat::read_stat(pid).ok().flatten()?.start_time;
-    let boot_seconds: u64 = std::fs::read_to_string("/proc/stat")
+    Some(FrontProcess {
+        image: facts.exe_basename.unwrap_or(facts.comm),
+        started_ms: boot_seconds()? * 1_000 + started * 1_000 / USER_HZ,
+    })
+}
+
+/// The running processes that descend from `root` and started at or after
+/// `since_ms`, from the parent and start time in each `/proc/<pid>/stat`.
+pub(crate) fn spawned_descendants(root: u32, since_ms: u64) -> Option<Vec<u32>> {
+    let boot_ms = boot_seconds()? * 1_000;
+    let mut parents = Vec::new();
+    let mut starts = std::collections::HashMap::new();
+    for entry in std::fs::read_dir("/proc").ok()?.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if let Ok(Some(stat)) = proc_stat::read_stat(pid) {
+            parents.push((pid, stat.parent));
+            starts.insert(pid, boot_ms + stat.start_time * 1_000 / USER_HZ);
+        }
+    }
+    Some(agent_desktop_core::spawned_descendants_of(
+        root,
+        since_ms,
+        &parents,
+        |pid| starts.get(&pid).copied(),
+    ))
+}
+
+fn boot_seconds() -> Option<u64> {
+    std::fs::read_to_string("/proc/stat")
         .ok()?
         .lines()
         .find_map(|line| line.strip_prefix("btime "))?
         .trim()
         .parse()
-        .ok()?;
-    Some(FrontProcess {
-        image: facts.exe_basename.unwrap_or(facts.comm),
-        started_ms: boot_seconds * 1_000 + started * 1_000 / USER_HZ,
-    })
+        .ok()
 }
 
 /// A session with an X11 display that did not answer is a failed read; any

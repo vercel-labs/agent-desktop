@@ -16,6 +16,7 @@ pub(super) fn pid_of(id: &str) -> u32 {
     match id {
         "new" => 9,
         "mine" => 5,
+        "child" => 300,
         "forwarded" => 7,
         _ => 1,
     }
@@ -26,6 +27,7 @@ pub(super) fn front(id: &str, windows: &[&str]) -> FrontView {
         focused: Some(win(id, pid_of(id))),
         top: Some(win(id, pid_of(id))),
         windows: windows.iter().map(|w| (*w).into()).collect(),
+        ..Default::default()
     }
 }
 
@@ -33,6 +35,7 @@ pub(super) struct Desk {
     pub(super) now: Mutex<FrontView>,
     pub(super) calls: Mutex<Vec<String>>,
     pub(super) reads: Mutex<u32>,
+    pub(super) kids: Mutex<Vec<u32>>,
     gave_back_at: Mutex<Option<Instant>>,
     obeys: bool,
 }
@@ -43,6 +46,7 @@ impl Desk {
             now: Mutex::new(front("user", &["user"])),
             calls: Mutex::new(Vec::new()),
             reads: Mutex::new(0),
+            kids: Mutex::new(Vec::new()),
             gave_back_at: Mutex::new(None),
             obeys,
         }
@@ -104,6 +108,10 @@ impl SystemOps for Desk {
         }
     }
 
+    fn spawned_descendants(&self, _root: u32, _since_ms: u64) -> Option<Vec<u32>> {
+        Some(self.kids.lock().unwrap().clone())
+    }
+
     fn read_front(&self, _deadline: Deadline) -> Result<FrontView, AdapterError> {
         *self.reads.lock().unwrap() += 1;
         Ok(self.now.lock().unwrap().clone())
@@ -146,6 +154,7 @@ pub(super) fn watch() -> FrontWatch {
     FrontWatch {
         target: FrontTarget::program("fixture"),
         settle: Duration::from_millis(60),
+        children: false,
     }
 }
 

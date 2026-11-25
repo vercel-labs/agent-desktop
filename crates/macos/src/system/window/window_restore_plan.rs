@@ -1,4 +1,4 @@
-use agent_desktop_core::{AdapterError, Effect, InteractionPolicy, Rect, WindowFrameRecord};
+use agent_desktop_core::{AdapterError, InteractionPolicy, Rect, WindowFrameRecord, WindowOp};
 
 use crate::system::window::window_frame_place::{FramePlace, same_frame};
 
@@ -43,7 +43,7 @@ impl WindowRestorePlan {
     /// may carry it out. A frame move never raises and always passes.
     pub(crate) fn permitted_by(self, policy: InteractionPolicy) -> Result<Self, AdapterError> {
         if self == Self::Unminimize {
-            policy.require(Effect::FocusSteal, "restore of a minimized window")?;
+            WindowOp::require_unminimize_allowed(policy)?;
         }
         Ok(self)
     }

@@ -22,6 +22,7 @@ pub fn uia_property(property: TreeProperty) -> UIProperty {
         TreeProperty::FullDescription => UIProperty::FullDescription,
         TreeProperty::LabeledBy => UIProperty::LabeledBy,
         TreeProperty::Value => UIProperty::ValueValue,
+        TreeProperty::RangeValue => UIProperty::RangeValueValue,
         TreeProperty::LegacyValue => UIProperty::LegacyIAccessibleValue,
         TreeProperty::BoundingRectangle => UIProperty::BoundingRectangle,
         TreeProperty::IsPassword => UIProperty::IsPassword,

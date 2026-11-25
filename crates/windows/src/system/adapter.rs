@@ -203,6 +203,10 @@ impl SystemOps for WindowsAdapter {
         window_front::front_process(pid)
     }
 
+    fn spawned_descendants(&self, root: u32, since_ms: u64) -> Option<Vec<u32>> {
+        window_front::spawned_descendants(root, since_ms)
+    }
+
     fn keep_below(
         &self,
         window: &FrontWindow,
@@ -212,12 +216,8 @@ impl SystemOps for WindowsAdapter {
         window_front::keep_below(window, above)
     }
 
-    fn give_back(
-        &self,
-        window: &FrontWindow,
-        lease: &InteractionLease,
-    ) -> Result<(), AdapterError> {
-        window_front::give_back(window, lease)
+    fn give_back(&self, win: &FrontWindow, lease: &InteractionLease) -> Result<(), AdapterError> {
+        window_front::give_back(win, lease)
     }
 
     fn window_op(

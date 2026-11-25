@@ -21,6 +21,7 @@ pub enum TreeProperty {
     FullDescription,
     LabeledBy,
     Value,
+    RangeValue,
     LegacyValue,
     BoundingRectangle,
     IsPassword,
@@ -135,7 +136,7 @@ impl TreeProperty {
     /// nothing consumes it on the pinned stack (A16-6 measured it carrying no
     /// `class` token, so `dom_classes` ships schema-only), and the standing
     /// rule is that nothing unread is paid for.
-    pub const WALK_SET: [TreeProperty; 46] = [
+    pub const WALK_SET: [TreeProperty; 47] = [
         TreeProperty::Name,
         TreeProperty::AutomationId,
         TreeProperty::ClassName,
@@ -143,6 +144,7 @@ impl TreeProperty {
         TreeProperty::FullDescription,
         TreeProperty::LabeledBy,
         TreeProperty::Value,
+        TreeProperty::RangeValue,
         TreeProperty::LegacyValue,
         TreeProperty::BoundingRectangle,
         TreeProperty::IsPassword,
@@ -210,6 +212,7 @@ impl TreeProperty {
             TreeProperty::AutomationId
             | TreeProperty::ClassName
             | TreeProperty::LabeledBy
+            | TreeProperty::RangeValue
             | TreeProperty::BoundingRectangle
             | TreeProperty::IsPassword
             | TreeProperty::IsOffscreen
@@ -281,7 +284,9 @@ impl TreeProperty {
             TreeProperty::ExpandCollapseState => Some(TreeProperty::ExpandCollapseAvailable),
             TreeProperty::SelectionItemIsSelected => Some(TreeProperty::SelectionItemAvailable),
             TreeProperty::ValueIsReadOnly => Some(TreeProperty::ValueAvailable),
-            TreeProperty::RangeValueIsReadOnly => Some(TreeProperty::RangeValueAvailable),
+            TreeProperty::RangeValue | TreeProperty::RangeValueIsReadOnly => {
+                Some(TreeProperty::RangeValueAvailable)
+            }
             TreeProperty::SelectionCanSelectMultiple => Some(TreeProperty::SelectionAvailable),
             TreeProperty::WindowIsModal => Some(TreeProperty::WindowAvailable),
             TreeProperty::GridRowCount | TreeProperty::GridColumnCount => {
@@ -301,6 +306,7 @@ impl TreeProperty {
             Self::FullDescription => "FullDescription",
             Self::LabeledBy => "LabeledBy",
             Self::Value => "Value",
+            Self::RangeValue => "RangeValue",
             Self::LegacyValue => "LegacyIAccessibleValue",
             Self::BoundingRectangle => "BoundingRectangle",
             Self::IsPassword => "IsPassword",

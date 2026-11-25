@@ -1,4 +1,5 @@
 use crate::actions::witnessed_action::PendingWitness;
+use crate::system::front_pending::FrontPending;
 use crate::{
     ActionRequest, ActionResult, AdapterError, Deadline, InteractionLease, NativeHandle,
     PlatformAdapter, ProcessIdentity,
@@ -13,6 +14,7 @@ use crate::{
 pub(crate) struct PostRelease {
     pub(crate) surfaces_of: Option<ProcessIdentity>,
     pub(crate) witness: Option<PendingWitness>,
+    pub(crate) front: Option<FrontPending>,
 }
 
 impl PostRelease {
@@ -23,10 +25,17 @@ impl PostRelease {
         deadline: Deadline,
         result: ActionResult,
     ) -> ActionResult {
-        let result = match self.witness {
+        let mut result = match self.witness {
             Some(witness) => witness.settle(adapter, landed_on, deadline, result),
             None => result,
         };
+        if let Some(front) = self.front {
+            let resolution = front.finish(adapter);
+            resolution.outcome.note_in(&mut result.details);
+            if let Some(reason) = resolution.pending_reason {
+                crate::FrontOutcome::note_watch_in(reason, &mut result.details);
+            }
+        }
         match self.surfaces_of {
             Some(process) => {
                 result.with_surfaces_read(adapter.surfaces_raised_by(process, landed_on, deadline))
@@ -43,9 +52,13 @@ pub(crate) fn dispatch_deferred(
     handle: &NativeHandle,
     request: ActionRequest,
     lease: &InteractionLease,
-) -> (Result<ActionResult, AdapterError>, Option<PendingWitness>) {
+) -> (
+    Result<ActionResult, AdapterError>,
+    Option<PendingWitness>,
+    Option<FrontPending>,
+) {
     match crate::actions::post_action::execute_verified_deferred(adapter, handle, request, lease) {
-        Ok((result, witness)) => (Ok(result), witness),
-        Err(error) => (Err(error), None),
+        Ok((result, witness, front)) => (Ok(result), witness, front),
+        Err(error) => (Err(error), None, None),
     }
 }

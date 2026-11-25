@@ -71,7 +71,8 @@ use a private session and runtime directory for isolated work.
 - Shell notifications need the supported GNOME service; tray reads need a StatusNotifierWatcher. A missing service is an error.
 - Password-role values are withheld, but a field that only masks its text can be readable. Treat observation output as sensitive.
 - `launch` accepts a program on PATH, an absolute path, an installed desktop id,
-  or an unambiguous desktop entry name. Use process and window identity from
+  or an unambiguous desktop entry name. A script launch attaches only to the interpreter
+  process that runs that script, never to another script of the same interpreter. Use process and window identity from
   observations rather than guessing from a window title. Without `--activate`,
   a launch on X11 gives the focus and window order back and reports `focus_returned: true`,
   or `false` with a suggestion; a headless click that opens a dialog is guarded the same way.

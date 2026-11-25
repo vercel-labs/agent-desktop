@@ -1,5 +1,6 @@
 use crate::actions::witnessed_action::{PendingWitness, Witnessed};
 use crate::system::front_guard::DispatchMark;
+use crate::system::front_pending::FrontPending;
 use crate::{
     Action, ActionRequest, ActionResult, AdapterError, DeliverySemantics, ErrorCode,
     InteractionLease, LiveElement, NativeHandle, PlatformAdapter,
@@ -40,7 +41,7 @@ pub fn execute_verified_action(
     lease: &InteractionLease,
 ) -> Result<ActionResult, AdapterError> {
     let deadline = lease.deadline();
-    let (result, pending) = execute_verified_deferred(adapter, handle, request, lease)?;
+    let (result, pending, _front) = execute_verified_deferred(adapter, handle, request, lease)?;
     Ok(match pending {
         Some(pending) => pending.settle(adapter, handle, deadline, result),
         None => result,
@@ -55,24 +56,25 @@ pub(crate) fn execute_verified_deferred(
     handle: &NativeHandle,
     request: ActionRequest,
     lease: &InteractionLease,
-) -> Result<(ActionResult, Option<PendingWitness>), AdapterError> {
+) -> Result<(ActionResult, Option<PendingWitness>, Option<FrontPending>), AdapterError> {
     if !request.action.can_open_window() {
         let (result, pending) =
             run_verified_action(adapter, handle, request, lease, &DispatchMark::default());
-        return result.map(|result| (result, pending));
+        return result.map(|result| (result, pending, None));
     }
     let policy = request.policy;
     let target = request.expected_process.as_ref().map_or_else(
         crate::system::front_target::FrontTarget::default,
         |process| crate::system::front_target::FrontTarget::of_process(adapter, process.pid.get()),
     );
-    let (result, front) = crate::system::front_guard::guarded(
+    let (result, front, front_pending) = crate::system::front_guard::guarded_deferred(
         adapter,
         policy,
         lease,
         crate::system::front_guard::FrontWatch {
             target,
             settle: ACTION_SETTLE,
+            children: true,
         },
         |mark| run_verified_action(adapter, handle, request, lease, mark),
     )?;
@@ -82,7 +84,7 @@ pub(crate) fn execute_verified_deferred(
         error
     })?;
     front.note_in(&mut result.details);
-    Ok((result, pending))
+    Ok((result, pending, front_pending))
 }
 
 fn run_verified_action(

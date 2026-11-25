@@ -14,6 +14,7 @@ use self::launch_observe::{POLL_INTERVAL, Spawned, find_owner, pids_of, running_
 use self::launch_search::Search;
 use self::launch_spawn::{before_spawn, spawn, validate};
 use self::launch_target::{Plan, resolve};
+use self::launch_unreadable::{ATTACH_READ_GRACE, is_window_unreadable};
 use super::SharedBus;
 use crate::system::app::app_alias::current_index;
 use crate::system::focus::focus_window::focus_window;
@@ -22,7 +23,6 @@ use crate::system::process::process_facts;
 use crate::system::process::running_app::Running;
 use crate::system::process::web_family::WebFamily;
 use crate::system::registry::registry_frames::RootRead;
-use crate::system::window::native_group::is_unproven;
 use crate::system::window::window_ops::{require_complete_frames, windows_of_process};
 
 #[path = "launch_baseline.rs"]
@@ -148,6 +148,11 @@ impl Launch<'_> {
         mut read: impl FnMut() -> Result<(Vec<WindowInfo>, RootRead), AdapterError>,
     ) -> Result<Option<WindowInfo>, AdapterError> {
         let limit = self.wait_limit(known);
+        let unreadable_end = if waits {
+            self.deadline
+        } else {
+            self.deadline.capped(ATTACH_READ_GRACE)
+        };
         loop {
             let observed = read().and_then(|(windows, status)| {
                 let own: Vec<WindowInfo> = windows
@@ -166,18 +171,7 @@ impl Launch<'_> {
             let unproven = match observed {
                 Ok(Some(window)) => return Ok(Some(window)),
                 Ok(None) => None,
-                Err(error)
-                    if is_unproven(&error)
-                        || matches!(
-                            error.code,
-                            ErrorCode::Timeout
-                                | ErrorCode::AppUnresponsive
-                                | ErrorCode::AppNotFound
-                                | ErrorCode::WindowNotFound
-                        ) =>
-                {
-                    Some(error)
-                }
+                Err(error) if is_window_unreadable(&error) => Some(error),
                 Err(error) => {
                     return Err(error.with_disposition(DeliverySemantics::delivered_unverified()));
                 }
@@ -186,7 +180,7 @@ impl Launch<'_> {
                 exited_early(owner, liveness(owner.pid, &owner.instance))?;
             }
             let until = if unproven.is_some() {
-                self.deadline
+                unreadable_end
             } else {
                 limit
             };
@@ -243,10 +237,37 @@ impl Launch<'_> {
         plan: &Plan,
         running: &[Running],
     ) -> Result<LaunchResult, AdapterError> {
-        match self.window_of(owner, false, &HashSet::new())? {
-            Some(window) => Ok(self.conclude_with(owner, Some(window), LaunchArrival::Attached)),
-            None => self.start(plan, running),
+        match self.window_of(owner, false, &HashSet::new()) {
+            Ok(Some(window)) => {
+                Ok(self.conclude_with(owner, Some(window), LaunchArrival::Attached))
+            }
+            Ok(None) => self.start(plan, running),
+            Err(error) if is_window_unreadable(&error) => Ok(self.attached_unread(owner, &error)),
+            Err(error) => Err(error),
         }
+    }
+
+    /// An attach to an application that does not answer for its windows:
+    /// nothing was sent and nothing is known about its windows, so the result
+    /// names the application, carries no window, and says why. Starting the
+    /// application again would send a request to an application that cannot
+    /// be read.
+    fn attached_unread(&self, owner: &Running, error: &AdapterError) -> LaunchResult {
+        let mut result = conclude(owner, None, self.options, LaunchArrival::Attached, |_| {
+            Ok(FocusAnswer {
+                window: None,
+                dispatched: false,
+            })
+        });
+        let note = format!(
+            "Attached to the running application, but its windows could not be read: {}. Run 'list-windows' to see whether they can be read now.",
+            error.message
+        );
+        result.guidance.suggestion = Some(match result.guidance.suggestion.take() {
+            Some(earlier) => format!("{earlier} {note}"),
+            None => note,
+        });
+        result
     }
 
     fn report_unlisted(&self, spawned: &Spawned) -> LaunchResult {
@@ -372,3 +393,4 @@ pub(crate) mod launch_search;
 mod launch_spawn;
 pub(crate) mod launch_step;
 pub(super) mod launch_target;
+mod launch_unreadable;

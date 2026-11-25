@@ -3,10 +3,9 @@ use agent_desktop_core::InteractionPolicy;
 const SW_RESTORE: i32 = 9;
 const SW_SHOWNOACTIVATE: i32 = 4;
 
-/// The show command that un-minimizes. `SW_RESTORE` activates the window and
-/// brings it to the top; `SW_SHOWNOACTIVATE` un-minimizes it with the
-/// foreground left alone, so only a policy that lets a window take focus may
-/// use the first.
+/// The show command of a restore. `SW_RESTORE` activates the window, so only a
+/// policy that lets a window take focus uses it; `SW_SHOWNOACTIVATE` returns a
+/// maximized window to its normal size with the foreground left alone.
 pub(crate) fn restore_command(policy: InteractionPolicy) -> i32 {
     if policy.allow_focus_steal {
         SW_RESTORE
@@ -15,10 +14,19 @@ pub(crate) fn restore_command(policy: InteractionPolicy) -> i32 {
     }
 }
 
-/// Whether an un-minimize must put the window under the user's foreground
-/// window: `SW_SHOWNOACTIVATE` alone leaves it at the bottom of the order.
-pub(crate) fn restore_goes_below_foreground(verb: ShowVerb, policy: InteractionPolicy) -> bool {
-    matches!(verb, ShowVerb::Restore) && !policy.allow_focus_steal
+/// A restore of a minimized window needs a policy that lets a window take the
+/// focus: applications such as the Microsoft Management Console and Character
+/// Map activate themselves while they are restored whatever show command is
+/// used, so no quiet un-minimize exists. A window that is not minimized, a
+/// maximized one coming back to its normal size, restores headless.
+pub(crate) fn restore_permitted(
+    minimized: bool,
+    policy: InteractionPolicy,
+) -> Result<(), agent_desktop_core::AdapterError> {
+    if minimized {
+        agent_desktop_core::WindowOp::require_unminimize_allowed(policy)?;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy)]
