@@ -19,6 +19,20 @@ pub(crate) fn matches(
     matches_with(identity, app, false)
 }
 
+/// Whether the process runs the launch's program, whatever arguments it was
+/// given. `--no-attach` refuses on this: it promises that no instance of the
+/// application runs, and an instance that was started with other documents or
+/// options is still an instance.
+fn same_program(
+    identity: &Option<crate::system::process::executable_identity::ExecutableIdentity>,
+    app: &Running,
+) -> bool {
+    identity
+        .as_ref()
+        .zip(app.executable.as_ref())
+        .is_some_and(|(wanted, actual)| wanted.same_program(actual))
+}
+
 fn matches_with(
     identity: &Option<crate::system::process::executable_identity::ExecutableIdentity>,
     app: &Running,
@@ -33,8 +47,8 @@ fn matches_with(
 /// Decides before anything is spawned. No match spawns. One match is attached
 /// to, and spawns only when arguments have to reach it, in which case the
 /// spawned process forwards them or starts a second instance. With
-/// `attach_if_running` false, any match refuses; otherwise several matches
-/// are ambiguous.
+/// `attach_if_running` false, every running process of the same program
+/// refuses, whatever its arguments; otherwise several matches are ambiguous.
 #[cfg(test)]
 pub(crate) fn decide(
     identity: &Option<crate::system::process::executable_identity::ExecutableIdentity>,
@@ -84,9 +98,13 @@ fn decide_by(
     let found: Vec<&Running> = running
         .iter()
         .filter(|app| {
-            identities
-                .iter()
-                .any(|identity| matches_with(identity, app, documents))
+            identities.iter().any(|identity| {
+                if attach_if_running {
+                    matches_with(identity, app, documents)
+                } else {
+                    same_program(identity, app)
+                }
+            })
         })
         .collect();
     let pids = || found.iter().map(|app| app.pid).collect::<Vec<_>>();
