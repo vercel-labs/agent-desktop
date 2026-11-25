@@ -224,3 +224,19 @@ fn a_delivery_without_proof_is_read_once_without_a_wait() {
     assert_eq!(result.effect, Some(ObservedEffect::NotObserved));
     assert_eq!(*adapter.read_count.lock().unwrap(), 2);
 }
+
+#[test]
+fn a_refusal_that_sent_nothing_stays_an_error_whatever_the_target_does() {
+    for code in [ErrorCode::PolicyDenied, ErrorCode::ActionNotSupported] {
+        let adapter = adapter(
+            vec![Ok(witness(false, "A")), Ok(witness(true, "B"))],
+            Err(AdapterError::new(code.clone(), "refused")
+                .with_disposition(DeliverySemantics::not_delivered())),
+        );
+        let error = run(&adapter).unwrap_err();
+
+        assert_eq!(error.code, code);
+        assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+        assert_eq!(*adapter.read_count.lock().unwrap(), 1);
+    }
+}
