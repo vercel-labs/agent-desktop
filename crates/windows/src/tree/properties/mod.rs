@@ -10,8 +10,22 @@ pub use super::properties::property_outcome::{MAX_EVIDENCE_CHARS, PropertyOutcom
 /// A value longer than the bound is not truncated into evidence; the caller
 /// marks it `Unknown`.
 pub fn bounded_text(value: String) -> PropertyOutcome {
-    if value.chars().take(MAX_EVIDENCE_CHARS + 1).count() > MAX_EVIDENCE_CHARS {
-        PropertyOutcome::Unknown
+    bounded_within(value, MAX_EVIDENCE_CHARS)
+}
+
+/// Bounds one property's string read. The Value read gets one character more,
+/// the paragraph mark a RichEdit control appends, which the projection drops
+/// and then bounds the user's text on its own; counting the mark against the
+/// cap made a field of exactly `MAX_EVIDENCE_CHARS` characters unreadable.
+pub(crate) fn bounded_property_text(property: TreeProperty, value: String) -> PropertyOutcome {
+    let terminator_allowance = usize::from(property == TreeProperty::Value);
+    bounded_within(value, MAX_EVIDENCE_CHARS + terminator_allowance)
+}
+
+fn bounded_within(value: String, limit: usize) -> PropertyOutcome {
+    let length = value.chars().count();
+    if length > limit {
+        PropertyOutcome::Oversize(length)
     } else {
         PropertyOutcome::Known(PropertyValue::Text(value))
     }
@@ -132,7 +146,7 @@ mod property_read_error_tests {
 #[cfg(target_os = "windows")]
 mod imp {
     use super::{
-        ElementProperties, PropertyOutcome, PropertyValue, TreeProperty, bounded_text,
+        ElementProperties, PropertyOutcome, PropertyValue, TreeProperty, bounded_property_text,
         property_read_error,
     };
     use crate::tree::automation::{failure_of, uia_failure_error};
@@ -200,7 +214,7 @@ mod imp {
         element
             .0
             .get_property_value(uia_property(property))
-            .map(|variant| classify(&variant))
+            .map(|variant| classify(&variant, property))
             .map_err(|error| failed(&error, property, "read an element property"))
     }
 
@@ -218,7 +232,7 @@ mod imp {
         element
             .0
             .get_cached_property_value(uia_property(property))
-            .map(|variant| classify(&variant))
+            .map(|variant| classify(&variant, property))
             .map_err(|error| failed(&error, property, "read a cached element property"))
     }
 
@@ -298,14 +312,14 @@ mod imp {
     /// nothing, which is `Absent`; a variant this reader cannot decode is
     /// `Unknown`, because presenting an undecoded value as identity evidence
     /// is what silently breaks re-identification downstream.
-    fn classify(variant: &Variant) -> PropertyOutcome {
+    fn classify(variant: &Variant, property: TreeProperty) -> PropertyOutcome {
         if is_not_supported(variant) {
             return PropertyOutcome::Absent;
         }
         match variant.get_value() {
             Err(_) => PropertyOutcome::Unknown,
             Ok(Value::EMPTY | Value::NULL | Value::VOID) => PropertyOutcome::Absent,
-            Ok(Value::STRING(text)) => bounded_text(text),
+            Ok(Value::STRING(text)) => bounded_property_text(property, text),
             Ok(Value::BOOL(flag)) => PropertyOutcome::Known(PropertyValue::Flag(flag)),
             Ok(Value::I4(number) | Value::INT(number)) => {
                 PropertyOutcome::Known(PropertyValue::Number(number))
