@@ -3,7 +3,7 @@ use agent_desktop_core::{Action, LocatorField, actions::capability};
 use super::capability_rules::{Facts, rule_tokens, scroll_tokens};
 use crate::system::process::toolkit_id::ToolkitId;
 use crate::tree::RawNode;
-use crate::tree::vocabulary::role_numbers::{LIST_ITEM, is_menu_item};
+use crate::tree::vocabulary::role_numbers::{LIST_ITEM, PAGE_TAB, is_menu_item};
 use crate::tree::vocabulary::state_bits::{CHECKABLE, SELECTABLE};
 
 pub(crate) fn selection_verbs(
@@ -13,6 +13,8 @@ pub(crate) fn selection_verbs(
 ) -> &'static [&'static str] {
     if role == Some(LIST_ITEM) && selectable == Some(true) && checkable == Some(false) {
         &["select", "toggle"]
+    } else if role == Some(PAGE_TAB) && selectable == Some(true) {
+        &["select", "click", "press", "activate"]
     } else {
         &["select"]
     }

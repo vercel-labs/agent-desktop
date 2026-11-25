@@ -1,11 +1,14 @@
 use agent_desktop_core::{Action, LocatorField};
 
-use super::{capabilities, capability_of, click_verbs, unsupported_entry_activation, verbs_for};
+use super::{
+    capabilities, capability_of, click_verbs, selection_verbs, unsupported_entry_activation,
+    verbs_for,
+};
 use crate::system::process::toolkit_id::ToolkitId;
 use crate::tree::Field;
 use crate::tree::RawNode;
 use crate::tree::test_support::helpers::read_of;
-use crate::tree::vocabulary::role_numbers::{CHECK_BOX, ENTRY, LIST_ITEM};
+use crate::tree::vocabulary::role_numbers::{CHECK_BOX, ENTRY, LIST_ITEM, PAGE_TAB};
 use crate::tree::vocabulary::role_numbers::{MENU_ITEM, PUSH_BUTTON};
 use crate::tree::vocabulary::state_bits::{CHECKABLE, SELECTABLE};
 
@@ -191,4 +194,14 @@ fn the_toolkit_is_read_only_for_a_text_role() {
     assert_eq!(reads.get(), 0);
     assert!(unsupported_entry_activation(Some(ENTRY), &names, counted));
     assert_eq!(reads.get(), 1);
+}
+
+#[test]
+fn a_selectable_tab_that_advertises_select_is_selected_by_the_verb_it_does_name() {
+    use crate::actions::action_call::resolve_verb;
+    let names = ["click".to_owned()];
+    let advertised = selection_verbs(Some(PAGE_TAB), Some(true), Some(false));
+    assert_eq!(resolve_verb(&names, advertised), Some(0));
+    let unselectable = selection_verbs(Some(PAGE_TAB), Some(false), Some(false));
+    assert_eq!(resolve_verb(&names, unselectable), None);
 }
