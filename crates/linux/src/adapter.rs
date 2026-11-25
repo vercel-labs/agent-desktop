@@ -7,8 +7,9 @@ use agent_desktop_core::{
     WindowInfo,
 };
 
+use crate::actions::headed_focus::headed_focus_on;
 use crate::system::SharedBus;
-use crate::system::display::display_server::{DisplayServer, session_server};
+use crate::system::display::display_server::session_server;
 
 pub struct LinuxAdapter {
     bus: SharedBus,
@@ -331,18 +332,6 @@ impl ActionOps for LinuxAdapter {
         crate::actions::before_pointer(crate::actions::scroll_into_view(self.bus(), handle, lease))
     }
 }
-/// A Wayland session lets no client activate a window, so a headed action
-/// there focuses nothing and reaches the element through its own route.
-pub(crate) fn headed_focus_on(
-    server: &DisplayServer,
-    request: &ActionRequest,
-) -> Option<agent_desktop_core::HeadedFocus> {
-    match server {
-        DisplayServer::Wayland => None,
-        _ => request.headed_focus(),
-    }
-}
-
 impl InputOps for LinuxAdapter {
     fn physical_pointer_refusal(&self) -> Option<AdapterError> {
         match crate::input::backend::backend() {
@@ -376,12 +365,7 @@ impl InputOps for LinuxAdapter {
         crate::input::deliver::drag(&params, lease)
     }
 
-    fn key_event(
-        &self,
-        _combo: &KeyCombo,
-        _down: bool,
-        _lease: &InteractionLease,
-    ) -> Result<(), AdapterError> {
+    fn key_event(&self, _: &KeyCombo, _: bool, _: &InteractionLease) -> Result<(), AdapterError> {
         Err(crate::input::standalone::reject_standalone(
             "key-down/key-up",
         ))
