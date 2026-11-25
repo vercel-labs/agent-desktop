@@ -27,15 +27,47 @@ pub(crate) fn matches(
 /// spawned process forwards them or starts a second instance. With
 /// `attach_if_running` false, any match refuses; otherwise several matches
 /// are ambiguous.
+#[cfg(test)]
 pub(crate) fn decide(
     identity: &Option<crate::system::process::executable_identity::ExecutableIdentity>,
     running: &[Running],
     attach_if_running: bool,
     has_arguments: bool,
 ) -> Decision {
+    decide_by(&[identity], running, attach_if_running, has_arguments)
+}
+
+/// `decide` for a resolved launch: a process is the running instance when it
+/// is the launch as requested, or the application the launch starts without
+/// the caller's arguments and the launcher's own switches. The second name
+/// finds an instance that was started plainly when the launch carries
+/// arguments or the desktop entry adds a switch (`--no-attach` then refuses
+/// it); it never matches a process that carries other words, so another
+/// script or another `-c` code of the same interpreter stays a different
+/// program.
+pub(crate) fn decide_plan(
+    plan: &super::launch_target::Plan,
+    running: &[Running],
+    attach_if_running: bool,
+    has_arguments: bool,
+) -> Decision {
+    decide_by(
+        &[&plan.identity, &plan.launcher],
+        running,
+        attach_if_running,
+        has_arguments,
+    )
+}
+
+fn decide_by(
+    identities: &[&Option<crate::system::process::executable_identity::ExecutableIdentity>],
+    running: &[Running],
+    attach_if_running: bool,
+    has_arguments: bool,
+) -> Decision {
     let found: Vec<&Running> = running
         .iter()
-        .filter(|app| matches(identity, app))
+        .filter(|app| identities.iter().any(|identity| matches(identity, app)))
         .collect();
     let pids = || found.iter().map(|app| app.pid).collect::<Vec<_>>();
     match found.as_slice() {
