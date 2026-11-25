@@ -15,7 +15,7 @@ use super::properties::property_outcome::{PropertyOutcome, PropertyValue};
 /// the element rather than a missing one.
 pub fn resolve_role(properties: &ElementProperties) -> LocatorField<String> {
     match properties.get(TreeProperty::ControlType) {
-        PropertyOutcome::Unknown => LocatorField::Unknown,
+        PropertyOutcome::Unknown | PropertyOutcome::Oversize(_) => LocatorField::Unknown,
         PropertyOutcome::Known(PropertyValue::Number(id)) => {
             LocatorField::Known(control_type_role(id, properties).as_str().to_string())
         }

@@ -124,7 +124,7 @@ fn status_of(properties: &ElementProperties, label: &LabelOutcome) -> NameSlotSt
 fn placeholder_slot(properties: &ElementProperties) -> SlotStatus {
     if text_of(properties.get(TreeProperty::FullDescription)).is_some() {
         match properties.get(TreeProperty::HelpText) {
-            PropertyOutcome::Unknown => SlotStatus::Uncertain,
+            PropertyOutcome::Unknown | PropertyOutcome::Oversize(_) => SlotStatus::Uncertain,
             PropertyOutcome::Known(_) | PropertyOutcome::Absent => SlotStatus::Certain,
         }
     } else {
@@ -173,7 +173,7 @@ fn description_slot(properties: &ElementProperties) -> SlotStatus {
 
 fn slot_of(outcome: PropertyOutcome) -> SlotStatus {
     match outcome {
-        PropertyOutcome::Unknown => SlotStatus::Uncertain,
+        PropertyOutcome::Unknown | PropertyOutcome::Oversize(_) => SlotStatus::Uncertain,
         PropertyOutcome::Known(_) | PropertyOutcome::Absent => SlotStatus::Certain,
     }
 }

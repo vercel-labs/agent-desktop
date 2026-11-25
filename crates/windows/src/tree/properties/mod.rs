@@ -23,8 +23,9 @@ pub(crate) fn bounded_property_text(property: TreeProperty, value: String) -> Pr
 }
 
 fn bounded_within(value: String, limit: usize) -> PropertyOutcome {
-    if value.chars().take(limit + 1).count() > limit {
-        PropertyOutcome::Unknown
+    let length = value.chars().count();
+    if length > limit {
+        PropertyOutcome::Oversize(length)
     } else {
         PropertyOutcome::Known(PropertyValue::Text(value))
     }
