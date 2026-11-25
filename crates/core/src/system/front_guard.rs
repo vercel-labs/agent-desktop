@@ -39,9 +39,9 @@ pub(crate) struct FrontWatch {
     pub target: FrontTarget,
     /// How long the guard keeps watching after the command returns.
     pub settle: Duration,
-    /// Whether a descendant the target spawned lets the watch go on after the
-    /// caller has released the lease (see [`FrontPending`]).
-    pub children: bool,
+    /// Whether the watch goes on after the closure returns, beside the work
+    /// the caller owes once it has released the lease (see [`FrontPending`]).
+    pub after_release: bool,
 }
 
 /// Runs `command` under the guard and drops any watch that outlives it. See
@@ -113,8 +113,15 @@ pub(crate) fn guarded_deferred<T>(
         return Ok((value, FrontOutcome::Off, None));
     };
     let outcome = FrontOutcome::from_state(state);
-    let pending = (outcome == FrontOutcome::Clean && watch.children)
-        .then(|| FrontPending::start(adapter, machine, shared, lease.deadline()))
+    let ends_at = Ends {
+        mark: &mark,
+        returned: &returned,
+    }
+    .at(watch.settle);
+    let pending = (watch.after_release && !machine.is_over())
+        .then(|| {
+            ends_at.map(|ends_at| FrontPending::start(machine, shared, lease.deadline(), ends_at))
+        })
         .flatten();
     Ok((value, outcome, pending))
 }

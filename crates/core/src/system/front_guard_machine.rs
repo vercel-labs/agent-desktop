@@ -43,6 +43,7 @@ pub(crate) struct FrontGuardMachine {
     owner: Owner,
     state: FrontGuardState,
     give_backs: u8,
+    yielded: bool,
 }
 
 impl FrontGuardMachine {
@@ -52,11 +53,18 @@ impl FrontGuardMachine {
             owner,
             state: FrontGuardState::Watching,
             give_backs: 0,
+            yielded: false,
         }
     }
 
     pub(crate) fn state(&self) -> FrontGuardState {
         self.state
+    }
+
+    /// Whether the guard has nothing more to do: the user moved the focus
+    /// elsewhere, or a give-back failed for good.
+    pub(crate) fn is_over(&self) -> bool {
+        self.yielded || self.state == FrontGuardState::GiveBackFailed
     }
 
     pub(crate) fn prior(&self) -> &FrontView {
@@ -102,7 +110,7 @@ impl FrontGuardMachine {
     /// Takes a guard that ended clean back to watching, for the part of the
     /// watch that runs after the interaction lease is released.
     pub(crate) fn resume(&mut self) {
-        if self.state == FrontGuardState::Clean {
+        if self.state == FrontGuardState::Clean && !self.yielded {
             self.state = FrontGuardState::Watching;
         }
     }
@@ -117,6 +125,7 @@ impl FrontGuardMachine {
         match self.classify(now) {
             Verdict::Quiet => Step::Poll,
             Verdict::Yielded => {
+                self.yielded = true;
                 self.finish();
                 Step::Done
             }
