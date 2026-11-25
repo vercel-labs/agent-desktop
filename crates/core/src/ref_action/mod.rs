@@ -305,14 +305,9 @@ pub(crate) fn execute_resolved(
     let stability =
         actionability::StabilityExpectation::permissive(target.entry.geometry.bounds_hash);
     preflight_resolved(&target, &request, stability)?;
-    let resolved = Some(resolve_saved_ref(
-        target.adapter,
-        target.entry,
-        target.deadline,
-        None,
-    )?);
-    let result =
-        dispatch_resolved_landing(target.target, request, lease, resolved).map(|mut dispatched| {
+    let resolved = resolve_saved_ref(target.adapter, target.entry, target.deadline, None)?;
+    let result = dispatch_resolved_landing(target.target, request, lease, Some(resolved)).map(
+        |mut dispatched| {
             ref_action_dispatched::read_surfaces_after_release(
                 target.adapter,
                 std::mem::take(&mut dispatched.after_release),
@@ -320,7 +315,8 @@ pub(crate) fn execute_resolved(
                 &mut dispatched.result,
             );
             dispatched.result
-        });
+        },
+    );
     finish_artifacts(target.target, &pre);
     result
 }

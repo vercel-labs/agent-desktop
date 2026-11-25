@@ -26,11 +26,41 @@ pub fn incomplete_live_evidence() -> AdapterError {
     }))
 }
 
+/// The answer for a value read of text longer than the adapter's read limit.
+/// The app answered, so waiting never helps: `get` names the length and the
+/// limit, and commands that do not read the value are unaffected.
+pub fn value_exceeds_read_limit(length: usize, limit: usize) -> AdapterError {
+    AdapterError::new(
+        ErrorCode::ActionFailed,
+        format!("The value is {length} characters, longer than the {limit} character read limit"),
+    )
+    .with_suggestion(
+        "The field answered; only reading its text is refused. Other commands on this ref still work.",
+    )
+    .with_details(serde_json::json!({
+        "kind": "value_exceeds_read_limit",
+        "value_length": length,
+        "read_limit": limit,
+        "retryable": false,
+    }))
+}
+
 /// Whether every slot a single-element live read must answer was observed:
 /// role, value, states, bounds and available actions.
 pub fn essential_live_evidence_complete(evidence: &LocatorEvidence) -> bool {
+    essential_live_evidence_complete_with(evidence, true)
+}
+
+/// The same check for a read whose value may be settled another way: an app
+/// that answered with text past the read limit has a value that is known to
+/// exist and cannot be carried, so a command that never reads it must not fail
+/// on it. A value is never identity.
+pub fn essential_live_evidence_complete_with(
+    evidence: &LocatorEvidence,
+    value_required: bool,
+) -> bool {
     !evidence.role.is_unknown()
-        && !evidence.value.is_unknown()
+        && (!value_required || !evidence.value.is_unknown())
         && !evidence.states.is_unknown()
         && !evidence.ref_evidence.bounds.is_unknown()
         && !evidence.ref_evidence.available_actions.is_unknown()
@@ -118,5 +148,34 @@ mod tests {
             refused.map(|error| error.code),
             Some(ErrorCode::AppUnresponsive)
         );
+    }
+
+    #[test]
+    fn a_value_past_the_read_limit_is_a_final_answer_not_a_retryable_one() {
+        let error = value_exceeds_read_limit(5000, 2048);
+
+        assert_eq!(error.code, ErrorCode::ActionFailed);
+        assert!(!error.is_explicitly_retryable());
+        let details = error.details.expect("details");
+        assert_eq!(details["kind"], "value_exceeds_read_limit");
+        assert_eq!(details["value_length"], 5000);
+        assert_eq!(details["read_limit"], 2048);
+    }
+
+    #[test]
+    fn a_value_that_cannot_be_carried_excuses_only_the_value_slot() {
+        let mut unread = evidence("textfield", None);
+        unread.value = LocatorField::Unknown;
+        unread.ref_evidence.bounds = LocatorField::Known(Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+        });
+
+        assert!(!essential_live_evidence_complete(&unread));
+        assert!(essential_live_evidence_complete_with(&unread, false));
+        unread.role = LocatorField::Unknown;
+        assert!(!essential_live_evidence_complete_with(&unread, false));
     }
 }

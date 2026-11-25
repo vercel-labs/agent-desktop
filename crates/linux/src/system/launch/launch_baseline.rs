@@ -28,7 +28,7 @@ pub(super) struct Baseline {
 pub(super) fn same_executable(identity: Option<&ExecutableIdentity>, owner: &Running) -> bool {
     identity
         .zip(owner.executable.as_ref())
-        .is_some_and(|(wanted, actual)| wanted.executable == actual.executable)
+        .is_some_and(|(wanted, actual)| wanted.same_program(actual))
 }
 
 pub(super) fn prepare(
