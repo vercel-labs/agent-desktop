@@ -279,7 +279,7 @@ fn disabled_auto_wait_times_out_with_actionability_timeout() {
 }
 
 #[test]
-fn zero_bounds_click_reports_visible_fail_after_scroll_seam() {
+fn zero_bounds_click_after_a_sent_scroll_is_delivery_uncertain() {
     let adapter = EnvelopeAdapter::new(live_button(true, area(0.0, 20.0)));
     let error = click(
         &adapter,
@@ -289,8 +289,8 @@ fn zero_bounds_click_reports_visible_fail_after_scroll_seam() {
     assert_eq!(adapter.dispatch_calls.load(Ordering::SeqCst), 0);
     assert_eq!(error.code, ErrorCode::ActionFailed);
     assert_ne!(error.code, ErrorCode::PlatformNotSupported);
-    assert_eq!(error.disposition, DeliverySemantics::not_delivered());
-    assert_eq!(error.disposition.retry(), RetryDisposition::Safe);
+    assert_eq!(error.disposition, DeliverySemantics::uncertain());
+    assert_eq!(error.disposition.retry(), RetryDisposition::Unsafe);
     let details = error.details.expect("actionability details");
     assert_eq!(details["preparatory_scroll"], "may_have_changed_view");
     let visible = find_check(&details, "visible");
