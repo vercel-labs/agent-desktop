@@ -24,9 +24,7 @@ pub(super) fn owning_window_is_live(
     }
     let pid = crate::system::process::process_identity::to_pid_t(entry.process.pid)?;
     let application = crate::tree::properties::element::element_for_pid(pid);
-    let Some(container) = read_or_dead(element, "AXWindow", deadline)? else {
-        return Ok(false);
-    };
+    let container = read_or_dead(element, "AXWindow", deadline)?;
     let windows = super::resolve_ax_read::read_array(&application, "AXWindows", deadline)?
         .unwrap_or_default();
     let is_open = |candidate: &AXElement| {
@@ -34,13 +32,27 @@ pub(super) fn owning_window_is_live(
             .iter()
             .any(|window| crate::tree::properties::capabilities::same_element(window, candidate))
     };
-    let mut current = container;
+    reaches_open_window(element, container, is_open, |node| {
+        read_or_dead(node, "AXParent", deadline)
+    })
+}
+
+/// Walks from the element's window container (or the element itself when it
+/// reports none, as a window does) up through its parents until it meets an
+/// open window. A chain that ends first belongs to a window that is gone.
+fn reaches_open_window<T: Clone>(
+    element: &T,
+    container: Option<T>,
+    is_open: impl Fn(&T) -> bool,
+    mut parent: impl FnMut(&T) -> Result<Option<T>, AdapterError>,
+) -> Result<bool, AdapterError> {
+    let mut current = container.unwrap_or_else(|| element.clone());
     for _ in 0..OWNER_HOPS {
         if is_open(&current) {
             return Ok(true);
         }
-        match read_or_dead(&current, "AXParent", deadline)? {
-            Some(parent) => current = parent,
+        match parent(&current)? {
+            Some(next) => current = next,
             None => return Ok(false),
         }
     }
@@ -64,5 +76,37 @@ fn read_or_dead(
             Ok(None)
         }
         other => other,
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    fn chain(element: u32, container: Option<u32>, open: &[u32]) -> bool {
+        reaches_open_window(
+            &element,
+            container,
+            |node| open.contains(node),
+            |node| Ok((*node > 1).then(|| node - 1)),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn an_open_window_element_that_reports_no_window_container_is_live() {
+        assert!(chain(5, None, &[5]));
+    }
+
+    #[test]
+    fn a_closed_window_element_that_reports_no_window_container_is_not_live() {
+        assert!(!chain(5, None, &[9]));
+    }
+
+    #[test]
+    fn a_child_is_live_when_its_container_or_an_ancestor_is_open() {
+        assert!(chain(7, Some(5), &[5]));
+        assert!(chain(7, Some(5), &[3]));
+        assert!(!chain(7, Some(5), &[6]));
     }
 }
