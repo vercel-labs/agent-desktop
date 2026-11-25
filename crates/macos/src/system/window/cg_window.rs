@@ -163,7 +163,7 @@ pub(in crate::system) fn records_from_dictionaries(
     Ok(records)
 }
 
-pub(in crate::system) fn window_dictionaries() -> Result<Vec<WindowDictionary>, AdapterError> {
+fn window_dictionaries() -> Result<Vec<WindowDictionary>, AdapterError> {
     use crate::tree::properties::cf_type::borrowed_cf_dictionary;
     use core_graphics::display::CGDisplay;
     let options = window_list_options();

@@ -1,5 +1,6 @@
 use std::sync::Mutex;
-use std::time::Duration;
+use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant};
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -131,7 +132,7 @@ fn lease(desk: &impl SystemOps) -> InteractionLease {
 fn run<T>(
     desk: &Desk,
     policy: InteractionPolicy,
-    command: impl FnOnce() -> T,
+    command: impl FnOnce(&DispatchMark) -> T,
 ) -> (T, FrontOutcome) {
     guarded(desk, policy, &lease(desk), watch(), command).expect("the front is readable")
 }
@@ -139,7 +140,7 @@ fn run<T>(
 #[test]
 fn a_window_that_takes_the_focus_during_the_command_is_returned() {
     let desk = Desk::new(true);
-    let (value, outcome) = run(&desk, InteractionPolicy::headless(), || {
+    let (value, outcome) = run(&desk, InteractionPolicy::headless(), |_| {
         desk.intrude();
         std::thread::sleep(Duration::from_millis(100));
         7
@@ -152,7 +153,7 @@ fn a_window_that_takes_the_focus_during_the_command_is_returned() {
 #[test]
 fn a_window_that_takes_the_focus_after_the_command_returns_is_returned_inside_the_settle() {
     let desk = Desk::new(true);
-    let (_, outcome) = run(&desk, InteractionPolicy::headless(), || {
+    let (_, outcome) = run(&desk, InteractionPolicy::headless(), |_| {
         std::thread::scope(|scope| {
             scope.spawn(|| {
                 std::thread::sleep(Duration::from_millis(20));
@@ -166,7 +167,7 @@ fn a_window_that_takes_the_focus_after_the_command_returns_is_returned_inside_th
 #[test]
 fn a_window_the_user_opens_during_the_command_is_never_given_back() {
     let desk = Desk::new(true);
-    let (_, outcome) = run(&desk, InteractionPolicy::headless(), || {
+    let (_, outcome) = run(&desk, InteractionPolicy::headless(), |_| {
         desk.user_opens_a_window();
         std::thread::sleep(Duration::from_millis(100));
     });
@@ -177,7 +178,7 @@ fn a_window_the_user_opens_during_the_command_is_never_given_back() {
 #[test]
 fn a_command_that_changes_nothing_ends_clean_with_no_give_back() {
     let desk = Desk::new(true);
-    let (_, outcome) = run(&desk, InteractionPolicy::headless(), || ());
+    let (_, outcome) = run(&desk, InteractionPolicy::headless(), |_| ());
     assert_eq!(outcome, FrontOutcome::Clean);
     assert!(desk.calls().is_empty());
 }
@@ -185,7 +186,7 @@ fn a_command_that_changes_nothing_ends_clean_with_no_give_back() {
 #[test]
 fn a_front_that_cannot_be_returned_reports_the_failure() {
     let desk = Desk::new(false);
-    let (_, outcome) = run(&desk, InteractionPolicy::headless(), || {
+    let (_, outcome) = run(&desk, InteractionPolicy::headless(), |_| {
         desk.intrude();
         std::thread::sleep(Duration::from_millis(150));
     });
@@ -196,7 +197,7 @@ fn a_front_that_cannot_be_returned_reports_the_failure() {
 #[test]
 fn a_policy_that_allows_focus_steal_runs_the_command_with_no_reads() {
     let desk = Desk::new(true);
-    let (_, outcome) = run(&desk, InteractionPolicy::headed(), || desk.intrude());
+    let (_, outcome) = run(&desk, InteractionPolicy::headed(), |_| desk.intrude());
     assert_eq!(outcome, FrontOutcome::Off);
     assert_eq!(*desk.reads.lock().unwrap(), 0);
     assert!(desk.calls().is_empty());
@@ -222,7 +223,7 @@ fn an_adapter_with_no_way_to_read_the_front_runs_the_command_unguarded() {
         InteractionPolicy::headless(),
         &lease(&blind),
         watch(),
-        || 3,
+        |_| 3,
     )
     .unwrap();
     assert_eq!((value, outcome), (3, FrontOutcome::Off));
@@ -237,7 +238,7 @@ fn an_adapter_that_fails_to_read_the_front_refuses_the_headless_command_unsent()
         InteractionPolicy::headless(),
         &lease(&blind),
         watch(),
-        || ran.store(true, Ordering::SeqCst),
+        |_| ran.store(true, Ordering::SeqCst),
     )
     .expect_err("a refusal");
     assert_eq!(error.code, ErrorCode::PolicyDenied);
@@ -254,7 +255,7 @@ fn a_failed_read_does_not_refuse_a_command_the_policy_lets_take_the_focus() {
         InteractionPolicy::headed(),
         &lease(&blind),
         watch(),
-        || 3,
+        |_| 3,
     )
     .unwrap();
     assert_eq!((value, outcome), (3, FrontOutcome::Off));
@@ -276,4 +277,75 @@ fn an_outcome_is_noted_under_focus_returned_and_a_clean_one_adds_nothing() {
             .unwrap()
             .contains("focus-window")
     );
+}
+
+fn watch_for(settle_ms: u64) -> FrontWatch {
+    FrontWatch {
+        target: FrontTarget::program("fixture"),
+        settle: Duration::from_millis(settle_ms),
+    }
+}
+
+#[test]
+fn the_settle_runs_from_the_dispatch_beside_the_reads_after_it() {
+    let desk = Desk::new(true);
+    let started = Instant::now();
+    let (_, outcome) = guarded(
+        &desk,
+        InteractionPolicy::headless(),
+        &lease(&desk),
+        watch_for(200),
+        |mark| {
+            mark.dispatched();
+            std::thread::sleep(Duration::from_millis(150));
+        },
+    )
+    .unwrap();
+    let elapsed = started.elapsed();
+    assert_eq!(outcome, FrontOutcome::Clean);
+    assert!(
+        elapsed >= Duration::from_millis(195) && elapsed < Duration::from_millis(245),
+        "the watch ends at dispatch plus the settle, not at return plus the settle: {elapsed:?}"
+    );
+}
+
+#[test]
+fn a_command_that_outlasts_the_settle_ends_the_watch_at_its_return() {
+    let desk = Desk::new(true);
+    let started = Instant::now();
+    guarded(
+        &desk,
+        InteractionPolicy::headless(),
+        &lease(&desk),
+        watch_for(50),
+        |mark| {
+            mark.dispatched();
+            std::thread::sleep(Duration::from_millis(150));
+        },
+    )
+    .unwrap();
+    assert!(started.elapsed() < Duration::from_millis(190));
+}
+
+#[test]
+fn a_window_that_opens_after_the_return_but_inside_dispatch_plus_settle_is_returned() {
+    let desk = Desk::new(true);
+    let (_, outcome) = guarded(
+        &desk,
+        InteractionPolicy::headless(),
+        &lease(&desk),
+        watch_for(250),
+        |mark| {
+            mark.dispatched();
+            std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    std::thread::sleep(Duration::from_millis(150));
+                    desk.intrude();
+                });
+                std::thread::sleep(Duration::from_millis(20));
+            });
+        },
+    )
+    .unwrap();
+    assert_eq!(outcome, FrontOutcome::GivenBack);
 }

@@ -9,8 +9,7 @@
 //! `give_back`. Everything that decides is in [`FrontGuardMachine`].
 
 use std::collections::HashMap;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::front_guard_machine::{FrontGuardMachine, Owner, Sighting, Step};
@@ -45,16 +44,17 @@ pub(crate) fn guarded<T>(
     policy: InteractionPolicy,
     lease: &InteractionLease,
     watch: FrontWatch,
-    command: impl FnOnce() -> T,
+    command: impl FnOnce(&DispatchMark) -> T,
 ) -> Result<(T, FrontOutcome), AdapterError> {
+    let mark = DispatchMark::default();
     if policy.allow_focus_steal {
-        return Ok((command(), FrontOutcome::Off));
+        return Ok((command(&mark), FrontOutcome::Off));
     }
     let prior = match read(adapter) {
         Ok(view) if view.focused.is_some() => view,
-        Ok(_) => return Ok((command(), FrontOutcome::Off)),
+        Ok(_) => return Ok((command(&mark), FrontOutcome::Off)),
         Err(error) if error.code == ErrorCode::PlatformNotSupported => {
-            return Ok((command(), FrontOutcome::Off));
+            return Ok((command(&mark), FrontOutcome::Off));
         }
         Err(_) => return Err(unreadable(policy)),
     };
@@ -78,12 +78,19 @@ pub(crate) fn guarded<T>(
         )
     });
     let machine = FrontGuardMachine::new(prior, owner);
-    let finished = AtomicBool::new(false);
+    let returned = OnceLock::new();
     let watching = lease.with_deadline(lease.deadline());
     Ok(std::thread::scope(|scope| {
-        let guard = scope.spawn(|| keep_watching(adapter, &watching, machine, &watch, &finished));
-        let value = command();
-        finished.store(true, Ordering::Release);
+        let guard = scope.spawn(|| {
+            let ends = Ends {
+                mark: &mark,
+                returned: &returned,
+            };
+            keep_watching(adapter, &watching, machine, &watch, &ends)
+        });
+        let value = command(&mark);
+        let _ = returned.set(Instant::now());
+        guard.thread().unpark();
         let outcome = guard
             .join()
             .map_or(FrontOutcome::Off, FrontOutcome::from_state);
@@ -115,19 +122,44 @@ fn read(adapter: &dyn PlatformAdapter) -> Result<FrontView, AdapterError> {
     adapter.read_front(Deadline::detached_after(READ_BUDGET_MS)?)
 }
 
+/// When the command dispatched what can open a window. The settle runs from
+/// here, beside the reads the command makes after it, so the watch covers
+/// dispatch through dispatch plus the settle however long those reads take.
+/// A command that never marks it settles from its return.
+#[derive(Default)]
+pub(crate) struct DispatchMark(OnceLock<Instant>);
+
+impl DispatchMark {
+    pub(crate) fn dispatched(&self) {
+        let _ = self.0.set(Instant::now());
+    }
+}
+
+struct Ends<'a> {
+    mark: &'a DispatchMark,
+    returned: &'a OnceLock<Instant>,
+}
+
+impl Ends<'_> {
+    /// The instant the watch may end: the settle after the dispatch, or after
+    /// the return when nothing was marked, and never before the return.
+    fn at(&self, settle: Duration) -> Option<Instant> {
+        let returned = *self.returned.get()?;
+        let anchor = self.mark.0.get().copied().unwrap_or(returned);
+        Some((anchor + settle).max(returned))
+    }
+}
+
 fn keep_watching(
     adapter: &dyn PlatformAdapter,
     lease: &InteractionLease,
     mut machine: FrontGuardMachine<'_>,
     watch: &FrontWatch,
-    finished: &AtomicBool,
+    ends: &Ends<'_>,
 ) -> FrontGuardState {
-    let mut settling_since: Option<Instant> = None;
     loop {
-        if finished.load(Ordering::Acquire) {
-            settling_since.get_or_insert_with(Instant::now);
-        }
-        let settled = settling_since.is_some_and(|since| since.elapsed() >= watch.settle);
+        let end = ends.at(watch.settle);
+        let settled = end.is_some_and(|end| Instant::now() >= end);
         let sighting = if settled {
             Sighting::Settled
         } else {
@@ -144,7 +176,8 @@ fn keep_watching(
         if step == Step::Done {
             return machine.state();
         }
-        std::thread::sleep(POLL);
+        let until_end = end.map_or(POLL, |end| end.saturating_duration_since(Instant::now()));
+        std::thread::park_timeout(POLL.min(until_end));
     }
 }
 

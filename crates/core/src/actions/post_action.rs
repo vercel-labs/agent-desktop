@@ -1,3 +1,4 @@
+use crate::system::front_guard::DispatchMark;
 use crate::{
     Action, ActionRequest, ActionResult, AdapterError, DeliverySemantics, ErrorCode,
     InteractionLease, LiveElement, NativeHandle, PlatformAdapter,
@@ -19,7 +20,7 @@ pub fn execute_verified_action(
     lease: &InteractionLease,
 ) -> Result<ActionResult, AdapterError> {
     if !request.action.can_open_window() {
-        return run_verified_action(adapter, handle, request, lease);
+        return run_verified_action(adapter, handle, request, lease, &DispatchMark::default());
     }
     let policy = request.policy;
     let target = request.expected_process.as_ref().map_or_else(
@@ -34,7 +35,7 @@ pub fn execute_verified_action(
             target,
             settle: ACTION_SETTLE,
         },
-        || run_verified_action(adapter, handle, request, lease),
+        |mark| run_verified_action(adapter, handle, request, lease, mark),
     )?;
     let mut result = result.map_err(|mut error| {
         front.note_in_error(&mut error);
@@ -49,9 +50,11 @@ fn run_verified_action(
     handle: &NativeHandle,
     mut request: ActionRequest,
     lease: &InteractionLease,
+    mark: &DispatchMark,
 ) -> Result<ActionResult, AdapterError> {
     let action = request.action.clone();
     if !action.requires_state_readback() {
+        mark.dispatched();
         return adapter.execute_action(handle, request, lease);
     }
     let deadline = lease.deadline();
@@ -78,6 +81,7 @@ fn run_verified_action(
         }),
         _ => None,
     };
+    mark.dispatched();
     let execution = adapter
         .execute_action(handle, request, lease)
         .map(|mut result| {

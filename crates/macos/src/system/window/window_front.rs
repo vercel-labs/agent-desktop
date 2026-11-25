@@ -5,7 +5,7 @@
 use agent_desktop_core::{AdapterError, Deadline, FrontProcess, FrontView, FrontWindow};
 use core_foundation::string::CFString;
 
-use super::cg_window::{WindowDictionary, bool_field, required_int_field, window_dictionaries};
+use super::cg_window::{WindowDictionary, bool_field, required_int_field};
 use crate::system::app::workspace_apps::focused_owner_until;
 use crate::system::focus_bridge;
 use crate::system::process::process_identity::ProcessIdentity;
@@ -21,7 +21,7 @@ pub(crate) struct OrderedWindow {
 
 pub(crate) fn read_front(deadline: Deadline) -> Result<FrontView, AdapterError> {
     let frontmost = focused_owner_until(deadline)?.map(|owner| owner.pid);
-    let order = ordered_windows(window_dictionaries()?)?;
+    let order = ordered_windows(onscreen_dictionaries()?)?;
     Ok(view_of(&order, frontmost))
 }
 
@@ -47,6 +47,33 @@ pub(crate) fn view_of(order: &[OrderedWindow], frontmost: Option<i32>) -> FrontV
             .map(|window| window_id(window.number))
             .collect(),
     }
+}
+
+/// The windows on screen, front to back. The all-windows list holds every
+/// window of every space and costs about 12 ms; this one costs well under a
+/// millisecond, which matters because the guard reads it every few
+/// milliseconds. A window that leaves the screen, such as one the user
+/// minimizes, is not in it, and the guard then stops watching it.
+fn onscreen_dictionaries() -> Result<Vec<WindowDictionary>, AdapterError> {
+    use crate::tree::properties::cf_type::borrowed_cf_dictionary;
+    use core_graphics::display::CGDisplay;
+    use core_graphics::window::{
+        kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly,
+    };
+
+    let list = CGDisplay::window_list_info(
+        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+        None,
+    )
+    .ok_or_else(|| AdapterError::internal("CoreGraphics returned no on-screen window list"))?;
+    list.get_all_values()
+        .into_iter()
+        .map(|raw| {
+            borrowed_cf_dictionary(raw as core_foundation::base::CFTypeRef).ok_or_else(|| {
+                AdapterError::internal("CoreGraphics returned a non-dictionary window")
+            })
+        })
+        .collect()
 }
 
 fn window_id(number: i64) -> String {

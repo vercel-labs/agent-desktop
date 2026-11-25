@@ -51,7 +51,7 @@ fn guarded_window_op(
             target: crate::system::front_target::FrontTarget::of_process(adapter, live.pid.get()),
             settle: WINDOW_SETTLE,
         },
-        || adapter.window_op(live, op, policy, lease),
+        |_| adapter.window_op(live, op, policy, lease),
     )?;
     let mut report = report.map_err(|mut error| {
         front.note_in_error(&mut error);
