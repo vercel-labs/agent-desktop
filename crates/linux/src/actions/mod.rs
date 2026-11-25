@@ -16,7 +16,7 @@ pub(crate) mod select;
 pub(crate) mod toggle_state;
 pub(crate) mod write;
 
-pub(crate) use dispatch::execute_action;
+pub(crate) use dispatch::{execute_action, refuse_before_scroll};
 pub(crate) use scroll::scroll_into_view::{before_pointer, scroll_into_view};
 
 #[cfg(test)]

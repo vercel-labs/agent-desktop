@@ -143,7 +143,16 @@ impl ExecutableIdentity {
     /// bare launch it serves. A launch that asks for a mode, such as `--gui`,
     /// is not a process running in another mode, and a launch is never a
     /// process running other code or another file.
+    #[cfg(test)]
     pub(crate) fn is_running_as(&self, running: &Self) -> bool {
+        self.is_running_as_with(running, false)
+    }
+
+    /// `is_running_as`, where the running process may also carry documents it
+    /// was asked to open. A launcher whose command takes files or URLs is
+    /// the same application with or without them; for any other command a
+    /// path is code or another file, as with an interpreter's script.
+    pub(crate) fn is_running_as_with(&self, running: &Self, documents: bool) -> bool {
         let Some(argv) = self.argv.as_deref() else {
             return false;
         };
@@ -155,7 +164,11 @@ impl ExecutableIdentity {
         }
         let mut rest = actual[1..].iter();
         consume_in_order(&argv[1..], &mut rest)
-            && rest.all(|word| is_bare_long_option(word) || is_short_switch(word))
+            && rest.all(|word| {
+                is_bare_long_option(word)
+                    || is_short_switch(word)
+                    || (documents && is_document(word))
+            })
     }
 
     /// Whether the running process is this launch's program: the same
@@ -176,6 +189,12 @@ impl ExecutableIdentity {
         }
         script_run(&self.executable, &running.executable, actual)
     }
+}
+
+/// An absolute path or a URL: what an application is asked to open.
+fn is_document(word: &OsString) -> bool {
+    let bytes = word.as_encoded_bytes();
+    bytes.starts_with(b"/") || bytes.windows(3).any(|window| window == b"://")
 }
 
 /// A single-letter switch such as `-b`: a mode of the process, never other

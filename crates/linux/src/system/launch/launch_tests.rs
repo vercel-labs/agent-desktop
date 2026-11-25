@@ -41,6 +41,7 @@ fn plan_of(argv: &[&str]) -> Plan {
         cwd: None,
         identity: None,
         launcher: None,
+        takes_documents: false,
         aliases: Vec::new(),
     }
 }
