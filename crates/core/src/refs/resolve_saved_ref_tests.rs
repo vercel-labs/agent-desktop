@@ -121,15 +121,49 @@ fn an_entry_not_unique_at_capture_is_refused_before_any_live_search() {
     let _guard = HomeGuard::new();
     let adapter = RuleAdapter::new(tree_with(vec![node("button", "Run")]));
     let mut entry = entry();
-    entry.identity.unique_at_capture = false;
+    entry.identity.proof = crate::IdentityProof::Unproven;
 
     let Err(error) = resolve(&adapter, &entry) else {
         panic!("an unproven ref must be refused");
     };
 
     assert_eq!(error.code, ErrorCode::AmbiguousTarget);
+    assert_eq!(error.details.unwrap()["kind"], "identity_unproven");
+    assert_eq!(adapter.counts(), (0, 0, 0, 0));
+}
+
+#[test]
+fn a_twin_entry_is_refused_as_a_twin_before_any_live_search() {
+    let _guard = HomeGuard::new();
+    let adapter = RuleAdapter::new(tree_with(vec![node("button", "Run")]));
+    let mut entry = entry();
+    entry.identity.proof = crate::IdentityProof::Twins;
+
+    let Err(error) = resolve(&adapter, &entry) else {
+        panic!("a twin ref must be refused");
+    };
+
+    assert_eq!(error.code, ErrorCode::AmbiguousTarget);
+    assert!(!error.message.contains("budget"));
+    let suggestion = error.suggestion.as_deref().unwrap_or("");
+    assert!(!suggestion.contains("--timeout-ms"));
+    assert!(suggestion.contains("mouse-click --xy"));
     assert_eq!(error.details.unwrap()["kind"], "identity_not_unique");
     assert_eq!(adapter.counts(), (0, 0, 0, 0));
+}
+
+#[test]
+fn the_unproven_ref_error_names_the_budget_and_a_retry_that_can_work() {
+    let mut entry = entry();
+    entry.identity.proof = crate::IdentityProof::Unproven;
+
+    let error = crate::refs::resolve_errors::identity_unproven(&entry);
+
+    assert!(error.message.contains("within the snapshot budget"));
+    let suggestion = error.suggestion.expect("the refusal carries a retry");
+    assert!(suggestion.contains("larger --timeout-ms"));
+    assert!(!suggestion.contains("--headed"));
+    assert!(!suggestion.contains("headed mode"));
 }
 
 #[test]
@@ -137,7 +171,7 @@ fn an_element_token_goes_straight_to_the_adapter() {
     let _guard = HomeGuard::new();
     let adapter = RuleAdapter::new(tree_with(vec![]));
     let mut entry = entry();
-    entry.identity.unique_at_capture = false;
+    entry.identity.proof = crate::IdentityProof::Unproven;
     entry.identity.retained_object = Some("token:axtok1:page-7:node-3".into());
 
     let Ok(handle) = resolve(&adapter, &entry) else {
@@ -172,12 +206,12 @@ fn capture_and_resolution_agree_on_the_same_element() {
     let _guard = HomeGuard::new();
     let alone = tree_with(vec![node("button", "Run"), node("button", "Cancel")]);
     let captured = capture(alone.clone(), "Run");
-    assert!(captured.identity.unique_at_capture);
+    assert!(captured.identity.proof.is_unique());
     assert!(resolve(&RuleAdapter::new(alone), &captured).is_ok());
 
     let twinned = tree_with(vec![node("button", "Run"), node("button", "Run")]);
     let twin_captured = capture(twinned.clone(), "Run");
-    assert!(!twin_captured.identity.unique_at_capture);
+    assert_eq!(twin_captured.identity.proof, crate::IdentityProof::Twins);
     let refused = resolve(&RuleAdapter::new(twinned), &twin_captured);
     assert_eq!(
         refused.err().map(|error| error.code),
@@ -245,12 +279,12 @@ fn an_unproven_entry_is_never_landed_provisionally() {
     let _guard = HomeGuard::new();
     let adapter = RuleAdapter::new(tree_with(vec![node("button", "Run")]));
     let mut entry = entry();
-    entry.identity.unique_at_capture = false;
+    entry.identity.proof = crate::IdentityProof::Unproven;
 
     let Err(error) = land(&adapter, &entry) else {
         panic!("an unproven ref is refused");
     };
 
-    assert_eq!(error.details.unwrap()["kind"], "identity_not_unique");
+    assert_eq!(error.details.unwrap()["kind"], "identity_unproven");
     assert_eq!(adapter.counts(), (0, 0, 0, 0));
 }

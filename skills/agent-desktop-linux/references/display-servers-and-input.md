@@ -74,9 +74,10 @@ not supply the missing focus action.
 Headless semantic actions need no active frame: a headless `type` into a
 background window works. A headless `press --app` to a background app on X11
 fails with `display_active_window`. When headless `press --window-id` cannot
-confirm the named window's exact focus, it returns `STALE_REF`,
-`check: exact_window_focus`, `cause: exact_window_focus_unconfirmed`. Bring that
-window forward, refresh `list-windows`, and retry. The active-frame gate is
+confirm the named window's exact focus, it returns `ACTION_FAILED`,
+`check: window_active`, `cause: exact_window_focus_unconfirmed`, `not_delivered`.
+Nothing is stale. Bring that window forward yourself and retry; on Wayland
+use global `press` without `--app`, `--window-id` or `--headed`. The active-frame gate is
 necessary, not sufficient: while a popup menu holds the grab, keys reach the
 menu even if the frame reads active, so key steps stay unverified.
 

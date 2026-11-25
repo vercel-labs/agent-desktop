@@ -3,7 +3,9 @@ use crate::actions::action_result::ActionResult;
 use crate::adapter::{NativeHandle, PlatformAdapter};
 use crate::context::CommandContext;
 use crate::ref_action::ref_action_context::RefActionContext;
-use crate::ref_action::ref_action_wait_support::{after_scroll, trace_scroll_error};
+use crate::ref_action::ref_action_wait_support::{
+    after_scroll, note_preparatory_scroll, note_scroll_if, trace_scroll_error,
+};
 use crate::refs::{RefEntry, resolve_saved_ref::resolve_saved_ref};
 use crate::{AdapterError, AppError, actionability};
 use serde_json::json;
@@ -85,6 +87,7 @@ pub(crate) fn dispatch_resolved_landing(
         })?;
     crate::ref_action::ref_action_wait_support::trace_resolve_ok(target.context, target.ref_id);
     let initial_target = ResolvedRefAction::new(target, &handle);
+    let mut scrolled = false;
     let preflight = match stable_preflight(&initial_target, &request) {
         Ok(preflight) => preflight,
         Err(error) => {
@@ -94,6 +97,7 @@ pub(crate) fn dispatch_resolved_landing(
             ) {
                 return Err(error.into());
             }
+            scrolled = true;
             let recovered = match target.adapter.scroll_ref_into_view(
                 target.entry,
                 &handle,
@@ -103,13 +107,13 @@ pub(crate) fn dispatch_resolved_landing(
                 Ok(recovered) => recovered,
                 Err(scroll_error) => {
                     trace_scroll_error(&target, &scroll_error);
-                    return Err(
+                    return Err(note_preparatory_scroll(
                         crate::ref_action::ref_action_wait_evidence::attach_scroll_recovery_failure(
                             error,
                             &scroll_error,
-                        )
-                        .into(),
-                    );
+                        ),
+                    )
+                    .into());
                 }
             };
             handle = match recovered {
@@ -153,7 +157,7 @@ pub(crate) fn dispatch_resolved_landing(
         ripples,
         &dispatch_result,
     );
-    let mut result = dispatch_result?;
+    let mut result = dispatch_result.map_err(|error| note_scroll_if(scrolled, error))?;
     if raises_surface {
         result.surfaces = settled_surfaces(&final_target, expected_process);
     }

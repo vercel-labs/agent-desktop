@@ -1,6 +1,6 @@
 use crate::{
-    AdapterError, AppError, AppInfo, Deadline, IdentityMatch, PlatformAdapter, RefEntry,
-    WindowInfo,
+    AdapterError, AppError, AppInfo, Deadline, IdentityMatch, IdentityProof, PlatformAdapter,
+    RefEntry, WindowInfo,
     adapter::{NativeHandle, TreeOptions},
     locator::live_locator::{
         ObservationRequest, ObservationRoot, ObservedTree, materialize_ref_entry,
@@ -9,7 +9,7 @@ use crate::{
     refs::ref_identity::element_token,
     refs::ref_live_predicate::LivePredicate,
     refs::resolve_errors::{
-        absent, ambiguous_live_match, identity_not_unique, identity_unknown_error,
+        absent, ambiguous_live_match, identity_twins, identity_unknown_error, identity_unproven,
     },
 };
 
@@ -62,13 +62,21 @@ pub(crate) fn land_saved_ref(
     deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
     if element_token(entry).is_none()
-        && entry.identity.unique_at_capture
+        && entry.identity.proof.is_unique()
         && let Ok(handle) = adapter.resolve_locator_anchor(entry, deadline)
         && confirm_landed_element(adapter, entry, &handle, deadline).is_ok()
     {
         return Ok(handle);
     }
     resolve_saved_ref(adapter, entry, deadline, None)
+}
+
+fn refuse_unless_unique(entry: &RefEntry) -> Result<(), AdapterError> {
+    match entry.identity.proof {
+        IdentityProof::Unique => Ok(()),
+        IdentityProof::Twins => Err(identity_twins(entry)),
+        IdentityProof::Unproven => Err(identity_unproven(entry)),
+    }
 }
 
 /// The window a saved ref is captured from, one complete observation of it, and
@@ -89,8 +97,8 @@ pub(crate) fn observe_saved_ref(
     identity_only: bool,
 ) -> Result<SavedRefMatch, AdapterError> {
     let token = element_token(entry);
-    if token.is_none() && !entry.identity.unique_at_capture {
-        return Err(identity_not_unique(entry));
+    if token.is_none() {
+        refuse_unless_unique(entry)?;
     }
     let window = recorded_window(adapter, entry, deadline)?;
     let base = TreeOptions {
@@ -350,7 +358,7 @@ fn positional_anchor(
     );
     anchor.identity = crate::RefEntryIdentity {
         retained_object: entry.identity.retained_object.clone(),
-        unique_at_capture: false,
+        proof: crate::IdentityProof::Unproven,
         ..entry.identity.clone()
     };
     Ok(anchor)

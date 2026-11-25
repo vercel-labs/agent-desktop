@@ -309,9 +309,9 @@ Headless scoped `press` does not activate a window: it requires the live focus
 guard to confirm the target. If focus cannot be confirmed, bring the target
 forward yourself and use global `press` (no `--app`, `--window-id` or
 `--headed`). A headless `press --window-id` with unconfirmed exact window focus
-returns `STALE_REF`, `check: exact_window_focus`,
-`cause: exact_window_focus_unconfirmed`, `not_delivered`: bring the window
-forward, refresh `list-windows`, retry with its current id.
+returns `ACTION_FAILED`, `check: window_active`,
+`cause: exact_window_focus_unconfirmed`, `not_delivered`: nothing is stale.
+Bring the window forward yourself, then retry.
 
 ## Stopped apps
 

@@ -146,6 +146,11 @@ fn settled(read: &Result<bool, AdapterError>) -> bool {
 }
 
 #[cfg(target_os = "macos")]
+pub(crate) fn is_app_frontmost(pid: i32, deadline: Deadline) -> Result<bool, AdapterError> {
+    is_frontmost(capture_identity(pid)?, deadline)
+}
+
+#[cfg(target_os = "macos")]
 pub(crate) fn verify_app_focused(pid: i32, deadline: Deadline) -> Result<(), AdapterError> {
     verify_identity_focused(capture_identity(pid)?, deadline)
 }

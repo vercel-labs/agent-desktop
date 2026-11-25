@@ -91,7 +91,7 @@ The dismiss chain runs in order: the `AXDismiss` and `AXRemoveFromParent` action
 
 **Cause.** The shortcut used `ctrl` where macOS uses `cmd`, or the keys went to the wrong app.
 
-**Fix.** Use `cmd+...`. To send keys to one app without focusing it, use `press cmd+s --app "App"`.
+**Fix.** Use `cmd+...`. A `cmd`, `ctrl` or `alt` chord sent with `press --app "App"` reaches only an app that is frontmost. For a background app it returns `ACTION_FAILED` with `check: process_focus` and sends nothing; plain keys and `shift` chords still go to a focused element.
 
 ## Sandbox answers needs_setup
 
