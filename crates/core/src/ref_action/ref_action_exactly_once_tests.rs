@@ -248,10 +248,10 @@ fn execute(adapter: &DispatchGuardAdapter, timeout_ms: u64) -> Result<ActionResu
 }
 
 #[test]
-fn failed_preflight_after_scroll_reports_nothing_delivered_and_the_moved_view() {
+fn failed_preflight_after_scroll_names_the_moved_view_and_is_not_not_delivered() {
     let adapter = DispatchGuardAdapter::new("hidden_after_scroll", 0);
     let error = execute(&adapter, 500).unwrap_err();
-    assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());
+    assert_eq!(error.disposition, crate::DeliverySemantics::uncertain());
     assert_eq!(
         error.details.unwrap()["preparatory_scroll"],
         "may_have_changed_view"

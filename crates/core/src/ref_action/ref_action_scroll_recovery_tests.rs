@@ -350,3 +350,28 @@ fn a_final_refusal_is_decided_before_any_scroll() {
             .is_none_or(|details| details.get("preparatory_scroll").is_none())
     );
 }
+
+#[test]
+fn a_not_delivered_failure_after_a_scroll_is_never_reported_as_not_delivered() {
+    let adapter = ScrollRecoveryAdapter::new(true, false);
+
+    let error =
+        execute_entry(&adapter, &entry(), ActionRequest::headless(Action::Expand)).unwrap_err();
+
+    assert_eq!(adapter.scroll_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(error.disposition, crate::DeliverySemantics::uncertain());
+    assert_eq!(
+        error.details.as_ref().unwrap()["preparatory_scroll"],
+        "may_have_changed_view"
+    );
+}
+
+#[test]
+fn a_failed_scroll_attempt_does_not_claim_not_delivered() {
+    let adapter = ScrollRecoveryAdapter::new(true, true);
+
+    let error =
+        execute_entry(&adapter, &entry(), ActionRequest::headless(Action::Expand)).unwrap_err();
+
+    assert_eq!(error.disposition, crate::DeliverySemantics::uncertain());
+}
