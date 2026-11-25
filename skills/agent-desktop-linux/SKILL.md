@@ -72,18 +72,8 @@ use a private session and runtime directory for isolated work.
   StatusNotifierWatcher. A missing service is an error, not an empty list.
 - Password-role values are withheld, but a field that merely masks its text can
   still be readable. Treat observation output as sensitive.
-- `launch` accepts a program on PATH, an absolute path, an installed desktop id,
-  or an unambiguous desktop entry name. A script launch attaches only to the interpreter
-  process that runs that script, never to another script of the same interpreter. `--no-attach` refuses any running
-  process of the same program (the same executable, or the interpreter running the same script) whatever its
-  arguments. Use process and window identity from
-  observations rather than guessing from a window title. Without `--activate`,
-  a launch on X11 gives the focus and window order back and reports `focus_returned: true`,
-  or `false` with a suggestion; a headless click that opens a dialog is guarded the same way.
-- `press escape --app <app> --window-id <id>` on a background window with a showing
-  native popup closes it only via a dismissal action (or GTK3 combo box `Press`)
-  and reports `delivered_verified` once gone. Web content and buttons without a
-  dismissal action keep the focus refusal; it never collapses a tree row.
+- `launch` accepts a program on PATH, an absolute path, an installed desktop id, or an unambiguous desktop entry name. A script launch attaches only to the interpreter process that runs that script, never to another script of the same interpreter. `--no-attach` refuses any running process of the same program (the same executable, or the interpreter running the same script) whatever its arguments. Use process and window identity from observations rather than guessing from a window title. Without `--activate`, a launch on X11 gives the focus and window order back and reports `focus_returned: true`, or `false` with a suggestion; a headless click that opens a dialog is guarded the same way.
+- `press escape --app <app> --window-id <id>` on a background window with a showing native popup closes it only via a dismissal action (or GTK3 combo box `Press`) and reports `delivered_verified` once gone. Web content and buttons without a dismissal action keep the focus refusal; it never collapses a tree row.
 - Sandboxes are not available on Linux yet. To run agent-desktop in a container you manage yourself, see `agent-browser.dev/desktop/guides/docker-container`.
 
 ## Troubleshooting
