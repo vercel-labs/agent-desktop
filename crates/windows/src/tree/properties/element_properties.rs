@@ -238,12 +238,7 @@ impl ElementProperties {
     }
 
     fn value_without_rich_edit_terminator(&self) -> LocatorField<String> {
-        match self.get(TreeProperty::Value).text() {
-            LocatorField::Known(value) if self.is_rich_edit() && value.ends_with('\r') => {
-                LocatorField::Known(value[..value.len() - 1].to_string())
-            }
-            other => other,
-        }
+        project_value(self.get(TreeProperty::Value).text(), self.is_rich_edit())
     }
 
     fn is_rich_edit(&self) -> bool {
@@ -269,6 +264,23 @@ impl ElementProperties {
             PropertyOutcome::Known(_) | PropertyOutcome::Absent => IdentifierEvidence::absent(),
             PropertyOutcome::Unknown => IdentifierEvidence::unknown(),
         }
+    }
+}
+
+/// The value as evidence: a RichEdit control's trailing paragraph mark is not
+/// user content, and what remains must fit the evidence bound or it is unread,
+/// never a truncated prefix.
+fn project_value(read: LocatorField<String>, rich_edit: bool) -> LocatorField<String> {
+    let LocatorField::Known(value) = read else {
+        return read;
+    };
+    let value = match value.strip_suffix('\r') {
+        Some(content) if rich_edit => content.to_string(),
+        _ => value,
+    };
+    match super::bounded_text(value) {
+        PropertyOutcome::Known(PropertyValue::Text(value)) => LocatorField::Known(value),
+        _ => LocatorField::Unknown,
     }
 }
 
