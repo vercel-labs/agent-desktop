@@ -31,8 +31,10 @@ impl FrontShared {
         }
     }
 
-    pub(crate) fn target(&self) -> &FrontTarget {
-        &self.target
+    /// The process the command acts on: the one it named, or the one it
+    /// turned out to launch.
+    pub(crate) fn root(&self) -> Option<u32> {
+        self.target.pid.or_else(|| self.learned.get().copied())
     }
 
     pub(crate) fn captured_ms(&self) -> u64 {

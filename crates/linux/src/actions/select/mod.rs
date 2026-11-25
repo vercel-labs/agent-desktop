@@ -369,6 +369,7 @@ pub(crate) mod select_parent;
 pub(crate) mod select_pointer;
 pub(super) mod select_pointer_combo;
 pub(crate) mod select_popup;
+pub(super) mod select_route;
 pub(super) mod select_row;
 pub(crate) mod select_search;
 mod select_verb;

@@ -139,3 +139,19 @@ fn a_launch_that_asks_for_a_mode_attaches_to_the_process_running_in_that_mode() 
         Decision::Attach(running)
     );
 }
+
+#[test]
+fn several_matches_with_arguments_forward_and_without_them_are_ambiguous() {
+    let running = [app(7, "files"), app(8, "files")];
+    let wanted = keys(&["files"]);
+
+    assert_eq!(decide(&wanted, &running, true, true), Decision::Forward);
+    assert_eq!(
+        decide(&wanted, &running, true, false),
+        Decision::Ambiguous(vec![7, 8])
+    );
+    assert_eq!(
+        decide(&wanted, &running, false, true),
+        Decision::Refuse(vec![7, 8])
+    );
+}

@@ -19,6 +19,7 @@ pub(crate) struct Plan {
     pub(crate) cwd: Option<PathBuf>,
     pub(crate) identity: Option<ExecutableIdentity>,
     pub(crate) launcher: Option<ExecutableIdentity>,
+    pub(crate) takes_documents: bool,
     pub(crate) aliases: Vec<String>,
 }
 
@@ -161,8 +162,18 @@ fn plan_file(
         cwd: entry.path.map(PathBuf::from),
         identity,
         launcher,
+        takes_documents: takes_documents(exec),
         aliases,
     })
+}
+
+/// Whether the entry's command declares that it opens files or URLs (`%f`,
+/// `%F`, `%u`, `%U`), so a running instance may carry documents the launch
+/// does not.
+fn takes_documents(exec: &str) -> bool {
+    ["%f", "%F", "%u", "%U"]
+        .iter()
+        .any(|code| exec.contains(code))
 }
 
 /// The words of a desktop entry's command, without the caller's arguments,
@@ -198,6 +209,7 @@ fn direct_plan(program: String, arguments: &[String], index: &AliasIndex) -> Pla
         cwd: None,
         identity,
         launcher,
+        takes_documents: false,
         aliases,
     }
 }
