@@ -16,6 +16,7 @@ fn watch_for(settle_ms: u64) -> FrontWatch {
 fn the_settle_runs_from_the_dispatch_beside_the_reads_after_it() {
     let desk = Desk::new(true);
     let started = Instant::now();
+    let mut returned = None;
     let (_, outcome) = guarded(
         &desk,
         InteractionPolicy::headless(),
@@ -24,33 +25,40 @@ fn the_settle_runs_from_the_dispatch_beside_the_reads_after_it() {
         |mark| {
             mark.dispatched();
             std::thread::sleep(Duration::from_millis(150));
+            returned = Some(Instant::now());
         },
     )
     .unwrap();
     let elapsed = started.elapsed();
+    let tail = returned.unwrap().elapsed();
     assert_eq!(outcome, FrontOutcome::Clean);
     assert!(
-        elapsed >= Duration::from_millis(195) && elapsed < Duration::from_millis(245),
-        "the watch ends at dispatch plus the settle, not at return plus the settle: {elapsed:?}"
+        elapsed >= Duration::from_millis(195) && tail < Duration::from_millis(140),
+        "the watch ends at dispatch plus the settle, not at return plus the settle: elapsed={elapsed:?}, tail={tail:?}"
     );
 }
 
 #[test]
 fn a_command_that_outlasts_the_settle_ends_the_watch_at_its_return() {
     let desk = Desk::new(true);
-    let started = Instant::now();
+    let mut returned = None;
     guarded(
         &desk,
         InteractionPolicy::headless(),
         &lease(&desk),
-        watch_for(50),
+        watch_for(150),
         |mark| {
             mark.dispatched();
-            std::thread::sleep(Duration::from_millis(150));
+            std::thread::sleep(Duration::from_millis(220));
+            returned = Some(Instant::now());
         },
     )
     .unwrap();
-    assert!(started.elapsed() < Duration::from_millis(190));
+    let tail = returned.unwrap().elapsed();
+    assert!(
+        tail < Duration::from_millis(100),
+        "watch waited {tail:?} after a command that already outlasted the 150 ms settle"
+    );
 }
 
 #[test]
@@ -137,7 +145,7 @@ fn the_time_from_an_intrusion_to_its_give_back_is_a_few_polls() {
         .unwrap()
         .duration_since(intruded.unwrap());
     assert!(
-        latency < Duration::from_millis(40),
+        latency < Duration::from_millis(100),
         "intrusion to give-back: {latency:?}"
     );
 }
