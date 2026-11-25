@@ -34,6 +34,17 @@ impl LocatorQuery {
             && self.containment.has_not.is_none()
     }
 
+    /// The query without the clauses that read below the matched node: text
+    /// held by a descendant and containment. A whole-window read already
+    /// evaluated them over the subtree it observed.
+    pub fn without_subtree_predicates(&self) -> Self {
+        Self {
+            has_text: None,
+            containment: ContainmentPredicate::default(),
+            ..self.clone()
+        }
+    }
+
     pub fn validate_states(&self) -> Result<(), AdapterError> {
         for predicate in &self.states {
             if !STATE_VOCABULARY.contains(&predicate.token.as_str()) {

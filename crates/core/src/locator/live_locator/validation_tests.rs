@@ -184,7 +184,6 @@ fn element_root_derives_surface_with_relative_depth_budgets() {
     );
     let hydration = ObservationRequest::selected_hydration(
         &LocatorQuery::default(),
-        &request(12),
         root,
         crate::Deadline::standard().unwrap(),
     );
