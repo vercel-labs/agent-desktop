@@ -14,6 +14,7 @@ pub(super) const ALL_PROPERTIES: &[TreeProperty] = &[
     TreeProperty::FullDescription,
     TreeProperty::LabeledBy,
     TreeProperty::Value,
+    TreeProperty::RangeValue,
     TreeProperty::LegacyValue,
     TreeProperty::BoundingRectangle,
     TreeProperty::IsPassword,

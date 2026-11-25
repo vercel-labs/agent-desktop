@@ -61,6 +61,7 @@ pub fn execute(
         crate::system::front_guard::FrontWatch {
             target: crate::system::front_target::FrontTarget::program(&app),
             settle: LAUNCH_SETTLE,
+            children: false,
         },
         |mark| {
             let launched = adapter.launch_app(&app, &options, lease);

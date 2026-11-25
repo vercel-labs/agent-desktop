@@ -8,6 +8,7 @@ fn watch_for(settle_ms: u64) -> FrontWatch {
     FrontWatch {
         target: FrontTarget::program("fixture"),
         settle: Duration::from_millis(settle_ms),
+        children: false,
     }
 }
 

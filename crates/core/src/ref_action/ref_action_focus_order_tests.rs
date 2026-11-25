@@ -382,6 +382,7 @@ fn headed_click_does_not_resolve_before_window_focus_and_dispatch() {
         ActionRequest::headed(Action::Click),
         deadline,
         &lease,
+        None,
     );
     assert!(adapter.0.focused.load(Ordering::SeqCst));
     assert_eq!(adapter.0.resolved.load(Ordering::SeqCst), 1);

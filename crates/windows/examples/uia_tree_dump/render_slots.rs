@@ -80,11 +80,13 @@ pub fn slot(outcome: &PropertyOutcome) -> Value {
         PropertyOutcome::Known(PropertyValue::Text(value)) => json!(normalise(value)),
         PropertyOutcome::Known(PropertyValue::Flag(value)) => json!(value),
         PropertyOutcome::Known(PropertyValue::Number(value)) => json!(value),
+        PropertyOutcome::Known(PropertyValue::Real(value)) => json!(value),
         PropertyOutcome::Known(PropertyValue::Bounds(bounds)) => json!({
             "x": bounds.x, "y": bounds.y, "width": bounds.width, "height": bounds.height
         }),
         PropertyOutcome::Absent => json!("<absent>"),
         PropertyOutcome::Unknown => json!("<unknown>"),
+        PropertyOutcome::Oversize(length) => json!(format!("<oversize {length}>")),
     }
 }
 

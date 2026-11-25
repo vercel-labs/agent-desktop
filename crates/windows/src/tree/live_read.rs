@@ -23,7 +23,7 @@
 //! than surfacing as a retryable, indefinitely-repeated `AppUnresponsive`.
 
 use agent_desktop_core::adapter::live_element::{
-    essential_live_evidence_complete, incomplete_live_evidence, known_actions,
+    essential_live_evidence_complete_with, incomplete_live_evidence, known_actions,
 };
 use agent_desktop_core::{
     AdapterError, ElementState, ErrorCode, LiveElement, LiveIdentity, LocatorEvidence, Rect,
@@ -39,14 +39,31 @@ use super::properties::element_properties::ElementProperties;
 pub(crate) struct LiveRead {
     pub(crate) properties: ElementProperties,
     pub(crate) evidence: LocatorEvidence,
+    pub(crate) value_oversize: Option<usize>,
+}
+
+/// The completeness gate of a live read. A value the app answered but the
+/// evidence bound refused is not missing evidence: the read passes and reports
+/// the length, so commands that never read the value keep working and `get`
+/// can say why it cannot return it.
+pub(crate) fn gate_live_evidence(
+    properties: &ElementProperties,
+    evidence: &LocatorEvidence,
+) -> Result<Option<usize>, AdapterError> {
+    let oversize = super::properties::element_properties::oversize_value_length(
+        properties,
+        properties.is_rich_edit(),
+    );
+    if essential_live_evidence_complete_with(evidence, oversize.is_none()) {
+        Ok(oversize)
+    } else {
+        Err(incomplete_live_evidence())
+    }
 }
 
 #[cfg(target_os = "windows")]
 mod imp {
-    use super::{
-        LiveRead, essential_live_evidence_complete, incomplete_live_evidence, stale_reader_error,
-        target_read_reports_vanished,
-    };
+    use super::{LiveRead, stale_reader_error, target_read_reports_vanished};
     use crate::tree::element::{UIAElement, uia_element};
     use crate::tree::name_evidence::{LabelOutcome, read_label};
     use crate::tree::properties::{ElementProperties, read_live_bounded};
@@ -153,13 +170,12 @@ mod imp {
         };
         let vocabulary = walk_vocabulary(&properties, &label);
         let evidence = properties.locator_evidence(vocabulary);
-        if !essential_live_evidence_complete(&evidence) {
-            return Err(incomplete_live_evidence());
-        }
+        let value_oversize = super::gate_live_evidence(&properties, &evidence)?;
         corroborate(element)?;
         Ok(LiveRead {
             properties,
             evidence,
+            value_oversize,
         })
     }
 
@@ -286,7 +302,9 @@ fn states_are_complete(read: &LiveRead, role: &str) -> bool {
     let advertised = read.properties.is_true(available);
     let expand_applies = match read.properties.get(available) {
         PropertyOutcome::Known(_) => advertised,
-        PropertyOutcome::Unknown | PropertyOutcome::Absent => roles::is_expandable_role(role),
+        PropertyOutcome::Unknown | PropertyOutcome::Oversize(_) | PropertyOutcome::Absent => {
+            roles::is_expandable_role(role)
+        }
     };
     let expand_observed = !expand_applies
         || read

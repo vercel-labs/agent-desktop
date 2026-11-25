@@ -7,6 +7,8 @@ pub struct FrontView {
     pub focused: Option<FrontWindow>,
     pub top: Option<FrontWindow>,
     pub windows: Vec<String>,
+    /// The processes that own the listed windows, when the adapter can say.
+    pub owners: Vec<u32>,
 }
 
 impl FrontView {

@@ -47,6 +47,10 @@ pub(crate) fn view_of(order: &[OrderedWindow], frontmost: Option<i32>) -> FrontV
             .iter()
             .map(|window| window_id(window.number))
             .collect(),
+        owners: order
+            .iter()
+            .map(|window| u32::try_from(window.pid).unwrap_or_default())
+            .collect(),
     }
 }
 
@@ -105,6 +109,76 @@ fn ordered_windows(
         });
     }
     Ok(order)
+}
+
+/// The running processes that descend from `root` and started at or after
+/// `since_ms`, from the parent and start time libproc gives for each process.
+pub(crate) fn spawned_descendants(root: u32, since_ms: u64) -> Option<Vec<u32>> {
+    let mut parents = Vec::new();
+    let mut starts = std::collections::HashMap::new();
+    for pid in all_pids()? {
+        let Some((parent, started)) = parent_and_start(pid) else {
+            continue;
+        };
+        parents.push((pid, parent));
+        starts.insert(pid, started);
+    }
+    Some(agent_desktop_core::spawned_descendants_of(
+        root,
+        since_ms,
+        &parents,
+        |pid| starts.get(&pid).copied(),
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn all_pids() -> Option<Vec<u32>> {
+    let wanted = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
+    let count = usize::try_from(wanted).ok().filter(|count| *count > 0)? + 64;
+    let mut pids = vec![0_i32; count];
+    let bytes = i32::try_from(pids.len() * std::mem::size_of::<i32>()).ok()?;
+    let filled = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), bytes) };
+    let filled = usize::try_from(filled).ok()?;
+    Some(
+        pids.into_iter()
+            .take(filled)
+            .filter_map(|pid| u32::try_from(pid).ok())
+            .filter(|pid| *pid > 0)
+            .collect(),
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn parent_and_start(pid: u32) -> Option<(u32, u64)> {
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+    let size = i32::try_from(std::mem::size_of::<libc::proc_bsdinfo>()).ok()?;
+    let read = unsafe {
+        libc::proc_pidinfo(
+            i32::try_from(pid).ok()?,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size,
+        )
+    };
+    if read != size {
+        return None;
+    }
+    let info = unsafe { info.assume_init() };
+    Some((
+        info.pbi_ppid,
+        info.pbi_start_tvsec * 1_000 + info.pbi_start_tvusec / 1_000,
+    ))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn all_pids() -> Option<Vec<u32>> {
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+fn parent_and_start(_pid: u32) -> Option<(u32, u64)> {
+    None
 }
 
 /// The executable name and start time of a process, from libproc.
