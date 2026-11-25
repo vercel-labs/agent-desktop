@@ -170,3 +170,30 @@ pub(crate) fn trace_scroll_error(
 pub(crate) fn trace_resolve_ok(context: &CommandContext, ref_id: &str) {
     let _ = context.trace_lazy("ref.resolve.ok", || json!({ "ref": ref_id }));
 }
+
+/// An action that opens a sheet, menu, or alert leaves the caller staring at a
+/// success envelope with no hint that the application is now waiting on a
+/// dialog. Reporting the overlays saves a round of window archaeology. Purely
+/// informational, so a failed read never disturbs delivered work.
+pub(crate) fn settled_surfaces(
+    target: &crate::ref_action::ResolvedRefAction<'_>,
+    process: crate::ProcessIdentity,
+) -> Vec<crate::SurfaceInfo> {
+    target
+        .adapter
+        .list_surfaces(process, target.deadline)
+        .unwrap_or_default()
+}
+
+/// Asks the adapter for a final refusal before the preparatory scroll runs, so
+/// a refused action leaves the view where it was.
+pub(crate) fn require_route_before_scroll(
+    adapter: &dyn PlatformAdapter,
+    handle: &crate::NativeHandle,
+    request: &crate::ActionRequest,
+    lease: &crate::InteractionLease,
+) -> Result<(), AdapterError> {
+    adapter
+        .refuse_before_scroll(handle, request, lease)
+        .map_err(crate::ref_action::mark_pre_dispatch_resolution_failure)
+}
