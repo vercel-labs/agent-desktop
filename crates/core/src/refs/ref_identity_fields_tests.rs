@@ -106,4 +106,23 @@ mod unread_value {
         let empty = live("Text Editor", LocatorField::Known(String::new()));
         assert_eq!(compare(None, &empty), IdentityMatch::Match);
     }
+
+    #[test]
+    fn a_real_label_stays_identity_while_the_text_changes() {
+        let mut entry = super::super::entry();
+        entry.identity.role = "textfield".into();
+        entry.identity.name = Some("Subject".into());
+        entry.identity.value = Some("hello".into());
+        let predicate = FullPredicate::of_entry(&entry);
+        let edited = live("Subject", LocatorField::Known("changed".into()));
+        let other = live("Body", LocatorField::Known("hello".into()));
+        assert_eq!(
+            predicate.compare(&LivePredicate::observed(&edited)),
+            IdentityMatch::Match
+        );
+        assert_eq!(
+            predicate.compare(&LivePredicate::observed(&other)),
+            IdentityMatch::NoMatch
+        );
+    }
 }

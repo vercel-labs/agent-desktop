@@ -68,32 +68,26 @@ impl<'a> CaptureProof<'a> {
     /// the projection, which skips no child the observation kept even when the
     /// native indices have gaps.
     pub(crate) fn proves(&self, entry: &RefEntry, path: &[usize]) -> bool {
-        let Some(mut index) = self.start else {
-            return false;
-        };
-        let Some(prefix) = self
-            .observed
-            .nodes
-            .get(index)
-            .map(|node| node.path.as_slice())
-        else {
-            return false;
-        };
-        let Some(steps) = path.strip_prefix(prefix) else {
-            return false;
-        };
+        self.node_at(path)
+            .is_some_and(|index| self.proves_node(entry, index))
+    }
+
+    /// Whether the node allocated at `path` left its value unread, so a name
+    /// it reports cannot be told apart from that value.
+    pub(crate) fn value_unread_at(&self, path: &[usize]) -> bool {
+        self.node_at(path)
+            .and_then(|index| self.observed.nodes.get(index))
+            .is_some_and(|node| node.evidence.value.is_unknown())
+    }
+
+    fn node_at(&self, path: &[usize]) -> Option<usize> {
+        let mut index = self.start?;
+        let prefix = self.observed.nodes.get(index)?.path.as_slice();
+        let steps = path.strip_prefix(prefix)?;
         for step in steps {
-            match self
-                .observed
-                .nodes
-                .get(index)
-                .and_then(|node| node.children.get(*step))
-            {
-                Some(child) => index = *child as usize,
-                None => return false,
-            }
+            index = *self.observed.nodes.get(index)?.children.get(*step)? as usize;
         }
-        self.proves_node(entry, index)
+        Some(index)
     }
 
     /// Whether `entry` was proven unique at the node it was built from: the

@@ -275,6 +275,17 @@ fn skeleton_anchor_entry(
     entry
 }
 
+/// A name on a mutable-value element whose value went unread may be that value,
+/// and a value is never identity, so it is not recorded.
+fn forget_name_of_unread_value(entry: &mut RefEntry, plan: &AllocationPlan, path: &[usize]) {
+    let unread = plan
+        .capture
+        .is_some_and(|capture| capture.value_unread_at(path));
+    if unread && crate::tree::roles::is_mutable_value_role(&entry.identity.role) {
+        entry.identity.name = None;
+    }
+}
+
 fn allocate_refs_at_path(
     mut node: AccessibilityNode,
     refmap: &mut RefMap,
@@ -292,6 +303,7 @@ fn allocate_refs_at_path(
             path,
         );
         entry.scope.path_is_absolute = config.scope.root_ref_id.is_some();
+        forget_name_of_unread_value(&mut entry, plan, path);
         entry.identity.unique_at_capture = plan.proven(&entry, path);
         entry.source.renderer_accessibility_forced = config.options.force_renderer_accessibility;
         if !config.options.include_bounds && has_meaningful_identity(&entry) {

@@ -341,44 +341,6 @@ fn a_skipped_native_sibling_does_not_unprove_the_refs_after_it() {
     assert_eq!(flags(root, &observed), [true, true]);
 }
 
-fn textfields_with_unread_values(count: usize) -> (AccessibilityNode, ObservedTree) {
-    let field = || {
-        let mut evidence = evidence("textfield", "Text Editor", Vec::new(), 0);
-        evidence.value = LocatorField::Unknown;
-        ObservedSubtree::new(evidence, Vec::new(), true, None)
-    };
-    let observed = ObservedTree::from_roots(
-        vec![ObservedSubtree::new(
-            evidence("window", "Fixture", Vec::new(), 0),
-            (0..count).map(|_| field()).collect(),
-            true,
-            None,
-        )],
-        ObservationSource::Window {
-            window: fixture_window(),
-            surface: crate::SnapshotSurface::Window,
-            renderer_accessibility_forced: false,
-        },
-        LocatorStats::default(),
-        true,
-    )
-    .expect("the fixture observes");
-    let fields = (0..count)
-        .map(|_| named("textfield", "Text Editor"))
-        .collect();
-    (window(fields), observed)
-}
-
-#[test]
-fn a_field_whose_value_exceeds_the_read_cap_is_still_proven_once() {
-    let (root, observed) = textfields_with_unread_values(1);
-
-    assert_eq!(flags(root, &observed), [true]);
-}
-
-#[test]
-fn twin_fields_whose_values_exceed_the_read_cap_stay_unproven() {
-    let (root, observed) = textfields_with_unread_values(2);
-
-    assert_eq!(flags(root, &observed), [false, false]);
-}
+#[cfg(test)]
+#[path = "ref_unread_value_tests.rs"]
+mod unread_value;
