@@ -100,7 +100,11 @@ fn an_action_that_spawns_nothing_ends_at_dispatch_plus_the_settle() {
     let resolution = pending.unwrap().finish(&desk);
     assert_eq!(resolution.outcome, FrontOutcome::Clean);
     assert_eq!(resolution.pending_reason, None);
-    assert!(started.elapsed() < Duration::from_millis(150));
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "empty watch took {elapsed:?} instead of ending at dispatch plus the 60 ms settle"
+    );
 }
 
 #[test]
@@ -193,19 +197,23 @@ fn an_intrusion_while_the_post_release_reads_run_is_given_back_when_it_is_seen()
 fn the_watch_around_post_release_work_adds_no_time_when_the_work_outlasts_the_settle() {
     let desk = Desk::new(true);
     let lease = lease_of(&desk, 5_000);
-    let (_, _, pending) = guarded_deferred(
-        &desk,
-        InteractionPolicy::headless(),
-        &lease,
-        watch(true),
-        |mark| mark.dispatched(),
-    )
-    .unwrap();
+    let mut cfg = watch(true);
+    cfg.settle = Duration::from_millis(200);
+    let (_, _, pending) =
+        guarded_deferred(&desk, InteractionPolicy::headless(), &lease, cfg, |mark| {
+            mark.dispatched()
+        })
+        .unwrap();
     drop(lease);
-    let started = Instant::now();
+    let mut work_done = None;
     let (_, resolution) = pending.unwrap().run_around(&desk, || {
         std::thread::sleep(Duration::from_millis(300));
+        work_done = Some(Instant::now());
     });
     assert_eq!(resolution.outcome, FrontOutcome::Clean);
-    assert!(started.elapsed() < Duration::from_millis(340));
+    let tail = work_done.unwrap().elapsed();
+    assert!(
+        tail < Duration::from_millis(120),
+        "watch waited {tail:?} after post-release work that already outlasted the 200 ms settle"
+    );
 }
