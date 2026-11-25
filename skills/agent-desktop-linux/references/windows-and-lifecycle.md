@@ -49,14 +49,19 @@ agent-desktop launch gnome-text-editor --arg=/tmp/note.txt
   tell an app you started from a session service.
 - An absolute `.desktop` path launches that exact file inside the trusted XDG
   data directories. Desktop ids use XDG directory precedence.
-- `launch` attaches to a running process only when the resolved executable
-  equals its `/proc/<pid>/exe` and the full arguments and invocation name match.
-  Missing evidence starts a new process; names alone never attach. A launcher
-  that hands off to another executable is not followed by name: if no verified
-  owner appears, `launch` reports the unresolved handoff.
-- One verified match with no arguments returns the owner; arguments spawn the
-  command to forward them. `--no-attach` refuses any verified running match with
-  `ACTION_FAILED` naming its pids; without it, several verified matches are
+- `launch` names a running process only when the resolved executable equals
+  its `/proc/<pid>/exe` and the invocation name and the entry's own arguments
+  match. A single-letter switch in the desktop entry's `Exec`, such as
+  `kate -b`, is a launcher switch and is not compared, and neither are the
+  caller's `--arg` values. Missing evidence starts a new process; names alone
+  never attach.
+- One verified match with no arguments returns the owner. With arguments the
+  command is spawned so that it forwards them to the running instance; a
+  launcher that exits cleanly and shows no owner within about 2 s ends as
+  `ok: true`, `delivered_unverified`, with no `window` and a `suggestion` that
+  points at `list-windows`. `--no-attach` refuses any verified running match,
+  with or without `--arg`, before anything is sent: `ACTION_FAILED`,
+  `not_delivered`, with the pids. Without it, several verified matches are
   `AMBIGUOUS_TARGET`.
 - `--arg` passes one argument and repeats; `--arg --info` works as written, and
   `--arg=-x` is the safe form for a value that starts with a hyphen. A handoff to

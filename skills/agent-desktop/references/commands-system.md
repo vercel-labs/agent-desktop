@@ -11,7 +11,11 @@ agent-desktop launch "MyTool" --arg /tmp/notes.txt --env KEY=VALUE --no-attach
 agent-desktop launch "Obsidian" --cdp
 ```
 
-`launch` returns once the process runs. The identifier differs by OS: the examples use macOS display names, and the platform skill names the form for its OS. By default it attaches to a running instance. `--no-attach` starts a fresh instance instead of attaching: on Windows it returns `ACTION_FAILED` if a matching app is already running; on macOS it launches a second instance alongside the running one. For an `--arg` value that starts with `-`, use `--arg=<value>`.
+`launch` returns when its process is running and a window is seen, when the launched process and everything it started have exited without a window, or at the timeout. A launcher that exits after it hands its work to another process (a stub such as `control.exe`) ends the wait at once: the result keeps the launcher's pid, carries no `window`, reports `delivered_unverified`, and its `suggestion` points at `list-windows`. A window owned by a process the launcher started is reported with that process as the owner. The identifier differs by OS: the examples use macOS display names, and the platform skill names the form for its OS.
+
+By default `launch` attaches to a running instance and sends nothing. `--no-attach` requires a fresh instance and follows one rule on every platform: when an instance of the app already runs, it returns `ACTION_FAILED` with `not_delivered` and the running pids, before anything is sent. Launch without `--no-attach` to attach, or close the running instance first.
+
+`--arg` passes arguments to the app; for a value that starts with `-`, use `--arg=<value>`. A launch that carries arguments never attaches silently: Windows and Linux start the program, which hands the arguments to the running instance the way the system does (`delivered_unverified`, since the arrival is not read back). On macOS, an argument that names an existing file is a document: Launch Services opens it with the app, which also gives a sandboxed app access to it, and a running instance receives it (`delivered_unverified`). Any other macOS argument reaches only a process that starts, so a launch that aims such an argument at a running instance returns `ACTION_FAILED` with `not_delivered` and sends nothing.
 
 The process running and the app showing a window are separate facts:
 
@@ -56,6 +60,8 @@ and click its own Close button ref, then confirm the close with a `batch` of the
 click and `wait --event window-closed`. Answer any save prompt through its
 sheet. For the last window, use `close-app` if you intend to exit the app.
 Ctrl+W may close only a tab or document, leaving the window open.
+On macOS a graceful `close-app` stops on an open alert or sheet: `ACTION_FAILED`, `details.cause: modal_pending`, with the prompt's kind and title. It is `not_delivered` when the prompt was open before the request and `delivered_unverified` when the request raised it. Answer the prompt, or use `--force`.
+
 On Linux a headless graceful `close-app` is `POLICY_DENIED`, `details.kind:
 may_prompt`, because a save prompt would take the foreground; use `--force`
 (discards unsaved work) or `--headed`.
