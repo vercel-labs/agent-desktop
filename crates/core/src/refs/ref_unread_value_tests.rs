@@ -62,7 +62,7 @@ fn a_field_with_an_unread_value_resolves_after_its_text_is_edited() {
         predicate.compare(&LivePredicate::observed(&edited)),
         crate::IdentityMatch::Match
     );
-    assert!(entries[0].identity.unique_at_capture);
+    assert!(entries[0].identity.proof.is_unique());
 }
 
 #[test]
@@ -73,7 +73,7 @@ fn twin_fields_with_unread_values_stay_unproven() {
     assert!(
         entries
             .iter()
-            .all(|entry| !entry.identity.unique_at_capture)
+            .all(|entry| !entry.identity.proof.is_unique())
     );
 }
 

@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use serde_json::json;
 
 use crate::{
@@ -7,23 +5,22 @@ use crate::{
     refs::resolve_attempt_outcome::ResolveAttemptOutcome,
 };
 
-const RESOLVE_ATTEMPT: Duration = Duration::from_millis(4_000);
-
-/// Runs one resolve attempt, handing `attempt` a slice of 4 s or the remaining
-/// deadline, whichever is shorter.
+/// Runs one resolve attempt under the command's own deadline.
 ///
-/// A full-tree search costs what a full snapshot costs (a complete search of
-/// Task Manager measured 2.6 s), so a shorter slice cuts every attempt off
-/// mid-search and the verdict never settles. The slice stays under the 5 s
-/// default outer budget so a re-attempt still fits.
+/// A resolve of a tokenless ref reads the whole window, which on a slow
+/// accessibility tree costs more than any fixed slice. A slice shorter than the
+/// caller's `--timeout-ms` would cut every attempt off mid-read, so the verdict
+/// would never settle however much budget the caller gave. The attempt owns the
+/// whole remaining budget; the poll loop around it spends the rest on retries of
+/// failures that return quickly.
 pub(crate) fn attempt_within_deadline(
     deadline: Deadline,
     attempt: impl FnOnce(Deadline) -> Result<NativeHandle, AdapterError>,
 ) -> ResolveAttemptOutcome {
-    if deadline.remaining_slice(RESOLVE_ATTEMPT).is_err() {
+    if deadline.is_expired() {
         return ResolveAttemptOutcome::DeadlinePassed;
     }
-    match attempt(deadline.capped(RESOLVE_ATTEMPT)) {
+    match attempt(deadline) {
         Ok(_) if deadline.is_expired() => ResolveAttemptOutcome::DeadlinePassed,
         Ok(handle) => ResolveAttemptOutcome::Resolved(handle),
         Err(error) => classify_error(error, deadline),
@@ -61,6 +58,21 @@ fn mark_retryable(mut error: AdapterError) -> AdapterError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn an_attempt_gets_the_whole_remaining_command_budget() {
+        let _clock = crate::wait::deadline::VirtualClock::freeze();
+        let deadline = Deadline::after(30_000).unwrap();
+        let mut granted = Duration::ZERO;
+
+        let _ = attempt_within_deadline(deadline, |attempt| {
+            granted = attempt.remaining();
+            Err(AdapterError::timeout("probe"))
+        });
+
+        assert_eq!(granted, Duration::from_millis(30_000));
+    }
 
     #[test]
     fn per_attempt_timeout_is_retryable_while_outer_deadline_remains() {

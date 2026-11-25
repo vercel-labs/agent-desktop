@@ -14,7 +14,7 @@ fn entry(role: &str) -> RefEntry {
             process_instance: Some("test-instance".into()),
         },
         identity: RefEntryIdentity {
-            unique_at_capture: false,
+            proof: agent_desktop_core::IdentityProof::Unproven,
             retained_object: None,
             role: role.into(),
             name: Some("Investors".into()),
@@ -151,7 +151,7 @@ fn a_ref_without_a_token_keeps_the_attribute_path() {
 #[test]
 fn a_bare_token_saved_before_core_tagged_tokens_is_refused_not_resolved_by_fields() {
     let mut saved = entry("button");
-    saved.identity.unique_at_capture = true;
+    saved.identity.proof = agent_desktop_core::IdentityProof::Unique;
     saved.identity.retained_object = Some("axtok1:00ff".into());
     let error = super::super::retained::refuse_untagged_token(&saved).expect_err("refused");
     assert_eq!(error.code, agent_desktop_core::ErrorCode::StaleRef);
