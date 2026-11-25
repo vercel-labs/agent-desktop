@@ -49,7 +49,7 @@ fn client(id: u32, pid: u32, x: i32) -> X11Client {
     X11Client {
         id,
         pid: Some(pid),
-        title: format!("window {pid}"),
+        title: format!("window {pid}").into(),
         extents: None,
         bounds: Some(bounds(x)),
         hidden: false,

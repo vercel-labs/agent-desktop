@@ -18,7 +18,7 @@ The window commands (`resize-window`, `move-window`, `minimize`, `maximize`, `re
 
 Starts an app, or attaches to a running instance, and returns once its process is running. A running process and a visible window are separate facts, so `window` appears in the result only when the app already has one.
 
-On Windows and Linux, a launch without `--activate` starts the app in the background and watches the foreground beside the window wait for up to 3 s. If the app takes the foreground anyway, it goes back to the window that had it and `guidance.focus_returned` is `true`; the watch and the wait share one deadline, so the whole command still ends within `--timeout`.
+A headless launch (without `--activate`) runs under the front guard on every platform whose adapter reads the front: macOS, Windows, and Linux on X11. The guard reads the focused window and the topmost window before the launch, watches while the launch runs and for 500 ms after, and treats a window as an intruder only when it is new and belongs to the launched program: a process that started after the capture and runs the launched executable (an application that forks and detaches opens its window from such a process). A window the user opens or switches to is never touched. If the guard cannot read the front, the command fails with `POLICY_DENIED` (`details.kind: focus_unreadable`) before anything is sent; an adapter with no way to read the front, such as Wayland, runs it unguarded. If an intruder takes the focus or the top of the window order, the guard places it below the user's window where the platform can, activates the user's window again, and reads the front back. `focus_returned` is `true` when the read shows the user's front again. If it cannot be restored after 3 tries, `focus_returned` is `false` and `suggestion` names `focus-window`. A window the user switched to is never touched. The same guard runs on a headless `close-app`, `minimize`, `maximize`, `restore`, and on a headless click, toggle, select or key press that can open a window; there `details.focus_returned` carries the result.
 
 ```bash
 agent-desktop launch <APP> [--timeout MS] [--arg VALUE]... [--env KEY=VALUE]... [--cwd PATH] \
@@ -31,11 +31,11 @@ agent-desktop launch <APP> [--timeout MS] [--arg VALUE]... [--env KEY=VALUE]... 
   </thead>
   <tbody>
     <tr><td><code>APP</code></td><td>required</td><td>Application name, bundle ID, or path. The accepted forms depend on the platform.</td></tr>
-    <tr><td><code>--timeout MS</code></td><td><code>30000</code></td><td>Upper bound for the whole launch, the focus watch of a background launch included.</td></tr>
-    <tr><td><code>--arg VALUE</code></td><td>none</td><td>Command-line argument for the app. Repeatable, order preserved. Write <code>--arg=-x</code> for a value that starts with a hyphen.</td></tr>
+    <tr><td><code>--timeout MS</code></td><td><code>30000</code></td><td>Upper bound for the whole launch.</td></tr>
+    <tr><td><code>--arg VALUE</code></td><td>none</td><td>Command-line argument for the app. Repeatable, order preserved. Write <code>--arg=-x</code> for a value that starts with a hyphen. On a running app, Windows and Linux hand the argument to the instance through the program (<code>delivered_unverified</code>). On macOS an explicit path to an existing file (absolute, <code>./</code>, <code>~/</code>, or a <code>file://</code> URL) opens as a document, and any other argument refuses with <code>not_delivered</code>.</td></tr>
     <tr><td><code>--env KEY=VALUE</code></td><td>none</td><td>Environment variable for the launched process. Repeatable. A repeated key is <code>INVALID_ARGS</code>.</td></tr>
     <tr><td><code>--cwd PATH</code></td><td>none</td><td>Working directory for the launched process.</td></tr>
-    <tr><td><code>--no-attach</code></td><td>off</td><td>Start a fresh instance instead of attaching to a running one.</td></tr>
+    <tr><td><code>--no-attach</code></td><td>off</td><td>Require a fresh instance. When the app already runs, the launch returns <code>ACTION_FAILED</code> with <code>not_delivered</code> and the running pids, before anything is sent, on every platform.</td></tr>
     <tr><td><code>--activate</code></td><td>off</td><td>Bring the app forward so it presents a window, and wait for one up to <code>--timeout</code>. This takes the foreground.</td></tr>
     <tr><td><code>--cdp [PORT]</code></td><td>off</td><td>Launch with a loopback-only Chrome DevTools Protocol endpoint and verify that it answers. Omit <code>PORT</code>, or pass <code>0</code>, to pick a free port.</td></tr>
   </tbody>
@@ -71,7 +71,7 @@ agent-desktop launch gtk3-demo
 }
 ```
 
-The result also carries `cdp` when `--cdp` was verified, `renderer: "chromium"` for a detected Chromium or Electron app, and sometimes a `suggestion`. A missing `window` is not a failure. `disposition` says what the launch proved: `not_delivered` when it attached to a running app and sent nothing — `--activate` was not passed, or its target was already active so no request was needed (`retry: "safe"`); `delivered_verified` when the adapter read back the process it started, or confirmed the attached app came forward after `--activate`; and `delivered_unverified` when it cannot prove either, including a spawned process that never reached the accessibility bus. With `--cdp`, `data.cdp` holds `http_endpoint`, `port`, `product`, and `websocket_url` for a CDP client such as agent-browser; [Chromium and Electron apps](/desktop/guides/chromium-and-electron) walks through the handoff.
+The result also carries `cdp` when `--cdp` was verified, `renderer: "chromium"` for a detected Chromium or Electron app, and sometimes a `suggestion`. A missing `window` is not a failure. `disposition` says what the launch proved: `not_delivered` when it attached to a running app and sent nothing — `--activate` was not passed, or its target was already active so no request was needed (`retry: "safe"`); `delivered_verified` when the adapter read back the process it started, or confirmed the attached app came forward after `--activate`; and `delivered_unverified` when it cannot prove either, including a spawned process that never reached the accessibility bus, a launcher that exited without a window after it handed its work to another process, and arguments handed to a running instance. With `--cdp`, `data.cdp` holds `http_endpoint`, `port`, `product`, and `websocket_url` for a CDP client such as agent-browser; [Chromium and Electron apps](/desktop/guides/chromium-and-electron) walks through the handoff.
 
 Errors specific to `launch`:
 
@@ -138,6 +138,7 @@ agent-desktop close-app <APP> [--force]
 - `APP_NOT_FOUND` when no running app matches, `AMBIGUOUS_TARGET` when several instances share the name.
 - `INVALID_ARGS` for a protected system process, with or without `--force`.
 - A save prompt keeps the app open. Read it with `snapshot --surface sheet`, answer it, then close again.
+- On macOS a graceful close returns `ACTION_FAILED` with `details.cause: modal_pending` and names the prompt when an alert or sheet is open before the request (`not_delivered`, nothing sent) or when the request raises one (`delivered_unverified`). Answer the prompt, or use `--force`.
 - On Linux a headless graceful close runs. Where the focused window cannot be read (a Wayland session, or a focused window whose owner cannot be identified), it fails with `POLICY_DENIED` (`details.kind: focus_unreadable`) before any close request is sent. Report it to the user, or use `--force` (it discards unsaved work). If the app answers with a save prompt, the command fails with `ACTION_FAILED` (`details.cause: dialog_pending`), the app stays open, and the focus goes back to the window that had it (`details.focus_returned: true`). With `--headed` the focus is left where the prompt put it. Answer the prompt, or use `--force` (it discards unsaved work).
 
 On macOS a headless graceful close sends the quit request, and a save prompt opens in the app's own window behind the window in front. On Windows the close is posted to the app's windows, and if a window of the app takes the foreground, as a save prompt can, the command gives the foreground back to the window that had it. Linux checks focus first, as described above.
@@ -385,7 +386,7 @@ agent-desktop minimize [--app NAME] [--window-id ID]
 }
 ```
 
-A minimized window reports its elements as offscreen, so ref actions on it fail until you [`restore`](#restore) it. A window manager can ignore a minimize sent within about 250 ms of a restore, so read the window state before you retry. Platform limits are the same as `resize-window`.
+Headless `minimize` of the window that has the focus fails with `POLICY_DENIED`, because the system moves the focus when that window minimizes. Pass `--headed` to allow it. A minimized window reports its elements as offscreen, so ref actions on it fail until you [`restore`](#restore) it. A window manager can ignore a minimize sent within about 250 ms of a restore, so read the window state before you retry. Platform limits are the same as `resize-window`.
 
 ## maximize
 
@@ -397,7 +398,7 @@ agent-desktop maximize [--app NAME] [--window-id ID]
 
 ## restore
 
-Restores a minimized or maximized window. Flags are the same as [`minimize`](#minimize).
+Restores a minimized or maximized window. Flags are the same as [`minimize`](#minimize). Un-minimizing a window raises it. Headless, Windows restores it without activation and puts it directly below the foreground window. macOS and Linux have no quiet way to do it, so headless `restore` of a minimized window fails with `POLICY_DENIED` and nothing is sent; pass `--headed`. Restoring a maximized window stays headless.
 
 ```bash
 agent-desktop restore [--app NAME] [--window-id ID]

@@ -269,9 +269,8 @@ pub trait SystemOps: Send + Sync {
         Err(AdapterError::not_supported("press_key_for_app"))
     }
 
-    /// Checks the exact focused window before process-scoped key delivery.
-    /// Adapters can override this to retain the window identity through their
-    /// native delivery gates.
+    /// Checks the exact focused window before process-scoped key delivery;
+    /// adapters can override it to keep the window identity through their gates.
     fn press_key_for_window(
         &self,
         window: &WindowInfo,
@@ -279,44 +278,7 @@ pub trait SystemOps: Send + Sync {
         policy: InteractionPolicy,
         lease: &InteractionLease,
     ) -> Result<ActionResult, AdapterError> {
-        let refusal = || {
-            AdapterError::stale_ref_because(
-                "The named window's exact focus could not be confirmed, so no key was sent",
-            )
-            .with_suggestion(if policy.is_headed() {
-                "Ensure the named window remains active before retrying; a sibling window or another application's menu can hold the keyboard".to_owned()
-            } else {
-                format!("{} Or name the already active window.", crate::headed_mode_suggestion("brings the named window to the foreground before sending keys"))
-            })
-            .with_details(serde_json::json!({
-                "check": "window_active",
-                "cause": "exact_window_focus_unconfirmed",
-                "physical_delivery_started": false,
-                "window_id": window.id,
-            }))
-            .with_disposition(crate::DeliverySemantics::not_delivered())
-        };
-        let instance = window
-            .process_instance
-            .as_deref()
-            .filter(|instance| !instance.is_empty())
-            .ok_or_else(refusal)?;
-        let focused = self
-            .focused_window(lease.deadline())
-            .map_err(AdapterError::unsent)?;
-        if !focused.is_some_and(|focused| {
-            focused.id == window.id
-                && focused.pid == window.pid
-                && focused.process_instance.as_deref() == Some(instance)
-        }) {
-            return Err(refusal());
-        }
-        self.press_key_for_app(
-            ProcessIdentity::new(window.pid, instance),
-            combo,
-            policy,
-            lease,
-        )
+        super::window_key_refusal::press_in_exact_window(self, window, combo, policy, lease)
     }
 
     fn wait_for_menu(
@@ -328,10 +290,39 @@ pub trait SystemOps: Send + Sync {
         Err(AdapterError::not_supported("wait_for_menu"))
     }
 
+    /// What the user sees in front. Cheap: the front guard polls it.
+    fn read_front(&self, _deadline: Deadline) -> Result<crate::FrontView, AdapterError> {
+        Err(AdapterError::not_supported("read_front"))
+    }
+
+    /// The executable name and start time of `pid`, which the front guard
+    /// reads to tell the command target's new windows from the user's.
+    fn front_process(&self, _pid: u32) -> Option<crate::FrontProcess> {
+        None
+    }
+
+    fn keep_below(
+        &self,
+        _window: &crate::FrontWindow,
+        _above: &crate::FrontWindow,
+        _lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        Err(AdapterError::not_supported("keep_below"))
+    }
+
+    fn give_back(
+        &self,
+        _window: &crate::FrontWindow,
+        _lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        Err(AdapterError::not_supported("give_back"))
+    }
+
     fn window_op(
         &self,
         _win: &WindowInfo,
         _op: WindowOp,
+        _policy: InteractionPolicy,
         _lease: &InteractionLease,
     ) -> Result<OperationReport, AdapterError> {
         Err(AdapterError::not_supported("window_op"))

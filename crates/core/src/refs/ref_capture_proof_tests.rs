@@ -63,7 +63,7 @@ fn flags(root: AccessibilityNode, observed: &ObservedTree) -> Vec<bool> {
     allocate_refs(root, &mut refmap, &config(&proof)).unwrap();
     (1..=refmap.len())
         .filter_map(|index| refmap.get(&format!("@e{index}")))
-        .map(|entry| entry.identity.unique_at_capture)
+        .map(|entry| entry.identity.proof.is_unique())
         .collect()
 }
 
@@ -300,9 +300,10 @@ fn a_published_entry_is_proven_by_its_own_predicate_not_the_preferred_identifier
                 .map(|id| id.value.as_str()),
             Some("shared")
         );
-        assert!(
-            !matched.entry.identity.unique_at_capture,
-            "a predicate both twins carry was not found once"
+        assert_eq!(
+            matched.entry.identity.proof,
+            crate::IdentityProof::Twins,
+            "a predicate both twins carry was read twice"
         );
     }
 
@@ -313,7 +314,7 @@ fn a_published_entry_is_proven_by_its_own_predicate_not_the_preferred_identifier
     )
     .expect("the observation evaluates");
     assert_eq!(named.matches.len(), 1);
-    assert!(named.matches[0].entry.identity.unique_at_capture);
+    assert!(named.matches[0].entry.identity.proof.is_unique());
 }
 
 #[test]
@@ -353,3 +354,7 @@ fn a_skipped_native_sibling_does_not_unprove_the_refs_after_it() {
 
     assert_eq!(flags(root, &observed), [true, true]);
 }
+
+#[cfg(test)]
+#[path = "ref_unread_value_tests.rs"]
+mod unread_value;

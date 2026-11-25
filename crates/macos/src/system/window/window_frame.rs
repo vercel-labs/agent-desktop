@@ -2,8 +2,9 @@
 //! kept in the state root and `restore` puts it back.
 
 use agent_desktop_core::{
-    AdapterError, Deadline, DeliverySemantics, ErrorCode, OperationReport, ProcessIdentity, Rect,
-    WindowFrameMemory, WindowFrameRecord, WindowInfo, WindowOp, WindowReadback,
+    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionPolicy, OperationReport,
+    ProcessIdentity, Rect, WindowFrameMemory, WindowFrameRecord, WindowInfo, WindowOp,
+    WindowReadback,
 };
 use serde_json::json;
 
@@ -21,11 +22,12 @@ const FRAME_READ_MS: u64 = 1_000;
 pub(crate) fn window_op(
     win: &WindowInfo,
     op: WindowOp,
+    policy: InteractionPolicy,
     deadline: Deadline,
 ) -> Result<OperationReport, AdapterError> {
     match op {
         WindowOp::Maximize => maximize(win, deadline),
-        WindowOp::Restore => restore(win, deadline),
+        WindowOp::Restore => restore(win, policy, deadline),
         _ => dispatch(win, &op, window_report::window_readback(&op), deadline),
     }
 }
@@ -98,7 +100,11 @@ fn refresh_maximized_frame(win: &WindowInfo) -> Result<(), AdapterError> {
     memory.remember(&key, record, process_alive)
 }
 
-fn restore(win: &WindowInfo, deadline: Deadline) -> Result<OperationReport, AdapterError> {
+fn restore(
+    win: &WindowInfo,
+    policy: InteractionPolicy,
+    deadline: Deadline,
+) -> Result<OperationReport, AdapterError> {
     let key = window_key(win);
     let record = match win.state.minimized {
         Some(false) => WindowFrameMemory::open()?.recall(&key)?,
@@ -109,7 +115,8 @@ fn restore(win: &WindowInfo, deadline: Deadline) -> Result<OperationReport, Adap
         record.as_ref(),
         || current_frame(win, deadline),
         |frame| display_work_area::for_window(Some(frame), deadline),
-    )?;
+    )?
+    .permitted_by(policy)?;
     match plan {
         WindowRestorePlan::Unminimize => dispatch(
             win,

@@ -12,6 +12,7 @@ pub(crate) mod surface_opening;
 pub(crate) mod system;
 #[cfg(test)]
 mod test_support;
+mod window_key_refusal;
 
 pub(crate) use actions::ActionOps;
 pub(crate) use input::InputOps;

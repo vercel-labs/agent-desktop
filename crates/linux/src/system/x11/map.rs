@@ -80,7 +80,7 @@ pub(crate) fn match_client(frame: &FrameFacts, clients: &[X11Client]) -> ClientM
     }
     let named: Vec<&X11Client> = clients
         .iter()
-        .filter(|client| client.pid == Some(frame.pid) && client.title == frame.title)
+        .filter(|client| client.pid == Some(frame.pid) && client.title.matches(&frame.title))
         .collect();
     let [_, _, ..] = named.as_slice() else {
         return named

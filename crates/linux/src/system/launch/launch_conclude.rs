@@ -1,8 +1,9 @@
 use agent_desktop_core::system::launch_options::LaunchOptions;
 use agent_desktop_core::system::launch_result::LaunchResult;
-use agent_desktop_core::{AdapterError, DeliverySemantics, LaunchGuidance, ProcessId, WindowInfo};
+use agent_desktop_core::{
+    AdapterError, DeliverySemantics, LaunchArrival, LaunchGuidance, ProcessId, WindowInfo,
+};
 
-use super::launch_arrival::Arrival;
 use crate::system::process::running_app::Running;
 
 /// What the focus request answered the launch: the window read after it, and
@@ -23,7 +24,7 @@ pub(super) fn conclude(
     owner: &Running,
     window: Option<WindowInfo>,
     options: &LaunchOptions,
-    arrival: Arrival,
+    arrival: LaunchArrival,
     focus: impl FnOnce(&WindowInfo) -> Result<FocusAnswer, AdapterError>,
 ) -> LaunchResult {
     let mut notes = Vec::new();
@@ -65,3 +66,7 @@ pub(super) fn conclude(
         disposition: facts.disposition(),
     }
 }
+
+#[cfg(test)]
+#[path = "launch_conclude_tests.rs"]
+mod tests;

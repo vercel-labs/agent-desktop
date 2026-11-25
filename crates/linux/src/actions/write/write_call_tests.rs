@@ -91,3 +91,11 @@ fn a_deadline_spent_before_the_message_leaves_is_not_delivered() {
         DeliveryDisposition::NotDelivered
     );
 }
+
+#[test]
+fn a_do_action_reply_wait_is_capped_below_a_long_operation_budget() {
+    let budget = Deadline::after(5_000).expect("a deadline builds");
+
+    assert!(ack_deadline(WriteKind::DoAction, budget).remaining() <= DO_ACTION_ACK);
+    assert!(ack_deadline(WriteKind::SelectChild, budget).remaining() > DO_ACTION_ACK);
+}

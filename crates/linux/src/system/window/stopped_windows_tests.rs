@@ -26,7 +26,7 @@ fn client(id: u32, pid: u32, hidden: bool) -> X11Client {
         shadow: (0, 0, 0, 0),
         id,
         pid: Some(pid),
-        title: format!("window {id}"),
+        title: format!("window {id}").into(),
         extents: None,
         bounds: Some(Extents {
             x: 10,

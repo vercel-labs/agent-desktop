@@ -80,6 +80,7 @@ impl SystemOps for TargetedWindowAdapter {
         &self,
         win: &WindowInfo,
         op: WindowOp,
+        _: crate::InteractionPolicy,
         _lease: &crate::InteractionLease,
     ) -> Result<crate::OperationReport, AdapterError> {
         assert_eq!(win.id, "w-real");
@@ -138,6 +139,7 @@ impl SystemOps for RestoreWithoutWindowAdapter {
         &self,
         win: &WindowInfo,
         op: WindowOp,
+        _: crate::InteractionPolicy,
         _lease: &crate::InteractionLease,
     ) -> Result<crate::OperationReport, AdapterError> {
         assert_eq!(win.pid, 42);
@@ -230,6 +232,7 @@ fn restore_fails_closed_when_no_window_is_currently_listed() {
         },
         &adapter,
         WindowOp::Restore,
+        crate::InteractionPolicy::headless(),
     )
     .unwrap_err();
 
@@ -254,6 +257,7 @@ fn window_id_targets_one_window_in_an_ambiguous_app_inventory() {
         },
         &adapter,
         WindowOp::Restore,
+        crate::InteractionPolicy::headless(),
     )
     .unwrap();
 

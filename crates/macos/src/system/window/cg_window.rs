@@ -312,7 +312,10 @@ fn invalid_field_error(field: &str) -> AdapterError {
     ))
 }
 
-fn required_int_field(dict: &WindowDictionary, key: &str) -> Result<i64, AdapterError> {
+pub(in crate::system) fn required_int_field(
+    dict: &WindowDictionary,
+    key: &str,
+) -> Result<i64, AdapterError> {
     int_field(dict, key).ok_or_else(|| missing_field_error(key))
 }
 
@@ -340,7 +343,10 @@ fn string_field(dict: &WindowDictionary, key: &str) -> Option<String> {
         .map(|value| value.to_string())
 }
 
-fn bool_field(dict: &WindowDictionary, key: &str) -> Result<bool, AdapterError> {
+pub(in crate::system) fn bool_field(
+    dict: &WindowDictionary,
+    key: &str,
+) -> Result<bool, AdapterError> {
     use core_foundation::boolean::CFBoolean;
 
     let cf_key = CFString::new(key);

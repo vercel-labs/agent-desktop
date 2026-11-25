@@ -27,6 +27,7 @@ pub(crate) fn select_from_menu(
             ErrorCode::ActionNotSupported,
             "The target did not support AXShowMenu or AXPress",
         )
+        .with_disposition(DeliverySemantics::not_delivered())
         .with_suggestion("Use click to open the control, then snapshot the menu."));
     }
     let result = select_open_menu_item(pid, identity, value, deadline);

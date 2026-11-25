@@ -46,7 +46,7 @@ pub(super) fn selected_matches(
         let has_bounds = preliminary.geometry.bounds_hash.is_some();
         let index = matched.document_order as usize;
         proof.prove_node(&mut preliminary, index);
-        let proven = preliminary.identity.unique_at_capture;
+        let proven = preliminary.identity.proof.is_unique();
         tracing::debug!(
             role = preliminary.identity.role,
             path_len = preliminary.scope.path.len(),

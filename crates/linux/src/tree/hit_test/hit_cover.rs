@@ -8,9 +8,9 @@ pub(crate) fn cover_name(clients: &[X11Client], window: u32) -> Option<String> {
     let cover = clients.iter().find(|client| client.id == window)?;
     let same = clients
         .iter()
-        .filter(|client| client.pid == cover.pid && client.title == cover.title)
+        .filter(|client| client.pid == cover.pid && client.title.same_as(&cover.title))
         .count();
-    (same == 1 && !cover.title.is_empty()).then(|| cover.title.clone())
+    (same == 1 && !cover.title.is_empty()).then(|| cover.title.display().to_owned())
 }
 
 /// The title of an override-redirect cover, by the same rule: only when no
@@ -24,7 +24,7 @@ pub(crate) fn override_name(
     let others = names.iter().filter(|(_, other)| other == title).count()
         + clients
             .iter()
-            .filter(|client| &client.title == title)
+            .filter(|client| client.title.matches(title))
             .count();
     (others == 1).then(|| title.clone())
 }

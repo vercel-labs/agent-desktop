@@ -218,7 +218,7 @@ A drill is all or nothing. It replaces refs inside an existing snapshot, and a p
   "error": {
     "code": "TIMEOUT",
     "message": "Operation exceeded its deadline",
-    "suggestion": "The target application may be busy or unresponsive",
+    "suggestion": "The operation did not finish within its deadline; retry once, and if it repeats report the timeout instead of retrying",
     "recovery": {
       "strategy": "inspect_state_then_retry_original",
       "retryable": true,

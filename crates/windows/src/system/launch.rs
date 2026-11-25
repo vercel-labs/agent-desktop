@@ -1,5 +1,5 @@
 use agent_desktop_core::{
-    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionLease, LaunchFacts,
+    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionLease, LaunchArrival,
     LaunchGuidance, ProcessId, RendererKind, WindowInfo, system::launch_options::LaunchOptions,
     system::launch_result::LaunchResult,
 };
@@ -11,9 +11,8 @@ use std::time::Duration;
 #[cfg(test)]
 use self::launch_attach::matching_processes;
 use self::launch_attach::prepare;
-use self::launch_observe::{observe_window, observe_window_once};
+use self::launch_watch::{Origin, Resident, Seen, Sighting, Target, Watch, observe_window};
 use super::app_ops::ProcessRow;
-use super::launch_focus::{Progress, Watch, read_foreground, startup_show};
 use super::launch_path::{
     child_environment_block, image_file_name, launch_identifier, validate_launch_options,
 };
@@ -23,17 +22,27 @@ use super::process_identity;
 #[cfg(target_os = "windows")]
 use super::runtime::hresult::win32_last_error;
 
-const ATTACHED: LaunchFacts = LaunchFacts {
-    attached: true,
-    activation_dispatched: false,
-    postcondition_observed: false,
-};
+const STARTF_USESHOWWINDOW: u32 = 0x1;
+const SW_SHOWNOACTIVATE: u16 = 4;
 
-const SPAWNED: LaunchFacts = LaunchFacts {
-    attached: false,
-    activation_dispatched: false,
-    postcondition_observed: true,
-};
+/// The `dwFlags` and `wShowWindow` fields of the child's `STARTUPINFOW`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct StartupShow {
+    flags: u32,
+    show: u16,
+}
+
+/// A launch without `--activate` asks for no activation. An application that
+/// ignores the hint is handled by the front guard.
+fn startup_show(activate: bool) -> StartupShow {
+    if activate {
+        return StartupShow { flags: 0, show: 0 };
+    }
+    StartupShow {
+        flags: STARTF_USESHOWWINDOW,
+        show: SW_SHOWNOACTIVATE,
+    }
+}
 
 pub(crate) fn launch_app_impl(
     id: &str,
@@ -53,37 +62,91 @@ pub(crate) fn launch_app_impl(
     if let Some(attached) = attached {
         return Ok(attached);
     }
-    let prior = (!options.activate).then(read_foreground).flatten();
+    let known_windows = launch_watch::window_ids(deadline);
     let (pid, token) = create_process(&executable, options, deadline)?;
-    let (focus_returned, window) = if options.activate {
-        (
-            false,
-            observe_window(pid, &token, options, deadline, &Progress::new()),
-        )
-    } else {
-        Watch::new(prior, pid, lease).beside(
-            || matches!(observe_window_once(pid, &token, deadline), Ok(Some(_))),
-            |progress| observe_window(pid, &token, options, deadline, progress),
-        )
+    let target = Target {
+        pid,
+        process_instance: &token,
+        resident: known_windows.map(|known_windows| Resident {
+            image: executable.clone(),
+            known_windows,
+        }),
     };
-    let window = window?;
-    let mut result = launch_result(id, pid, token, window, SPAWNED);
-    result.guidance.focus_returned = focus_returned;
-    if focus_returned {
-        if let Some(window) = result.window.as_mut() {
-            window.state.is_focused = false;
-        }
-    }
-    Ok(result)
+    let sighting = observe_window(&target, options, deadline)?;
+    drop(lease);
+    Ok(spawned_result(id, pid, token, sighting))
 }
 
-fn launch_result(
+const FINISHED_WITHOUT_WINDOW: &str = "The launched process exited and no window of it or of a process it started appeared. It may have handed its work to another process. Run 'list-windows' to find it.";
+
+const RUNNING_WITHOUT_WINDOW: &str = "The launched process is running and showed no window within the wait. Run 'list-windows' to see whether one opened later.";
+
+/// The one place a finished watch becomes a result. A window owned by the
+/// launched process is `Spawned`; one owned by a process it started is
+/// `Appeared` and names that owner. A window the launch caused in an instance
+/// of the program that was already running is `Forwarded`: the request
+/// arrived, and the arrival was read but not attributed beyond the program
+/// and the new window. Without a window the process was created
+/// and nothing of the launch was observed, so the result says what ended the
+/// wait and claims no verification.
+fn spawned_result(
     id: &str,
     pid: ProcessId,
     process_instance: String,
-    window: Option<WindowInfo>,
-    facts: LaunchFacts,
+    sighting: Sighting,
 ) -> LaunchResult {
+    let Sighting { seen, end } = sighting;
+    match seen {
+        Some(Seen { window, origin }) => {
+            let owner = window.pid;
+            let instance = window.process_instance.clone().unwrap_or(process_instance);
+            let arrival = match origin {
+                Origin::Launched => LaunchArrival::Spawned,
+                Origin::Started => LaunchArrival::Appeared,
+                Origin::Resident => LaunchArrival::Forwarded,
+            };
+            launch_result(Reported {
+                id,
+                pid: owner,
+                process_instance: instance,
+                window: Some(window),
+                arrival,
+                suggestion: None,
+            })
+        }
+        None => launch_result(Reported {
+            id,
+            pid,
+            process_instance,
+            window: None,
+            arrival: LaunchArrival::Unobserved,
+            suggestion: Some(if end == Watch::LauncherFinished {
+                FINISHED_WITHOUT_WINDOW
+            } else {
+                RUNNING_WITHOUT_WINDOW
+            }),
+        }),
+    }
+}
+
+pub(super) struct Reported<'a> {
+    pub(super) id: &'a str,
+    pub(super) pid: ProcessId,
+    pub(super) process_instance: String,
+    pub(super) window: Option<WindowInfo>,
+    pub(super) arrival: LaunchArrival,
+    pub(super) suggestion: Option<&'static str>,
+}
+
+fn launch_result(reported: Reported<'_>) -> LaunchResult {
+    let Reported {
+        id,
+        pid,
+        process_instance,
+        window,
+        arrival,
+        suggestion,
+    } = reported;
     let renderer = window.as_ref().and_then(detect_renderer_from_window);
     LaunchResult {
         app: window
@@ -95,9 +158,10 @@ fn launch_result(
         window,
         guidance: LaunchGuidance {
             renderer,
+            suggestion: suggestion.map(str::to_owned),
             ..LaunchGuidance::default()
         },
-        disposition: facts.disposition(),
+        disposition: arrival.facts().disposition(),
     }
 }
 
@@ -275,15 +339,6 @@ fn environment_block(overrides: &BTreeMap<String, String>) -> Result<Vec<u16>, A
     super::launch_path::environment_block(overrides)
 }
 
-fn already_running_error(pid: ProcessId, matches: &[ProcessRow]) -> AdapterError {
-    AdapterError::new(ErrorCode::ActionFailed, "Application is already running")
-        .with_details(serde_json::json!({
-            "pid": pid,
-            "candidate_pids": matches.iter().map(|row| row.pid).collect::<Vec<_>>(),
-        }))
-        .with_suggestion("Omit --no-attach to attach to the running instance, or close it first.")
-}
-
 fn ambiguous_apps(matches: &[ProcessRow]) -> AdapterError {
     AdapterError::ambiguous_process_target(
         "More than one application instance matches the launch target",
@@ -299,12 +354,13 @@ fn after_launch(error: AdapterError) -> AdapterError {
     error.with_disposition(DeliverySemantics::delivered_unverified())
 }
 
-#[path = "launch_observe.rs"]
-mod launch_observe;
-
 #[cfg(test)]
 #[path = "launch_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "launch_result_tests.rs"]
+mod result_tests;
 
 #[cfg(all(test, target_os = "windows"))]
 #[path = "launch_lease_isolation_tests.rs"]
@@ -312,3 +368,6 @@ mod launch_lease_isolation_tests;
 
 #[path = "launch_attach.rs"]
 pub(crate) mod launch_attach;
+
+#[path = "launch_watch.rs"]
+mod launch_watch;

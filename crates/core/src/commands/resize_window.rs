@@ -15,7 +15,11 @@ pub struct ResizeWindowArgs {
     pub height: f64,
 }
 
-pub fn execute(args: ResizeWindowArgs, adapter: &dyn PlatformAdapter) -> Result<Value, AppError> {
+pub fn execute(
+    args: ResizeWindowArgs,
+    adapter: &dyn PlatformAdapter,
+    policy: crate::InteractionPolicy,
+) -> Result<Value, AppError> {
     crate::Rect {
         x: 0.0,
         y: 0.0,
@@ -32,6 +36,7 @@ pub fn execute(args: ResizeWindowArgs, adapter: &dyn PlatformAdapter) -> Result<
             width: args.width,
             height: args.height,
         },
+        policy,
         &lease,
     )?;
     operation_response(

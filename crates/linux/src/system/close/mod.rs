@@ -1,8 +1,6 @@
 use std::time::Instant;
 
-use agent_desktop_core::{
-    AdapterError, AppInfo, InteractionLease, InteractionPolicy, OperationReport,
-};
+use agent_desktop_core::{AdapterError, AppInfo, InteractionLease, OperationReport};
 
 use super::SharedBus;
 use crate::system::process::process_lookup::Lookup;
@@ -23,7 +21,6 @@ struct Request<'a> {
     pid: u32,
     instance: Option<&'a str>,
     force: bool,
-    policy: InteractionPolicy,
 }
 
 fn refuse_if_protected(world: &impl World, request: &Request<'_>) -> Result<(), AdapterError> {
@@ -58,14 +55,12 @@ fn run_report(
     world: &impl World,
     app: &AppInfo,
     force: bool,
-    policy: InteractionPolicy,
 ) -> Result<OperationReport, AdapterError> {
     let request = Request {
         name: &app.name,
         pid: app.pid.get(),
         instance: app.process_instance.as_deref(),
         force,
-        policy,
     };
     OperationReport::from_close_dispatch(app, run(world, &request))
 }
@@ -75,7 +70,6 @@ pub(crate) fn close_app(
     app: &AppInfo,
     force: bool,
     lease: &InteractionLease,
-    policy: InteractionPolicy,
 ) -> Result<OperationReport, AdapterError> {
     let pid = app.pid.get();
     let live = Live {
@@ -85,7 +79,7 @@ pub(crate) fn close_app(
         deadline: lease.deadline(),
         started: Instant::now(),
     };
-    run_report(&live, app, force, policy)
+    run_report(&live, app, force)
 }
 
 #[cfg(test)]
