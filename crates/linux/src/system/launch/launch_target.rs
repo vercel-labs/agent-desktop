@@ -140,7 +140,19 @@ fn plan_file(
     let at = argv.iter().position(|word| *word == program).unwrap_or(0);
     argv[at] = resolve_program(&program, &search.path_dirs)?;
     argv[0] = resolve_program(&argv[0], &search.path_dirs)?;
-    let identity = ExecutableIdentity::requested(&argv, &search.path_dirs);
+    let mut base = expand(
+        exec,
+        &ExecContext {
+            arguments: &[],
+            icon: entry.icon.as_deref(),
+            name: &entry.name,
+            file: Some(&file_text),
+        },
+    );
+    let at_base = base.iter().position(|word| *word == program).unwrap_or(0);
+    base[at_base] = argv[at].clone();
+    base[0] = argv[0].clone();
+    let identity = ExecutableIdentity::requested(&launcher_words(&base), &search.path_dirs);
     let aliases = aliases_of_identity(index, identity.as_ref());
     Ok(Plan {
         argv,
@@ -150,11 +162,30 @@ fn plan_file(
     })
 }
 
+/// The words of a desktop entry's command that say which application it is.
+/// A single-letter option of the entry is a switch of the launcher, such as a
+/// block mode, that the running process does not carry; every other word
+/// stays, so an interpreter entry still names its script and a long option
+/// still names its mode.
+pub(crate) fn launcher_words(words: &[String]) -> Vec<String> {
+    words
+        .iter()
+        .enumerate()
+        .filter(|(index, word)| *index == 0 || !is_launcher_switch(word))
+        .map(|(_, word)| word.clone())
+        .collect()
+}
+
+fn is_launcher_switch(word: &str) -> bool {
+    let mut chars = word.chars();
+    chars.next() == Some('-') && chars.next().is_some_and(|c| c != '-') && chars.next().is_none()
+}
+
 fn direct_plan(program: String, arguments: &[String], index: &AliasIndex) -> Plan {
+    let identity = ExecutableIdentity::requested(std::slice::from_ref(&program), &[]);
     let argv: Vec<String> = std::iter::once(program)
         .chain(arguments.iter().cloned())
         .collect();
-    let identity = ExecutableIdentity::requested(&argv, &[]);
     let aliases = aliases_of_identity(index, identity.as_ref());
     Plan {
         argv,
@@ -229,3 +260,7 @@ mod tests;
 #[cfg(test)]
 #[path = "launch_identity_tests.rs"]
 mod identity_tests;
+
+#[cfg(test)]
+#[path = "launch_launcher_tests.rs"]
+mod launcher_tests;
