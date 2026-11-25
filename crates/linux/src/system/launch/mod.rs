@@ -8,7 +8,7 @@ use agent_desktop_core::{
     LaunchGuidance, ProcessId, RendererKind, WindowInfo,
 };
 
-use self::launch_attach::{Decision, decide};
+use self::launch_attach::{Decision, decide_plan};
 use self::launch_conclude::{FocusAnswer, conclude};
 use self::launch_observe::{POLL_INTERVAL, Spawned, find_owner, pids_of, running_of};
 use self::launch_search::Search;
@@ -317,8 +317,8 @@ pub(crate) fn launch_app(
         lease,
         deadline,
     };
-    match decide(
-        &plan.identity,
+    match decide_plan(
+        &plan,
         &running,
         options.attach_if_running,
         !options.args.is_empty(),
