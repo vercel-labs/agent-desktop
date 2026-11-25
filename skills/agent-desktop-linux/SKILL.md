@@ -74,7 +74,9 @@ use a private session and runtime directory for isolated work.
   still be readable. Treat observation output as sensitive.
 - `launch` accepts a program on PATH, an absolute path, an installed desktop id,
   or an unambiguous desktop entry name. A script launch attaches only to the interpreter
-  process that runs that script, never to another script of the same interpreter. Use process and window identity from
+  process that runs that script, never to another script of the same interpreter. `--no-attach` refuses any running
+  process of the same program (the same executable, or the interpreter running the same script) whatever its
+  arguments. Use process and window identity from
   observations rather than guessing from a window title. Without `--activate`,
   a launch on X11 gives the focus and window order back and reports `focus_returned: true`,
   or `false` with a suggestion; a headless click that opens a dialog is guarded the same way.
