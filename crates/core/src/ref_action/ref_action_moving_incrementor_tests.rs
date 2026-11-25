@@ -150,6 +150,6 @@ fn a_replacement_incrementor_at_the_expected_scrolled_rectangle_receives_no_writ
         ActionRequest::headless(Action::SetValue("5".into())),
     )
     .expect_err("scrolling cannot authorize a replacement control");
-    assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());
+    assert_eq!(error.disposition, crate::DeliverySemantics::uncertain());
     assert_eq!(adapter.writes.load(Ordering::SeqCst), 0);
 }

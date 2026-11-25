@@ -14,6 +14,7 @@ struct ScrollRecoveryAdapter {
     stays_offscreen: bool,
     scroll_should_fail: bool,
     dispatch_fails: bool,
+    refuses_route: bool,
     scroll_policy: std::sync::Mutex<Option<crate::InteractionPolicy>>,
 }
 
@@ -27,6 +28,7 @@ impl ScrollRecoveryAdapter {
             stays_offscreen,
             scroll_should_fail,
             dispatch_fails: false,
+            refuses_route: false,
             scroll_policy: std::sync::Mutex::new(None),
         }
     }
@@ -84,6 +86,18 @@ impl ActionOps for ScrollRecoveryAdapter {
             .with_suggestion(
                 "scroll a containing viewport first, or target a scroll-item control",
             ));
+        }
+        Ok(())
+    }
+
+    fn refuse_before_scroll(
+        &self,
+        _handle: &NativeHandle,
+        _request: &ActionRequest,
+        _lease: &crate::InteractionLease,
+    ) -> Result<(), AdapterError> {
+        if self.refuses_route {
+            return Err(AdapterError::new(ErrorCode::ActionNotSupported, "no route"));
         }
         Ok(())
     }
@@ -315,4 +329,49 @@ fn a_failed_scroll_attempt_reports_the_scroll() {
             .as_ref()
             .is_some_and(|details| details.get("preparatory_scroll").is_some())
     );
+}
+
+#[test]
+fn a_final_refusal_is_decided_before_any_scroll() {
+    let mut adapter = ScrollRecoveryAdapter::new(true, false);
+    adapter.refuses_route = true;
+
+    let error =
+        execute_entry(&adapter, &entry(), ActionRequest::headless(Action::Expand)).unwrap_err();
+
+    assert_eq!(error.code, ErrorCode::ActionNotSupported);
+    assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());
+    assert_eq!(adapter.scroll_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(adapter.dispatch_calls.load(Ordering::SeqCst), 0);
+    assert!(
+        error
+            .details
+            .as_ref()
+            .is_none_or(|details| details.get("preparatory_scroll").is_none())
+    );
+}
+
+#[test]
+fn a_not_delivered_failure_after_a_scroll_is_never_reported_as_not_delivered() {
+    let adapter = ScrollRecoveryAdapter::new(true, false);
+
+    let error =
+        execute_entry(&adapter, &entry(), ActionRequest::headless(Action::Expand)).unwrap_err();
+
+    assert_eq!(adapter.scroll_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(error.disposition, crate::DeliverySemantics::uncertain());
+    assert_eq!(
+        error.details.as_ref().unwrap()["preparatory_scroll"],
+        "may_have_changed_view"
+    );
+}
+
+#[test]
+fn a_failed_scroll_attempt_does_not_claim_not_delivered() {
+    let adapter = ScrollRecoveryAdapter::new(true, true);
+
+    let error =
+        execute_entry(&adapter, &entry(), ActionRequest::headless(Action::Expand)).unwrap_err();
+
+    assert_eq!(error.disposition, crate::DeliverySemantics::uncertain());
 }

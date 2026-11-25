@@ -71,3 +71,12 @@ fn a_parent_cycle_ends_instead_of_looping() {
     );
     assert!(descendants(&rows, ProcessId::from(0)).is_empty());
 }
+
+#[test]
+fn a_forwardable_launch_keeps_looking_for_the_forwarded_window_after_its_launcher_exits() {
+    let exited = Instant::now();
+
+    assert!(forward_search_over(false, exited, exited));
+    assert!(!forward_search_over(true, exited, exited));
+    assert!(forward_search_over(true, exited, exited + FORWARD_GRACE));
+}

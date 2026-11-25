@@ -129,19 +129,18 @@ pub(crate) fn trace_resolve_error(context: &CommandContext, ref_id: &str, err: &
     });
 }
 
-/// The preparatory scroll moves the view, never the requested action, so a
-/// refusal after it writes nothing: the disposition says so, and the
-/// `preparatory_scroll` detail records that the view may have changed.
-pub(crate) fn after_scroll(mut error: AdapterError) -> AdapterError {
-    if error.disposition == crate::DeliverySemantics::Unknown {
-        error.disposition = crate::DeliverySemantics::not_delivered();
-    }
-    note_preparatory_scroll(error)
-}
-
-/// Records the scroll as an effect without touching the disposition, for exits
-/// where the requested action may have been sent after the scroll.
+/// A command that ends `not_delivered` has changed nothing, and the
+/// preparatory scroll changes the view. An error after the scroll therefore
+/// names the scroll in `preparatory_scroll` and cannot claim `not_delivered`:
+/// it is `delivery_uncertain`, unsafe to retry blindly. A disposition that
+/// already reports a send keeps its value.
 pub(crate) fn note_preparatory_scroll(mut error: AdapterError) -> AdapterError {
+    if matches!(
+        error.disposition,
+        crate::DeliverySemantics::Unknown | crate::DeliverySemantics::NotDelivered
+    ) {
+        error.disposition = crate::DeliverySemantics::uncertain();
+    }
     let details = error.details.get_or_insert_with(|| json!({}));
     if let Some(details) = details.as_object_mut() {
         details.insert("preparatory_scroll".into(), "may_have_changed_view".into());
@@ -169,4 +168,17 @@ pub(crate) fn trace_scroll_error(
 
 pub(crate) fn trace_resolve_ok(context: &CommandContext, ref_id: &str) {
     let _ = context.trace_lazy("ref.resolve.ok", || json!({ "ref": ref_id }));
+}
+
+/// Asks the adapter for a final refusal before the preparatory scroll runs, so
+/// a refused action leaves the view where it was.
+pub(crate) fn require_route_before_scroll(
+    adapter: &dyn PlatformAdapter,
+    handle: &crate::NativeHandle,
+    request: &crate::ActionRequest,
+    lease: &crate::InteractionLease,
+) -> Result<(), AdapterError> {
+    adapter
+        .refuse_before_scroll(handle, request, lease)
+        .map_err(crate::ref_action::mark_pre_dispatch_resolution_failure)
 }

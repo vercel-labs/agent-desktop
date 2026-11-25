@@ -280,3 +280,7 @@ mod phase_tests;
 #[cfg(test)]
 #[path = "front_guard_child_tests.rs"]
 mod child_tests;
+
+#[cfg(test)]
+#[path = "front_guard_unfocused_tests.rs"]
+mod unfocused_tests;

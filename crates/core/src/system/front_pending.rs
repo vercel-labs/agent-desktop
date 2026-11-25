@@ -37,7 +37,6 @@ pub(crate) struct FrontResolution {
 pub(crate) struct FrontPending {
     machine: FrontGuardMachine,
     shared: Arc<FrontShared>,
-    root: Option<u32>,
     deadline: Deadline,
     ends_at: Instant,
 }
@@ -52,14 +51,19 @@ impl FrontPending {
         deadline: Deadline,
         ends_at: Instant,
     ) -> Self {
-        let root = shared.target().pid;
         Self {
             machine,
             shared,
-            root,
             deadline,
             ends_at,
         }
+    }
+
+    /// The same watch with a deadline of its own, for a caller whose command
+    /// has used up the lease's.
+    pub(crate) fn with_deadline(mut self, deadline: Deadline) -> Self {
+        self.deadline = deadline;
+        self
     }
 
     /// Runs `work`, the reads the caller owes after releasing the lease, with
@@ -129,7 +133,7 @@ impl FrontPending {
     }
 
     fn helper_still_running(&self, adapter: &dyn PlatformAdapter) -> bool {
-        let Some(root) = self.root else {
+        let Some(root) = self.shared.root() else {
             return false;
         };
         let spawned = adapter

@@ -6,7 +6,11 @@
 //! the top: a window that did not exist before the command and that the target
 //! owns, or a window of the target process. Every other window is the user's:
 //! one the user switched to, and one the user opened during the command. The
-//! machine never touches those. Whether a new window is the target's is the
+//! machine never touches those. Only a switch to a window that existed before
+//! ends the watch for good: a new window nobody owns yet may still turn out to
+//! be the target's (its owner is learned when a launch returns, or when a helper
+//! is listed), so the watch keeps looking at it and gives back only once it is
+//! owned. Whether a new window is the target's is the
 //! owner's answer; the machine decides only from it and from window ids.
 
 use super::front_guard_state::FrontGuardState;
@@ -161,10 +165,9 @@ impl FrontGuardMachine {
             .into_iter()
             .flatten()
             .find(displaced);
-        let user_moved_focus = now
-            .focused
-            .as_ref()
-            .is_some_and(|focused| focused.id != prior_focus.id && !ours(focused));
+        let user_moved_focus = now.focused.as_ref().is_some_and(|focused| {
+            focused.id != prior_focus.id && self.prior.has_window(&focused.id) && !ours(focused)
+        });
         match intruder {
             Some(_) if user_moved_focus => Verdict::Yielded,
             Some(window) => Verdict::Intruder(window.clone()),
