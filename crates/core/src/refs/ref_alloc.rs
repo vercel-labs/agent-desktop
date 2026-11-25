@@ -283,8 +283,14 @@ fn allocate_refs_at_path(
     plan: &AllocationPlan,
 ) -> Result<AccessibilityNode, crate::AppError> {
     let node_is_ref_able = is_ref_able(&node);
+    let drill_root = config
+        .scope
+        .root_ref_id
+        .filter(|_| path.as_slice() == config.scope.path_prefix);
 
-    if node_is_ref_able {
+    if let Some(root_ref_id) = drill_root {
+        node.ref_id = Some(root_ref_id.to_string());
+    } else if node_is_ref_able {
         let mut entry = ref_entry_from_node(
             &node,
             &config.source,
@@ -300,7 +306,9 @@ fn allocate_refs_at_path(
         node.ref_id = allocate_observed_ref(refmap, entry)?;
     }
 
-    let is_skeleton_anchor = !node_is_ref_able && plan.skeleton_anchors.contains(path.as_slice());
+    let is_skeleton_anchor = drill_root.is_none()
+        && !node_is_ref_able
+        && plan.skeleton_anchors.contains(path.as_slice());
 
     if is_skeleton_anchor {
         let mut entry = skeleton_anchor_entry(&node, &config.source, path);
