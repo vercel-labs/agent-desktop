@@ -1,7 +1,9 @@
 use std::fs::File;
 use std::path::Path;
 
-use crate::storage::file_lock_wait::{LockWaitFailure, settle_abandoned_waiters, wait_for_lock};
+use crate::storage::file_lock_wait::{
+    LockWaitFailure, abandoned_waiter_epoch, settle_abandoned_waiters, wait_for_lock,
+};
 use crate::{AdapterError, Deadline, ErrorCode};
 
 /// A private state-file lock held until this guard is dropped.
@@ -106,6 +108,7 @@ fn lock_file(
     }
     let mut contention_count = 0_u64;
     let file = loop {
+        let before_epoch = abandoned_waiter_epoch();
         match file.try_lock() {
             Ok(()) => break file,
             Err(std::fs::TryLockError::Error(error)) => {
@@ -113,7 +116,7 @@ fn lock_file(
             }
             Err(std::fs::TryLockError::WouldBlock) => {
                 contention_count = 1;
-                if settle_abandoned_waiters(path, deadline) {
+                if settle_abandoned_waiters(path, deadline, before_epoch) {
                     continue;
                 }
                 break wait_for_lock(file, deadline, path).map_err(|failure| match failure {
