@@ -94,3 +94,72 @@ fn a_rich_edit_value_drops_only_its_final_paragraph_mark() {
         LocatorField::Known("hi".into())
     );
 }
+
+fn range_read(
+    value: PropertyOutcome,
+    available: PropertyOutcome,
+    range: PropertyOutcome,
+) -> LocatorField<String> {
+    ElementProperties::from_reads(vec![
+        (TreeProperty::Value, value),
+        (TreeProperty::RangeValueAvailable, available),
+        (TreeProperty::RangeValue, range),
+    ])
+    .locator_evidence(ResolvedVocabulary::unknown())
+    .value
+}
+
+fn flag(value: bool) -> PropertyOutcome {
+    PropertyOutcome::Known(PropertyValue::Flag(value))
+}
+
+fn real(value: f64) -> PropertyOutcome {
+    PropertyOutcome::Known(PropertyValue::Real(value))
+}
+
+/// A slider that offers RangeValue and no Value pattern answers `Value` as
+/// not supported, so its value was empty. It reads as the number, in the
+/// text the other platforms report for a slider.
+#[test]
+fn a_range_control_without_a_value_pattern_reports_its_number_as_the_value() {
+    assert_eq!(
+        range_read(PropertyOutcome::Absent, flag(true), real(50.0)),
+        LocatorField::Known("50".into())
+    );
+    assert_eq!(
+        range_read(PropertyOutcome::Absent, flag(true), real(0.25)),
+        LocatorField::Known("0.25".into())
+    );
+}
+
+#[test]
+fn a_range_number_is_not_a_value_without_its_gate_or_when_it_is_not_finite() {
+    assert_eq!(
+        range_read(PropertyOutcome::Absent, flag(false), real(50.0)),
+        LocatorField::Absent
+    );
+    assert_eq!(
+        range_read(
+            PropertyOutcome::Absent,
+            PropertyOutcome::Unknown,
+            real(50.0)
+        ),
+        LocatorField::Absent
+    );
+    assert_eq!(
+        range_read(PropertyOutcome::Absent, flag(true), real(f64::NAN)),
+        LocatorField::Absent
+    );
+}
+
+#[test]
+fn a_text_value_wins_over_a_range_number() {
+    assert_eq!(
+        range_read(
+            PropertyOutcome::Known(PropertyValue::Text("high".into())),
+            flag(true),
+            real(50.0)
+        ),
+        LocatorField::Known("high".into())
+    );
+}

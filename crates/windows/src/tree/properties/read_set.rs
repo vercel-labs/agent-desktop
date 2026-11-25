@@ -21,10 +21,11 @@ pub enum ReadSet {
 /// - Name and description: `Name`, `FullDescription` and `HelpText` (its
 ///   fallback), `LabeledBy` (a borrowed name) and `IsPassword`, which withholds
 ///   any of them from a secure field.
-/// - Value, which the stable name can use: `Value`, and `ClassName`, which
+/// - Value, which the stable name can use: `Value`, `RangeValue` for a control
+///   that has a range and no text value, and `ClassName`, which
 ///   decides whether a RichEdit paragraph mark is dropped from it.
 /// - Identifiers: `AutomationId`.
-pub const IDENTITY_SET: [TreeProperty; 18] = [
+pub const IDENTITY_SET: [TreeProperty; 20] = [
     TreeProperty::Name,
     TreeProperty::AutomationId,
     TreeProperty::ClassName,
@@ -32,6 +33,7 @@ pub const IDENTITY_SET: [TreeProperty; 18] = [
     TreeProperty::FullDescription,
     TreeProperty::LabeledBy,
     TreeProperty::Value,
+    TreeProperty::RangeValue,
     TreeProperty::IsPassword,
     TreeProperty::IsDialog,
     TreeProperty::ControlType,
@@ -40,6 +42,7 @@ pub const IDENTITY_SET: [TreeProperty; 18] = [
     TreeProperty::ExpandCollapseAvailable,
     TreeProperty::SelectionAvailable,
     TreeProperty::ValueAvailable,
+    TreeProperty::RangeValueAvailable,
     TreeProperty::WindowAvailable,
     TreeProperty::GridItemAvailable,
     TreeProperty::TableItemAvailable,

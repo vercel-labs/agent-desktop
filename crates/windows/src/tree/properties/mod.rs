@@ -300,6 +300,8 @@ mod imp {
             Ok(Value::I4(number) | Value::INT(number)) => {
                 PropertyOutcome::Known(PropertyValue::Number(number))
             }
+            Ok(Value::R8(number)) => PropertyOutcome::Known(PropertyValue::Real(number)),
+            Ok(Value::R4(number)) => PropertyOutcome::Known(PropertyValue::Real(f64::from(number))),
             Ok(_) => PropertyOutcome::Unknown,
         }
     }

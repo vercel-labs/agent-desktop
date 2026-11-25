@@ -172,6 +172,17 @@ impl ElementProperties {
         }
     }
 
+    /// A range control's current value behind its pattern gate, as the text
+    /// the other platforms report for a slider: the number without a trailing
+    /// `.0`. A non-finite number is not a value.
+    pub(crate) fn gated_range_text(&self) -> Option<String> {
+        if !self.gate_open(TreeProperty::RangeValue) {
+            return None;
+        }
+        let number = self.get(TreeProperty::RangeValue).real()?;
+        number.is_finite().then(|| format!("{number}"))
+    }
+
     pub fn gated_number(&self, property: TreeProperty) -> Option<i32> {
         if !self.gate_open(property) {
             return None;
@@ -247,6 +258,9 @@ impl ElementProperties {
             LocatorField::Known(value) if self.is_rich_edit() && value.ends_with('\r') => {
                 LocatorField::Known(value[..value.len() - 1].to_string())
             }
+            LocatorField::Absent => self
+                .gated_range_text()
+                .map_or(LocatorField::Absent, LocatorField::Known),
             other => other,
         }
     }
