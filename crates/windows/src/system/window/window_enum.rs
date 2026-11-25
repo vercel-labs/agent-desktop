@@ -67,15 +67,7 @@ pub(crate) fn enumerate_top_level(
 ) -> Result<(), AdapterError> {
     unsafe extern "system" fn callback(window: HWND, lparam: isize) -> i32 {
         let visit = unsafe { &mut *(lparam as *mut Box<dyn FnMut(EnumeratedWindow) -> bool>) };
-        let keep_going = visit(EnumeratedWindow {
-            handle: window,
-            visible: unsafe { IsWindowVisible(window) != 0 },
-            iconic: unsafe { IsIconic(window) != 0 },
-            cloaked: is_cloaked(window),
-            tool: is_tool_window(window),
-            rect: window_rect(window),
-        });
-        i32::from(keep_going)
+        i32::from(visit(describe(window)))
     }
 
     let stopped_early = std::rc::Rc::new(std::cell::Cell::new(false));
@@ -102,6 +94,38 @@ pub(crate) fn enumerate_top_level(
     _visit: impl FnMut(EnumeratedWindow) -> bool,
 ) -> Result<(), AdapterError> {
     Ok(())
+}
+
+/// Every fact the enumeration records about one window.
+#[cfg(target_os = "windows")]
+pub(crate) fn describe(window: HWND) -> EnumeratedWindow {
+    EnumeratedWindow {
+        handle: window,
+        visible: unsafe { IsWindowVisible(window) != 0 },
+        iconic: unsafe { IsIconic(window) != 0 },
+        cloaked: is_cloaked(window),
+        tool: is_tool_window(window),
+        rect: window_rect(window),
+    }
+}
+
+/// Enumerates the handles of every top-level window from the top of the
+/// z-order, with nothing read about them: one `EnumWindows` pass and no per
+/// window call. The visitor stops it by answering `false`.
+#[cfg(target_os = "windows")]
+pub(crate) fn enumerate_handles(mut visit: impl FnMut(HWND) -> bool) {
+    unsafe extern "system" fn callback(window: HWND, lparam: isize) -> i32 {
+        let visit = unsafe { &mut *(lparam as *mut &mut dyn FnMut(HWND) -> bool) };
+        i32::from(visit(window))
+    }
+
+    let mut visit: &mut dyn FnMut(HWND) -> bool = &mut visit;
+    unsafe {
+        EnumWindows(
+            Some(callback),
+            (&mut visit as *mut &mut dyn FnMut(HWND) -> bool) as isize,
+        )
+    };
 }
 
 /// Whether the DWM cloaks a window right now.

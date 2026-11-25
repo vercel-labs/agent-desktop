@@ -62,7 +62,13 @@ pub fn execute(
             target: crate::system::front_target::FrontTarget::program(&app),
             settle: LAUNCH_SETTLE,
         },
-        |_| adapter.launch_app(&app, &options, lease),
+        |mark| {
+            let launched = adapter.launch_app(&app, &options, lease);
+            if let Ok(launched) = &launched {
+                mark.learn_target(launched.pid.get());
+            }
+            launched
+        },
     )?;
     let mut launched = launched?;
     launched.guidance.focus_returned |= front.focus_returned();
