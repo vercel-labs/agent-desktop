@@ -82,8 +82,9 @@ pub(crate) fn press_for_process(
 ) -> Result<ActionResult, AdapterError> {
     ensure_budget(deadline)?;
     let backend = world.backend()?;
-    gate().map_err(|error| worded_for(error, policy, &backend))?;
-    send_combo(world, &backend, combo, gate, deadline)?;
+    let mut worded_gate = || gate().map_err(|error| worded_for(error, policy, &backend));
+    worded_gate()?;
+    send_combo(world, &backend, combo, &mut worded_gate, deadline)?;
     Ok(ActionResult::from_execution(
         &Action::PressKey(combo.clone()),
         vec![physical_step(&backend, "press_key")],

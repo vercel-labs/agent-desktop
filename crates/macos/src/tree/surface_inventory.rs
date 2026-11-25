@@ -100,16 +100,45 @@ fn surface_kind(
 ) -> Result<Option<&'static str>, AdapterError> {
     let role = read_string(element, "AXRole", deadline)?;
     let subrole = read_string(element, "AXSubrole", deadline)?;
-    Ok(match subrole.as_deref() {
+    let dialog = subrole.as_deref() == Some("AXDialog");
+    let (modal, minimized) = if dialog {
+        (
+            crate::tree::surface_read::boolean(element, "AXModal", deadline)?,
+            crate::tree::surface_read::boolean(element, "AXMinimized", deadline)?,
+        )
+    } else {
+        (None, None)
+    };
+    Ok(classify_surface(
+        role.as_deref(),
+        subrole.as_deref(),
+        modal,
+        minimized,
+    ))
+}
+
+/// The kind of surface an element is. `AXDialog` is a window style, not a
+/// prompt: a fixed-size ordinary window carries it too. A dialog is an alert
+/// only when it is modal, and a minimized window is on the Dock, never in
+/// front of the application, so it holds nothing up whatever it carries.
+fn classify_surface(
+    role: Option<&str>,
+    subrole: Option<&str>,
+    modal: Option<bool>,
+    minimized: Option<bool>,
+) -> Option<&'static str> {
+    match subrole {
         Some("AXSheet") => Some("sheet"),
         Some("AXPopover") => Some("popover"),
-        Some("AXDialog") | Some("AXAlert") => Some("alert"),
-        _ => match role.as_deref() {
+        Some("AXAlert") => Some("alert"),
+        Some("AXDialog") if modal == Some(true) && minimized != Some(true) => Some("alert"),
+        Some("AXDialog") => None,
+        _ => match role {
             Some("AXSheet") => Some("sheet"),
             Some("AXPopover") => Some("popover"),
             _ => None,
         },
-    })
+    }
 }
 
 fn read_title(element: &AXElement, deadline: Deadline) -> Result<Option<String>, AdapterError> {

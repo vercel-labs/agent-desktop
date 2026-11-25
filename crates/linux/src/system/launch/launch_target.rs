@@ -18,6 +18,7 @@ pub(crate) struct Plan {
     pub(crate) argv: Vec<String>,
     pub(crate) cwd: Option<PathBuf>,
     pub(crate) identity: Option<ExecutableIdentity>,
+    pub(crate) launcher: Option<ExecutableIdentity>,
     pub(crate) aliases: Vec<String>,
 }
 
@@ -152,21 +153,25 @@ fn plan_file(
     let at_base = base.iter().position(|word| *word == program).unwrap_or(0);
     base[at_base] = argv[at].clone();
     base[0] = argv[0].clone();
-    let identity = ExecutableIdentity::requested(&launcher_words(&base), &search.path_dirs);
+    let launcher = ExecutableIdentity::requested(&launcher_words(&base), &search.path_dirs);
+    let identity = ExecutableIdentity::requested(&argv, &search.path_dirs);
     let aliases = aliases_of_identity(index, identity.as_ref());
     Ok(Plan {
         argv,
         cwd: entry.path.map(PathBuf::from),
         identity,
+        launcher,
         aliases,
     })
 }
 
-/// The words of a desktop entry's command that say which application it is.
-/// A single-letter option of the entry is a switch of the launcher, such as a
-/// block mode, that the running process does not carry; every other word
-/// stays, so an interpreter entry still names its script and a long option
-/// still names its mode.
+/// The words of a desktop entry's command, without the caller's arguments,
+/// that say which application it is. A single-letter option of the entry is a
+/// switch of the launcher, such as a block mode, that the running process may
+/// not carry; every other word stays, so an interpreter entry still names its
+/// script and a long option still names its mode. This names the application
+/// a running process is an instance of; it never replaces the full identity,
+/// which a launch with arguments is compared by.
 pub(crate) fn launcher_words(words: &[String]) -> Vec<String> {
     words
         .iter()
@@ -182,15 +187,17 @@ fn is_launcher_switch(word: &str) -> bool {
 }
 
 fn direct_plan(program: String, arguments: &[String], index: &AliasIndex) -> Plan {
-    let identity = ExecutableIdentity::requested(std::slice::from_ref(&program), &[]);
+    let launcher = ExecutableIdentity::requested(std::slice::from_ref(&program), &[]);
     let argv: Vec<String> = std::iter::once(program)
         .chain(arguments.iter().cloned())
         .collect();
+    let identity = ExecutableIdentity::requested(&argv, &[]);
     let aliases = aliases_of_identity(index, identity.as_ref());
     Plan {
         argv,
         cwd: None,
         identity,
+        launcher,
         aliases,
     }
 }
