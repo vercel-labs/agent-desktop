@@ -1,5 +1,5 @@
-use std::sync::Mutex;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -186,15 +186,25 @@ fn a_window_that_takes_the_focus_during_the_command_is_returned() {
 
 #[test]
 fn a_window_that_takes_the_focus_after_the_command_returns_is_returned_inside_the_settle() {
-    let desk = Desk::new(true);
-    let (_, outcome) = run(&desk, InteractionPolicy::headless(), |_| {
-        std::thread::scope(|scope| {
-            scope.spawn(|| {
-                std::thread::sleep(Duration::from_millis(20));
-                desk.intrude();
-            });
-        });
-    });
+    let desk = Arc::new(Desk::new(true));
+    let mut cfg = watch();
+    cfg.settle = Duration::from_millis(500);
+    let mut intruder = None;
+    let (_, outcome) = guarded(
+        &*desk,
+        InteractionPolicy::headless(),
+        &lease(&*desk),
+        cfg,
+        |_| {
+            let late = Arc::clone(&desk);
+            intruder = Some(std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(40));
+                late.intrude();
+            }));
+        },
+    )
+    .expect("the front is readable");
+    intruder.unwrap().join().unwrap();
     assert_eq!(outcome, FrontOutcome::GivenBack);
 }
 
