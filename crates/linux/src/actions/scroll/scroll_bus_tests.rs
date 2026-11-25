@@ -6,7 +6,7 @@ fn client(pid: u32, hidden: bool) -> X11Client {
         shadow: (0, 0, 0, 0),
         id: 1,
         pid: Some(pid),
-        title: String::new(),
+        title: Default::default(),
         extents: None,
         bounds: None,
         hidden,

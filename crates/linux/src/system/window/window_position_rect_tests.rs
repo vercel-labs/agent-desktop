@@ -6,7 +6,7 @@ fn client(id: u32, shadow: (i32, i32, i32, i32), bounds: Option<Extents>) -> X11
         id,
         hidden: false,
         pid: Some(321),
-        title: "Doc".to_owned(),
+        title: "Doc".into(),
         extents: None,
         bounds,
     }

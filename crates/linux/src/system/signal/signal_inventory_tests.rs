@@ -139,7 +139,7 @@ fn menu_desktop() -> (Vec<ListedWindow>, Vec<super::AppOutcome>, X11State) {
     let clients = vec![X11Client {
         id: 0x40_0003,
         pid: Some(1),
-        title,
+        title: title.into(),
         extents: None,
         bounds: Some(Extents {
             x: 0,
