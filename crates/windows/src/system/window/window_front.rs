@@ -112,6 +112,18 @@ pub(crate) fn place_below_foreground(
     Ok(())
 }
 
+/// The executable name and start time of the process behind a window.
+pub(crate) fn front_process(pid: u32) -> Option<agent_desktop_core::FrontProcess> {
+    let pid = agent_desktop_core::ProcessId::new(pid);
+    let started = crate::system::process_identity::ProcessIdentity::capture(pid)
+        .ok()
+        .flatten()?;
+    Some(agent_desktop_core::FrontProcess {
+        image: crate::system::process_identity::process_image_name(pid)?,
+        started_ms: started.started_unix_ms(),
+    })
+}
+
 fn handle_of(window: &FrontWindow) -> WindowHandle {
     super::window_ops::parse_handle(&window.id)
 }

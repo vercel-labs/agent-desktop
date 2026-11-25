@@ -12,7 +12,7 @@ struct Desk {
 fn front(id: &str, windows: &[&str]) -> FrontView {
     let window = FrontWindow {
         id: id.into(),
-        pid: 1,
+        pid: if id == "launched" { 9 } else { 1 },
     };
     FrontView {
         focused: Some(window.clone()),
@@ -51,6 +51,13 @@ impl SystemOps for Desk {
             window: None,
             guidance: crate::LaunchGuidance::default(),
             disposition: crate::DeliverySemantics::delivered_verified(),
+        })
+    }
+
+    fn front_process(&self, pid: u32) -> Option<crate::FrontProcess> {
+        (pid == 9).then(|| crate::FrontProcess {
+            image: "Fixture".into(),
+            started_ms: u64::MAX / 2,
         })
     }
 

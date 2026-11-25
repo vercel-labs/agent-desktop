@@ -112,6 +112,10 @@ impl SystemOps for MacOSAdapter {
         crate::system::window::window_front::read_front(deadline)
     }
 
+    fn front_process(&self, pid: u32) -> Option<agent_desktop_core::FrontProcess> {
+        crate::system::window::window_front::front_process(pid)
+    }
+
     fn give_back(
         &self,
         window: &agent_desktop_core::FrontWindow,

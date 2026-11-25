@@ -6,9 +6,12 @@
 
 use std::time::Duration;
 
-use agent_desktop_core::{AdapterError, Deadline, FrontView, FrontWindow, ProcessIdentity};
+use agent_desktop_core::{
+    AdapterError, Deadline, FrontProcess, FrontView, FrontWindow, ProcessIdentity,
+};
 
-use crate::system::process::process_facts;
+use crate::system::display::display_server::{DisplayServer, session_server};
+use crate::system::process::{proc_stat, process_facts};
 use crate::system::x11::control::activate::ACTIVATION_GRACE;
 use crate::system::x11::control::control_send::{activate_window, restack_window_below};
 use crate::system::x11::stacking::client_stack;
@@ -19,8 +22,11 @@ const WRITE_BUDGET: Duration = ACTIVATION_GRACE;
 
 pub(crate) fn read_front(deadline: Deadline) -> Result<FrontView, AdapterError> {
     let X11State::Ready { active, clients } = DisplayReader.clients_within(deadline) else {
-        return Err(AdapterError::not_supported("read_front"));
+        return Err(unreadable_or_unsupported());
     };
+    if active.is_some_and(|id| clients.iter().all(|client| client.id != id)) {
+        return Err(AdapterError::app_unresponsive("the active window"));
+    }
     let stack = client_stack::read().unwrap_or_default();
     Ok(view_of(active, &clients, &stack))
 }
@@ -49,6 +55,38 @@ pub(crate) fn view_of(active: Option<u32>, clients: &[X11Client], stack: &[u32])
             })
             .find_map(|id| window_of(*id)),
         windows: clients.iter().map(|client| client.id.to_string()).collect(),
+    }
+}
+
+const USER_HZ: u64 = 100;
+
+/// The executable name and the start time, in milliseconds since the Unix
+/// epoch, of a process: its start in clock ticks after boot, from
+/// `/proc/<pid>/stat`, added to the boot time in `/proc/stat`.
+pub(crate) fn front_process(pid: u32) -> Option<FrontProcess> {
+    let facts = process_facts::read(pid)?;
+    let started = proc_stat::read_stat(pid).ok().flatten()?.start_time;
+    let boot_seconds: u64 = std::fs::read_to_string("/proc/stat")
+        .ok()?
+        .lines()
+        .find_map(|line| line.strip_prefix("btime "))?
+        .trim()
+        .parse()
+        .ok()?;
+    Some(FrontProcess {
+        image: facts.exe_basename.unwrap_or(facts.comm),
+        started_ms: boot_seconds * 1_000 + started * 1_000 / USER_HZ,
+    })
+}
+
+/// A session with an X11 display that did not answer is a failed read; any
+/// other session has no front to read.
+fn unreadable_or_unsupported() -> AdapterError {
+    match session_server() {
+        DisplayServer::X11(_) => AdapterError::app_unresponsive("the X11 display"),
+        DisplayServer::Wayland | DisplayServer::Unavailable(_) => {
+            AdapterError::not_supported("read_front")
+        }
     }
 }
 

@@ -22,16 +22,20 @@ pub fn execute_verified_action(
         return run_verified_action(adapter, handle, request, lease);
     }
     let policy = request.policy;
+    let target = request.expected_process.as_ref().map_or_else(
+        crate::system::front_target::FrontTarget::default,
+        |process| crate::system::front_target::FrontTarget::of_process(adapter, process.pid.get()),
+    );
     let (result, front) = crate::system::front_guard::guarded(
         adapter,
         policy,
         lease,
         crate::system::front_guard::FrontWatch {
-            owned_pid: None,
+            target,
             settle: ACTION_SETTLE,
         },
         || run_verified_action(adapter, handle, request, lease),
-    );
+    )?;
     let mut result = result.map_err(|mut error| {
         front.note_in_error(&mut error);
         error

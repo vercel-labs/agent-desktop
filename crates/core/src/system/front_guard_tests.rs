@@ -1,6 +1,8 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use super::*;
 use crate::adapter::{ActionOps, InputOps, ObservationOps, SystemOps};
 use crate::{FrontWindow, InteractionPolicy};
@@ -9,10 +11,18 @@ fn win(id: &str, pid: u32) -> FrontWindow {
     FrontWindow { id: id.into(), pid }
 }
 
+fn pid_of(id: &str) -> u32 {
+    match id {
+        "new" => 9,
+        "mine" => 5,
+        _ => 1,
+    }
+}
+
 fn front(id: &str, windows: &[&str]) -> FrontView {
     FrontView {
-        focused: Some(win(id, 1)),
-        top: Some(win(id, 1)),
+        focused: Some(win(id, pid_of(id))),
+        top: Some(win(id, pid_of(id))),
         windows: windows.iter().map(|w| (*w).into()).collect(),
     }
 }
@@ -34,6 +44,10 @@ impl Desk {
         }
     }
 
+    fn user_opens_a_window(&self) {
+        *self.now.lock().unwrap() = front("mine", &["user", "mine"]);
+    }
+
     fn intrude(&self) {
         *self.now.lock().unwrap() = front("new", &["user", "new"]);
     }
@@ -49,6 +63,24 @@ impl InputOps for Desk {}
 
 impl SystemOps for Desk {
     crate::adapter::guarded_interaction_lease!();
+
+    fn front_process(&self, pid: u32) -> Option<crate::FrontProcess> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()?
+            .as_millis() as u64;
+        match pid {
+            9 => Some(crate::FrontProcess {
+                image: "fixture".into(),
+                started_ms: now,
+            }),
+            5 => Some(crate::FrontProcess {
+                image: "editor".into(),
+                started_ms: now,
+            }),
+            _ => None,
+        }
+    }
 
     fn read_front(&self, _deadline: Deadline) -> Result<FrontView, AdapterError> {
         *self.reads.lock().unwrap() += 1;
@@ -86,30 +118,32 @@ impl SystemOps for Desk {
 
 fn watch() -> FrontWatch {
     FrontWatch {
-        owned_pid: None,
+        target: FrontTarget::program("fixture"),
         settle: Duration::from_millis(60),
     }
 }
 
-fn lease(desk: &Desk) -> InteractionLease {
+fn lease(desk: &impl SystemOps) -> InteractionLease {
     desk.acquire_interaction_lease(Deadline::standard().unwrap())
         .unwrap()
+}
+
+fn run<T>(
+    desk: &Desk,
+    policy: InteractionPolicy,
+    command: impl FnOnce() -> T,
+) -> (T, FrontOutcome) {
+    guarded(desk, policy, &lease(desk), watch(), command).expect("the front is readable")
 }
 
 #[test]
 fn a_window_that_takes_the_focus_during_the_command_is_returned() {
     let desk = Desk::new(true);
-    let (value, outcome) = guarded(
-        &desk,
-        InteractionPolicy::headless(),
-        &lease(&desk),
-        watch(),
-        || {
-            desk.intrude();
-            std::thread::sleep(Duration::from_millis(100));
-            7
-        },
-    );
+    let (value, outcome) = run(&desk, InteractionPolicy::headless(), || {
+        desk.intrude();
+        std::thread::sleep(Duration::from_millis(100));
+        7
+    });
     assert_eq!(value, 7);
     assert_eq!(outcome, FrontOutcome::GivenBack);
     assert_eq!(desk.calls(), ["keep_below new user", "give_back user"]);
@@ -118,33 +152,32 @@ fn a_window_that_takes_the_focus_during_the_command_is_returned() {
 #[test]
 fn a_window_that_takes_the_focus_after_the_command_returns_is_returned_inside_the_settle() {
     let desk = Desk::new(true);
-    let (_, outcome) = guarded(
-        &desk,
-        InteractionPolicy::headless(),
-        &lease(&desk),
-        watch(),
-        || {
-            std::thread::scope(|scope| {
-                scope.spawn(|| {
-                    std::thread::sleep(Duration::from_millis(20));
-                    desk.intrude();
-                });
+    let (_, outcome) = run(&desk, InteractionPolicy::headless(), || {
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                std::thread::sleep(Duration::from_millis(20));
+                desk.intrude();
             });
-        },
-    );
+        });
+    });
     assert_eq!(outcome, FrontOutcome::GivenBack);
+}
+
+#[test]
+fn a_window_the_user_opens_during_the_command_is_never_given_back() {
+    let desk = Desk::new(true);
+    let (_, outcome) = run(&desk, InteractionPolicy::headless(), || {
+        desk.user_opens_a_window();
+        std::thread::sleep(Duration::from_millis(100));
+    });
+    assert_eq!(outcome, FrontOutcome::Clean);
+    assert!(desk.calls().is_empty());
 }
 
 #[test]
 fn a_command_that_changes_nothing_ends_clean_with_no_give_back() {
     let desk = Desk::new(true);
-    let (_, outcome) = guarded(
-        &desk,
-        InteractionPolicy::headless(),
-        &lease(&desk),
-        watch(),
-        || (),
-    );
+    let (_, outcome) = run(&desk, InteractionPolicy::headless(), || ());
     assert_eq!(outcome, FrontOutcome::Clean);
     assert!(desk.calls().is_empty());
 }
@@ -152,16 +185,10 @@ fn a_command_that_changes_nothing_ends_clean_with_no_give_back() {
 #[test]
 fn a_front_that_cannot_be_returned_reports_the_failure() {
     let desk = Desk::new(false);
-    let (_, outcome) = guarded(
-        &desk,
-        InteractionPolicy::headless(),
-        &lease(&desk),
-        watch(),
-        || {
-            desk.intrude();
-            std::thread::sleep(Duration::from_millis(150));
-        },
-    );
+    let (_, outcome) = run(&desk, InteractionPolicy::headless(), || {
+        desk.intrude();
+        std::thread::sleep(Duration::from_millis(150));
+    });
     assert_eq!(outcome, FrontOutcome::GiveBackFailed);
     assert!(!outcome.focus_returned());
 }
@@ -169,34 +196,67 @@ fn a_front_that_cannot_be_returned_reports_the_failure() {
 #[test]
 fn a_policy_that_allows_focus_steal_runs_the_command_with_no_reads() {
     let desk = Desk::new(true);
-    let (_, outcome) = guarded(
-        &desk,
-        InteractionPolicy::headed(),
-        &lease(&desk),
-        watch(),
-        || {
-            desk.intrude();
-        },
-    );
+    let (_, outcome) = run(&desk, InteractionPolicy::headed(), || desk.intrude());
     assert_eq!(outcome, FrontOutcome::Off);
     assert_eq!(*desk.reads.lock().unwrap(), 0);
     assert!(desk.calls().is_empty());
 }
 
-#[test]
-fn an_adapter_that_cannot_read_the_front_runs_the_command_unguarded() {
-    struct Blind;
-    impl ObservationOps for Blind {}
-    impl ActionOps for Blind {}
-    impl InputOps for Blind {}
-    impl SystemOps for Blind {
-        crate::adapter::guarded_interaction_lease!();
+struct Blind(AdapterError);
+impl ObservationOps for Blind {}
+impl ActionOps for Blind {}
+impl InputOps for Blind {}
+impl SystemOps for Blind {
+    crate::adapter::guarded_interaction_lease!();
+
+    fn read_front(&self, _deadline: Deadline) -> Result<FrontView, AdapterError> {
+        Err(self.0.clone())
     }
-    let blind = Blind;
-    let lease = blind
-        .acquire_interaction_lease(Deadline::standard().unwrap())
-        .unwrap();
-    let (value, outcome) = guarded(&blind, InteractionPolicy::headless(), &lease, watch(), || 3);
+}
+
+#[test]
+fn an_adapter_with_no_way_to_read_the_front_runs_the_command_unguarded() {
+    let blind = Blind(AdapterError::not_supported("read_front"));
+    let (value, outcome) = guarded(
+        &blind,
+        InteractionPolicy::headless(),
+        &lease(&blind),
+        watch(),
+        || 3,
+    )
+    .unwrap();
+    assert_eq!((value, outcome), (3, FrontOutcome::Off));
+}
+
+#[test]
+fn an_adapter_that_fails_to_read_the_front_refuses_the_headless_command_unsent() {
+    let blind = Blind(AdapterError::app_unresponsive("display"));
+    let ran = std::sync::atomic::AtomicBool::new(false);
+    let error = guarded(
+        &blind,
+        InteractionPolicy::headless(),
+        &lease(&blind),
+        watch(),
+        || ran.store(true, Ordering::SeqCst),
+    )
+    .expect_err("a refusal");
+    assert_eq!(error.code, ErrorCode::PolicyDenied);
+    assert_eq!(error.details.as_ref().unwrap()["kind"], "focus_unreadable");
+    assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());
+    assert!(!ran.load(Ordering::SeqCst));
+}
+
+#[test]
+fn a_failed_read_does_not_refuse_a_command_the_policy_lets_take_the_focus() {
+    let blind = Blind(AdapterError::app_unresponsive("display"));
+    let (value, outcome) = guarded(
+        &blind,
+        InteractionPolicy::headed(),
+        &lease(&blind),
+        watch(),
+        || 3,
+    )
+    .unwrap();
     assert_eq!((value, outcome), (3, FrontOutcome::Off));
 }
 

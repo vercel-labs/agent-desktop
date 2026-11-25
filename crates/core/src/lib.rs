@@ -140,6 +140,7 @@ pub use system::app_inventory::AppInventory;
 pub use system::app_inventory_query::AppInventoryQuery;
 pub use system::display_info::DisplayInfo;
 pub use system::front_outcome::FrontOutcome;
+pub use system::front_process::FrontProcess;
 pub use system::front_view::FrontView;
 pub use system::front_window::FrontWindow;
 pub use system::image_buffer::{ImageBuffer, MAX_PNG_INPUT_BYTES, parse_png_dimensions};

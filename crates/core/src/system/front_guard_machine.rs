@@ -2,12 +2,12 @@
 //! command must leave the user's front window and focus as it found them. The
 //! machine takes what the adapter reads and says what to do next.
 //!
-//! An intruder is a window that did not exist before the command, or a window
-//! of the process the command targets, that now has the focus or the top. A
-//! window that existed before and belongs to someone else is the user's own
-//! switch, and the machine never touches it. Window ids decide this, not
-//! process ids: an application can fork and detach, and its window still did
-//! not exist before.
+//! An intruder is a window of the command's target that now has the focus or
+//! the top: a window that did not exist before the command and that the target
+//! owns, or a window of the target process. Every other window is the user's:
+//! one the user switched to, and one the user opened during the command. The
+//! machine never touches those. Whether a new window is the target's is the
+//! owner's answer; the machine decides only from it and from window ids.
 
 use super::front_guard_state::FrontGuardState;
 use super::front_view::FrontView;
@@ -34,18 +34,22 @@ enum Verdict {
     Intruder(FrontWindow),
 }
 
-pub(crate) struct FrontGuardMachine {
+/// Says whether a window is the command target's, given whether it is new:
+/// absent from the view read before the command.
+pub(crate) type Owner<'a> = Box<dyn Fn(&FrontWindow, bool) -> bool + Send + 'a>;
+
+pub(crate) struct FrontGuardMachine<'a> {
     prior: FrontView,
-    owned_pid: Option<u32>,
+    owner: Owner<'a>,
     state: FrontGuardState,
     give_backs: u8,
 }
 
-impl FrontGuardMachine {
-    pub(crate) fn new(prior: FrontView, owned_pid: Option<u32>) -> Self {
+impl<'a> FrontGuardMachine<'a> {
+    pub(crate) fn new(prior: FrontView, owner: Owner<'a>) -> Self {
         Self {
             prior,
-            owned_pid,
+            owner,
             state: FrontGuardState::Watching,
             give_backs: 0,
         }
@@ -126,9 +130,7 @@ impl FrontGuardMachine {
         if !now.windows.is_empty() && !now.has_window(&prior_focus.id) {
             return Verdict::Yielded;
         }
-        let ours = |window: &FrontWindow| {
-            !self.prior.has_window(&window.id) || self.owned_pid == Some(window.pid)
-        };
+        let ours = |window: &FrontWindow| (self.owner)(window, !self.prior.has_window(&window.id));
         let displaced = |window: &&FrontWindow| {
             window.id != prior_focus.id
                 && self

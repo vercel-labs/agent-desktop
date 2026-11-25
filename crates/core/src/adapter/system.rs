@@ -279,28 +279,7 @@ pub trait SystemOps: Send + Sync {
         policy: InteractionPolicy,
         lease: &InteractionLease,
     ) -> Result<ActionResult, AdapterError> {
-        let refusal = || super::window_key_refusal::exact_focus_unconfirmed(window, policy);
-        let instance = window
-            .process_instance
-            .as_deref()
-            .filter(|instance| !instance.is_empty())
-            .ok_or_else(refusal)?;
-        let focused = self
-            .focused_window(lease.deadline())
-            .map_err(AdapterError::unsent)?;
-        if !focused.is_some_and(|focused| {
-            focused.id == window.id
-                && focused.pid == window.pid
-                && focused.process_instance.as_deref() == Some(instance)
-        }) {
-            return Err(refusal());
-        }
-        self.press_key_for_app(
-            ProcessIdentity::new(window.pid, instance),
-            combo,
-            policy,
-            lease,
-        )
+        super::window_key_refusal::press_in_exact_window(self, window, combo, policy, lease)
     }
 
     fn wait_for_menu(
@@ -315,6 +294,12 @@ pub trait SystemOps: Send + Sync {
     /// What the user sees in front. Cheap: the front guard polls it.
     fn read_front(&self, _deadline: Deadline) -> Result<crate::FrontView, AdapterError> {
         Err(AdapterError::not_supported("read_front"))
+    }
+
+    /// The executable name and start time of `pid`, which the front guard
+    /// reads to tell the command target's new windows from the user's.
+    fn front_process(&self, _pid: u32) -> Option<crate::FrontProcess> {
+        None
     }
 
     fn keep_below(

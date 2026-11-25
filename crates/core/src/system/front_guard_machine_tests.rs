@@ -17,8 +17,11 @@ fn prior() -> FrontView {
     view("user", "user", &["user", "other"])
 }
 
-fn machine() -> FrontGuardMachine {
-    FrontGuardMachine::new(prior(), None)
+fn machine() -> FrontGuardMachine<'static> {
+    FrontGuardMachine::new(
+        prior(),
+        Box::new(|window, is_new| is_new && window.pid == 900),
+    )
 }
 
 #[test]
@@ -32,7 +35,7 @@ fn an_unchanged_front_polls_and_settles_clean() {
 }
 
 #[test]
-fn a_new_window_that_takes_the_focus_is_returned_whoever_owns_it() {
+fn a_new_window_of_the_target_that_takes_the_focus_is_returned() {
     let mut guard = machine();
     let now = view("n1", "n1", &["user", "other", "n1"]);
     assert_eq!(
@@ -74,7 +77,7 @@ fn a_switch_to_an_old_window_beats_a_new_window_on_top() {
 
 #[test]
 fn an_old_window_of_the_targeted_process_that_takes_the_focus_is_returned() {
-    let mut guard = FrontGuardMachine::new(prior(), Some(100));
+    let mut guard = FrontGuardMachine::new(prior(), Box::new(|window, _| window.pid == 100));
     let now = view("other", "other", &["user", "other"]);
     assert_eq!(
         guard.sight(Sighting::Front(now)),
@@ -144,8 +147,54 @@ fn the_budget_of_give_backs_is_shared_across_intrusions() {
 
 #[test]
 fn a_guard_with_nobody_focused_before_the_command_has_nothing_to_return_to() {
-    let mut guard = FrontGuardMachine::new(FrontView::default(), None);
+    let mut guard = FrontGuardMachine::new(FrontView::default(), Box::new(|_, _| true));
     let now = view("n1", "n1", &["n1"]);
     assert_eq!(guard.sight(Sighting::Front(now)), Step::Done);
     assert_eq!(guard.state(), FrontGuardState::Clean);
+}
+
+fn users_window(focused: &str, top: &str) -> FrontView {
+    let mut view = view(focused, top, &["user", "other", "mine"]);
+    for window in [view.focused.as_mut(), view.top.as_mut()]
+        .into_iter()
+        .flatten()
+    {
+        if window.id == "mine" {
+            window.pid = 500;
+        }
+    }
+    view
+}
+
+#[test]
+fn a_new_window_the_user_opened_and_focused_is_left_alone() {
+    let mut guard = machine();
+    assert_eq!(
+        guard.sight(Sighting::Front(users_window("mine", "mine"))),
+        Step::Done
+    );
+    assert_eq!(guard.state(), FrontGuardState::Clean);
+}
+
+#[test]
+fn a_new_window_the_user_opened_on_top_is_not_an_intruder() {
+    let mut guard = machine();
+    assert_eq!(
+        guard.sight(Sighting::Front(users_window("user", "mine"))),
+        Step::Poll
+    );
+    assert_eq!(guard.state(), FrontGuardState::Watching);
+}
+
+#[test]
+fn a_user_window_after_a_give_back_is_still_left_alone() {
+    let mut guard = machine();
+    let now = view("n1", "n1", &["user", "other", "n1"]);
+    assert!(matches!(guard.sight(Sighting::Front(now)), Step::Return(_)));
+    guard.returned(true);
+    assert_eq!(
+        guard.sight(Sighting::Front(users_window("mine", "mine"))),
+        Step::Done
+    );
+    assert_eq!(guard.state(), FrontGuardState::GivenBack);
 }

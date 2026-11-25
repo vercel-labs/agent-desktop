@@ -10,7 +10,6 @@ use agent_desktop_core::{
 };
 
 use crate::adapter::WindowsAdapter;
-use crate::system::close_outcome::CloseOutcome;
 
 #[cfg(target_os = "windows")]
 #[path = "tcp_listener.rs"]
@@ -195,7 +194,6 @@ impl SystemOps for WindowsAdapter {
         tcp_listener::owns_listener(&process, port, deadline)
     }
 
-    /// Verified termination: `Ok(())` only once the process is observed gone (A21-3).
     fn close_app(
         &self,
         app: &AppInfo,
@@ -203,13 +201,15 @@ impl SystemOps for WindowsAdapter {
         lease: &InteractionLease,
         _policy: agent_desktop_core::InteractionPolicy,
     ) -> Result<OperationReport, AdapterError> {
-        let dispatched = crate::system::close::close_app_impl(app, force, lease.deadline())
-            .map(|outcome| outcome == CloseOutcome::Exited);
-        OperationReport::from_close_dispatch(app, dispatched)
+        crate::system::close::close_app_report(app, force, lease.deadline())
     }
 
     fn read_front(&self, deadline: Deadline) -> Result<FrontView, AdapterError> {
         crate::system::window::window_front::read_front(deadline)
+    }
+
+    fn front_process(&self, pid: u32) -> Option<agent_desktop_core::FrontProcess> {
+        crate::system::window::window_front::front_process(pid)
     }
 
     fn keep_below(

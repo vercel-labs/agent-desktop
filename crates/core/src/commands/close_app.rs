@@ -37,11 +37,11 @@ pub fn execute(args: CloseAppArgs, adapter: &dyn PlatformAdapter) -> Result<Valu
         args.policy,
         &lease,
         crate::system::front_guard::FrontWatch {
-            owned_pid: Some(live.pid.get()),
+            target: crate::system::front_target::FrontTarget::of_process(adapter, live.pid.get()),
             settle: CLOSE_SETTLE,
         },
         || adapter.close_app(&live, args.force, &lease, args.policy),
-    );
+    )?;
     let mut report = report.map_err(|mut error| {
         front.note_in_error(&mut error);
         error

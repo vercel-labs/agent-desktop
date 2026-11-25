@@ -2,7 +2,7 @@
 //! window order from CoreGraphics (front to back), and a re-activation that
 //! raises the user's windows over an intruder.
 
-use agent_desktop_core::{AdapterError, Deadline, FrontView, FrontWindow};
+use agent_desktop_core::{AdapterError, Deadline, FrontProcess, FrontView, FrontWindow};
 use core_foundation::string::CFString;
 
 use super::cg_window::{WindowDictionary, bool_field, required_int_field, window_dictionaries};
@@ -77,6 +77,32 @@ fn ordered_windows(
         });
     }
     Ok(order)
+}
+
+/// The executable name and start time of a process, from libproc.
+pub(crate) fn front_process(pid: u32) -> Option<FrontProcess> {
+    let pid = i32::try_from(pid).ok()?;
+    Some(FrontProcess {
+        image: executable_name(pid)?,
+        started_ms: ProcessIdentity::capture(pid)
+            .ok()
+            .flatten()?
+            .started_unix_ms(),
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn executable_name(pid: i32) -> Option<String> {
+    let mut path = vec![0_u8; 4096];
+    let length = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
+    let length = usize::try_from(length).ok().filter(|length| *length > 0)?;
+    let path = std::str::from_utf8(&path[..length]).ok()?;
+    path.rsplit('/').next().map(str::to_owned)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn executable_name(_pid: i32) -> Option<String> {
+    None
 }
 
 /// Re-activating the user's application raises its windows over the

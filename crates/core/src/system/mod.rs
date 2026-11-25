@@ -8,6 +8,8 @@ pub(crate) mod front_guard;
 pub(crate) mod front_guard_machine;
 pub(crate) mod front_guard_state;
 pub mod front_outcome;
+pub mod front_process;
+pub(crate) mod front_target;
 pub mod front_view;
 pub mod front_window;
 pub(crate) mod image_buffer;

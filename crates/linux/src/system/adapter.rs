@@ -129,6 +129,10 @@ impl SystemOps for LinuxAdapter {
         crate::system::focus::focus_front::read_front(deadline)
     }
 
+    fn front_process(&self, pid: u32) -> Option<agent_desktop_core::FrontProcess> {
+        crate::system::focus::focus_front::front_process(pid)
+    }
+
     fn keep_below(
         &self,
         window: &agent_desktop_core::FrontWindow,
