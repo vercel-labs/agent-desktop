@@ -14,6 +14,7 @@ struct ScrollRecoveryAdapter {
     stays_offscreen: bool,
     scroll_should_fail: bool,
     dispatch_fails: bool,
+    scroll_unsupported: bool,
     refuses_route: bool,
     scroll_policy: std::sync::Mutex<Option<crate::InteractionPolicy>>,
 }
@@ -28,6 +29,7 @@ impl ScrollRecoveryAdapter {
             stays_offscreen,
             scroll_should_fail,
             dispatch_fails: false,
+            scroll_unsupported: false,
             refuses_route: false,
             scroll_policy: std::sync::Mutex::new(None),
         }
@@ -78,6 +80,9 @@ impl ActionOps for ScrollRecoveryAdapter {
     ) -> Result<(), AdapterError> {
         self.scroll_calls.fetch_add(1, Ordering::SeqCst);
         *self.scroll_policy.lock().unwrap() = Some(policy);
+        if self.scroll_unsupported {
+            return Err(AdapterError::not_supported("scroll_into_view"));
+        }
         if self.scroll_should_fail {
             return Err(AdapterError::new(
                 ErrorCode::ActionFailed,
@@ -374,4 +379,21 @@ fn a_failed_scroll_attempt_does_not_claim_not_delivered() {
         execute_entry(&adapter, &entry(), ActionRequest::headless(Action::Expand)).unwrap_err();
 
     assert_eq!(error.disposition, crate::DeliverySemantics::uncertain());
+}
+
+#[test]
+fn a_scroll_the_adapter_cannot_perform_leaves_the_refusal_not_delivered() {
+    let mut adapter = ScrollRecoveryAdapter::new(true, false);
+    adapter.scroll_unsupported = true;
+
+    let error =
+        execute_entry(&adapter, &entry(), ActionRequest::headless(Action::Expand)).unwrap_err();
+
+    assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());
+    assert!(
+        error
+            .details
+            .as_ref()
+            .is_none_or(|details| details.get("preparatory_scroll").is_none())
+    );
 }
