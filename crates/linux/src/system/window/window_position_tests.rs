@@ -71,7 +71,7 @@ fn client(id: u32, x: i32, y: i32) -> X11Client {
         id,
         hidden: false,
         pid: Some(321),
-        title: "Doc".to_owned(),
+        title: "Doc".into(),
         extents: None,
         bounds: Some(Extents {
             x,

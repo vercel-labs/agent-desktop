@@ -58,3 +58,12 @@ fn an_invalid_utf8_title_is_replaced_never_an_error() {
 fn no_title_at_all_is_an_empty_title() {
     assert_eq!(decode_title(None, None), "");
 }
+
+#[test]
+fn each_title_decodes_alone_so_both_names_stay_matchable() {
+    let latin1 = [b'a', 0xe9];
+    assert_eq!(decode_wide_title(Some((8, b"wide"))), "wide");
+    assert_eq!(decode_wide_title(Some((8, b""))), "");
+    assert_eq!(decode_narrow_title(Some((8, &latin1))), "a\u{e9}");
+    assert_eq!(decode_narrow_title(None), "");
+}

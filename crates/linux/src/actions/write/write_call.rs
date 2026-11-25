@@ -1,7 +1,8 @@
 use std::cell::Cell;
 use std::io::ErrorKind;
+use std::time::Duration;
 
-use agent_desktop_core::AdapterError;
+use agent_desktop_core::{AdapterError, Deadline};
 use zbus::Message;
 use zbus::export::serde::Serialize;
 use zbus::zvariant::DynamicType;
@@ -13,6 +14,20 @@ use super::mutation::{
 use crate::actions::context::Target;
 use crate::system::within;
 use crate::tree::capabilities::action_read::corroborate;
+
+/// How long the lease holder waits for the reply to a `DoAction`. A handler
+/// that runs a nested dialog loop replies only when the dialog closes; waiting
+/// for it would hold the machine-wide interaction lease for the whole budget.
+/// The message is already sent, so an expired wait is an uncertain delivery and
+/// the witness read classifies the effect after the lease is released.
+const DO_ACTION_ACK: Duration = Duration::from_millis(1_500);
+
+fn ack_deadline(kind: WriteKind, deadline: Deadline) -> Deadline {
+    match kind {
+        WriteKind::DoAction => deadline.capped(DO_ACTION_ACK),
+        _ => deadline,
+    }
+}
 
 fn read_reply(message: &Message, kind: WriteKind) -> Result<WriteReply, AdapterError> {
     if !kind.returns_flag() {
@@ -73,7 +88,7 @@ pub(crate) fn invoke<B: Serialize + DynamicType>(
         .map_err(|error| deadline_error(error, false))?;
     let sent = Cell::new(false);
     let element = target.element;
-    let outcome = within(target.deadline, async {
+    let outcome = within(ack_deadline(kind, target.deadline), async {
         sent.set(true);
         Ok(connection
             .inner()

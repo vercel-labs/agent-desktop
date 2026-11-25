@@ -1,5 +1,6 @@
 use super::*;
 use crate::system::x11::FrameExtents;
+use crate::system::x11::client::ClientTitles;
 
 fn client(id: u32, pid: u32, title: &str, y: i32, top: u32) -> X11Client {
     X11Client {
@@ -7,7 +8,7 @@ fn client(id: u32, pid: u32, title: &str, y: i32, top: u32) -> X11Client {
         id,
         hidden: false,
         pid: Some(pid),
-        title: title.to_owned(),
+        title: title.into(),
         extents: Some(FrameExtents {
             left: 0,
             right: 0,
@@ -203,6 +204,39 @@ fn an_unnamed_local_frame_needs_one_exact_same_process_size_match() {
             })),
             &clients
         ),
+        ClientMatch::NoClient
+    );
+}
+
+#[test]
+fn a_frame_titled_like_the_legacy_wm_name_finds_its_client() {
+    let mut legacy = client(1, 10, "", 157, 37);
+    legacy.title = ClientTitles::new("Untitled \u{2014} Kate".to_owned(), "Untitled".to_owned());
+    let frame = frame(10, "Untitled", None, false);
+
+    assert_eq!(match_client(&frame, &[legacy]), ClientMatch::One(1));
+}
+
+#[test]
+fn a_frame_titled_like_the_net_wm_name_still_finds_its_client() {
+    let mut both = client(1, 10, "", 157, 37);
+    both.title = ClientTitles::new("Untitled \u{2014} Kate".to_owned(), "Untitled".to_owned());
+    let frame = frame(10, "Untitled \u{2014} Kate", None, false);
+
+    assert_eq!(match_client(&frame, &[both]), ClientMatch::One(1));
+}
+
+#[test]
+fn a_title_matching_neither_name_or_another_process_finds_no_client() {
+    let mut both = client(1, 10, "", 157, 37);
+    both.title = ClientTitles::new("Untitled \u{2014} Kate".to_owned(), "Untitled".to_owned());
+
+    assert_eq!(
+        match_client(&frame(10, "Other", None, false), &[both.clone()]),
+        ClientMatch::NoClient
+    );
+    assert_eq!(
+        match_client(&frame(11, "Untitled", None, false), &[both]),
         ClientMatch::NoClient
     );
 }

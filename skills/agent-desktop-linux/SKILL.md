@@ -52,7 +52,7 @@ use a private session and runtime directory for isolated work.
   Menu-role popups use the menu surface instead.
 - Popup and dialog openers can take the foreground and refuse headless.
   Qt combo selection may need pointer input to commit rather than highlight a row.
-  Stop on a headed-only refusal instead of changing mode.
+  Stop on a headed-only refusal instead of changing mode. Headless `restore` of a minimized window and headless `minimize` of the focused window refuse with `POLICY_DENIED`; the system raises or moves focus. Stop on that refusal.
 - A headless graceful `close-app` reads which window has the focus first. When it cannot (a Wayland session, or an owner it cannot identify), it fails with `POLICY_DENIED` (`details.kind: focus_unreadable`) before any close request is sent. Report it to the user, or use `--force`, which discards unsaved work.
 - A window can precede its content. Wait for the application's observable
   result; an accepted AT-SPI call or a changed selected value is not proof that
@@ -75,8 +75,8 @@ use a private session and runtime directory for isolated work.
 - `launch` accepts a program on PATH, an absolute path, an installed desktop id,
   or an unambiguous desktop entry name. Use process and window identity from
   observations rather than guessing from a window title. Without `--activate`,
-  a launch on X11 gives the focus back to the window that had it when the new
-  window took it, and reports `focus_returned: true`.
+  a launch on X11 gives the focus and window order back and reports `focus_returned: true`,
+  or `false` with a suggestion; a headless click that opens a dialog is guarded the same way.
 - `press escape --app <app> --window-id <id>` on a background window with a showing
   native popup closes it only via a dismissal action (or GTK3 combo box `Press`)
   and reports `delivered_verified` once gone. Web content and buttons without a

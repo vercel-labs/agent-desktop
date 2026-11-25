@@ -46,18 +46,30 @@ pub(crate) fn decode_shadow(format: u8, bytes: &[u8]) -> (i32, i32, i32, i32) {
     })
 }
 
+/// A `_NET_WM_NAME` title (UTF-8). Invalid UTF-8 is replaced, never an error.
+pub(crate) fn decode_wide_title(utf8: Option<(u8, &[u8])>) -> String {
+    utf8.filter(|(format, _)| *format == EIGHT_BITS)
+        .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
+        .unwrap_or_default()
+}
+
+/// A `WM_NAME` title (Latin-1).
+pub(crate) fn decode_narrow_title(latin1: Option<(u8, &[u8])>) -> String {
+    latin1
+        .filter(|(format, _)| *format == EIGHT_BITS)
+        .map(|(_, bytes)| bytes.iter().map(|byte| char::from(*byte)).collect())
+        .unwrap_or_default()
+}
+
 /// A window title from `_NET_WM_NAME` (UTF-8) or, when that is absent or
-/// empty, `WM_NAME` (Latin-1). Invalid UTF-8 is replaced, never an error.
+/// empty, `WM_NAME` (Latin-1).
 pub(crate) fn decode_title(utf8: Option<(u8, &[u8])>, latin1: Option<(u8, &[u8])>) -> String {
-    let wide = utf8
-        .filter(|(format, bytes)| *format == EIGHT_BITS && !bytes.is_empty())
-        .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned());
-    wide.or_else(|| {
-        latin1
-            .filter(|(format, _)| *format == EIGHT_BITS)
-            .map(|(_, bytes)| bytes.iter().map(|byte| char::from(*byte)).collect())
-    })
-    .unwrap_or_default()
+    let wide = decode_wide_title(utf8);
+    if wide.is_empty() {
+        decode_narrow_title(latin1)
+    } else {
+        wide
+    }
 }
 
 #[cfg(test)]

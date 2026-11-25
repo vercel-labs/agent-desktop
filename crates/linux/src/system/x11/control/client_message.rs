@@ -27,6 +27,7 @@ const FLAG_WIDTH: u32 = 1 << 10;
 const FLAG_HEIGHT: u32 = 1 << 11;
 const SOURCE_SHIFT: u32 = 12;
 const ICONIC_STATE: u32 = 3;
+const DETAIL_BELOW: u32 = 1;
 
 /// `_NET_MOVERESIZE_WINDOW`: only the fields that are `Some` are flagged, the
 /// others are sent as zero. A request that places the window uses static
@@ -61,6 +62,12 @@ pub(in crate::system::x11) fn move_resize(
 pub(in crate::system::x11) fn maximize(add: bool, vertical: Atom, horizontal: Atom) -> MessageData {
     let action = u32::from(add);
     [action, vertical, horizontal, SOURCE_TOOL, 0]
+}
+
+/// `_NET_RESTACK_WINDOW` placing the window directly below `sibling`, from a
+/// tool. The window manager stacks it without activating it.
+pub(in crate::system::x11) fn restack_below(sibling: u32) -> MessageData {
+    [SOURCE_TOOL, sibling, DETAIL_BELOW, 0, 0]
 }
 
 /// ICCCM `WM_CHANGE_STATE` asking for the iconic state.

@@ -1,5 +1,5 @@
 use agent_desktop_core::{
-    AdapterError, Deadline, ErrorCode, EvidenceRequirements, LocatorEvidence,
+    AdapterError, Deadline, ErrorCode, EvidenceRequirements, LocatorEvidence, LocatorField,
 };
 
 pub(crate) fn collection_target(
@@ -8,8 +8,8 @@ pub(crate) fn collection_target(
     value: &str,
     deadline: Deadline,
 ) -> Result<Option<crate::tree::AXElement>, AdapterError> {
-    let (read, stats) = candidate_read(element, deadline)?;
-    let named = evidence_matches(&read.evidence, value, stats)?;
+    let (read, stats) = candidate_read(element, false, deadline)?;
+    let named = is_named_target(element, &read.evidence, value, stats, deadline)?;
     if !named && !text_value_matches(element, &read.attrs, value, deadline)? {
         return Ok(None);
     }
@@ -92,12 +92,31 @@ pub(crate) fn matches(
     value: &str,
     deadline: Deadline,
 ) -> Result<bool, AdapterError> {
-    let (read, stats) = candidate_read(element, deadline)?;
-    evidence_matches(&read.evidence, value, stats)
+    let (read, stats) = candidate_read(element, false, deadline)?;
+    is_named_target(element, &read.evidence, value, stats, deadline)
+}
+
+fn is_named_target(
+    element: &crate::tree::AXElement,
+    evidence: &LocatorEvidence,
+    value: &str,
+    stats: agent_desktop_core::LocatorStats,
+    deadline: Deadline,
+) -> Result<bool, AdapterError> {
+    let verdict = name_verdict(evidence, value);
+    if verdict == NameVerdict::Differs {
+        return Ok(false);
+    }
+    let (read, _) = candidate_read(element, true, deadline)?;
+    decide(verdict, &read.evidence.ref_evidence.available_actions).map_err(|mut error| {
+        attach_stats(&mut error, stats);
+        error
+    })
 }
 
 fn candidate_read(
     element: &crate::tree::AXElement,
+    with_actions: bool,
     deadline: Deadline,
 ) -> Result<
     (
@@ -114,7 +133,7 @@ fn candidate_read(
         description: true,
         ..Default::default()
     };
-    requirements.ref_evidence.actions = true;
+    requirements.ref_evidence.actions = with_actions;
     let read = crate::tree::query::node_read::read_node(
         element,
         crate::tree::query::node_read_context::NodeReadContext {
@@ -139,49 +158,83 @@ fn candidate_read(
     Ok((read, stats))
 }
 
-fn evidence_matches(
-    evidence: &LocatorEvidence,
-    value: &str,
-    stats: agent_desktop_core::LocatorStats,
-) -> Result<bool, AdapterError> {
-    matches_evidence(evidence, value).map_err(|mut error| {
-        if let Some(details) = error
-            .details
-            .as_mut()
-            .and_then(serde_json::Value::as_object_mut)
-        {
-            details.insert("query_stats".into(), serde_json::json!(stats));
-        }
-        error
-    })
+/// A scan that ran out of time reports the scan, not the application: the
+/// application answered every read, the list was larger than the budget.
+pub(crate) fn name_scan_deadline(
+    error: AdapterError,
+    scanned: usize,
+    deadline: Deadline,
+) -> AdapterError {
+    let evidence_cut = error
+        .details
+        .as_ref()
+        .and_then(|details| details.get("kind"))
+        .is_some_and(|kind| kind == "selection_evidence");
+    if error.code != ErrorCode::Timeout && !(evidence_cut && deadline.is_expired()) {
+        return error;
+    }
+    AdapterError::timeout(format!(
+        "The select scan read {scanned} accessibility nodes before its deadline"
+    ))
+    .with_details(serde_json::json!({
+        "kind": "select_scan_deadline",
+        "nodes_scanned": scanned,
+        "complete": false,
+    }))
+    .with_suggestion("Retry with a larger --timeout-ms; a long list needs time to scan whole")
+    .with_disposition(agent_desktop_core::DeliverySemantics::not_delivered())
 }
 
-fn matches_evidence(evidence: &LocatorEvidence, value: &str) -> Result<bool, AdapterError> {
-    let actions = evidence
-        .ref_evidence
-        .available_actions
-        .known()
-        .ok_or_else(|| incomplete("actions_unknown"))?;
-    if !actions
-        .iter()
-        .any(|action| action == agent_desktop_core::actions::capability::CLICK)
+fn attach_stats(error: &mut AdapterError, stats: agent_desktop_core::LocatorStats) {
+    if let Some(details) = error
+        .details
+        .as_mut()
+        .and_then(serde_json::Value::as_object_mut)
     {
-        return Ok(false);
+        details.insert("query_stats".into(), serde_json::json!(stats));
     }
-    if evidence.name.is_unknown() || evidence.description.is_unknown() {
-        return Err(incomplete(if evidence.name.is_unknown() {
-            "name_unknown"
-        } else {
-            "description_unknown"
-        }));
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NameVerdict {
+    Match,
+    Differs,
+    Unknown(&'static str),
+}
+
+fn name_verdict(evidence: &LocatorEvidence, value: &str) -> NameVerdict {
+    let fields = [
+        (&evidence.name, "name_unknown"),
+        (&evidence.description, "description_unknown"),
+    ];
+    if fields.iter().any(|(field, _)| {
+        field
+            .known()
+            .is_some_and(|name| name.eq_ignore_ascii_case(value))
+    }) {
+        return NameVerdict::Match;
     }
-    Ok([&evidence.name, &evidence.description]
-        .into_iter()
-        .any(|field| {
-            field
-                .known()
-                .is_some_and(|name| name.eq_ignore_ascii_case(value))
-        }))
+    fields
+        .iter()
+        .find(|(field, _)| field.is_unknown())
+        .map_or(NameVerdict::Differs, |(_, phase)| {
+            NameVerdict::Unknown(phase)
+        })
+}
+
+fn decide(verdict: NameVerdict, actions: &LocatorField<Vec<String>>) -> Result<bool, AdapterError> {
+    let clickable = actions.known().map(|known| {
+        known
+            .iter()
+            .any(|action| action == agent_desktop_core::actions::capability::CLICK)
+    });
+    match (verdict, clickable) {
+        (NameVerdict::Differs, _) => Ok(false),
+        (NameVerdict::Match, Some(clickable)) => Ok(clickable),
+        (NameVerdict::Match, None) => Err(incomplete("actions_unknown")),
+        (NameVerdict::Unknown(_), Some(false)) => Ok(false),
+        (NameVerdict::Unknown(phase), _) => Err(incomplete(phase)),
+    }
 }
 
 fn incomplete(phase: &str) -> AdapterError {
@@ -254,30 +307,92 @@ mod tests {
         assert_eq!(reads, 8);
     }
 
-    #[test]
-    fn selection_requires_a_known_canonical_label_and_an_actionable_target() {
-        let mut evidence = LocatorEvidence {
+    fn evidence(name: LocatorField<String>, description: LocatorField<String>) -> LocatorEvidence {
+        LocatorEvidence {
             role: LocatorField::Known("treeitem".into()),
-            name: LocatorField::Known("Math".into()),
-            description: LocatorField::Absent,
+            name,
+            description,
             value: LocatorField::Unknown,
             identifiers: IdentifierEvidence::absent(),
             states: LocatorField::Unknown,
             ref_evidence: LocatorRefEvidence {
                 window_bounds: LocatorField::Absent,
                 bounds: LocatorField::Unknown,
-                available_actions: LocatorField::Known(vec!["Click".into()]),
+                available_actions: LocatorField::Unknown,
                 descriptors: Default::default(),
             },
-        };
-        assert!(matches_evidence(&evidence, "math").unwrap());
-        assert!(!matches_evidence(&evidence, "All").unwrap());
-        evidence.ref_evidence.available_actions = LocatorField::Known(vec![]);
-        assert!(!matches_evidence(&evidence, "Math").unwrap());
-        evidence.ref_evidence.available_actions = LocatorField::Known(vec!["Click".into()]);
-        evidence.name = LocatorField::Unknown;
+        }
+    }
+
+    fn known(text: &str) -> LocatorField<String> {
+        LocatorField::Known(text.into())
+    }
+
+    fn click() -> LocatorField<Vec<String>> {
+        LocatorField::Known(vec!["Click".into()])
+    }
+
+    #[test]
+    fn a_scan_cut_by_its_deadline_names_the_scan() {
+        let cut = name_scan_deadline(
+            AdapterError::timeout(
+                "Accessibility surface resolution exceeded its absolute deadline",
+            ),
+            300,
+            Deadline::after(1_000).unwrap(),
+        );
+        assert_eq!(cut.code, ErrorCode::Timeout);
+        assert_eq!(cut.details.unwrap()["nodes_scanned"], 300);
+        let other = name_scan_deadline(
+            AdapterError::new(ErrorCode::ActionFailed, "x"),
+            1,
+            Deadline::after(1_000).unwrap(),
+        );
+        assert_eq!(other.code, ErrorCode::ActionFailed);
+    }
+
+    #[test]
+    fn a_label_is_compared_before_any_action_is_read() {
+        let named = evidence(known("Math"), LocatorField::Absent);
+        assert_eq!(name_verdict(&named, "math"), NameVerdict::Match);
+        assert_eq!(name_verdict(&named, "All"), NameVerdict::Differs);
+        let described = evidence(known("x"), known("Math"));
+        assert_eq!(name_verdict(&described, "Math"), NameVerdict::Match);
+    }
+
+    #[test]
+    fn a_candidate_whose_readable_label_differs_never_reads_actions_or_aborts() {
+        let differs = name_verdict(&evidence(known("Row"), LocatorField::Absent), "Math");
+        assert_eq!(differs, NameVerdict::Differs);
+        assert!(!decide(differs, &LocatorField::Unknown).unwrap());
+    }
+
+    #[test]
+    fn a_matching_label_needs_known_actions_with_click() {
+        assert!(decide(NameVerdict::Match, &click()).unwrap());
+        assert!(!decide(NameVerdict::Match, &LocatorField::Known(vec![])).unwrap());
         assert_eq!(
-            matches_evidence(&evidence, "Math").unwrap_err().code,
+            decide(NameVerdict::Match, &LocatorField::Unknown)
+                .unwrap_err()
+                .code,
+            ErrorCode::AppUnresponsive
+        );
+    }
+
+    #[test]
+    fn an_unknown_label_aborts_only_when_the_candidate_could_still_be_the_target() {
+        let unknown = name_verdict(
+            &evidence(LocatorField::Unknown, LocatorField::Absent),
+            "Math",
+        );
+        assert_eq!(unknown, NameVerdict::Unknown("name_unknown"));
+        assert!(!decide(unknown, &LocatorField::Known(vec![])).unwrap());
+        assert_eq!(
+            decide(unknown, &LocatorField::Unknown).unwrap_err().code,
+            ErrorCode::AppUnresponsive
+        );
+        assert_eq!(
+            decide(unknown, &click()).unwrap_err().code,
             ErrorCode::AppUnresponsive
         );
     }

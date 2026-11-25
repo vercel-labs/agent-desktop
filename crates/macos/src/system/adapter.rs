@@ -105,6 +105,25 @@ impl SystemOps for MacOSAdapter {
         crate::system::focus::focus_process(&process, lease.deadline())
     }
 
+    fn read_front(
+        &self,
+        deadline: Deadline,
+    ) -> Result<agent_desktop_core::FrontView, AdapterError> {
+        crate::system::window::window_front::read_front(deadline)
+    }
+
+    fn front_process(&self, pid: u32) -> Option<agent_desktop_core::FrontProcess> {
+        crate::system::window::window_front::front_process(pid)
+    }
+
+    fn give_back(
+        &self,
+        window: &agent_desktop_core::FrontWindow,
+        _lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        crate::system::window::window_front::give_back(window)
+    }
+
     fn launch_app(
         &self,
         id: &str,
@@ -264,9 +283,10 @@ impl SystemOps for MacOSAdapter {
         &self,
         win: &WindowInfo,
         op: WindowOp,
+        policy: agent_desktop_core::InteractionPolicy,
         lease: &InteractionLease,
     ) -> Result<OperationReport, AdapterError> {
-        crate::system::window::window_frame::window_op(win, op, lease.deadline())
+        crate::system::window::window_frame::window_op(win, op, policy, lease.deadline())
     }
 
     fn list_notifications(

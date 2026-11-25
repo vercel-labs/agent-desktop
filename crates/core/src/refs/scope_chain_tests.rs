@@ -35,7 +35,7 @@ fn minimal_entry(role: &str) -> RefEntry {
         },
         identity: RefEntryIdentity {
             role: role.into(),
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
             ..Default::default()
         },
         geometry: RefGeometry {
@@ -98,7 +98,7 @@ fn deep_mirrored_hierarchy_shares_interned_scope_chains_without_amplification() 
         }
         let mut entry = materialize_ref_entry(item, &observed.source, &LocatorQuery::default());
         proof.prove_node(&mut entry, index);
-        assert!(entry.identity.unique_at_capture);
+        assert!(entry.identity.proof.is_unique());
         assert_eq!(entry.scope.chain.len(), 8);
         let root_name = entry.scope.chain[7].name.as_deref().unwrap_or("");
         if root_name.starts_with("left-") {
@@ -150,7 +150,7 @@ fn capture_proof_stops_allocating_chains_when_aggregate_memory_budget_is_reached
         }
         let mut entry = materialize_ref_entry(item, &observed.source, &LocatorQuery::default());
         proof.prove_node(&mut entry, index);
-        if entry.identity.unique_at_capture {
+        if entry.identity.proof.is_unique() {
             proven += 1;
         } else {
             assert!(entry.scope.chain.is_empty());

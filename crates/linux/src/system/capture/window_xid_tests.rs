@@ -17,7 +17,7 @@ fn client(id: u32, pid: u32, title: &str) -> X11Client {
     X11Client {
         id,
         pid: Some(pid),
-        title: title.to_owned(),
+        title: title.into(),
         extents: None,
         bounds: Some(Extents {
             x: 0,

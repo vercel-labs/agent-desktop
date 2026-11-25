@@ -77,17 +77,20 @@ impl ProcessIdentity {
         Ok(None)
     }
 
+    /// When the process started, in milliseconds since the Unix epoch.
+    pub(crate) fn started_unix_ms(self) -> u64 {
+        const UNIX_EPOCH_SECONDS_SINCE_1601: u64 = 11_644_473_600;
+        let seconds = self
+            .creation_seconds
+            .saturating_sub(UNIX_EPOCH_SECONDS_SINCE_1601);
+        seconds * 1_000 + self.creation_subtick / (TICKS_PER_SECOND / 1_000)
+    }
+
     pub(crate) fn token(self) -> String {
         format!(
             "{TOKEN_PREFIX}:{}:{}",
             self.creation_seconds, self.creation_subtick
         )
-    }
-
-    /// Whether this process was created before `other`.
-    pub(crate) fn started_before(self, other: Self) -> bool {
-        (self.creation_seconds, self.creation_subtick)
-            < (other.creation_seconds, other.creation_subtick)
     }
 
     /// Whether this identity still matches the process at `pid` right now.
@@ -260,19 +263,6 @@ mod tests {
         };
 
         assert_eq!(identity.token(), "windows-proc-v1:1700000000:123456");
-    }
-
-    #[test]
-    fn a_process_started_earlier_in_the_same_second_started_before() {
-        let at = |creation_subtick| ProcessIdentity {
-            pid: ProcessId::new(1),
-            creation_seconds: 1_700_000_000,
-            creation_subtick,
-        };
-
-        assert!(at(1).started_before(at(2)));
-        assert!(!at(2).started_before(at(2)));
-        assert!(!at(3).started_before(at(2)));
     }
 
     #[test]

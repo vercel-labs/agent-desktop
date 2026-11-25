@@ -13,6 +13,16 @@ use super::runtime::hresult::{adapter_error_from_win32, win32_last_error};
 
 const EXIT_POLL: Duration = Duration::from_millis(25);
 
+pub(crate) fn close_app_report(
+    app: &AppInfo,
+    force: bool,
+    deadline: Deadline,
+) -> Result<agent_desktop_core::OperationReport, AdapterError> {
+    let dispatched =
+        close_app_impl(app, force, deadline).map(|outcome| outcome == CloseOutcome::Exited);
+    agent_desktop_core::OperationReport::from_close_dispatch(app, dispatched)
+}
+
 pub(crate) fn close_app_impl(
     app: &AppInfo,
     force: bool,

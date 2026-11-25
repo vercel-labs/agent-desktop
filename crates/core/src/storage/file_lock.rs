@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::path::Path;
-use std::time::Duration;
 
+use crate::storage::file_lock_wait::{LockWaitFailure, wait_for_lock};
 use crate::{AdapterError, Deadline, ErrorCode};
 
 /// A private state-file lock held until this guard is dropped.
@@ -90,46 +90,48 @@ impl FileLock {
     }
 }
 
-/// Drops a contended lock without unlocking: shared file descriptions need drop,
-/// not unlock. On the adopt path, shared descriptions exist and must be left alone.
+/// Takes the lock, blocking in the kernel rather than polling. A poller that
+/// sleeps between tries loses to a process that releases and asks again at once;
+/// a blocked waiter is woken on release and takes its turn. Dropping the file
+/// closes it without unlocking: shared file descriptions need drop, not unlock,
+/// and on the adopt path shared descriptions exist and must be left alone.
 fn lock_file(
     file: File,
     deadline: Deadline,
     purpose: &str,
     path: &Path,
 ) -> Result<FileLock, AdapterError> {
-    let mut contention_count = 0_u64;
-    loop {
-        if deadline.is_expired() {
-            return Err(lock_timeout(deadline, purpose, path, contention_count));
-        }
-        match file.try_lock() {
-            Ok(()) => {
-                if deadline.is_expired() {
-                    return Err(lock_timeout(deadline, purpose, path, contention_count));
-                }
-                return Ok(FileLock {
-                    _file: file,
-                    #[cfg(unix)]
-                    contention_count,
-                });
-            }
-            Err(std::fs::TryLockError::WouldBlock) => {
-                contention_count = contention_count.saturating_add(1);
-                let remaining = deadline.remaining();
-                if remaining.is_zero() {
-                    return Err(lock_timeout(deadline, purpose, path, contention_count));
-                }
-                crate::wait::deadline::sleep(remaining.min(Duration::from_millis(10)));
-            }
-            Err(std::fs::TryLockError::Error(error)) => {
-                return Err(AdapterError::new(
-                    ErrorCode::Internal,
-                    format!("Failed to acquire {purpose}: {error}"),
-                ));
-            }
-        }
+    if deadline.is_expired() {
+        return Err(lock_timeout(deadline, purpose, path, 0));
     }
+    let (file, contention_count) = match file.try_lock() {
+        Ok(()) => (file, 0_u64),
+        Err(std::fs::TryLockError::WouldBlock) => {
+            let file = wait_for_lock(file, deadline).map_err(|failure| match failure {
+                LockWaitFailure::TimedOut => lock_timeout(deadline, purpose, path, 1),
+                LockWaitFailure::Failed(message) => acquire_failure(purpose, &message),
+            })?;
+            (file, 1_u64)
+        }
+        Err(std::fs::TryLockError::Error(error)) => {
+            return Err(acquire_failure(purpose, &error.to_string()));
+        }
+    };
+    if deadline.is_expired() {
+        return Err(lock_timeout(deadline, purpose, path, contention_count));
+    }
+    Ok(FileLock {
+        _file: file,
+        #[cfg(unix)]
+        contention_count,
+    })
+}
+
+fn acquire_failure(purpose: &str, message: &str) -> AdapterError {
+    AdapterError::new(
+        ErrorCode::Internal,
+        format!("Failed to acquire {purpose}: {message}"),
+    )
 }
 
 fn lock_timeout(

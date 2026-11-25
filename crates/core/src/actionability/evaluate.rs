@@ -82,7 +82,12 @@ pub(super) fn check_with_stability(
     deadline: crate::Deadline,
 ) -> Result<ActionabilityReport, AdapterError> {
     let report = build_report(stability, evidence, request, hit_test, deadline)?;
-    finish(evidence, request, report)
+    finish(
+        evidence,
+        request,
+        report,
+        hit_test.map(|(_, adapter)| adapter),
+    )
 }
 
 /// Preserves stability gaps and positive-timeout application-pointer geometry gaps for sampling.
@@ -102,7 +107,12 @@ pub(super) fn check_with_stability_or_gap(
     if evidence.can_wait_for_geometry(request, &report, focus) {
         return Ok(report);
     }
-    finish(evidence, request, report)
+    finish(
+        evidence,
+        request,
+        report,
+        hit_test.map(|(_, adapter)| adapter),
+    )
 }
 
 pub(super) fn check_before_focus(
@@ -117,7 +127,12 @@ pub(super) fn check_before_focus(
     if evidence.can_wait_for_geometry(request, &report, focus) {
         return Ok(report);
     }
-    finish(evidence, request, report)
+    finish(
+        evidence,
+        request,
+        report,
+        hit_test.map(|(_, adapter)| adapter),
+    )
 }
 
 pub(super) fn build_report(
@@ -249,40 +264,17 @@ fn center_point(bounds: crate::Rect) -> Option<crate::Point> {
     })
 }
 
-const CELL_EDITOR_SUGGESTION: &str = "This cell is not directly editable. Click it, then take a fresh snapshot and target the text editor inside the cell. If the cell shows no editor, the first click only selected it: click it again.";
-
 fn finish(
     evidence: &ActionabilityEvidence,
     request: &ActionRequest,
     report: ActionabilityReport,
+    adapter: Option<&dyn PlatformAdapter>,
 ) -> Result<ActionabilityReport, AdapterError> {
     if report.actionable {
         return Ok(report);
     }
     let code = report.terminal_code().unwrap_or(ErrorCode::ActionFailed);
-    let suggestion = if code == ErrorCode::ActionFailed {
-        suggestion::ACTION_FAILED_SUGGESTION.to_owned()
-    } else if evidence.state.role == "cell"
-        && report.checks.iter().any(|check| {
-            check.check == "editable" && check.status == super::status::ActionabilityStatus::Fail
-        })
-    {
-        CELL_EDITOR_SUGGESTION.to_owned()
-    } else if code == ErrorCode::ActionNotSupported
-        && matches!(request.action, crate::Action::SetFocus)
-    {
-        "Choose an element advertising SetFocus in a fresh snapshot. To focus the owning window instead, use focus-window.".to_owned()
-    } else if code == ErrorCode::ActionNotSupported
-        && matches!(
-            request.action,
-            crate::Action::SetValue(_) | crate::Action::Clear
-        )
-        && matches!(evidence.state.role.as_str(), "textfield" | "combobox")
-    {
-        suggestion::text_write(request.policy)
-    } else {
-        super::suggestion::WAITING_SUGGESTION.to_owned()
-    };
+    let suggestion = suggestion::select(&code, evidence, request, &report, adapter);
     let mut details = json!(report);
     if let Some(object) = details.as_object_mut()
         && let Some(bounds) = evidence.bounds
@@ -354,9 +346,12 @@ mod tests {
 
         let request = ActionRequest::headed(crate::Action::SetValue("value".into()));
         let error =
-            finish(&evidence, &request, report).expect_err("non-actionable report must fail");
+            finish(&evidence, &request, report, None).expect_err("non-actionable report must fail");
 
-        assert_eq!(error.suggestion.as_deref(), Some(CELL_EDITOR_SUGGESTION));
+        assert_eq!(
+            error.suggestion.as_deref(),
+            Some(crate::actionability::suggestion::CELL_SUGGESTION)
+        );
         assert!(!error.suggestion.unwrap().contains("it exposes"));
     }
 
@@ -389,3 +384,7 @@ mod geometry_tests;
 #[cfg(test)]
 #[path = "evaluate_suggestion_tests.rs"]
 mod suggestion_tests;
+
+#[cfg(test)]
+#[path = "evaluate_refusal_tests.rs"]
+mod refusal_tests;

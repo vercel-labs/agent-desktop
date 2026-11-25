@@ -1,13 +1,13 @@
 use crate::{
-    AdapterError, AppError, AppInfo, Deadline, IdentityMatch, PlatformAdapter, RefEntry,
-    WindowInfo,
+    AdapterError, AppError, AppInfo, Deadline, IdentityMatch, IdentityProof, PlatformAdapter,
+    RefEntry, WindowInfo,
     adapter::{NativeHandle, TreeOptions},
     locator::live_locator::{ObservationRequest, ObservationRoot, ObservedTree},
     refs::ref_full_predicate::FullPredicate,
     refs::ref_identity::element_token,
     refs::ref_live_predicate::LivePredicate,
     refs::ref_scope_resolve::{chain_nodes, land_in_scope, match_in_scope},
-    refs::resolve_errors::{absent, identity_not_unique, identity_unknown_error},
+    refs::resolve_errors::{absent, identity_twins, identity_unknown_error, identity_unproven},
 };
 
 /// The depth a whole-window observation reaches: the limit a snapshot walk
@@ -51,7 +51,7 @@ pub(crate) fn land_saved_ref(
     deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
     if element_token(entry).is_none()
-        && entry.identity.unique_at_capture
+        && entry.identity.proof.is_unique()
         && entry.scope.chain.is_empty()
         && let Ok(handle) = adapter.resolve_locator_anchor(entry, None, deadline)
         && confirm_landed_element(adapter, entry, &handle, deadline).is_ok()
@@ -59,6 +59,14 @@ pub(crate) fn land_saved_ref(
         return Ok(handle);
     }
     resolve_saved_ref(adapter, entry, deadline, None)
+}
+
+fn refuse_unless_unique(entry: &RefEntry) -> Result<(), AdapterError> {
+    match entry.identity.proof {
+        IdentityProof::Unique => Ok(()),
+        IdentityProof::Twins => Err(identity_twins(entry)),
+        IdentityProof::Unproven => Err(identity_unproven(entry)),
+    }
 }
 
 /// The window a saved ref is captured from, one complete observation of it, and
@@ -79,8 +87,8 @@ pub(crate) fn observe_saved_ref(
     identity_only: bool,
 ) -> Result<SavedRefMatch, AdapterError> {
     let token = element_token(entry);
-    if token.is_none() && !entry.identity.unique_at_capture {
-        return Err(identity_not_unique(entry));
+    if token.is_none() {
+        refuse_unless_unique(entry)?;
     }
     let window = recorded_window(adapter, entry, deadline)?;
     let base = TreeOptions {

@@ -152,3 +152,33 @@ fn a_failed_surface_read_is_not_turned_into_an_absent_surface() {
     assert_eq!(error.code, ErrorCode::StaleRef);
     assert_eq!(error.disposition, DeliverySemantics::not_delivered());
 }
+
+#[test]
+fn a_command_chord_to_a_background_app_is_refused_before_sending() {
+    let headless = agent_desktop_core::InteractionPolicy::headless();
+    let chord = key("s", vec![Modifier::Meta]);
+    assert!(chord_needs_frontmost(&chord, headless));
+    let refusal = background_chord_refusal(&chord, false).expect("refused");
+    assert_eq!(refusal.code, ErrorCode::ActionFailed);
+    assert_eq!(refusal.disposition, DeliverySemantics::not_delivered());
+    assert_eq!(refusal.details.as_ref().unwrap()["check"], "process_focus");
+}
+
+#[test]
+fn the_same_chord_to_the_front_app_is_sent() {
+    assert!(background_chord_refusal(&key("s", vec![Modifier::Meta]), true).is_none());
+}
+
+#[test]
+fn plain_and_shift_keys_and_headed_delivery_do_not_need_the_front_app() {
+    let headless = agent_desktop_core::InteractionPolicy::headless();
+    assert!(!chord_needs_frontmost(&key("q", Vec::new()), headless));
+    assert!(!chord_needs_frontmost(
+        &key("left", vec![Modifier::Shift]),
+        headless
+    ));
+    assert!(!chord_needs_frontmost(
+        &key("s", vec![Modifier::Meta]),
+        agent_desktop_core::InteractionPolicy::headed()
+    ));
+}

@@ -109,7 +109,7 @@ fn a_unique_ancestor_anchors_a_boundary_whose_twin_is_not_offered() {
     assert_eq!(refmap.len(), 1, "only the ancestor is a drill target");
     let anchor = refmap.get("@e1").expect("the ancestor holds the first ref");
     assert_eq!(anchor.identity.name.as_deref(), Some("Panel"));
-    assert!(anchor.identity.unique_at_capture);
+    assert!(anchor.identity.proof.is_unique());
 }
 
 /// A ref-able twin at a boundary is refused when drilled, so it covers nothing:
@@ -129,5 +129,5 @@ fn a_twin_ref_able_boundary_leaves_its_anchor_to_a_proven_ancestor() {
         .filter_map(|index| refmap.get(&format!("@e{index}")))
         .find(|entry| entry.identity.name.as_deref() == Some("Panel"))
         .expect("the proven ancestor anchors the boundary");
-    assert!(anchor.identity.unique_at_capture);
+    assert!(anchor.identity.proof.is_unique());
 }

@@ -10,6 +10,15 @@ use crate::system::window::window_id;
 use crate::system::x11::twin_tie::Twins;
 use crate::tree::Extents;
 
+fn run(
+    world: &impl OpWorld,
+    win: &WindowInfo,
+    op: &WindowOp,
+    deadline: Deadline,
+) -> Result<OperationReport, AdapterError> {
+    super::run(world, win, op, InteractionPolicy::headed(), deadline)
+}
+
 #[path = "window_op_refusal_tests.rs"]
 mod refusals;
 
@@ -68,7 +77,7 @@ pub(super) fn client(id: u32, title: &str) -> X11Client {
         id,
         hidden: false,
         pid: Some(100),
-        title: title.to_owned(),
+        title: title.into(),
         extents: None,
         bounds: None,
     }

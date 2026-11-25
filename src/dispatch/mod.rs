@@ -112,11 +112,11 @@ fn dispatch_command(
         Commands::ListDisplays => commands::list_displays::execute(adapter),
         Commands::ListApps(args) => app_window::list_apps(args, adapter),
         Commands::FocusWindow(args) => app_window::focus_window(args, adapter, context),
-        Commands::ResizeWindow(args) => app_window::resize_window(args, adapter),
-        Commands::MoveWindow(args) => app_window::move_window(args, adapter),
-        Commands::Minimize(args) => app_window::minimize(args, adapter),
-        Commands::Maximize(args) => app_window::maximize(args, adapter),
-        Commands::Restore(args) => app_window::restore(args, adapter),
+        Commands::ResizeWindow(args) => app_window::resize_window(args, adapter, context),
+        Commands::MoveWindow(args) => app_window::move_window(args, adapter, context),
+        Commands::Minimize(args) => app_window::minimize(args, adapter, context),
+        Commands::Maximize(args) => app_window::maximize(args, adapter, context),
+        Commands::Restore(args) => app_window::restore(args, adapter, context),
         Commands::ListSurfaces(args) => app_window::list_surfaces(args, adapter),
         Commands::OpenSystemSurface(args) => {
             app_window::open_system_surface(args, adapter, context)

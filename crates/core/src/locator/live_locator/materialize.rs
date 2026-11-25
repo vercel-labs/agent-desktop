@@ -108,14 +108,17 @@ pub(crate) fn ref_entry(
                 .map(str::to_owned),
             role: role.clone(),
             name: crate::refs::ref_identity::recorded_name(
-                node.evidence.name.meaningful_string(),
+                node.evidence.name.meaningful_string().filter(|_| {
+                    !(node.evidence.value.is_unknown()
+                        && crate::tree::roles::is_mutable_value_role(&role))
+                }),
                 node.evidence.identifiers.name_is_borrowed(),
                 identifier.as_ref(),
             ),
             value: node.evidence.value.meaningful_string(),
             description: node.evidence.description.meaningful_string(),
             native_id: identifier,
-            unique_at_capture: false,
+            proof: crate::IdentityProof::Unproven,
         },
         geometry: crate::RefGeometry {
             bounds,

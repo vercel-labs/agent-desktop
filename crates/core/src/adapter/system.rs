@@ -291,10 +291,39 @@ pub trait SystemOps: Send + Sync {
         Err(AdapterError::not_supported("wait_for_menu"))
     }
 
+    /// What the user sees in front. Cheap: the front guard polls it.
+    fn read_front(&self, _deadline: Deadline) -> Result<crate::FrontView, AdapterError> {
+        Err(AdapterError::not_supported("read_front"))
+    }
+
+    /// The executable name and start time of `pid`, which the front guard
+    /// reads to tell the command target's new windows from the user's.
+    fn front_process(&self, _pid: u32) -> Option<crate::FrontProcess> {
+        None
+    }
+
+    fn keep_below(
+        &self,
+        _window: &crate::FrontWindow,
+        _above: &crate::FrontWindow,
+        _lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        Err(AdapterError::not_supported("keep_below"))
+    }
+
+    fn give_back(
+        &self,
+        _window: &crate::FrontWindow,
+        _lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        Err(AdapterError::not_supported("give_back"))
+    }
+
     fn window_op(
         &self,
         _win: &WindowInfo,
         _op: WindowOp,
+        _policy: InteractionPolicy,
         _lease: &InteractionLease,
     ) -> Result<OperationReport, AdapterError> {
         Err(AdapterError::not_supported("window_op"))

@@ -10,7 +10,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub type RefPath = SmallVec<[usize; 8]>;
-
 pub(crate) const MAX_REFMAP_BYTES: u64 = 1_048_576;
 static SNAPSHOT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -355,6 +354,7 @@ pub(crate) fn home_override_active() -> bool {
     HOME_OVERRIDE.with(|cell| cell.borrow().is_some())
 }
 
+pub(crate) mod identity_proof;
 pub mod ref_alloc;
 pub(crate) mod ref_alloc_config;
 pub(crate) mod ref_alloc_options;

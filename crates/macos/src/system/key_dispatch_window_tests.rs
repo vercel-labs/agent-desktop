@@ -123,7 +123,7 @@ fn a_window_press_that_is_not_a_plain_escape_keeps_its_refusal() {
     )
     .unwrap_err();
 
-    assert_eq!(error.code, ErrorCode::StaleRef);
+    assert_eq!(error.code, ErrorCode::ActionFailed);
     assert_eq!(error.details.unwrap()["check"], "window_active");
     assert_eq!(adapter.dispatched.load(Ordering::SeqCst), 0);
 }

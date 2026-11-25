@@ -390,5 +390,10 @@ fn an_unproven_capture_is_flagged_in_the_payload() {
     result.identity_unproven = Some("the whole-window read was cut short".into());
     let unproven = format_snapshot_fields(&result, None, None).unwrap();
     assert_eq!(unproven["identity_unproven"], true);
-    assert_eq!(unproven["complete"], true);
+    assert_eq!(
+        unproven["identity_unproven_reason"],
+        "the whole-window read was cut short"
+    );
+    assert_eq!(unproven["complete"], false);
+    assert!(unproven.get("truncated").is_none());
 }

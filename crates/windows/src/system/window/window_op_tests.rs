@@ -1,6 +1,6 @@
 use super::*;
 
-use agent_desktop_core::ProcessId;
+use agent_desktop_core::{InteractionPolicy, ProcessId};
 
 fn window_with_id(id: &str, process_instance: Option<&str>) -> WindowInfo {
     WindowInfo {
@@ -37,8 +37,13 @@ fn an_expired_deadline_is_refused_before_the_window_id_is_read() {
     let win = window_with_id("not-a-window", None);
     let expired = Deadline::after(0).expect("a zero millisecond deadline");
 
-    let error = window_op_impl(&win, WindowOp::Minimize, expired)
-        .expect_err("an expired deadline is refused before anything is read");
+    let error = window_op_impl(
+        &win,
+        WindowOp::Minimize,
+        InteractionPolicy::headless(),
+        expired,
+    )
+    .expect_err("an expired deadline is refused before anything is read");
 
     assert_eq!(error.code, ErrorCode::Timeout);
     assert_eq!(error.disposition, DeliverySemantics::not_delivered());
@@ -49,8 +54,13 @@ fn an_id_that_is_not_a_window_handle_is_invalid_and_not_delivered() {
     let win = window_with_id("not-a-window", Some("windows-proc-v1:0:1"));
     let live = Deadline::after(5_000).expect("a five second deadline");
 
-    let error = window_op_impl(&win, WindowOp::Minimize, live)
-        .expect_err("an id with no HWND shape cannot name a window");
+    let error = window_op_impl(
+        &win,
+        WindowOp::Minimize,
+        InteractionPolicy::headless(),
+        live,
+    )
+    .expect_err("an id with no HWND shape cannot name a window");
 
     assert_eq!(error.code, ErrorCode::InvalidArgs);
     assert_eq!(error.disposition, DeliverySemantics::not_delivered());
@@ -61,8 +71,13 @@ fn a_null_window_handle_is_invalid_and_not_delivered() {
     let win = window_with_id("w-0", Some("windows-proc-v1:0:1"));
     let live = Deadline::after(5_000).expect("a five second deadline");
 
-    let error = window_op_impl(&win, WindowOp::Minimize, live)
-        .expect_err("the null handle names no window");
+    let error = window_op_impl(
+        &win,
+        WindowOp::Minimize,
+        InteractionPolicy::headless(),
+        live,
+    )
+    .expect_err("the null handle names no window");
 
     assert_eq!(error.code, ErrorCode::InvalidArgs);
     assert_eq!(error.disposition, DeliverySemantics::not_delivered());
@@ -73,8 +88,13 @@ fn a_stored_window_without_a_process_token_is_stale_and_not_delivered() {
     let win = window_with_id("w-4660", None);
     let live = Deadline::after(5_000).expect("a five second deadline");
 
-    let error = window_op_impl(&win, WindowOp::Minimize, live)
-        .expect_err("a window with no process instance token cannot be corroborated");
+    let error = window_op_impl(
+        &win,
+        WindowOp::Minimize,
+        InteractionPolicy::headless(),
+        live,
+    )
+    .expect_err("a window with no process instance token cannot be corroborated");
 
     assert_eq!(error.code, ErrorCode::StaleRef);
     assert_eq!(error.disposition, DeliverySemantics::not_delivered());
@@ -115,8 +135,13 @@ fn a_handle_that_names_no_window_of_the_recorded_process_fails_closed_before_any
     let win = window_with_id("w-2147483632", Some("not-the-running-instance"));
     let live = Deadline::after(5_000).expect("a five second deadline");
 
-    let error = window_op_impl(&win, WindowOp::Minimize, live)
-        .expect_err("a handle that names no window cannot pass identity verification");
+    let error = window_op_impl(
+        &win,
+        WindowOp::Minimize,
+        InteractionPolicy::headless(),
+        live,
+    )
+    .expect_err("a handle that names no window cannot pass identity verification");
 
     assert_eq!(error.disposition, DeliverySemantics::not_delivered());
 }

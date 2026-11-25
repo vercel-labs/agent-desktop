@@ -50,6 +50,7 @@ may report `unknown` when consent would require a prompt.
 - Headless menu-opening and dialog-opening actions can refuse before delivery.
   A label ending in an ellipsis predicts a dialog; it does not prove one exists.
   Stop on a headed-only refusal rather than changing mode.
+- Headless `restore` of a minimized window and headless `minimize` of the focused window refuse with `POLICY_DENIED`; the system raises or moves focus. Stop on that refusal.
 - A file-name text field is not a file-system rename interface. Value-write
   actions refuse it because a changed field could falsely imply a renamed file.
 - A tab button (`AXRadioButton`, subrole `AXTabButton`) is selected by press

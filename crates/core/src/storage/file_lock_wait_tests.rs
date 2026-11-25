@@ -1,0 +1,81 @@
+use std::time::{Duration, Instant};
+
+use crate::refs::refs_test_support::HomeGuard;
+use crate::{Deadline, FileLock};
+
+fn lock_path(home: &HomeGuard) -> std::path::PathBuf {
+    let directory = home.path().join("lockwait");
+    crate::storage::private_file_parent::ensure_private(&directory).unwrap();
+    directory.join("test.lock")
+}
+
+#[test]
+fn a_waiter_that_times_out_leaves_no_lock_behind_when_the_kernel_grants_late() {
+    let home = HomeGuard::new();
+    let path = lock_path(&home);
+    let holder = FileLock::acquire(&path, Deadline::after(1_000).unwrap(), "holder").unwrap();
+    let error = FileLock::acquire(&path, Deadline::after(60).unwrap(), "waiter")
+        .err()
+        .expect("the held lock times out");
+    assert_eq!(error.code, crate::ErrorCode::Timeout);
+    drop(holder);
+
+    let started = Instant::now();
+    let next = FileLock::acquire(&path, Deadline::after(1_000).unwrap(), "next")
+        .expect("a late grant must not keep the lock");
+    assert!(started.elapsed() < Duration::from_millis(500));
+    drop(next);
+}
+
+#[test]
+fn a_blocked_waiter_takes_the_lock_as_soon_as_the_holder_releases() {
+    let home = HomeGuard::new();
+    let path = lock_path(&home);
+    let holder = FileLock::acquire(&path, Deadline::after(1_000).unwrap(), "holder").unwrap();
+    let waiter_path = path.clone();
+    let waiter = std::thread::spawn(move || {
+        let started = Instant::now();
+        let lock = FileLock::acquire(&waiter_path, Deadline::after(5_000).unwrap(), "waiter");
+        (lock.is_ok(), started.elapsed())
+    });
+    std::thread::sleep(Duration::from_millis(100));
+    drop(holder);
+
+    let (acquired, waited) = waiter.join().unwrap();
+    assert!(acquired);
+    assert!(waited < Duration::from_millis(500), "waited {waited:?}");
+}
+
+#[test]
+fn three_agents_looping_on_one_lock_take_turns_instead_of_one_repeating() {
+    let home = HomeGuard::new();
+    let path = lock_path(&home);
+    let order = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    #[allow(clippy::needless_collect)]
+    let workers: Vec<_> = (0..3_usize)
+        .map(|worker| {
+            let path = path.clone();
+            let order = order.clone();
+            std::thread::spawn(move || {
+                for _ in 0..12 {
+                    let lock = FileLock::acquire(&path, Deadline::after(30_000).unwrap(), "loop")
+                        .expect("every waiter is eventually served");
+                    order.lock().unwrap().push(worker);
+                    std::thread::sleep(Duration::from_millis(20));
+                    drop(lock);
+                }
+            })
+        })
+        .collect();
+    for worker in workers {
+        worker.join().unwrap();
+    }
+    let order = order.lock().unwrap();
+    let longest_streak = order
+        .chunk_by(|left, right| left == right)
+        .map(<[usize]>::len)
+        .max()
+        .unwrap();
+
+    assert!(longest_streak <= 8, "one agent kept the lock: {order:?}");
+}

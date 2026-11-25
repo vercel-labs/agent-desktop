@@ -54,6 +54,23 @@ impl Action {
         }
     }
 
+    /// Whether the action can make the application open a window, such as a
+    /// dialog, a sheet or a prompt, that takes the focus.
+    pub fn can_open_window(&self) -> bool {
+        matches!(
+            self,
+            Self::Click
+                | Self::DoubleClick
+                | Self::RightClick
+                | Self::TripleClick
+                | Self::Select(_)
+                | Self::Toggle
+                | Self::Check
+                | Self::Uncheck
+                | Self::PressKey(_)
+        )
+    }
+
     pub fn name(&self) -> &'static str {
         match self {
             Self::Click => "click",

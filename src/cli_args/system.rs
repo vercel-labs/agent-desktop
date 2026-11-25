@@ -27,7 +27,8 @@ pub(crate) struct LaunchArgs {
         long = "arg",
         allow_hyphen_values = true,
         help = "Command-line argument passed to the launched app; repeatable, order preserved. \
-                For values starting with '-', use --arg=<value>"
+                For values starting with '-', use --arg=<value>. Arguments reach an app that \
+                starts; on a running instance the launch forwards them or refuses before sending"
     )]
     #[serde(default)]
     pub args: Vec<String>,
@@ -42,7 +43,7 @@ pub(crate) struct LaunchArgs {
     pub cwd: Option<std::path::PathBuf>,
     #[arg(
         long = "no-attach",
-        help = "Start a fresh instance instead of attaching to a running one (Windows fails if the app is already running)"
+        help = "Require a fresh instance: fails with ACTION_FAILED and sends nothing when the app is already running, on every platform"
     )]
     #[serde(default)]
     pub no_attach: bool,
