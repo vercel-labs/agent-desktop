@@ -16,10 +16,18 @@ pub(crate) fn matches(
     identity: &Option<crate::system::process::executable_identity::ExecutableIdentity>,
     app: &Running,
 ) -> bool {
+    matches_with(identity, app, false)
+}
+
+fn matches_with(
+    identity: &Option<crate::system::process::executable_identity::ExecutableIdentity>,
+    app: &Running,
+    documents: bool,
+) -> bool {
     identity
         .as_ref()
         .zip(app.executable.as_ref())
-        .is_some_and(|(wanted, actual)| wanted.is_running_as(actual))
+        .is_some_and(|(wanted, actual)| wanted.is_running_as_with(actual, documents))
 }
 
 /// Decides before anything is spawned. No match spawns. One match is attached
@@ -34,7 +42,13 @@ pub(crate) fn decide(
     attach_if_running: bool,
     has_arguments: bool,
 ) -> Decision {
-    decide_by(&[identity], running, attach_if_running, has_arguments)
+    decide_by(
+        &[identity],
+        false,
+        running,
+        attach_if_running,
+        has_arguments,
+    )
 }
 
 /// `decide` for a resolved launch: a process is the running instance when it
@@ -53,6 +67,7 @@ pub(crate) fn decide_plan(
 ) -> Decision {
     decide_by(
         &[&plan.identity, &plan.launcher],
+        plan.takes_documents,
         running,
         attach_if_running,
         has_arguments,
@@ -61,19 +76,24 @@ pub(crate) fn decide_plan(
 
 fn decide_by(
     identities: &[&Option<crate::system::process::executable_identity::ExecutableIdentity>],
+    documents: bool,
     running: &[Running],
     attach_if_running: bool,
     has_arguments: bool,
 ) -> Decision {
     let found: Vec<&Running> = running
         .iter()
-        .filter(|app| identities.iter().any(|identity| matches(identity, app)))
+        .filter(|app| {
+            identities
+                .iter()
+                .any(|identity| matches_with(identity, app, documents))
+        })
         .collect();
     let pids = || found.iter().map(|app| app.pid).collect::<Vec<_>>();
     match found.as_slice() {
         [] => Decision::Spawn,
         _ if !attach_if_running => Decision::Refuse(pids()),
-        [_] if has_arguments => Decision::Forward,
+        [_, ..] if has_arguments => Decision::Forward,
         [one] => Decision::Attach((*one).clone()),
         _ => Decision::Ambiguous(pids()),
     }

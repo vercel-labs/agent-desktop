@@ -24,6 +24,9 @@ pub(super) fn prepare(
     }
 
     let executable = resolve_executable(id)?;
+    if !options.args.is_empty() {
+        return Ok((executable, None));
+    }
     let mut exact_matches = Vec::new();
     for row in matches {
         let Some(process) = ProcessPin::open(row.pid) else {
@@ -42,42 +45,59 @@ pub(super) fn prepare(
             exact_matches.push((row, token, process));
         }
     }
-    if exact_matches.len() > 1 {
-        let rows = exact_matches
-            .iter()
-            .map(|(row, _, _)| row.clone())
-            .collect::<Vec<_>>();
-        return Err(super::ambiguous_apps(&rows));
-    }
-    if let Some((row, token, _process)) = attachable(&mut exact_matches, options) {
-        let target = super::launch_watch::Target {
-            pid: row.pid,
-            process_instance: &token,
-            resident: None,
-        };
-        let sighting = super::observe_window(&target, options, deadline)?;
-        return Ok((
-            executable,
-            Some(super::launch_result(super::Reported {
-                id,
+    match attach_plan(exact_matches.len()) {
+        AttachPlan::Ambiguous => {
+            let rows = exact_matches
+                .iter()
+                .map(|(row, _, _)| row.clone())
+                .collect::<Vec<_>>();
+            return Err(super::ambiguous_apps(&rows));
+        }
+        AttachPlan::Spawn => {}
+        AttachPlan::Attach => {
+            let Some((row, token, _process)) = exact_matches.pop() else {
+                return Ok((executable, None));
+            };
+            let target = super::launch_watch::Target {
                 pid: row.pid,
-                process_instance: token,
-                window: sighting.seen.map(|seen| seen.window),
-                arrival: LaunchArrival::Attached,
-                suggestion: None,
-            })),
-        ));
+                process_instance: &token,
+                resident: None,
+            };
+            let sighting = super::observe_window(&target, options, deadline)?;
+            return Ok((
+                executable,
+                Some(super::launch_result(super::Reported {
+                    id,
+                    pid: row.pid,
+                    process_instance: token,
+                    window: sighting.seen.map(|seen| seen.window),
+                    arrival: LaunchArrival::Attached,
+                    suggestion: None,
+                })),
+            ));
+        }
     }
     Ok((executable, None))
 }
 
-/// The single running instance a launch may attach to. An attach sends
-/// nothing, so a launch that carries arguments cannot be satisfied by it: the
-/// arguments would be dropped. With arguments the launch spawns, and the
-/// process the system starts hands them to the running instance the way the
-/// system does for any launch.
-pub(super) fn attachable<T>(exact_matches: &mut Vec<T>, options: &LaunchOptions) -> Option<T> {
-    exact_matches.pop().filter(|_| options.args.is_empty())
+/// What a launch without arguments does about the running instances of its
+/// program. A launch that carries arguments never gets here: attaching would
+/// drop them, so it always spawns and the program forwards them the way the
+/// system does, however many instances run. Several instances make only a bare
+/// attach ambiguous, because only a bare attach has to choose one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AttachPlan {
+    Spawn,
+    Attach,
+    Ambiguous,
+}
+
+pub(super) fn attach_plan(instances: usize) -> AttachPlan {
+    match instances {
+        0 => AttachPlan::Spawn,
+        1 => AttachPlan::Attach,
+        _ => AttachPlan::Ambiguous,
+    }
 }
 
 pub(super) fn matching_processes(image: &str) -> Result<Vec<ProcessRow>, AdapterError> {

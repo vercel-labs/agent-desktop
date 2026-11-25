@@ -54,14 +54,14 @@ pub fn execute(
     });
     let lease = adapter.acquire_interaction_lease(launch_deadline)?;
     let watching = lease.with_deadline(lease.deadline());
-    let (launched, front) = crate::system::front_guard::guarded(
+    let (launched, front, pending) = crate::system::front_guard::guarded_deferred(
         adapter,
         policy,
         &watching,
         crate::system::front_guard::FrontWatch {
             target: crate::system::front_target::FrontTarget::program(&app),
             settle: LAUNCH_SETTLE,
-            after_release: false,
+            after_release: true,
         },
         |mark| {
             let launched = adapter.launch_app(&app, &options, lease);
@@ -72,6 +72,16 @@ pub fn execute(
         },
     )?;
     let mut launched = launched?;
+    let front = match pending {
+        Some(pending) => {
+            pending
+                .with_deadline(deadline)
+                .run_around(adapter, || ())
+                .1
+                .outcome
+        }
+        None => front,
+    };
     launched.guidance.focus_returned |= front.focus_returned();
     if front == crate::FrontOutcome::GiveBackFailed && launched.guidance.suggestion.is_none() {
         launched.guidance.suggestion =
