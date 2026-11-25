@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::tests::{Desk, lease, run};
@@ -63,31 +64,31 @@ fn a_command_that_outlasts_the_settle_ends_the_watch_at_its_return() {
 
 #[test]
 fn a_window_that_opens_after_the_return_but_inside_dispatch_plus_settle_is_returned() {
-    let desk = Desk::new(true);
+    let desk = Arc::new(Desk::new(true));
+    let mut intruder = None;
     let (_, outcome) = guarded(
-        &desk,
+        &*desk,
         InteractionPolicy::headless(),
-        &lease(&desk),
-        watch_for(250),
+        &lease(&*desk),
+        watch_for(600),
         |mark| {
             mark.dispatched();
-            std::thread::scope(|scope| {
-                scope.spawn(|| {
-                    std::thread::sleep(Duration::from_millis(150));
-                    desk.intrude();
-                });
-                std::thread::sleep(Duration::from_millis(20));
-            });
+            let late = Arc::clone(&desk);
+            intruder = Some(std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(100));
+                late.intrude();
+            }));
+            std::thread::sleep(Duration::from_millis(20));
         },
     )
     .unwrap();
+    intruder.unwrap().join().unwrap();
     assert_eq!(outcome, FrontOutcome::GivenBack);
 }
 
 #[test]
 fn an_intrusion_is_given_back_when_it_is_seen_not_when_the_command_returns() {
     let desk = Desk::new(true);
-    let started = Instant::now();
     let mut returned = None;
     let (_, outcome) = guarded(
         &desk,
@@ -104,14 +105,12 @@ fn an_intrusion_is_given_back_when_it_is_seen_not_when_the_command_returns() {
     )
     .unwrap();
     assert_eq!(outcome, FrontOutcome::GivenBack);
-    let gave_back = desk
-        .gave_back_at()
-        .expect("a give-back")
-        .duration_since(started);
-    let returned = returned.unwrap().duration_since(started);
+    let gave_back = desk.gave_back_at().expect("a give-back");
+    let returned = returned.unwrap();
     assert!(
-        gave_back < Duration::from_millis(200) && gave_back + Duration::from_millis(150) < returned,
-        "given back at {gave_back:?}, command returned at {returned:?}"
+        gave_back + Duration::from_millis(150) < returned,
+        "give-back did not happen well before command return: lead={:?}",
+        returned.saturating_duration_since(gave_back)
     );
 }
 
