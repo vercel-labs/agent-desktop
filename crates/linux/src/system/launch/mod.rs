@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use agent_desktop_core::system::launch_options::LaunchOptions;
@@ -18,9 +17,7 @@ use self::launch_spawn::{before_spawn, spawn, validate};
 use self::launch_target::{Plan, resolve};
 use super::SharedBus;
 use crate::system::app::app_alias::current_index;
-use crate::system::focus::focus_return;
 use crate::system::focus::focus_window::focus_window;
-use crate::system::focus::prior_focus::PriorFocus;
 use crate::system::process::liveness::{Liveness, liveness};
 use crate::system::process::process_facts;
 use crate::system::process::running_app::Running;
@@ -271,28 +268,8 @@ impl Launch<'_> {
     fn start(&mut self, plan: &Plan, running: &[Running]) -> Result<LaunchResult, AdapterError> {
         let before = baseline::prepare(self.bus, &plan.identity, running, self.deadline);
         self.deadline.ensure_remaining().map_err(before_spawn)?;
-        let prior = (!self.options.activate)
-            .then(|| focus_return::read_prior(self.deadline))
-            .and_then(PriorFocus::held);
         let mut spawned = spawn(self.id, plan, self.options)?;
-        let residents = before.residents.iter().map(|r| r.owner.pid).collect();
-        let belongs = focus_return::belongs_to(spawned.pid, residents);
-        let watch =
-            launch_focus_watch::returning(prior, belongs, self.watch_lease(), self.deadline);
-        let (focus_returned, ready) = launch_focus_watch::beside(watch, |hopeless| {
-            let ready = self.ready(&mut spawned, plan, &before);
-            hopeless.store(spawned.exited_in_failure(), Ordering::Relaxed);
-            ready
-        });
-        let mut result = ready?;
-        result.guidance.focus_returned = focus_returned;
-        Ok(result)
-    }
-
-    /// The lease a background launch hands to its focus watch, which releases
-    /// it when the watch ends. A launch asked to activate keeps it.
-    fn watch_lease(&mut self) -> Option<InteractionLease> {
-        self.lease.take_if(|_| !self.options.activate)
+        self.ready(&mut spawned, plan, &before)
     }
 
     fn ready(
@@ -371,9 +348,6 @@ pub(crate) fn launch_app(
 }
 
 #[cfg(test)]
-#[path = "launch_lease_tests.rs"]
-mod lease_tests;
-#[cfg(test)]
 #[path = "launch_tests.rs"]
 mod tests;
 #[cfg(test)]
@@ -389,7 +363,6 @@ pub(super) mod indexed_entry;
 mod launch_arrival;
 pub(super) mod launch_attach;
 mod launch_conclude;
-mod launch_focus_watch;
 mod launch_handoff;
 pub(super) mod launch_observe;
 pub(crate) mod launch_sample;

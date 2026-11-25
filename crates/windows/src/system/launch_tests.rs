@@ -38,12 +38,10 @@ fn ambiguous_launch_target_suggestion_names_pids_instead_of_a_ref_retry() {
         ProcessRow {
             pid: ProcessId::from(111),
             name: "Cursor.exe".into(),
-            parent: 0,
         },
         ProcessRow {
             pid: ProcessId::from(222),
             name: "Cursor.exe".into(),
-            parent: 0,
         },
     ];
 
@@ -73,12 +71,10 @@ fn shared_ambiguous_target_pins_the_windows_envelope() {
         ProcessRow {
             pid: ProcessId::from(10),
             name: "Cursor.exe".into(),
-            parent: 0,
         },
         ProcessRow {
             pid: ProcessId::from(11),
             name: "Cursor.exe".into(),
-            parent: 0,
         },
     ];
 
@@ -298,3 +294,11 @@ fn a_trailing_backslash_cannot_escape_the_closing_quote() {
 
 #[path = "launch_renderer_tests.rs"]
 mod renderer_tests;
+
+#[test]
+fn a_launch_without_activate_asks_for_no_activation_and_an_activating_one_does_not() {
+    let quiet = startup_show(false);
+    assert_eq!((quiet.flags, quiet.show), (0x1, 4));
+    let loud = startup_show(true);
+    assert_eq!((loud.flags, loud.show), (0, 0));
+}

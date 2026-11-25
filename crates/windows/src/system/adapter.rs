@@ -1,11 +1,12 @@
 use agent_desktop_core::{
     ActionResult, AdapterError, AdapterSession, AppInfo, Deadline, DeliverySemantics,
-    DismissAllNotificationsRequest, DismissNotificationRequest, DisplayInfo, ImageBuffer,
-    InteractionLease, InteractionPolicy, KeyCombo, NotificationActionRequest, NotificationFilter,
-    NotificationInfo, ObservationOps, OperationReport, PermissionReport, ProcessIdentity,
-    ScreenshotTarget, SessionAffinity, SignalBaseline, SignalFilter, SnapshotSurface,
-    SurfaceOpening, SystemOps, WindowFilter, WindowInfo, WindowOp,
-    system::launch_options::LaunchOptions, system::process_state::ProcessState,
+    DismissAllNotificationsRequest, DismissNotificationRequest, DisplayInfo, FrontView,
+    FrontWindow, ImageBuffer, InteractionLease, InteractionPolicy, KeyCombo,
+    NotificationActionRequest, NotificationFilter, NotificationInfo, ObservationOps,
+    OperationReport, PermissionReport, ProcessIdentity, ScreenshotTarget, SessionAffinity,
+    SignalBaseline, SignalFilter, SnapshotSurface, SurfaceOpening, SystemOps, WindowFilter,
+    WindowInfo, WindowOp, system::launch_options::LaunchOptions,
+    system::process_state::ProcessState,
 };
 
 use crate::adapter::WindowsAdapter;
@@ -194,8 +195,7 @@ impl SystemOps for WindowsAdapter {
         tcp_listener::owns_listener(&process, port, deadline)
     }
 
-    /// Verified termination: `Ok(())` only after the process is observed gone
-    /// (A21-3). Graceful posts `WM_CLOSE`; force calls `TerminateProcess`.
+    /// Verified termination: `Ok(())` only once the process is observed gone (A21-3).
     fn close_app(
         &self,
         app: &AppInfo,
@@ -208,8 +208,27 @@ impl SystemOps for WindowsAdapter {
         OperationReport::from_close_dispatch(app, dispatched)
     }
 
-    /// `SetWindowPos`/`ShowWindow` with Win32 placement re-read verification
-    /// (A21-5); never UIA `IsOffscreen`/`-32000`.
+    fn read_front(&self, deadline: Deadline) -> Result<FrontView, AdapterError> {
+        crate::system::window::window_front::read_front(deadline)
+    }
+
+    fn keep_below(
+        &self,
+        window: &FrontWindow,
+        above: &FrontWindow,
+        _lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        crate::system::window::window_front::keep_below(window, above)
+    }
+
+    fn give_back(
+        &self,
+        window: &FrontWindow,
+        lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        crate::system::window::window_front::give_back(window, lease)
+    }
+
     fn window_op(
         &self,
         win: &WindowInfo,
@@ -217,14 +236,7 @@ impl SystemOps for WindowsAdapter {
         policy: agent_desktop_core::InteractionPolicy,
         lease: &InteractionLease,
     ) -> Result<OperationReport, AdapterError> {
-        let readback = crate::system::window::window_op_readback::window_readback(&op);
-        let dispatched = crate::system::window::window_op::window_op_impl(
-            win,
-            op.clone(),
-            policy,
-            lease.deadline(),
-        );
-        OperationReport::from_window_dispatch(win, &op, readback, dispatched)
+        crate::system::window::window_op::window_op_report(win, op, policy, lease.deadline())
     }
 
     fn resolve_window_strict(

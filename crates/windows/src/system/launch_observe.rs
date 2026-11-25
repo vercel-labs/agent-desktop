@@ -5,38 +5,28 @@ use agent_desktop_core::{
     system::launch_options::LaunchOptions,
 };
 
-use super::super::launch_focus::Progress;
 use super::super::window::window_ops::list_windows_live;
 
 /// The window a launch actually caused, or `None`. A process that presents no
 /// window is a fact the caller reads from `LaunchResult.window`, not a failure:
 /// a background or windowless process is a legitimate launch outcome, and
 /// erroring on it made every such launch spend its whole timeout first.
-///
-/// `progress` carries what this observation learns to the focus watch running
-/// beside it: the launch is over, or it ended with no window and the affected
-/// processes are gone.
 pub(super) fn observe_window(
     pid: ProcessId,
     process_instance: &str,
     options: &LaunchOptions,
     deadline: Deadline,
-    progress: &Progress,
 ) -> Result<Option<WindowInfo>, AdapterError> {
     let mut poll_interval = Duration::from_millis(50);
     loop {
         match observe_window_once(pid, process_instance, deadline) {
             Ok(Some(window)) => return Ok(Some(window)),
             Ok(None) => {}
-            Err(error) => {
-                progress.over();
-                return Err(error);
-            }
+            Err(error) => return Err(error),
         }
         if !should_poll_after_first_observation(options.timeout_ms)
             || deadline.remaining().is_zero()
         {
-            progress.finished_without_window(pid);
             return Ok(None);
         }
         let remaining = deadline.remaining();

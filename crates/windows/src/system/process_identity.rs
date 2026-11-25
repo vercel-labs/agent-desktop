@@ -84,12 +84,6 @@ impl ProcessIdentity {
         )
     }
 
-    /// Whether this process was created before `other`.
-    pub(crate) fn started_before(self, other: Self) -> bool {
-        (self.creation_seconds, self.creation_subtick)
-            < (other.creation_seconds, other.creation_subtick)
-    }
-
     /// Whether this identity still matches the process at `pid` right now.
     pub(crate) fn still_matches(self) -> Result<bool, AdapterError> {
         Ok(Self::capture(self.pid)?.is_some_and(|current| current == self))
@@ -260,19 +254,6 @@ mod tests {
         };
 
         assert_eq!(identity.token(), "windows-proc-v1:1700000000:123456");
-    }
-
-    #[test]
-    fn a_process_started_earlier_in_the_same_second_started_before() {
-        let at = |creation_subtick| ProcessIdentity {
-            pid: ProcessId::new(1),
-            creation_seconds: 1_700_000_000,
-            creation_subtick,
-        };
-
-        assert!(at(1).started_before(at(2)));
-        assert!(!at(2).started_before(at(2)));
-        assert!(!at(3).started_before(at(2)));
     }
 
     #[test]

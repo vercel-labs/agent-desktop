@@ -91,9 +91,9 @@ impl SystemOps for LinuxAdapter {
         app: &AppInfo,
         force: bool,
         lease: &InteractionLease,
-        policy: agent_desktop_core::InteractionPolicy,
+        _policy: agent_desktop_core::InteractionPolicy,
     ) -> Result<OperationReport, AdapterError> {
-        close::close_app(self.bus(), app, force, lease, policy)
+        close::close_app(self.bus(), app, force, lease)
     }
 
     fn launch_app(
@@ -120,6 +120,30 @@ impl SystemOps for LinuxAdapter {
         deadline: Deadline,
     ) -> Result<ProcessState, AdapterError> {
         process_state::process_state(self.bus(), process, deadline)
+    }
+
+    fn read_front(
+        &self,
+        deadline: Deadline,
+    ) -> Result<agent_desktop_core::FrontView, AdapterError> {
+        crate::system::focus::focus_front::read_front(deadline)
+    }
+
+    fn keep_below(
+        &self,
+        window: &agent_desktop_core::FrontWindow,
+        above: &agent_desktop_core::FrontWindow,
+        _lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        crate::system::focus::focus_front::keep_below(window, above)
+    }
+
+    fn give_back(
+        &self,
+        window: &agent_desktop_core::FrontWindow,
+        _lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        crate::system::focus::focus_front::give_back(window)
     }
 
     fn window_op(

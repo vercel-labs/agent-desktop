@@ -11,9 +11,8 @@ use std::time::Duration;
 #[cfg(test)]
 use self::launch_attach::matching_processes;
 use self::launch_attach::prepare;
-use self::launch_observe::{observe_window, observe_window_once};
+use self::launch_observe::observe_window;
 use super::app_ops::ProcessRow;
-use super::launch_focus::{Progress, Watch, read_foreground, startup_show};
 use super::launch_path::{
     child_environment_block, image_file_name, launch_identifier, validate_launch_options,
 };
@@ -22,6 +21,28 @@ use super::launch_path::{to_wide, to_wide_str};
 use super::process_identity;
 #[cfg(target_os = "windows")]
 use super::runtime::hresult::win32_last_error;
+
+const STARTF_USESHOWWINDOW: u32 = 0x1;
+const SW_SHOWNOACTIVATE: u16 = 4;
+
+/// The `dwFlags` and `wShowWindow` fields of the child's `STARTUPINFOW`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct StartupShow {
+    flags: u32,
+    show: u16,
+}
+
+/// A launch without `--activate` asks for no activation. An application that
+/// ignores the hint is handled by the front guard.
+fn startup_show(activate: bool) -> StartupShow {
+    if activate {
+        return StartupShow { flags: 0, show: 0 };
+    }
+    StartupShow {
+        flags: STARTF_USESHOWWINDOW,
+        show: SW_SHOWNOACTIVATE,
+    }
+}
 
 const ATTACHED: LaunchFacts = LaunchFacts {
     attached: true,
@@ -53,28 +74,10 @@ pub(crate) fn launch_app_impl(
     if let Some(attached) = attached {
         return Ok(attached);
     }
-    let prior = (!options.activate).then(read_foreground).flatten();
     let (pid, token) = create_process(&executable, options, deadline)?;
-    let (focus_returned, window) = if options.activate {
-        (
-            false,
-            observe_window(pid, &token, options, deadline, &Progress::new()),
-        )
-    } else {
-        Watch::new(prior, pid, lease).beside(
-            || matches!(observe_window_once(pid, &token, deadline), Ok(Some(_))),
-            |progress| observe_window(pid, &token, options, deadline, progress),
-        )
-    };
-    let window = window?;
-    let mut result = launch_result(id, pid, token, window, SPAWNED);
-    result.guidance.focus_returned = focus_returned;
-    if focus_returned {
-        if let Some(window) = result.window.as_mut() {
-            window.state.is_focused = false;
-        }
-    }
-    Ok(result)
+    let window = observe_window(pid, &token, options, deadline)?;
+    drop(lease);
+    Ok(launch_result(id, pid, token, window, SPAWNED))
 }
 
 fn launch_result(

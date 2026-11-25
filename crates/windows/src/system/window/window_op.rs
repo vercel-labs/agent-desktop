@@ -1,7 +1,8 @@
 #[cfg(target_os = "windows")]
 use crate::system::runtime::hresult::win32_last_error;
 use agent_desktop_core::{
-    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionPolicy, WindowInfo, WindowOp,
+    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionPolicy, OperationReport,
+    WindowInfo, WindowOp,
 };
 
 use super::window_identity::WindowIdentityEvidence;
@@ -40,6 +41,17 @@ fn ensure_window_is_pumping(handle: super::window_enum::WindowHandle) -> Result<
 #[cfg(not(target_os = "windows"))]
 fn ensure_window_is_pumping(_handle: super::window_enum::WindowHandle) -> Result<(), AdapterError> {
     Ok(())
+}
+
+pub(crate) fn window_op_report(
+    win: &WindowInfo,
+    op: WindowOp,
+    policy: InteractionPolicy,
+    deadline: Deadline,
+) -> Result<OperationReport, AdapterError> {
+    let readback = super::window_op_readback::window_readback(&op);
+    let dispatched = window_op_impl(win, op.clone(), policy, deadline);
+    OperationReport::from_window_dispatch(win, &op, readback, dispatched)
 }
 
 pub(crate) fn window_op_impl(
@@ -150,7 +162,7 @@ fn apply(
     })?;
     match plan {
         Placement::Show(verb) if restore_goes_below_foreground(verb, policy) => {
-            place_below_foreground(handle)
+            super::window_front::place_below_foreground(handle)
         }
         _ => Ok(()),
     }
@@ -202,43 +214,6 @@ fn show_window(
     if unsafe { ShowWindowAsync(handle, command) } == 0 {
         return Err(before_write(win32_last_error("ShowWindowAsync failed")));
     }
-    Ok(())
-}
-
-/// Puts a window directly below the user's foreground window without
-/// activating it, so a window shown without activation lands in front of the
-/// windows beneath the user's and not at the bottom of the order.
-#[cfg(target_os = "windows")]
-fn place_below_foreground(handle: super::window_enum::WindowHandle) -> Result<(), AdapterError> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos,
-    };
-
-    let foreground = unsafe { GetForegroundWindow() };
-    if foreground.is_null() || foreground == handle {
-        return Ok(());
-    }
-    let ok = unsafe {
-        SetWindowPos(
-            handle,
-            foreground,
-            0,
-            0,
-            0,
-            0,
-            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
-        )
-    };
-    if ok == 0 {
-        return Err(after_write(win32_last_error(
-            "SetWindowPos below the foreground window failed",
-        )));
-    }
-    Ok(())
-}
-
-#[cfg(not(target_os = "windows"))]
-fn place_below_foreground(_handle: super::window_enum::WindowHandle) -> Result<(), AdapterError> {
     Ok(())
 }
 
@@ -383,7 +358,7 @@ fn before_write(error: AdapterError) -> AdapterError {
     error.with_disposition(DeliverySemantics::not_delivered())
 }
 
-fn after_write(error: AdapterError) -> AdapterError {
+pub(super) fn after_write(error: AdapterError) -> AdapterError {
     error.with_disposition(DeliverySemantics::delivered_unverified())
 }
 

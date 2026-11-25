@@ -1,4 +1,4 @@
-use agent_desktop_core::{DeliverySemantics, ErrorCode, InteractionPolicy, RetryDisposition};
+use agent_desktop_core::{DeliverySemantics, ErrorCode, RetryDisposition};
 
 use super::super::Request;
 use super::super::fake::{Fake, dialog, window};
@@ -13,7 +13,6 @@ fn request() -> Request<'static> {
         pid: 42,
         instance: Some("t"),
         force: false,
-        policy: InteractionPolicy::headless(),
     }
 }
 
@@ -210,7 +209,7 @@ fn a_stale_close_target_refuses_further_sends_and_preserves_prior_delivery() {
 }
 
 #[test]
-fn a_stale_window_after_a_delivered_close_still_watches_the_focus() {
+fn a_stale_window_after_a_delivered_close_stays_delivered_unverified() {
     let mut world = Fake::new(Liveness::Alive);
     world.windows = ControlRead::Ready(vec![window(1), window(2)]);
     let mut closes = world.closes.borrow_mut();
@@ -220,11 +219,6 @@ fn a_stale_window_after_a_delivered_close_still_watches_the_focus() {
     let error = close(&world, &request()).expect_err("the owner changed");
     assert_eq!(error.code, ErrorCode::StaleRef);
     assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
-    assert_eq!(
-        world.count("watch_focus"),
-        1,
-        "the delivered close can raise a prompt that takes the focus before the command returns"
-    );
 }
 
 #[test]
