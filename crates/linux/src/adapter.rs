@@ -323,6 +323,15 @@ impl ActionOps for LinuxAdapter {
         self.deliver(handle, request, lease)
     }
 
+    fn refuse_before_scroll(
+        &self,
+        handle: &NativeHandle,
+        request: &ActionRequest,
+        lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        crate::actions::refuse_before_scroll(self.bus(), handle, request, lease)
+    }
+
     fn scroll_into_view(
         &self,
         handle: &NativeHandle,

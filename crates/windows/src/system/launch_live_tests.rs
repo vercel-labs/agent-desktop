@@ -109,3 +109,79 @@ fn timeout_zero_checks_once_for_process_without_window() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn two_running_probes(label: &str) -> (std::path::PathBuf, [KillOnDrop; 2]) {
+    let dir = scratch_dir(label);
+    let image = format!("launchprobe_{label}.exe");
+    let probe = copy_system_exe("ping.exe", &dir, &image);
+    let first = start_named_windowless(&probe, &["-n", "60", "127.0.0.1"]);
+    let second = start_named_windowless(&probe, &["-n", "60", "127.0.0.1"]);
+    assert_eq!(matching_pids(&image).len(), 2);
+    (dir, [first, second])
+}
+
+#[test]
+fn a_launch_with_arguments_spawns_even_when_several_instances_run() {
+    let (dir, _running) = two_running_probes("two_args");
+    let probe = dir.join("launchprobe_two_args.exe");
+
+    let result = launch_app_impl(
+        probe.to_str().expect("utf8 path"),
+        &LaunchOptions {
+            args: vec!["-n".into(), "30".into(), "127.0.0.1".into()],
+            attach_if_running: true,
+            timeout_ms: 0,
+            ..Default::default()
+        },
+        test_lease(10_000),
+    )
+    .expect("arguments are forwarded by a spawn, whatever instances run");
+    let _guard = KillOnDrop(result.pid);
+
+    assert_eq!(matching_pids("launchprobe_two_args.exe").len(), 3);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_bare_launch_is_ambiguous_when_several_instances_run() {
+    let (dir, _running) = two_running_probes("two_bare");
+    let probe = dir.join("launchprobe_two_bare.exe");
+
+    let error = launch_app_impl(
+        probe.to_str().expect("utf8 path"),
+        &LaunchOptions {
+            attach_if_running: true,
+            timeout_ms: 0,
+            ..Default::default()
+        },
+        test_lease(10_000),
+    )
+    .expect_err("a bare attach has to choose one of two instances");
+
+    assert_eq!(error.code, agent_desktop_core::ErrorCode::AmbiguousTarget);
+    assert_eq!(matching_pids("launchprobe_two_bare.exe").len(), 2);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_launch_with_arguments_spawns_when_one_instance_runs() {
+    let dir = scratch_dir("one-args");
+    let probe = copy_system_exe("ping.exe", &dir, "launchprobe_one.exe");
+    let _running = start_named_windowless(&probe, &["-n", "60", "127.0.0.1"]);
+
+    let result = launch_app_impl(
+        probe.to_str().expect("utf8 path"),
+        &LaunchOptions {
+            args: vec!["-n".into(), "30".into(), "127.0.0.1".into()],
+            attach_if_running: true,
+            timeout_ms: 0,
+            ..Default::default()
+        },
+        test_lease(10_000),
+    )
+    .expect("arguments are forwarded by a spawn");
+    let _guard = KillOnDrop(result.pid);
+
+    assert_eq!(matching_pids("launchprobe_one.exe").len(), 2);
+    let _ = std::fs::remove_dir_all(&dir);
+}
