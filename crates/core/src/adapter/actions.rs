@@ -48,6 +48,18 @@ pub trait ActionOps: Send + Sync {
         Err(AdapterError::not_supported("execute_action"))
     }
 
+    /// Refuses, from read-only observation, an action the target can never
+    /// take. Core asks before a preparatory scroll, so a final refusal never
+    /// moves the view first. `Ok` means the adapter has no refusal to give.
+    fn refuse_before_scroll(
+        &self,
+        _handle: &NativeHandle,
+        _request: &ActionRequest,
+        _lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        Ok(())
+    }
+
     /// Scroll the element into view. `policy` decides whether a route that
     /// takes the foreground is allowed; a headless policy runs only the routes
     /// that leave it alone.
