@@ -163,7 +163,34 @@ fn named_key_vk(key: &str) -> Option<u16> {
     Some(vk)
 }
 
+/// The punctuation keys, with the name macOS and Linux accept and the
+/// virtual key of that key on a US layout. The single character itself is
+/// accepted too, as on macOS.
+const PUNCTUATION: [(char, &str, u16); 11] = [
+    (',', "comma", 0xBC),
+    ('.', "period", 0xBE),
+    ('/', "slash", 0xBF),
+    (';', "semicolon", 0xBA),
+    ('\'', "quote", 0xDE),
+    ('[', "leftbracket", 0xDB),
+    (']', "rightbracket", 0xDD),
+    ('\\', "backslash", 0xDC),
+    ('-', "minus", 0xBD),
+    ('=', "equal", 0xBB),
+    ('`', "grave", 0xC0),
+];
+
+fn punctuation_character(key: &str) -> Option<char> {
+    PUNCTUATION
+        .iter()
+        .find(|(symbol, name, _)| *name == key || key.chars().eq(std::iter::once(*symbol)))
+        .map(|(symbol, _, _)| *symbol)
+}
+
 fn character_key(key: &str) -> Option<ResolvedKey> {
+    if let Some(character) = punctuation_character(key) {
+        return Some(resolve_character(character));
+    }
     let mut chars = key.chars();
     let character = chars.next()?;
     if chars.next().is_some() {
@@ -197,13 +224,18 @@ pub(crate) fn resolved_from_scan(scan: i16) -> ResolvedKey {
 }
 
 fn fallback_ascii_vk(character: char) -> u16 {
-    character.to_ascii_uppercase() as u16
+    PUNCTUATION
+        .iter()
+        .find(|(symbol, _, _)| *symbol == character)
+        .map(|(_, _, vk)| *vk)
+        .unwrap_or(character.to_ascii_uppercase() as u16)
 }
 
 fn unknown_key_error(key: &str) -> AdapterError {
     AdapterError::new(ErrorCode::InvalidArgs, format!("Unknown key: '{key}'")).with_suggestion(
         "Valid keys: a-z, 0-9, return, escape, tab, space, delete, forwarddelete, home, end, \
-         pageup, pagedown, left, right, up, down, cmd, shift, alt, ctrl, f1-f12",
+         pageup, pagedown, left, right, up, down, cmd, shift, alt, ctrl, f1-f12, and , . / ; ' [ ] \\ - = ` (or comma, period, slash, \
+         semicolon, quote, leftbracket, rightbracket, backslash, minus, equal, grave)",
     )
 }
 

@@ -11,6 +11,10 @@ use serde_json::Value;
 /// DevTools endpoint once the process is launched.
 const MAX_PROBE_RESERVE: Duration = Duration::from_millis(5_000);
 
+/// How long the front guard keeps watching after a headless launch returns:
+/// an application can take the focus when its window finishes opening.
+const LAUNCH_SETTLE: Duration = Duration::from_millis(500);
+
 pub struct LaunchArgs {
     pub app: String,
     pub options: LaunchOptions,
@@ -49,7 +53,23 @@ pub fn execute(
         deadline.capped(deadline.remaining().saturating_sub(reserve))
     });
     let lease = adapter.acquire_interaction_lease(launch_deadline)?;
-    let mut launched = adapter.launch_app(&app, &options, lease)?;
+    let watching = lease.with_deadline(lease.deadline());
+    let (launched, front) = crate::system::front_guard::guarded(
+        adapter,
+        policy,
+        &watching,
+        crate::system::front_guard::FrontWatch {
+            target: crate::system::front_target::FrontTarget::program(&app),
+            settle: LAUNCH_SETTLE,
+        },
+        |_| adapter.launch_app(&app, &options, lease),
+    )?;
+    let mut launched = launched?;
+    launched.guidance.focus_returned |= front.focus_returned();
+    if front == crate::FrontOutcome::GiveBackFailed && launched.guidance.suggestion.is_none() {
+        launched.guidance.suggestion =
+            Some(crate::system::front_outcome::RETURN_FAILED_SUGGESTION.to_owned());
+    }
     if let Some(port) = options.cdp_port {
         let granted = deadline.remaining();
         launched.guidance.cdp = Some(verify_cdp_endpoint(
@@ -274,3 +294,7 @@ mod cdp_tests;
 #[cfg(test)]
 #[path = "launch_cdp_switch_tests.rs"]
 mod cdp_switch_tests;
+
+#[cfg(test)]
+#[path = "launch_front_tests.rs"]
+mod front_tests;

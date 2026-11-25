@@ -48,7 +48,7 @@ Headless ref actions never move the user's foreground. The client turns off `Aut
 - `launch` takes an absolute path, or a bare name under System32 or the Windows directory, with or without `.exe` (`notepad` or `notepad.exe`). It does not resolve a display name such as "Google Chrome".
 - For a running app, pass the name `list-apps` prints to `--app`, such as `notepad.exe`.
 - Window ids are `w-` followed by the window handle. A hosted (UWP) app is reported through its `ApplicationFrameHost` frame.
-- A window behind another window is drivable. A minimized one is not: every element reports `offscreen`. Run `restore --app IMAGE` and snapshot again, instead of `focus-window`, which steals the user's foreground.
+- A window behind another window is drivable. A minimized one is not: every element reports `offscreen`. Run `restore --app IMAGE` and snapshot again, instead of `focus-window`, which steals the user's foreground. Headless `restore` un-minimizes without activation, directly below the foreground window.
 
 ## Surfaces
 

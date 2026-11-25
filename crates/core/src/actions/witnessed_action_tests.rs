@@ -126,15 +126,24 @@ fn a_weak_or_no_change_leaves_the_delivery_as_it_was() {
 }
 
 #[test]
-fn an_unclear_answer_with_a_strong_change_is_delivered_and_stays_an_error() {
+fn an_unclear_answer_with_a_strong_change_is_a_verified_success() {
     let adapter = adapter(
         vec![Ok(witness(false, "A")), Ok(witness(true, "A"))],
         uncertain(),
     );
-    let error = run(&adapter).unwrap_err();
+    let result = run(&adapter).expect("an observed effect is a success");
 
-    assert_eq!(error.disposition, DeliverySemantics::delivered_verified());
-    assert_eq!(error.details.unwrap()["effect"], "observed");
+    assert_eq!(
+        result.disposition(),
+        DeliverySemantics::delivered_verified()
+    );
+    assert_eq!(result.effect, Some(ObservedEffect::Observed));
+    let details = result.details.unwrap();
+    assert_eq!(
+        details["witness_diff"],
+        serde_json::json!(["target_selected"])
+    );
+    assert_eq!(details["platform_report"]["message"], "unclear");
     assert_eq!(*adapter.read_count.lock().unwrap(), 2);
 }
 
@@ -214,4 +223,20 @@ fn a_delivery_without_proof_is_read_once_without_a_wait() {
 
     assert_eq!(result.effect, Some(ObservedEffect::NotObserved));
     assert_eq!(*adapter.read_count.lock().unwrap(), 2);
+}
+
+#[test]
+fn a_refusal_that_sent_nothing_stays_an_error_whatever_the_target_does() {
+    for code in [ErrorCode::PolicyDenied, ErrorCode::ActionNotSupported] {
+        let adapter = adapter(
+            vec![Ok(witness(false, "A")), Ok(witness(true, "B"))],
+            Err(AdapterError::new(code.clone(), "refused")
+                .with_disposition(DeliverySemantics::not_delivered())),
+        );
+        let error = run(&adapter).unwrap_err();
+
+        assert_eq!(error.code, code);
+        assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+        assert_eq!(*adapter.read_count.lock().unwrap(), 1);
+    }
 }

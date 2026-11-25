@@ -3,8 +3,6 @@ use std::time::{Duration, Instant};
 use agent_desktop_core::{AdapterError, Deadline};
 
 use crate::system::display::display_server::{DisplayServer, session_server};
-use crate::system::focus::focus_return;
-use crate::system::focus::prior_focus::PriorFocus;
 use crate::system::menu::nested_dialogs::NestedDialogs;
 use crate::system::menu::surfaces;
 use crate::system::process::liveness::{self, Liveness};
@@ -22,13 +20,11 @@ use crate::system::{
 };
 
 const LATE_READ_MS: u64 = 300;
-const DIALOG_SETTLE: Duration = Duration::from_millis(300);
 
 /// What the close flow touches outside itself. The live implementation reads
 /// `/proc`, talks to the display server and signals through a descriptor; a
 /// test supplies a process and a clock of its own.
 pub(super) trait World {
-    type Prior;
     fn is_protected(&self) -> Result<bool, AdapterError>;
     fn facts(&self) -> Lookup;
     fn liveness(&self) -> Liveness;
@@ -42,8 +38,6 @@ pub(super) trait World {
     fn signal(&self, signal: Signal) -> Result<Sent, AdapterError>;
     fn timeout_error(&self) -> AdapterError;
     fn on_wayland(&self) -> bool;
-    fn read_prior(&self) -> PriorFocus<Self::Prior>;
-    fn watch_focus(&self, prior: &Self::Prior) -> bool;
 }
 
 pub(super) struct Live<'a> {
@@ -55,8 +49,6 @@ pub(super) struct Live<'a> {
 }
 
 impl World for Live<'_> {
-    type Prior = focus_return::Prior;
-
     fn is_protected(&self) -> Result<bool, AdapterError> {
         protected::is_protected(self.bus, self.pid, self.instance, self.deadline)
     }
@@ -116,25 +108,5 @@ impl World for Live<'_> {
 
     fn on_wayland(&self) -> bool {
         matches!(session_server(), DisplayServer::Wayland)
-    }
-
-    fn read_prior(&self) -> PriorFocus<Self::Prior> {
-        focus_return::read_prior(self.deadline)
-    }
-
-    fn watch_focus(&self, prior: &Self::Prior) -> bool {
-        let pid = self.pid;
-        let mut dialog_seen: Option<Instant> = None;
-        let keeps_watching = || {
-            if self.liveness() != Liveness::Alive {
-                return false;
-            }
-            let open = matches!(
-                self.toplevels(),
-                ControlRead::Ready(windows) if windows.iter().any(super::refusal::is_dialog)
-            );
-            !open || dialog_seen.get_or_insert_with(Instant::now).elapsed() < DIALOG_SETTLE
-        };
-        focus_return::give_back_owned(prior, |owner| owner == pid, keeps_watching, self.deadline)
     }
 }

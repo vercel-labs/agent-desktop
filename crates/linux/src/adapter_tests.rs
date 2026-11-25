@@ -160,7 +160,12 @@ fn the_lifecycle_overrides_are_wired_to_the_adapter() {
         state: agent_desktop_core::WindowState::default(),
     };
     let error = adapter
-        .window_op(&window, agent_desktop_core::WindowOp::Minimize, &lease())
+        .window_op(
+            &window,
+            agent_desktop_core::WindowOp::Minimize,
+            agent_desktop_core::InteractionPolicy::headless(),
+            &lease(),
+        )
         .expect_err("a window without its process instance is refused");
     not_the_default(&error);
 

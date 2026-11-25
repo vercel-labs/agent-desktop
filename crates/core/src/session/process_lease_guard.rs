@@ -1,34 +1,45 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::sync::{Condvar, Mutex, MutexGuard};
 
+use crate::session::process_lease_queue::LeaseQueue;
 use crate::{AdapterError, Deadline};
 
-static PROCESS_LEASE_HELD: AtomicBool = AtomicBool::new(false);
+static QUEUE: Mutex<LeaseQueue> = Mutex::new(LeaseQueue::new());
+static CHANGED: Condvar = Condvar::new();
 
 pub struct ProcessLeaseGuard {
     contention_count: u64,
 }
 
+fn queue() -> MutexGuard<'static, LeaseQueue> {
+    QUEUE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 impl ProcessLeaseGuard {
+    /// Takes the in-process lease in arrival order, blocking on a condition
+    /// variable rather than polling, until `deadline`.
     pub fn acquire(deadline: Deadline) -> Result<Self, AdapterError> {
+        let mut state = queue();
+        let ticket = state.enqueue();
         let mut contention_count = 0_u64;
         loop {
-            if PROCESS_LEASE_HELD
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
+            if state.try_grant(ticket) {
                 if deadline.is_expired() {
-                    PROCESS_LEASE_HELD.store(false, Ordering::Release);
+                    state.release();
+                    CHANGED.notify_all();
                     return Err(timeout(deadline, contention_count));
                 }
                 return Ok(Self { contention_count });
             }
-            contention_count = contention_count.saturating_add(1);
+            contention_count = 1;
             let remaining = deadline.remaining();
             if remaining.is_zero() {
+                state.abandon(ticket);
+                CHANGED.notify_all();
                 return Err(timeout(deadline, contention_count));
             }
-            std::thread::sleep(remaining.min(Duration::from_millis(1)));
+            state = crate::wait::deadline::wait_on(&CHANGED, state, remaining);
         }
     }
 
@@ -39,7 +50,8 @@ impl ProcessLeaseGuard {
 
 impl Drop for ProcessLeaseGuard {
     fn drop(&mut self) {
-        PROCESS_LEASE_HELD.store(false, Ordering::Release);
+        queue().release();
+        CHANGED.notify_all();
     }
 }
 

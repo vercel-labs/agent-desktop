@@ -204,7 +204,7 @@ fn a_clipped_row_is_scrolled_into_view_and_clicked_at_its_new_geometry() {
     entry.process.process_instance = Some("fixture-instance".into());
     entry.source.source_window_id = Some("fixture-window".into());
     entry.identity.name = Some("Mouse & Touchpad".into());
-    entry.identity.unique_at_capture = true;
+    entry.identity.proof = agent_desktop_core::IdentityProof::Unique;
     entry.geometry.bounds = Some(Rect {
         x: 100.0,
         y: 200.0,

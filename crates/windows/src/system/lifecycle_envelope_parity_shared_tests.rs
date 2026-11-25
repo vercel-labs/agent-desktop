@@ -88,7 +88,12 @@ fn adapter_window_op_without_a_process_instance_keeps_the_stale_ref_envelope() {
     let lease = InteractionLease::guarded(deadline, ()).expect("lease");
 
     let error = crate::adapter::WindowsAdapter::new()
-        .window_op(&win, WindowOp::Minimize, &lease)
+        .window_op(
+            &win,
+            WindowOp::Minimize,
+            agent_desktop_core::InteractionPolicy::headless(),
+            &lease,
+        )
         .expect_err("stale");
 
     assert_class_a_envelope(

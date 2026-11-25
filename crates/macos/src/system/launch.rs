@@ -1,23 +1,20 @@
 use agent_desktop_core::{
-    AdapterError, AppInfo, Deadline, DeliverySemantics, ErrorCode, LaunchFacts, LaunchGuidance,
-    WindowInfo, system::launch_options::LaunchOptions, system::launch_result::LaunchResult,
+    AdapterError, AppInfo, Deadline, DeliverySemantics, ErrorCode, LaunchArrival, LaunchFacts,
+    LaunchGuidance, WindowInfo, system::launch_options::LaunchOptions,
+    system::launch_result::LaunchResult,
 };
 use std::time::Duration;
 
+use super::launch_plan::{LaunchArguments, LaunchPlan, plan};
 use super::launch_window::exact_window;
 
 const MAX_ARGUMENT_COUNT: usize = 256;
 const MAX_ENVIRONMENT_COUNT: usize = 256;
 const MAX_LAUNCH_TEXT_BYTES: usize = 1024 * 1024;
 
-const ATTACHED_WITHOUT_DISPATCH: LaunchFacts = LaunchFacts {
-    attached: true,
-    activation_dispatched: false,
-    postcondition_observed: false,
-};
-
 enum LaunchTarget {
     Existing { pid: i32, process_instance: String },
+    Forwarded { pid: i32, process_instance: String },
     New { baseline_instances: Vec<String> },
 }
 
@@ -36,16 +33,29 @@ pub(crate) fn launch_app_impl(
     };
     ensure_launch_budget(deadline, id).map_err(before_launch)?;
     let initial = matching_apps(id, deadline).map_err(before_launch)?;
-    if options.attach_if_running && initial.len() == 1 && !options.activate {
-        let app = initial[0].clone();
-        let instance = required_instance(&app).map_err(before_launch)?;
-        let pid = super::process::process_identity::to_pid_t(app.pid).map_err(before_launch)?;
-        let window = exact_window(pid, &instance, deadline).map_err(before_launch)?;
-        return Ok(result_from_app(&app, window.report()));
+    let arguments = LaunchArguments::classify(&options.args);
+    let launch_plan = plan(initial.len(), options, &arguments);
+    match launch_plan {
+        LaunchPlan::RefuseRunning => {
+            return Err(agent_desktop_core::launch_already_running(
+                id,
+                &initial.iter().map(|app| app.pid).collect::<Vec<_>>(),
+            ));
+        }
+        LaunchPlan::RefuseArguments => return Err(arguments_cannot_reach(id, &arguments)),
+        LaunchPlan::Ambiguous => return Err(before_launch(ambiguous_apps(&initial))),
+        LaunchPlan::Attach => {
+            let app = initial[0].clone();
+            let instance = required_instance(&app).map_err(before_launch)?;
+            let pid = super::process::process_identity::to_pid_t(app.pid).map_err(before_launch)?;
+            let window = exact_window(pid, &instance, deadline).map_err(before_launch)?;
+            return Ok(result_from_app(&app, window.report()));
+        }
+        LaunchPlan::Fresh | LaunchPlan::Activate | LaunchPlan::Forward => {}
     }
-    let target = launch_target(options, initial).map_err(before_launch)?;
+    let target = launch_target(launch_plan, initial).map_err(before_launch)?;
 
-    let launched = crate::system::launch_workspace::open(id, options, deadline)?;
+    let launched = crate::system::launch_workspace::open(id, options, &arguments, deadline)?;
     validate_launched_target(&target, &launched).map_err(after_launch)?;
     let window = super::launch_settled::settled_window(launched.0, &launched.1, options, deadline)
         .map_err(after_launch)?;
@@ -95,7 +105,7 @@ fn result_from_app(app: &AppInfo, window: Option<WindowInfo>) -> LaunchResult {
             renderer,
             ..LaunchGuidance::default()
         },
-        disposition: ATTACHED_WITHOUT_DISPATCH.disposition(),
+        disposition: LaunchArrival::Attached.facts().disposition(),
     }
 }
 
@@ -132,26 +142,49 @@ pub(crate) fn launch_app_impl(
 
 #[cfg(target_os = "macos")]
 fn launch_target(
-    options: &LaunchOptions,
+    launch_plan: LaunchPlan,
     mut initial: Vec<AppInfo>,
 ) -> Result<LaunchTarget, AdapterError> {
-    if options.attach_if_running {
-        if initial.len() > 1 {
-            return Err(ambiguous_apps(&initial));
-        }
-        if let Some(app) = initial.pop() {
-            let process_instance = required_instance(&app)?;
-            return Ok(LaunchTarget::Existing {
-                pid: super::process::process_identity::to_pid_t(app.pid)?,
-                process_instance,
-            });
-        }
+    if !matches!(launch_plan, LaunchPlan::Activate | LaunchPlan::Forward) {
+        return Ok(LaunchTarget::New {
+            baseline_instances: initial
+                .iter()
+                .map(required_instance)
+                .collect::<Result<Vec<_>, _>>()?,
+        });
     }
-    let baseline_instances = initial
-        .iter()
-        .map(required_instance)
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(LaunchTarget::New { baseline_instances })
+    let app = initial
+        .pop()
+        .ok_or_else(|| AdapterError::internal("An attach plan had no running application"))?;
+    let process_instance = required_instance(&app)?;
+    let pid = super::process::process_identity::to_pid_t(app.pid)?;
+    Ok(if launch_plan == LaunchPlan::Forward {
+        LaunchTarget::Forwarded {
+            pid,
+            process_instance,
+        }
+    } else {
+        LaunchTarget::Existing {
+            pid,
+            process_instance,
+        }
+    })
+}
+
+/// The refusal for plain arguments aimed at an instance that is already
+/// running. Process arguments reach an application only as it starts, so
+/// nothing is sent and the caller learns which arguments could not travel.
+#[cfg(target_os = "macos")]
+fn arguments_cannot_reach(id: &str, arguments: &LaunchArguments) -> AdapterError {
+    AdapterError::new(
+        ErrorCode::ActionFailed,
+        format!("'{id}' is already running and its arguments can only reach a new process"),
+    )
+    .with_details(serde_json::json!({ "arguments": arguments.plain }))
+    .with_suggestion(
+        "Pass only paths of existing files to open them in the running instance, or close the running instance and launch again.",
+    )
+    .with_disposition(DeliverySemantics::not_delivered())
 }
 
 #[cfg(target_os = "macos")]
@@ -162,11 +195,8 @@ fn target_facts(target: &LaunchTarget) -> LaunchFacts {
             activation_dispatched: true,
             postcondition_observed: false,
         },
-        LaunchTarget::New { .. } => LaunchFacts {
-            attached: false,
-            activation_dispatched: false,
-            postcondition_observed: true,
-        },
+        LaunchTarget::Forwarded { .. } => LaunchArrival::Forwarded.facts(),
+        LaunchTarget::New { .. } => LaunchArrival::Spawned.facts(),
     }
 }
 
@@ -177,6 +207,10 @@ fn validate_launched_target(
 ) -> Result<(), AdapterError> {
     match target {
         LaunchTarget::Existing {
+            pid,
+            process_instance,
+        }
+        | LaunchTarget::Forwarded {
             pid,
             process_instance,
         } => {

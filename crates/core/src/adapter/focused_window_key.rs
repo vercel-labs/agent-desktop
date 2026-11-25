@@ -1,9 +1,28 @@
 //! Key delivery to a named window, gated on that window holding the focus.
 
 use crate::{
-    ActionResult, AdapterError, InteractionLease, InteractionPolicy, KeyCombo, ProcessIdentity,
-    WindowInfo, adapter::SystemOps,
+    ActionResult, AdapterError, ErrorCode, InteractionLease, InteractionPolicy, KeyCombo,
+    ProcessIdentity, WindowInfo, adapter::SystemOps,
 };
+
+/// The refusal for a key press whose named window could not be confirmed as
+/// the focused one, with nothing sent.
+fn exact_focus_unconfirmed(window: &WindowInfo, policy: InteractionPolicy) -> AdapterError {
+    AdapterError::new(
+        ErrorCode::ActionFailed,
+        "The named window does not hold keyboard focus; no key was sent",
+    )
+    .with_suggestion(crate::response::headed_mode::window_focus_suggestion(
+        policy,
+    ))
+    .with_details(serde_json::json!({
+        "check": "window_active",
+        "cause": "exact_window_focus_unconfirmed",
+        "physical_delivery_started": false,
+        "window_id": window.id,
+    }))
+    .with_disposition(crate::DeliverySemantics::not_delivered())
+}
 
 /// Sends `combo` to the process of `window` only when `window` is the exact
 /// focused window, and refuses before anything is sent otherwise. This is the
@@ -15,23 +34,7 @@ pub(crate) fn press_key_in_focused_window<A: SystemOps + ?Sized>(
     policy: InteractionPolicy,
     lease: &InteractionLease,
 ) -> Result<ActionResult, AdapterError> {
-    let refusal = || {
-        AdapterError::stale_ref_because(
-            "The named window's exact focus could not be confirmed, so no key was sent",
-        )
-        .with_suggestion(if policy.is_headed() {
-            "Ensure the named window remains active before retrying; a sibling window or another application's menu can hold the keyboard".to_owned()
-        } else {
-            format!("{} Or name the already active window.", crate::headed_mode_suggestion("brings the named window to the foreground before sending keys"))
-        })
-        .with_details(serde_json::json!({
-            "check": "window_active",
-            "cause": "exact_window_focus_unconfirmed",
-            "physical_delivery_started": false,
-            "window_id": window.id,
-        }))
-        .with_disposition(crate::DeliverySemantics::not_delivered())
-    };
+    let refusal = || exact_focus_unconfirmed(window, policy);
     let instance = window
         .process_instance
         .as_deref()

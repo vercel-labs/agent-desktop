@@ -135,7 +135,7 @@ pub(crate) fn land_in_scope(
         );
         anchor.scope.path = below.into();
         anchor.identity = RefEntryIdentity {
-            unique_at_capture: false,
+            proof: crate::IdentityProof::Unproven,
             ..identity.clone()
         };
         let handle = adapter.resolve_locator_anchor(&anchor, base.as_ref(), deadline)?;

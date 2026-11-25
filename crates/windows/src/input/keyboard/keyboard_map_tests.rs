@@ -83,6 +83,17 @@ const MACOS_KEY_VOCABULARY: &[&str] = &[
     "f10",
     "f11",
     "f12",
+    "comma",
+    "period",
+    "slash",
+    "semicolon",
+    "quote",
+    "leftbracket",
+    "rightbracket",
+    "backslash",
+    "minus",
+    "equal",
+    "grave",
 ];
 
 #[test]
@@ -211,4 +222,25 @@ fn a_named_key_carries_no_layout_modifier() {
 
     assert_eq!(resolved.vk, VK_RETURN);
     assert!(resolved.layout_modifier_vks().is_empty());
+}
+
+#[test]
+fn punctuation_names_and_symbols_resolve_to_the_us_layout_virtual_keys() {
+    let expected = [
+        ("comma", ",", 0xBC),
+        ("period", ".", 0xBE),
+        ("slash", "/", 0xBF),
+        ("semicolon", ";", 0xBA),
+        ("quote", "'", 0xDE),
+        ("leftbracket", "[", 0xDB),
+        ("rightbracket", "]", 0xDD),
+        ("backslash", "\\", 0xDC),
+        ("minus", "-", 0xBD),
+        ("equal", "=", 0xBB),
+        ("grave", "`", 0xC0),
+    ];
+    for (name, symbol, vk) in expected {
+        assert_eq!(key_name_to_vk(name).unwrap(), vk, "{name}");
+        assert_eq!(key_name_to_vk(symbol).unwrap(), vk, "{symbol}");
+    }
 }

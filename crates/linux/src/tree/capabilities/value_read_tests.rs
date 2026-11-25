@@ -273,3 +273,26 @@ fn a_cell_read_that_fills_the_character_cap_may_go_on_past_it() {
     assert!(!reaches_text_cap(&"é".repeat(cap - 1)));
     assert!(!reaches_text_cap(""));
 }
+
+#[test]
+fn a_combo_without_a_text_interface_reads_its_selected_child() {
+    let combo = node(COMBO_BOX, &["Selection"], &[]);
+    assert_ne!(value_source(&combo), ValueSource::None);
+    assert_eq!(value_source(&combo), ValueSource::SelectedChild);
+}
+
+#[test]
+fn a_combo_with_a_text_interface_still_reads_text() {
+    assert_eq!(
+        value_source(&node(COMBO_BOX, &["Text", "Selection"], &[])),
+        ValueSource::Text
+    );
+}
+
+#[test]
+fn a_combo_with_neither_interface_has_no_value_source() {
+    assert_eq!(
+        value_source(&node(COMBO_BOX, &["Action"], &[])),
+        ValueSource::None
+    );
+}

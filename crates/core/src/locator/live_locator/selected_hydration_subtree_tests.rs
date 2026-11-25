@@ -5,26 +5,21 @@ use super::{
     resolve_query,
 };
 use crate::{
-    AdapterError, AppError, ContainmentPredicate, LocatorQuery, NativeHandle, Rect,
+    AdapterError, ContainmentPredicate, LocatorQuery, NativeHandle, Rect,
     adapter::{ActionOps, InputOps, ObservationOps, SystemOps},
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Clone, Copy)]
-enum Mode {
-    TextWitnessRemoved,
-    WitnessRemoved,
-    ForbiddenAdded,
-    NegativeIncomplete,
-    NegativeBudget,
-    NegativeDeadline,
-    PositiveIncompleteSuffix,
+enum Subtree {
+    HasText,
+    Has,
+    HasNot,
 }
 
 struct SubtreeHydrationAdapter {
-    mode: Mode,
+    subtree: Subtree,
     window_observations: AtomicUsize,
-    anchor_resolutions: AtomicUsize,
     selected_observations: AtomicUsize,
 }
 
@@ -38,23 +33,17 @@ impl ObservationOps for SubtreeHydrationAdapter {
             ObservationRoot::Application { .. } => panic!("expected a window or element root"),
             ObservationRoot::Window(_) => {
                 self.window_observations.fetch_add(1, Ordering::SeqCst);
-                let evidence = request.descendant_evidence();
-                assert!(evidence.identifiers);
-                assert!(evidence.ref_evidence.bounds);
-                assert!(!evidence.states);
-                assert!(!evidence.ref_evidence.actions);
-                Ok(initial_tree(self.mode))
+                Ok(initial_tree(self.subtree))
             }
             ObservationRoot::Element { .. } => {
                 self.selected_observations.fetch_add(1, Ordering::SeqCst);
-                assert_eq!(request.max_logical_depth, 10);
+                assert_eq!(request.max_raw_depth, 1);
+                assert_eq!(request.max_logical_depth, 0);
                 assert_eq!(
                     request.evidence_for_raw_depth(0),
                     super::EvidenceRequirements::snapshot()
                 );
-                assert!(!request.evidence_for_raw_depth(1).ref_evidence.actions);
-                assert!(!request.evidence_for_raw_depth(1).states);
-                Ok(selected_tree(root, self.mode))
+                Ok(selected_tree(root))
             }
         }
     }
@@ -65,7 +54,6 @@ impl ObservationOps for SubtreeHydrationAdapter {
         _base: Option<&NativeHandle>,
         _deadline: crate::Deadline,
     ) -> Result<NativeHandle, AdapterError> {
-        self.anchor_resolutions.fetch_add(1, Ordering::SeqCst);
         assert_eq!(entry.geometry.bounds, Some(root_bounds()));
         Ok(NativeHandle::null())
     }
@@ -76,131 +64,36 @@ impl InputOps for SubtreeHydrationAdapter {}
 impl SystemOps for SubtreeHydrationAdapter {}
 
 #[test]
-fn has_text_witness_removed_between_phases_is_rejected() {
-    assert_stale(Mode::TextWitnessRemoved, query(Mode::TextWitnessRemoved));
-}
-
-#[test]
-fn containment_witness_removed_between_phases_is_rejected() {
-    assert_stale(Mode::WitnessRemoved, query(Mode::WitnessRemoved));
-}
-
-#[test]
-fn forbidden_descendant_added_between_phases_is_rejected() {
-    assert_stale(Mode::ForbiddenAdded, query(Mode::ForbiddenAdded));
-}
-
-#[test]
-fn incomplete_negative_absence_proof_fails_closed() {
-    for (mode, kind, cause, retryable, suggestion_needle, attempts) in [
-        (
-            Mode::NegativeIncomplete,
-            "locator_selected_query_incomplete",
-            "unreadable_elements",
-            true,
-            "Run the command again",
-            2,
-        ),
-        (
-            Mode::NegativeBudget,
-            "locator_selected_query_budget_limit",
-            "traversal_limit",
-            false,
-            "More time will not help",
-            1,
-        ),
-        (
-            Mode::NegativeDeadline,
-            "locator_selected_query_incomplete",
-            "deadline",
-            true,
-            "larger --timeout-ms",
-            2,
-        ),
-    ] {
-        let adapter = adapter(mode);
-        let error = resolve_query(
+fn a_subtree_predicate_hydrates_only_the_anchor_it_already_proved() {
+    for subtree in [Subtree::HasText, Subtree::Has, Subtree::HasNot] {
+        let adapter = SubtreeHydrationAdapter {
+            subtree,
+            window_observations: AtomicUsize::new(0),
+            selected_observations: AtomicUsize::new(0),
+        };
+        let resolution = resolve_query(
             &adapter,
-            &query(mode),
+            &query(subtree),
             ObservationRoot::Window(&window()),
             &request(),
         )
-        .err()
-        .expect("incomplete has-not evidence must never prove absence");
-        let error = adapter_error(error);
+        .expect("the anchor the whole-window read matched hydrates on its own");
 
-        assert_eq!(error.code.as_str(), "TIMEOUT");
-        let details = error.details.as_ref().unwrap();
-        assert_eq!(details["kind"], kind);
-        assert_eq!(details["cause"], cause);
-        assert_eq!(details["retryable"], retryable);
-        assert!(error.suggestion.unwrap().contains(suggestion_needle));
-        assert_attempts(&adapter, attempts);
+        assert_eq!(adapter.window_observations.load(Ordering::SeqCst), 1);
+        assert_eq!(adapter.selected_observations.load(Ordering::SeqCst), 1);
+        assert_eq!(resolution.matches.len(), 1);
     }
 }
 
-#[test]
-fn positive_witness_survives_an_irrelevant_incomplete_suffix() {
-    let adapter = adapter(Mode::PositiveIncompleteSuffix);
-    let resolution = resolve_query(
-        &adapter,
-        &query(Mode::PositiveIncompleteSuffix),
-        ObservationRoot::Window(&window()),
-        &request(),
-    )
-    .expect("a witnessed positive predicate does not need an irrelevant suffix");
-
-    assert_attempts(&adapter, 1);
-    assert!(resolution.meta.selection_complete);
-    assert_eq!(resolution.matches.len(), 1);
-}
-
-fn assert_stale(mode: Mode, query: LocatorQuery) {
-    let adapter = adapter(mode);
-    let error = resolve_query(
-        &adapter,
-        &query,
-        ObservationRoot::Window(&window()),
-        &request(),
-    )
-    .err()
-    .expect("descendant churn must invalidate the selected match");
-    let error = adapter_error(error);
-
-    assert_eq!(error.code.as_str(), "STALE_REF");
-    assert_attempts(&adapter, 2);
-}
-
-fn assert_attempts(adapter: &SubtreeHydrationAdapter, expected: usize) {
-    assert_eq!(adapter.window_observations.load(Ordering::SeqCst), expected);
-    assert_eq!(adapter.anchor_resolutions.load(Ordering::SeqCst), expected);
-    assert_eq!(
-        adapter.selected_observations.load(Ordering::SeqCst),
-        expected
-    );
-}
-
-fn adapter(mode: Mode) -> SubtreeHydrationAdapter {
-    SubtreeHydrationAdapter {
-        mode,
-        window_observations: AtomicUsize::new(0),
-        anchor_resolutions: AtomicUsize::new(0),
-        selected_observations: AtomicUsize::new(0),
-    }
-}
-
-fn initial_tree(mode: Mode) -> ObservedTree {
-    let child = match mode {
-        Mode::TextWitnessRemoved => text_evidence("needle"),
-        Mode::WitnessRemoved | Mode::PositiveIncompleteSuffix => role_evidence("button"),
-        Mode::ForbiddenAdded
-        | Mode::NegativeIncomplete
-        | Mode::NegativeBudget
-        | Mode::NegativeDeadline => role_evidence("link"),
+fn initial_tree(subtree: Subtree) -> ObservedTree {
+    let child = match subtree {
+        Subtree::HasText => text_evidence("needle"),
+        Subtree::Has => role_evidence("button"),
+        Subtree::HasNot => role_evidence("link"),
     };
     super::test_support::tree(
         vec![
-            super::test_support::node(0, phase_one_root(mode), vec![1], &[]),
+            super::test_support::node(0, phase_one_root(), vec![1], &[]),
             super::test_support::node(1, child, Vec::new(), &[0]),
         ],
         vec![0],
@@ -208,65 +101,23 @@ fn initial_tree(mode: Mode) -> ObservedTree {
     )
 }
 
-fn selected_tree(root: ObservationRoot<'_>, mode: Mode) -> ObservedTree {
-    let children = match mode {
-        Mode::TextWitnessRemoved => vec![text_evidence("other")],
-        Mode::WitnessRemoved => vec![role_evidence("link")],
-        Mode::ForbiddenAdded => vec![role_evidence("button")],
-        Mode::NegativeIncomplete | Mode::NegativeBudget | Mode::NegativeDeadline => {
-            vec![role_evidence("link")]
-        }
-        Mode::PositiveIncompleteSuffix => {
-            vec![role_evidence("button"), role_evidence("group")]
-        }
-    };
-    let child_indices = (1..=children.len())
-        .map(|index| u32::try_from(index).unwrap())
-        .collect();
-    let mut nodes = vec![super::test_support::node(
-        0,
-        hydrated_root(),
-        child_indices,
-        &[],
-    )];
-    for (index, evidence) in children.into_iter().enumerate() {
-        nodes.push(super::test_support::node(
-            u32::try_from(index + 1).unwrap(),
-            evidence,
+fn selected_tree(root: ObservationRoot<'_>) -> ObservedTree {
+    let mut tree = super::test_support::tree(
+        vec![super::test_support::node(
+            0,
+            hydrated_root(),
             Vec::new(),
-            &[index],
-        ));
-    }
-    let incomplete = matches!(
-        mode,
-        Mode::NegativeIncomplete
-            | Mode::NegativeBudget
-            | Mode::NegativeDeadline
-            | Mode::PositiveIncompleteSuffix
+            &[],
+        )],
+        vec![0],
+        true,
     );
-    if incomplete {
-        nodes[0].completeness.subtree_complete = false;
-        let last = nodes.len() - 1;
-        nodes[last].completeness.subtree_complete = false;
-    }
-    let mut tree = super::test_support::tree(nodes, vec![0], !incomplete);
-    if matches!(mode, Mode::NegativeBudget) {
-        tree.stats.traversal.limits.node_hits = 1;
-    }
-    if matches!(mode, Mode::NegativeDeadline) {
-        tree.stats.reads.health.deadline_exhausted = 1;
-    }
     tree.source = ObservationSource::from_root(&root, crate::SnapshotSurface::Window);
     tree
 }
 
-fn phase_one_root(mode: Mode) -> super::LocatorEvidence {
+fn phase_one_root() -> super::LocatorEvidence {
     let mut evidence = role_evidence("group");
-    if matches!(mode, Mode::TextWitnessRemoved) {
-        evidence.name = LocatorField::Absent;
-        evidence.description = LocatorField::Absent;
-        evidence.value = LocatorField::Absent;
-    }
     evidence.identifiers = IdentifierEvidence::absent();
     evidence.ref_evidence.bounds = LocatorField::Known(root_bounds());
     evidence
@@ -298,7 +149,7 @@ fn text_evidence(text: &str) -> super::LocatorEvidence {
     evidence
 }
 
-fn query(mode: Mode) -> LocatorQuery {
+fn query(subtree: Subtree) -> LocatorQuery {
     let mut query = LocatorQuery {
         identity: crate::IdentityPredicate {
             role: Some("group".into()),
@@ -306,15 +157,10 @@ fn query(mode: Mode) -> LocatorQuery {
         },
         ..Default::default()
     };
-    match mode {
-        Mode::TextWitnessRemoved => query.has_text = Some("needle".into()),
-        Mode::WitnessRemoved | Mode::PositiveIncompleteSuffix => {
-            query.containment = containment(true)
-        }
-        Mode::ForbiddenAdded
-        | Mode::NegativeIncomplete
-        | Mode::NegativeBudget
-        | Mode::NegativeDeadline => query.containment = containment(false),
+    match subtree {
+        Subtree::HasText => query.has_text = Some("needle".into()),
+        Subtree::Has => query.containment = containment(true),
+        Subtree::HasNot => query.containment = containment(false),
     }
     query
 }
@@ -347,13 +193,6 @@ fn request() -> LocatorResolveRequest {
         max_raw_depth: 10,
         surface: None,
         materialization: LocatorMaterialization::SelectedMatches,
-    }
-}
-
-fn adapter_error(error: AppError) -> AdapterError {
-    match error {
-        AppError::Adapter(error) => error,
-        other => panic!("expected adapter error, got {other}"),
     }
 }
 

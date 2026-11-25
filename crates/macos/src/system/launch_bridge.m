@@ -132,8 +132,10 @@ bool agent_desktop_open_application(
         NSString *identifier = request[@"identifier"];
         NSArray *arguments = request[@"arguments"];
         NSDictionary *environment = request[@"environment"];
+        NSArray *documents = request[@"documents"];
         if (![identifier isKindOfClass:[NSString class]] ||
-            !isStringArray(arguments) || !isStringDictionary(environment)) {
+            !isStringArray(arguments) || !isStringArray(documents) ||
+            !isStringDictionary(environment)) {
             completeError(holder, @"Invalid launch request fields", 2, 0);
             return true;
         }
@@ -157,12 +159,10 @@ bool agent_desktop_open_application(
         configuration.promptsUserIfNeeded = [request[@"prompts"] boolValue];
         configuration.allowsRunningApplicationSubstitution =
             [request[@"substitution"] boolValue];
-        configuration.createsNewApplicationInstance = [request[@"new_instance"] boolValue];
         configuration.arguments = arguments;
         configuration.environment = environment;
-        [workspace openApplicationAtURL:url
-                         configuration:configuration
-                     completionHandler:^(NSRunningApplication *app, NSError *error) {
+        void (^completion)(NSRunningApplication *, NSError *) =
+            ^(NSRunningApplication *app, NSError *error) {
             @try {
                 if (error != nil || app == nil) {
                     completeError(
@@ -188,7 +188,21 @@ bool agent_desktop_open_application(
             } @catch (NSException *exception) {
                 completeError(holder, exception.reason ?: @"Launch callback exception", 3, 1);
             }
-        }];
+        };
+        if (documents.count > 0) {
+            NSMutableArray<NSURL *> *urls = [NSMutableArray arrayWithCapacity:documents.count];
+            for (NSString *path in documents) {
+                [urls addObject:[NSURL fileURLWithPath:path]];
+            }
+            [workspace openURLs:urls
+                withApplicationAtURL:url
+                       configuration:configuration
+                   completionHandler:completion];
+        } else {
+            [workspace openApplicationAtURL:url
+                              configuration:configuration
+                          completionHandler:completion];
+        }
     } @catch (NSException *exception) {
         if (holder != nil && holder->_releaseBox != NULL) {
             @try {

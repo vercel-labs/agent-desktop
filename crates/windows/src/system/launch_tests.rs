@@ -1,3 +1,4 @@
+use super::launch_watch::{Target, observe_window_once};
 use super::*;
 use agent_desktop_core::{
     AppError, Deadline, DeliverySemantics, ErrorCode, ErrorPayload, ProcessId,
@@ -13,37 +14,17 @@ use std::path::{Path, PathBuf};
 mod live;
 
 #[test]
-fn attaching_dispatches_nothing_so_it_reports_not_delivered() {
-    let result = launch_result("notepad.exe", ProcessId::new(7), "t".into(), None, ATTACHED);
-
-    assert_eq!(result.disposition, DeliverySemantics::not_delivered());
-}
-
-#[test]
-fn a_created_process_with_a_read_back_token_reports_delivered_verified() {
-    let result = launch_result("notepad.exe", ProcessId::new(7), "t".into(), None, SPAWNED);
-
-    assert_eq!(result.disposition, DeliverySemantics::delivered_verified());
-}
-
-#[test]
-fn zero_wait_never_polls_after_first_observation() {
-    assert!(!launch_observe::should_poll_after_first_observation(0));
-    assert!(launch_observe::should_poll_after_first_observation(1));
-}
-
-#[test]
 fn ambiguous_launch_target_suggestion_names_pids_instead_of_a_ref_retry() {
     let matches = vec![
         ProcessRow {
             pid: ProcessId::from(111),
+            parent: ProcessId::from(1),
             name: "Cursor.exe".into(),
-            parent: 0,
         },
         ProcessRow {
             pid: ProcessId::from(222),
+            parent: ProcessId::from(1),
             name: "Cursor.exe".into(),
-            parent: 0,
         },
     ];
 
@@ -72,13 +53,13 @@ fn shared_ambiguous_target_pins_the_windows_envelope() {
     let matches = vec![
         ProcessRow {
             pid: ProcessId::from(10),
+            parent: ProcessId::from(1),
             name: "Cursor.exe".into(),
-            parent: 0,
         },
         ProcessRow {
             pid: ProcessId::from(11),
+            parent: ProcessId::from(1),
             name: "Cursor.exe".into(),
-            parent: 0,
         },
     ];
 
@@ -111,7 +92,12 @@ fn observe_window_once_tolerates_an_expired_deadline_as_no_window_observed() {
     let pid = ProcessId::from(std::process::id());
     let expired = Deadline::after(0).expect("a zero-timeout deadline is constructible");
 
-    let observed = launch_observe::observe_window_once(pid, "irrelevant-instance", expired)
+    let target = Target {
+        pid,
+        process_instance: "irrelevant-instance",
+        resident: None,
+    };
+    let observed = observe_window_once(&target, expired)
         .expect("a Timeout from the inventory must be tolerated, not propagated");
 
     assert!(
@@ -298,3 +284,11 @@ fn a_trailing_backslash_cannot_escape_the_closing_quote() {
 
 #[path = "launch_renderer_tests.rs"]
 mod renderer_tests;
+
+#[test]
+fn a_launch_without_activate_asks_for_no_activation_and_an_activating_one_does_not() {
+    let quiet = startup_show(false);
+    assert_eq!((quiet.flags, quiet.show), (0x1, 4));
+    let loud = startup_show(true);
+    assert_eq!((loud.flags, loud.show), (0, 0));
+}

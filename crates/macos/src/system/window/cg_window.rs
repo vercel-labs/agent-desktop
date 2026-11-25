@@ -133,7 +133,7 @@ fn lists_window(layer: i64, on_screen: bool) -> bool {
 
 const DOCK_WINDOW_LEVEL: i64 = 20;
 
-pub(in crate::system) fn records_from_dictionaries(
+pub(crate) fn records_from_dictionaries(
     dictionaries: Vec<WindowDictionary>,
     scope: WindowRecordScope<'_>,
 ) -> Result<Vec<WindowRecord>, AdapterError> {
@@ -201,7 +201,7 @@ fn window_list_options() -> core_graphics::window::CGWindowListOption {
         | core_graphics::window::kCGWindowListExcludeDesktopElements
 }
 
-pub(in crate::system) fn capture_process_instances(
+pub(crate) fn capture_process_instances(
     records: &mut [WindowRecord],
     deadline: Deadline,
 ) -> Result<(), AdapterError> {
@@ -257,7 +257,7 @@ fn inventory_signature(records: &[WindowRecord]) -> Vec<InventorySignatureEntry<
     signature
 }
 
-pub(in crate::system) fn ensure_before_deadline(deadline: Deadline) -> Result<(), AdapterError> {
+pub(crate) fn ensure_before_deadline(deadline: Deadline) -> Result<(), AdapterError> {
     if deadline.is_expired() {
         return Err(AdapterError::timeout(
             "CoreGraphics window inventory timed out",
@@ -266,7 +266,7 @@ pub(in crate::system) fn ensure_before_deadline(deadline: Deadline) -> Result<()
     Ok(())
 }
 
-pub(in crate::system) fn inventory_error(message: &str) -> AdapterError {
+pub(crate) fn inventory_error(message: &str) -> AdapterError {
     AdapterError::new(ErrorCode::AppUnresponsive, message)
         .with_suggestion("Retry after WindowServer finishes updating the window inventory")
         .with_details(serde_json::json!({
@@ -327,7 +327,7 @@ fn invalid_field_error(field: &str) -> AdapterError {
     ))
 }
 
-fn required_int_field(dict: &WindowDictionary, key: &str) -> Result<i64, AdapterError> {
+pub(crate) fn required_int_field(dict: &WindowDictionary, key: &str) -> Result<i64, AdapterError> {
     int_field(dict, key).ok_or_else(|| missing_field_error(key))
 }
 
@@ -355,7 +355,7 @@ fn string_field(dict: &WindowDictionary, key: &str) -> Option<String> {
         .map(|value| value.to_string())
 }
 
-pub(super) fn bool_field(dict: &WindowDictionary, key: &str) -> Result<bool, AdapterError> {
+pub(crate) fn bool_field(dict: &WindowDictionary, key: &str) -> Result<bool, AdapterError> {
     use core_foundation::boolean::CFBoolean;
 
     let cf_key = CFString::new(key);

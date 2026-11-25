@@ -52,11 +52,11 @@ use a private session and runtime directory for isolated work.
   Menu-role popups use the menu surface instead.
 - Popup and dialog openers can take the foreground and refuse headless.
   Qt combo selection may need pointer input to commit rather than highlight a row.
-  Stop on a headed-only refusal instead of changing mode.
+  Stop on a headed-only refusal instead of changing mode. Headless `restore` of a minimized window and headless `minimize` of the focused window refuse with `POLICY_DENIED`; the system raises or moves focus.
 - A headless graceful `close-app` of a native Wayland client returns `ACTION_NOT_SUPPORTED` (`details.cause: wayland_session`). `--force` discards unsaved work.
   When it cannot read the focused window it fails with `POLICY_DENIED` (`details.kind: focus_unreadable`) before any close request is sent.
 - `press --app` works headless only when the target's window is active. Otherwise it sends nothing and returns `ACTION_FAILED`
-  (`details.check: window_active`), or `STALE_REF` when `--window-id` names a window not confirmed active.
+  (`details.check: window_active`), or `STALE_REF` when the window has no process identity.
 - A GTK4 list or grid view has no row nodes, so `select` and `click` cannot pick a row.
 - A window can precede its content. Wait for the application's observable result; an accepted AT-SPI call or a changed
   selected value does not prove that handlers ran. Wait for each effect before another click.
@@ -73,8 +73,8 @@ use a private session and runtime directory for isolated work.
 - `launch` accepts a program on PATH, an absolute path, an installed desktop id,
   or an unambiguous desktop entry name. Use process and window identity from
   observations rather than guessing from a window title. Without `--activate`,
-  a launch on X11 gives the focus back to the window that had it when the new
-  window took it, and reports `focus_returned: true`.
+  a launch on X11 gives the focus and window order back and reports `focus_returned: true`,
+  or `false` with a suggestion; a headless click that opens a dialog is guarded the same way.
 - `press escape --app <app> --window-id <id>` on a background window with a showing
   native popup closes it only via a dismissal action (or GTK3 combo box `Press`)
   and reports `delivered_verified` once gone. Web content and buttons without a

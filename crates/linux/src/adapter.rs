@@ -7,7 +7,9 @@ use agent_desktop_core::{
     WindowInfo,
 };
 
+use crate::actions::headed_focus::headed_focus_on;
 use crate::system::SharedBus;
+use crate::system::display::display_server::session_server;
 
 pub struct LinuxAdapter {
     bus: SharedBus,
@@ -275,6 +277,24 @@ impl LinuxAdapter {
 }
 
 impl ActionOps for LinuxAdapter {
+    fn headed_focus_for_ref(
+        &self,
+        _entry: &agent_desktop_core::RefEntry,
+        request: &ActionRequest,
+        _deadline: Deadline,
+    ) -> Result<Option<agent_desktop_core::HeadedFocus>, AdapterError> {
+        Ok(headed_focus_on(&session_server(), request))
+    }
+
+    fn headed_focus(
+        &self,
+        _handle: &NativeHandle,
+        request: &ActionRequest,
+        _deadline: Deadline,
+    ) -> Result<Option<agent_desktop_core::HeadedFocus>, AdapterError> {
+        Ok(headed_focus_on(&session_server(), request))
+    }
+
     fn foreground_effect(
         &self,
         handle: &NativeHandle,
@@ -345,12 +365,7 @@ impl InputOps for LinuxAdapter {
         crate::input::deliver::drag(&params, lease)
     }
 
-    fn key_event(
-        &self,
-        _combo: &KeyCombo,
-        _down: bool,
-        _lease: &InteractionLease,
-    ) -> Result<(), AdapterError> {
+    fn key_event(&self, _: &KeyCombo, _: bool, _: &InteractionLease) -> Result<(), AdapterError> {
         Err(crate::input::standalone::reject_standalone(
             "key-down/key-up",
         ))

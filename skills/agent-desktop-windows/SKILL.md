@@ -32,7 +32,7 @@ PowerShell appends a line ending to piped text, so `--stdin` keeps it; use `cmd 
 ## Platform behavior
 
 - A covered window can be driven headless; minimized controls report offscreen.
-  Restore a minimized target and observe again rather than focusing it by reflex.
+  Restore a minimized target and observe again rather than focusing it by reflex. Headless `restore` un-minimizes without taking the foreground.
 - UIPI (User Interface Privilege Isolation) blocks input into a higher-integrity
   process. Ask the user to run the CLI at the target's integrity level when needed;
   a working observation does not establish input permission.
@@ -58,9 +58,9 @@ PowerShell appends a line ending to piped text, so `--stdin` keeps it; use `cmd 
 - `agent-desktop launch` takes an absolute executable path or a bare program name in the
   Windows or System32 directory, not an arbitrary display name or a PATH search.
   Without `--activate` the process starts with a show-window hint that asks for no
-  activation. An application that activates itself anyway gets the foreground
-  taken back for the window that had it, and the result reports
-  `focus_returned: true`. A window you switched to is never touched.
+  activation. A window that takes the foreground or the top of the window order is
+  sent back below the window that had it, and the result reports `focus_returned: true`,
+  or `false` with a suggestion. A window you switched to is never touched.
 - Chromium/Electron trees can be thin while accessibility settles. Finish a bounded observation before concluding content is absent.
 - An open application menu is the `menu` surface; there is no `menubar` surface. An owned popup window
   of the app (a ribbon drop-down) is a `popover`: `list-surfaces` lists it, `snapshot --surface popover` reads it.
