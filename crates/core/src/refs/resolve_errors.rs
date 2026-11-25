@@ -27,20 +27,41 @@ pub fn identity_unknown_error(entry: &RefEntry) -> AdapterError {
     }))
 }
 
-/// A tokenless ref that was not proven unique when it was captured.
-pub(crate) fn identity_not_unique(entry: &RefEntry) -> AdapterError {
+/// A tokenless ref captured from one of two or more identical elements. A
+/// complete read saw the others, so a new snapshot refuses it again.
+pub(crate) fn identity_twins(entry: &RefEntry) -> AdapterError {
     AdapterError::new(
         ErrorCode::AmbiguousTarget,
-        "Saved ref was not proven unique when it was captured, so it cannot be re-identified safely",
+        "Saved ref names one of two or more identical elements in the window, so it cannot be \
+         re-identified safely",
     )
     .with_suggestion(format!(
-        "Either another element in the window matched it, or the window could not be read \
-         whole within the snapshot timeout. For a large window, retake the snapshot with a \
-         larger --timeout-ms. Identical twins are refused again by every snapshot. {}",
-        crate::headed_mode_suggestion("moves the pointer to choose one by coordinate click, where physical input is available")
+        "Every snapshot refuses identical twins. Act on a control that is unique in the window. {}",
+        crate::headed_mode_suggestion("moves the pointer to choose one with mouse-click --xy, where physical input is available")
     ))
     .with_details(json!({
         "kind": "identity_not_unique",
+        "retryable": false,
+        "role": entry.identity.role,
+    }))
+    .with_disposition(crate::DeliverySemantics::not_delivered())
+}
+
+/// A tokenless ref whose capture could not prove it unique: the snapshot ran out
+/// of its budget before it read the whole window, or a node left a recorded field
+/// unread. More budget can prove it.
+pub(crate) fn identity_unproven(entry: &RefEntry) -> AdapterError {
+    AdapterError::new(
+        ErrorCode::AmbiguousTarget,
+        "Saved ref was not proven unique within the snapshot budget, so it cannot be \
+         re-identified safely",
+    )
+    .with_suggestion(
+        "The snapshot reported identity_unproven. Retake it with a larger --timeout-ms, and pass \
+         the same larger --timeout-ms to this command, which reads the whole window again.",
+    )
+    .with_details(json!({
+        "kind": "identity_unproven",
         "retryable": false,
         "role": entry.identity.role,
     }))

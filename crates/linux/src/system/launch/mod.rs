@@ -4,11 +4,10 @@ use std::time::Duration;
 use agent_desktop_core::system::launch_options::LaunchOptions;
 use agent_desktop_core::system::launch_result::LaunchResult;
 use agent_desktop_core::{
-    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionLease, LaunchGuidance,
-    ProcessId, RendererKind, WindowInfo,
+    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionLease, LaunchArrival,
+    LaunchGuidance, ProcessId, RendererKind, WindowInfo,
 };
 
-use self::launch_arrival::Arrival;
 use self::launch_attach::{Decision, decide};
 use self::launch_conclude::{FocusAnswer, conclude};
 use self::launch_observe::{POLL_INTERVAL, Spawned, find_owner, pids_of, running_of};
@@ -112,6 +111,10 @@ const WINDOW_GRACE: Duration = Duration::from_millis(2_000);
 /// was already running and forwarded the request.
 const NEW_WINDOW_WAIT: Duration = Duration::from_millis(5_000);
 
+const UNLISTED_RUNNING: &str = "The process started but is not on the accessibility bus yet. Its pid is the spawned process's and may be a wrapper of the application. Run 'list-apps' to see whether it appears.";
+
+const UNLISTED_EXITED: &str = "The launcher exited cleanly and no owner of the launch was proven: it handed its work to another process, for example a running instance it forwarded the arguments to. Its pid is the launcher's. Run 'list-windows' to see where the work arrived.";
+
 struct Launch<'a> {
     bus: &'a SharedBus,
     id: &'a str,
@@ -210,7 +213,7 @@ impl Launch<'_> {
         &self,
         owner: &Running,
         window: Option<WindowInfo>,
-        arrival: Arrival,
+        arrival: LaunchArrival,
     ) -> LaunchResult {
         let renderer = chromium_renderer(self.bus, owner.pid, self.deadline);
         let mut result = conclude(owner, window, self.options, arrival, |window| {
@@ -241,13 +244,18 @@ impl Launch<'_> {
         running: &[Running],
     ) -> Result<LaunchResult, AdapterError> {
         match self.window_of(owner, false, &HashSet::new())? {
-            Some(window) => Ok(self.conclude_with(owner, Some(window), Arrival::Attached)),
+            Some(window) => Ok(self.conclude_with(owner, Some(window), LaunchArrival::Attached)),
             None => self.start(plan, running),
         }
     }
 
     fn report_unlisted(&self, spawned: &Spawned) -> LaunchResult {
         let facts = process_facts::read(spawned.pid);
+        let suggestion = if facts.is_some() {
+            UNLISTED_RUNNING
+        } else {
+            UNLISTED_EXITED
+        };
         LaunchResult {
             app: facts
                 .as_ref()
@@ -256,12 +264,10 @@ impl Launch<'_> {
             process_instance: facts.map(|facts| facts.instance),
             window: None,
             guidance: LaunchGuidance {
-                suggestion: Some(
-                    "The process started but is not on the accessibility bus yet. Its pid is the spawned process's and may be a wrapper of the application. Run 'list-apps' to see whether it appears.".to_owned(),
-                ),
+                suggestion: Some(suggestion.to_owned()),
                 ..LaunchGuidance::default()
             },
-            disposition: Arrival::Unlisted.facts().disposition(),
+            disposition: LaunchArrival::Unobserved.facts().disposition(),
         }
     }
 
@@ -290,7 +296,7 @@ impl Launch<'_> {
                         None if before.processes.contains(&owner.identity()) => None,
                         None => self.window_of(&owner, true, &HashSet::new())?,
                     };
-                    let arrival = Arrival::started(
+                    let arrival = LaunchArrival::started(
                         owner.pid == spawned.pid,
                         !before.processes.contains(&owner.identity()),
                     );
@@ -331,12 +337,9 @@ pub(crate) fn launch_app(
         options.attach_if_running,
         !options.args.is_empty(),
     ) {
-        Decision::Refuse(pids) => Err(before_spawn(
-            AdapterError::new(
-                ErrorCode::ActionFailed,
-                format!("'{id}' is already running (pids {pids:?}) and a new launch was required"),
-            )
-            .with_suggestion("Allow attaching to use the running instance, or close it first."),
+        Decision::Refuse(pids) => Err(agent_desktop_core::launch_already_running(
+            id,
+            &pids_of(&pids),
         )),
         Decision::Ambiguous(pids) => Err(AdapterError::ambiguous_process_target(
             format!("'{id}' matches several running applications"),
@@ -360,7 +363,6 @@ pub(super) mod desktop_exec;
 pub(super) mod desktop_lookup;
 pub(super) mod desktop_stamp;
 pub(super) mod indexed_entry;
-mod launch_arrival;
 pub(super) mod launch_attach;
 mod launch_conclude;
 mod launch_handoff;

@@ -2,7 +2,9 @@ use crate::{ActionRequest, AdapterError};
 use serde_json::json;
 
 pub(crate) fn should_scroll_after_preflight(request: &ActionRequest, error: &AdapterError) -> bool {
-    request.action.requires_scroll_into_view() && failed_check(error, "visible")
+    request.action.requires_scroll_into_view()
+        && failed_check(error, "visible")
+        && !crate::ref_action::ref_action_poll::is_permanent_error(&error.code)
 }
 
 /// A failed scroll-into-view recovery must never overwrite the actionability

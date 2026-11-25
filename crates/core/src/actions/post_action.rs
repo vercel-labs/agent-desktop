@@ -9,6 +9,25 @@ use crate::{
 /// application acknowledges the action.
 const ACTION_SETTLE: std::time::Duration = std::time::Duration::from_millis(250);
 
+/// Settles the disposition of an error from `execute_action` that carries
+/// none. An adapter that refuses an action as unsupported or invalid decides
+/// from the target's capabilities before it writes, so nothing was sent. Any
+/// other error came from a call that may already have written, so delivery is
+/// uncertain and a retry is unsafe. An error that has a disposition keeps it.
+fn settle_disposition(error: AdapterError) -> AdapterError {
+    if error.disposition != DeliverySemantics::unknown() {
+        return error;
+    }
+    if matches!(
+        error.code,
+        ErrorCode::ActionNotSupported | ErrorCode::InvalidArgs
+    ) {
+        error.unsent()
+    } else {
+        error.with_disposition(DeliverySemantics::uncertain())
+    }
+}
+
 /// Executes once, then verifies stateful actions from fresh platform
 /// observations. A headless action that can open a window runs under the front
 /// guard, which gives the user's focus and window order back if the window
@@ -55,7 +74,9 @@ fn run_verified_action(
     let action = request.action.clone();
     if !action.requires_state_readback() {
         mark.dispatched();
-        return adapter.execute_action(handle, request, lease);
+        return adapter
+            .execute_action(handle, request, lease)
+            .map_err(settle_disposition);
     }
     let deadline = lease.deadline();
     let before = matches!(action, Action::TypeText(_) | Action::Toggle)
@@ -84,6 +105,7 @@ fn run_verified_action(
     mark.dispatched();
     let execution = adapter
         .execute_action(handle, request, lease)
+        .map_err(settle_disposition)
         .map(|mut result| {
             if matches!(action, Action::Toggle) {
                 result.action = action.name().into();

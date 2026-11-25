@@ -11,6 +11,7 @@ pub fn validate_selector(raw: &str) -> Result<LocatorQuery, AppError> {
             "Use forms like \"button:Submit\", \"button\", or \":Saved!\".",
         ));
     }
+    crate::locator::live_locator::validate_query(&query)?;
     Ok(query)
 }
 

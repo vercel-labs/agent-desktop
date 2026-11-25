@@ -49,6 +49,12 @@ fn press_for_app(
     }
 
     crate::input::keyboard::keyboard_map::key_name_to_code(&combo.key)?;
+    if chord_needs_frontmost(combo, policy) {
+        let frontmost = crate::system::focus::is_app_frontmost(pid, deadline)?;
+        if let Some(refusal) = background_chord_refusal(combo, frontmost) {
+            return Err(refusal);
+        }
+    }
     if policy.allow_focus_steal {
         crate::system::process::process_identity::require_core(&process)?;
         crate::system::focus::verify_app_focused(pid, deadline)?;
@@ -62,6 +68,42 @@ fn press_for_app(
         ActionStep::succeeded("CGEventPostToPid")
             .with_mechanism(StepMechanism::PhysicalSynthetic)
             .with_verified(false),
+    )
+}
+
+/// A key equivalent such as cmd+s is matched by the active application's menu
+/// bar, so a chord posted to a background process is dispatched but never
+/// acted on. Headed delivery verifies the frontmost application itself.
+fn chord_needs_frontmost(combo: &KeyCombo, policy: InteractionPolicy) -> bool {
+    !policy.allow_focus_steal
+        && combo
+            .modifiers
+            .iter()
+            .any(|modifier| !matches!(modifier, agent_desktop_core::Modifier::Shift))
+}
+
+fn background_chord_refusal(combo: &KeyCombo, frontmost: bool) -> Option<AdapterError> {
+    if frontmost {
+        return None;
+    }
+    Some(
+        AdapterError::new(
+            ErrorCode::ActionFailed,
+            format!(
+                "The target application is not frontmost, so the {} chord would not reach its menu shortcuts and no key was sent",
+                combo.key
+            ),
+        )
+        .with_details(serde_json::json!({
+            "check": "process_focus",
+            "cause": "background_chord",
+            "physical_delivery_started": false,
+        }))
+        .with_suggestion(format!(
+            "Bring the application to the front yourself, or use the menu item through a semantic route. {}",
+            agent_desktop_core::headed_mode_suggestion("brings the application to the foreground before sending keys")
+        ))
+        .with_disposition(DeliverySemantics::not_delivered()),
     )
 }
 

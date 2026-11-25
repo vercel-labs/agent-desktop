@@ -36,6 +36,7 @@ pub(crate) fn is_protected_process(identifier: &str) -> bool {
 #[derive(Debug, Clone)]
 pub(crate) struct ProcessRow {
     pub(crate) pid: ProcessId,
+    pub(crate) parent: ProcessId,
     pub(crate) name: String,
 }
 
@@ -66,6 +67,7 @@ pub(crate) fn process_snapshot() -> Result<Vec<ProcessRow>, AdapterError> {
     while ok != 0 {
         rows.push(ProcessRow {
             pid: ProcessId::from(entry.th32ProcessID),
+            parent: ProcessId::from(entry.th32ParentProcessID),
             name: process_identity::wide_buffer_to_string(&entry.szExeFile),
         });
         ok = unsafe { Process32NextW(snapshot, &mut entry) };

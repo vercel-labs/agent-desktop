@@ -43,7 +43,7 @@ fn a_twin_cell_reached_by_find_gets_the_chain_a_snapshot_gives_and_resolves() {
         })
         .expect("find publishes the twin cell");
 
-    assert!(from_find.identity.unique_at_capture);
+    assert!(from_find.identity.proof.is_unique());
     assert_eq!(from_find.scope.chain, from_snapshot.scope.chain);
     let adapter = ScopeAdapter::new(tree);
     let handle = resolve(&adapter, &from_find).unwrap_or_else(|error| panic!("{error:?}"));
@@ -72,11 +72,11 @@ fn a_truncated_observation_proves_nothing_and_resolves_nothing() {
         .expect("the first cell is observed");
 
     let mut entry = captured.clone();
-    entry.identity.unique_at_capture = false;
+    entry.identity.proof = crate::IdentityProof::Unproven;
     entry.scope.chain.clear();
     crate::refs::ref_capture_proof::CaptureProof::new(&observed).prove_node(&mut entry, cell);
 
-    assert!(!entry.identity.unique_at_capture);
+    assert!(!entry.identity.proof.is_unique());
     assert!(entry.scope.chain.is_empty());
     assert_eq!(
         chain_nodes(&observed, &captured.scope.chain),

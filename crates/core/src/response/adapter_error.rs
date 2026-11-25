@@ -152,7 +152,8 @@ impl AdapterError {
         Self::new(ErrorCode::AmbiguousTarget, message)
             .with_suggestion(format!(
                 "{} running instances match (pids {numeric:?}); this command selects a \
-                 process by name and has no pid or instance flag to disambiguate",
+                 process by name only. Quit all but one instance yourself (list-apps \
+                 shows them), then retry",
                 pids.len()
             ))
             .with_details(details)
@@ -201,7 +202,7 @@ impl AdapterError {
 
     pub fn timeout(message: impl Into<String>) -> Self {
         Self::new(ErrorCode::Timeout, message)
-            .with_suggestion("The target application may be busy or unresponsive")
+            .with_suggestion("The operation did not finish within its deadline; retry once, and if it repeats report the timeout instead of retrying")
     }
 
     pub fn notification_not_found(index: usize) -> Self {

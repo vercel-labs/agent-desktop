@@ -158,7 +158,7 @@ fn a_name_cell_shared_by_every_row_resolves_to_its_own_row() {
     let handle = resolve(&adapter, &entry)
         .unwrap_or_else(|error| panic!("{}: {error:?}", "the cell is unique inside its row"));
 
-    assert!(entry.identity.unique_at_capture);
+    assert!(entry.identity.proof.is_unique());
     assert_eq!(entry.scope.chain.len(), 1);
     assert_eq!(entry.scope.chain[0].name.as_deref(), Some("b.txt"));
     assert_eq!(landed_path(&handle), [1, 0]);
@@ -242,7 +242,7 @@ fn rows_that_are_twins_leave_their_cells_refused() {
         .err()
         .expect("twin rows give no scope");
 
-    assert!(!entry.identity.unique_at_capture);
+    assert!(!entry.identity.proof.is_unique());
     assert!(entry.scope.chain.is_empty());
     assert_eq!(error.code, ErrorCode::AmbiguousTarget);
 }
@@ -257,7 +257,7 @@ fn twins_inside_one_scope_stay_refused() {
         entry.identity.name.as_deref() == Some("Name") && entry.scope.path.first() == Some(&1)
     });
 
-    assert!(!entry.identity.unique_at_capture);
+    assert!(!entry.identity.proof.is_unique());
     assert!(entry.scope.chain.is_empty());
 }
 
@@ -309,8 +309,8 @@ fn a_nested_twin_is_scoped_by_its_inner_parent_and_the_outer_one_is_refused() {
         })
     };
 
-    assert!(by_path(&[0, 0, 0]).identity.unique_at_capture);
-    assert!(!by_path(&[0]).identity.unique_at_capture);
+    assert!(by_path(&[0, 0, 0]).identity.proof.is_unique());
+    assert!(!by_path(&[0]).identity.proof.is_unique());
 }
 
 #[test]

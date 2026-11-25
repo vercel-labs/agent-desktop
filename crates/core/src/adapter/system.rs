@@ -269,9 +269,8 @@ pub trait SystemOps: Send + Sync {
         Err(AdapterError::not_supported("press_key_for_app"))
     }
 
-    /// Checks the exact focused window before process-scoped key delivery.
-    /// Adapters can override this to retain the window identity through their
-    /// native delivery gates.
+    /// Checks the exact focused window before process-scoped key delivery;
+    /// adapters can override it to keep the window identity through their gates.
     fn press_key_for_window(
         &self,
         window: &WindowInfo,

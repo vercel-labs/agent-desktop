@@ -14,7 +14,7 @@ fn entry(role: &str) -> RefEntry {
             process_instance: Some("test-instance".into()),
         },
         identity: RefEntryIdentity {
-            unique_at_capture: false,
+            proof: agent_desktop_core::IdentityProof::Unproven,
             retained_object: None,
             role: role.into(),
             name: Some("Investors".into()),
@@ -59,6 +59,7 @@ fn facts<'a>(
         role,
         subrole,
         native_id,
+        window_live: true,
     }
 }
 
@@ -151,7 +152,7 @@ fn a_ref_without_a_token_keeps_the_attribute_path() {
 #[test]
 fn a_bare_token_saved_before_core_tagged_tokens_is_refused_not_resolved_by_fields() {
     let mut saved = entry("button");
-    saved.identity.unique_at_capture = true;
+    saved.identity.proof = agent_desktop_core::IdentityProof::Unique;
     saved.identity.retained_object = Some("axtok1:00ff".into());
     let error = super::super::retained::refuse_untagged_token(&saved).expect_err("refused");
     assert_eq!(error.code, agent_desktop_core::ErrorCode::StaleRef);
@@ -159,4 +160,49 @@ fn a_bare_token_saved_before_core_tagged_tokens_is_refused_not_resolved_by_field
 
     saved.identity.retained_object = Some("token:axtok1:00ff".into());
     assert!(super::super::retained::refuse_untagged_token(&saved).is_ok());
+}
+
+#[test]
+fn token_mismatch_refuses_an_element_whose_window_closed() {
+    let stored = entry("button");
+    let mut orphan = facts(7, Some("AXButton"), None, None);
+    orphan.window_live = false;
+
+    assert_eq!(
+        token_mismatch(&stored, &orphan),
+        Some(RetainedMismatch::Window)
+    );
+    assert_eq!(RetainedMismatch::Window.reason(), "window");
+}
+
+#[test]
+fn a_token_whose_element_has_no_open_window_is_stale() {
+    let deadline = Deadline::after(5000).unwrap();
+    let listing = std::process::Command::new("ps")
+        .args(["-x", "-o", "pid="])
+        .output()
+        .expect("ps runs");
+    let (pid, application) = String::from_utf8_lossy(&listing.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse::<i32>().ok())
+        .map(|pid| (pid, crate::tree::properties::element::element_for_pid(pid)))
+        .find(|(_, element)| {
+            crate::tree::surface_read::string(element, "AXRole", deadline)
+                .is_ok_and(|role| role.as_deref() == Some("AXApplication"))
+        })
+        .expect("a running process that serves accessibility");
+    let token = super::super::retained::capture(&application)
+        .unwrap()
+        .expect("the application element yields a token");
+    let mut saved = entry("application");
+    saved.process.pid = ProcessId::new(pid as u32);
+    saved.identity.retained_object =
+        Some(agent_desktop_core::refs::ref_identity::tagged_element_token(&token));
+
+    let error = resolve_saved_token(&saved, deadline)
+        .map(|_| ())
+        .expect_err("an element outside every open window is refused");
+
+    assert_eq!(error.code, agent_desktop_core::ErrorCode::StaleRef);
+    assert_eq!(error.details.as_ref().expect("details")["reason"], "window");
 }

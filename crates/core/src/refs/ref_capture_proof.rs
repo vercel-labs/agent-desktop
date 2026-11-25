@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::{
-    ElementIdentifier, IdentityMatch, RefEntry, RefEntryIdentity, ScopeChain,
+    ElementIdentifier, IdentityMatch, IdentityProof, RefEntry, RefEntryIdentity, ScopeChain,
     locator::LocatorQuery,
     locator::live_locator::{
         LocatorEvidence, LocatorField, ObservationSource, ObservedTree, materialize_ref_entry,
@@ -14,9 +14,8 @@ use crate::{
     refs::scope_chain::{MAX_SCOPE_CHAIN_DEPTH, ScopeInterner},
     tree::accname::non_blank,
 };
-
 const ROLE: u8 = DESCRIPTION << 1;
-type Bucket<'a> = HashMap<LiveKey<'a>, usize>;
+type Bucket<'a> = HashMap<LiveKey<'a>, Census>;
 const MASKS: usize = (NATIVE_ID | NAME | DESCRIPTION) as usize + 1;
 
 /// One whole-window observation, counted once into the field subsets its
@@ -30,7 +29,7 @@ const MASKS: usize = (NATIVE_ID | NAME | DESCRIPTION) as usize + 1;
 pub(crate) struct CaptureProof<'a> {
     observed: &'a ObservedTree,
     start: Option<usize>,
-    buckets: [OnceLock<HashMap<LiveKey<'a>, usize>>; MASKS],
+    buckets: [OnceLock<Bucket<'a>>; MASKS],
     unread: Vec<(u8, LivePredicate<'a>)>,
     whole_window: bool,
     parents: OnceLock<Vec<Option<usize>>>,
@@ -83,8 +82,16 @@ impl<'a> CaptureProof<'a> {
         self.index_at(path).is_some_and(|index| {
             let mut candidate = entry.clone();
             self.prove_node(&mut candidate, index);
-            candidate.identity.unique_at_capture
+            candidate.identity.proof.is_unique()
         })
+    }
+
+    /// Whether the node allocated at `path` left its value unread, so a name
+    /// it reports cannot be told apart from that value.
+    pub(crate) fn value_unread_at(&self, path: &[usize]) -> bool {
+        self.index_at(path)
+            .and_then(|index| self.observed.nodes.get(index))
+            .is_some_and(|node| node.evidence.value.is_unknown())
     }
 
     /// Builds `entry`, allocated at `path`, under the capture rule.
@@ -203,27 +210,45 @@ impl<'a> CaptureProof<'a> {
     /// built from: the observation must be a complete whole-window read, exactly
     /// one of its nodes must match the entry's full predicate, no node may leave
     /// a recorded field unread, and that one node must be this one.
+    #[cfg(test)]
     pub(crate) fn proves_node(&self, entry: &RefEntry, index: usize) -> bool {
-        self.proves_in(None, &FullPredicate::of_entry(entry), index)
+        self.proof_of_node(entry, index).is_unique()
+    }
+
+    /// What the whole-window count establishes about `entry` at the node it was
+    /// built from: `Unique` for a complete read in which exactly one node
+    /// matches and no node leaves a recorded field unread, `Twins` when two or
+    /// more nodes matched, and `Unproven` for any other outcome.
+    pub(crate) fn proof_of_node(&self, entry: &RefEntry, index: usize) -> IdentityProof {
+        self.proof_in(None, &FullPredicate::of_entry(entry), index)
     }
 
     /// The one capture rule every ref entry is built under: records on `entry`,
     /// built from node `index`, whether it is proven and the scope chain that
     /// proves it when its own proof is not unique in the window.
     pub(crate) fn prove_node(&self, entry: &mut RefEntry, index: usize) {
-        entry.identity.unique_at_capture = self.proves_node(entry, index);
-        if entry.identity.unique_at_capture {
+        entry.identity.proof = self.proof_of_node(entry, index);
+        if entry.identity.proof.is_unique() {
             return;
         }
         if let Some(chain) = self.chain_of(&FullPredicate::of_entry(entry), index) {
-            entry.identity.unique_at_capture = true;
+            entry.identity.proof = IdentityProof::Unique;
             entry.scope.chain = chain;
         }
     }
 
     fn proves_in(&self, scope: Option<usize>, predicate: &FullPredicate<'_>, index: usize) -> bool {
+        self.proof_in(scope, predicate, index).is_unique()
+    }
+
+    fn proof_in(
+        &self,
+        scope: Option<usize>,
+        predicate: &FullPredicate<'_>,
+        index: usize,
+    ) -> IdentityProof {
         if !self.whole_window {
-            return false;
+            return IdentityProof::Unproven;
         }
         let fields = predicate.mask();
         let key = key_of(predicate);
@@ -234,10 +259,22 @@ impl<'a> CaptureProof<'a> {
                 .copied(),
             Some(scope) => self.scope_bucket(scope, fields).get(&key).copied(),
         };
-        unique == Some(index)
-            && !self.unread.iter().any(|(bits, live)| {
-                bits & (fields | ROLE) != 0 && predicate.compare(live) == IdentityMatch::Unknown
-            })
+        match unique {
+            Some(Census {
+                count: 1,
+                index: only,
+            }) if only == index => {}
+            Some(Census { count, .. }) if count > 1 => return IdentityProof::Twins,
+            _ => return IdentityProof::Unproven,
+        }
+        let unread = self.unread.iter().any(|(bits, live)| {
+            bits & (fields | ROLE) != 0 && predicate.compare(live) == IdentityMatch::Unknown
+        });
+        if unread {
+            IdentityProof::Unproven
+        } else {
+            IdentityProof::Unique
+        }
     }
 
     fn scope_bucket(&self, scope: usize, fields: u8) -> Arc<Bucket<'a>> {
@@ -254,27 +291,29 @@ impl<'a> CaptureProof<'a> {
     }
 }
 
-/// The node indices each full predicate of this field subset matched, as a
-/// single index per predicate. A predicate two nodes match is stored with the
-/// last of them, so it never equals the node an entry was built from.
+/// How many nodes matched one full predicate, and the last of them.
+#[derive(Clone, Copy)]
+struct Census {
+    count: usize,
+    index: usize,
+}
+
+/// The census each full predicate of this field subset received. A predicate
+/// two nodes match is recorded with both, so it is `Twins` for each of them.
 fn count_nodes(
     observed: &ObservedTree,
     fields: u8,
     members: impl IntoIterator<Item = usize>,
-) -> HashMap<LiveKey<'_>, usize> {
-    let mut counted: HashMap<LiveKey<'_>, (usize, usize)> = HashMap::new();
+) -> Bucket<'_> {
+    let mut counted: Bucket<'_> = HashMap::new();
     for index in members {
         for key in keys_of(&observed.nodes[index].evidence, fields) {
-            let entry = counted.entry(key).or_insert((0, index));
-            entry.0 += 1;
-            entry.1 = index;
+            let census = counted.entry(key).or_insert(Census { count: 0, index });
+            census.count += 1;
+            census.index = index;
         }
     }
     counted
-        .into_iter()
-        .filter(|(_, (count, _))| *count == 1)
-        .map(|(key, (_, index))| (key, index))
-        .collect()
 }
 
 fn keys_of<'a>(evidence: &'a LocatorEvidence, fields: u8) -> Vec<LiveKey<'a>> {
