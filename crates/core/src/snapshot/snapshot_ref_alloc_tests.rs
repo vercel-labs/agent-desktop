@@ -114,3 +114,25 @@ fn test_drill_alloc_compact() {
     assert_eq!(tree.children.len(), 1);
     assert_eq!(tree.children[0].role, "button");
 }
+
+#[test]
+fn a_drill_keeps_the_ref_of_its_root_and_spends_none_on_it() {
+    let mut inner = node("button");
+    inner.identity.name = Some("Inner".into());
+    let mut root = node("button");
+    root.identity.name = Some("Root".into());
+    root.children = vec![inner];
+
+    let mut refmap = RefMap::new();
+    let config = drill_config(Some("TestApp"), 42, "@e42", false, false);
+    let tree = ref_alloc::allocate_refs(root, &mut refmap, &config).unwrap();
+
+    assert_eq!(tree.ref_id.as_deref(), Some("@e42"));
+    assert!(
+        refmap.get("@e42").is_none(),
+        "the root entry is not rewritten"
+    );
+    assert_eq!(refmap.len(), 1, "only the descendant gets an entry");
+    let inner_ref = tree.children[0].ref_id.as_deref().expect("inner has a ref");
+    assert_ne!(inner_ref, "@e42");
+}

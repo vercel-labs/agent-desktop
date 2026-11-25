@@ -176,7 +176,7 @@ fn entry(bounds: Rect) -> RefEntry {
             value: None,
             description: None,
             native_id: None,
-            unique_at_capture: false,
+            proof: agent_desktop_core::IdentityProof::Unproven,
         },
         geometry: RefGeometry {
             bounds_space: None,
