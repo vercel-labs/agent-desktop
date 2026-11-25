@@ -168,13 +168,36 @@ fn users_window(focused: &str, top: &str) -> FrontView {
 }
 
 #[test]
-fn a_new_window_the_user_opened_and_focused_is_left_alone() {
+fn a_new_window_nobody_owns_yet_that_takes_the_focus_keeps_the_watch_going() {
     let mut guard = machine();
     assert_eq!(
         guard.sight(Sighting::Front(users_window("mine", "mine"))),
-        Step::Done
+        Step::Poll
     );
+    assert_eq!(guard.state(), FrontGuardState::Watching);
+    assert_eq!(guard.sight(Sighting::Settled), Step::Done);
     assert_eq!(guard.state(), FrontGuardState::Clean);
+}
+
+#[test]
+fn a_new_window_that_becomes_owned_while_it_holds_the_focus_is_returned() {
+    let owned = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let known = std::sync::Arc::clone(&owned);
+    let mut guard = FrontGuardMachine::new(
+        prior(),
+        Box::new(move |window, is_new| {
+            is_new && window.pid == 500 && known.load(std::sync::atomic::Ordering::SeqCst)
+        }),
+    );
+    assert_eq!(
+        guard.sight(Sighting::Front(users_window("mine", "mine"))),
+        Step::Poll
+    );
+    owned.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(matches!(
+        guard.sight(Sighting::Front(users_window("mine", "mine"))),
+        Step::Return(_)
+    ));
 }
 
 #[test]
@@ -188,14 +211,14 @@ fn a_new_window_the_user_opened_on_top_is_not_an_intruder() {
 }
 
 #[test]
-fn a_user_window_after_a_give_back_is_still_left_alone() {
+fn a_user_window_after_a_give_back_is_still_not_given_back() {
     let mut guard = machine();
     let now = view("n1", "n1", &["user", "other", "n1"]);
     assert!(matches!(guard.sight(Sighting::Front(now)), Step::Return(_)));
     guard.returned(true);
     assert_eq!(
         guard.sight(Sighting::Front(users_window("mine", "mine"))),
-        Step::Done
+        Step::Poll
     );
     assert_eq!(guard.state(), FrontGuardState::GivenBack);
 }
