@@ -27,7 +27,9 @@ use crate::{
 /// a raise a moment after the request returns.
 const READBACK: Duration = Duration::from_millis(200);
 const READBACK_POLL: Duration = Duration::from_millis(10);
-const POLL: Duration = Duration::from_millis(20);
+/// How often the watcher reads the front. An intrusion is seen within one
+/// poll plus one read, and the give-back follows at once.
+const POLL: Duration = Duration::from_millis(10);
 const READ_BUDGET_MS: u64 = 500;
 
 /// What one guarded command asks of the guard.
@@ -221,3 +223,7 @@ fn give_back(
 #[cfg(test)]
 #[path = "front_guard_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "front_guard_phase_tests.rs"]
+mod phase_tests;

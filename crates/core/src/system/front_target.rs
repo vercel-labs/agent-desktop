@@ -7,14 +7,17 @@ use super::front_window::FrontWindow;
 const START_SLACK_MS: u64 = 1_000;
 
 /// The process a headless command acts on. A window is the target's when its
-/// owner is the target process, or when it is new and its owner started after
-/// the capture and runs the target's executable: an application that forks
-/// and detaches opens its window from a new process of the same program.
-/// Every other window belongs to the user.
+/// owner is the target process, or when it is new and its owner runs the
+/// target's executable and either started after the capture (an application
+/// that forks and detaches opens its window from a new process of the same
+/// program) or the target is a launch (a single-instance application forwards
+/// the launch to its running instance, which opens the window). Every other
+/// window belongs to the user.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct FrontTarget {
     pub pid: Option<u32>,
     pub image: Option<String>,
+    pub forwarded: bool,
 }
 
 impl FrontTarget {
@@ -23,6 +26,7 @@ impl FrontTarget {
         Self {
             pid: None,
             image: Some(id.to_owned()),
+            forwarded: true,
         }
     }
 
@@ -32,6 +36,7 @@ impl FrontTarget {
         Self {
             pid: Some(pid),
             image: adapter.front_process(pid).map(|process| process.image),
+            forwarded: false,
         }
     }
 
@@ -49,8 +54,8 @@ impl FrontTarget {
             return false;
         };
         process().is_some_and(|process| {
-            process.started_ms + START_SLACK_MS >= captured_ms
-                && same_program(&process.image, image)
+            same_program(&process.image, image)
+                && (self.forwarded || process.started_ms + START_SLACK_MS >= captured_ms)
         })
     }
 }
