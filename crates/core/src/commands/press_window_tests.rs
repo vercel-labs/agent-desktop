@@ -217,7 +217,7 @@ fn another_window_of_the_process_is_refused_headless_and_nothing_is_pressed() {
 
     let error = press(None, Some("w-42-prefs"), &adapter).unwrap_err();
 
-    assert_eq!(error.code(), "STALE_REF");
+    assert_eq!(error.code(), "ACTION_FAILED");
     let crate::AppError::Adapter(error) = error else {
         panic!("an adapter error")
     };
@@ -279,7 +279,7 @@ fn a_focused_window_of_another_process_is_refused_without_delivery() {
 
     let error = press(None, Some("w-42"), &adapter).unwrap_err();
 
-    assert_eq!(error.code(), "STALE_REF");
+    assert_eq!(error.code(), "ACTION_FAILED");
     assert!(adapter.pressed_pid.lock().unwrap().is_none());
 }
 
@@ -325,7 +325,7 @@ fn missing_focused_window_refuses_without_delivery() {
 
     let error = press(None, Some("w-42-prefs"), &adapter).unwrap_err();
 
-    assert_eq!(error.code(), "STALE_REF");
+    assert_eq!(error.code(), "ACTION_FAILED");
     assert!(adapter.pressed_pid.lock().unwrap().is_none());
 }
 
@@ -347,7 +347,7 @@ fn matching_window_id_with_a_different_or_unknown_owner_refuses_without_delivery
 
         let error = press(None, Some("w-42-prefs"), &adapter).unwrap_err();
 
-        assert_eq!(error.code(), "STALE_REF");
+        assert_eq!(error.code(), "ACTION_FAILED");
         assert!(adapter.pressed_pid.lock().unwrap().is_none());
     }
 }
