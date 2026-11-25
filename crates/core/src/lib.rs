@@ -157,6 +157,7 @@ pub use system::permission_state::PermissionState;
 pub use system::process_id::ProcessId;
 pub use system::process_identity::ProcessIdentity;
 pub use system::screenshot_target::ScreenshotTarget;
+pub use system::spawned_tree::spawned_descendants_of;
 pub use system::surface_info::SurfaceInfo;
 pub use system::window_filter::WindowFilter;
 pub use system::window_frame_memory::WindowFrameMemory;

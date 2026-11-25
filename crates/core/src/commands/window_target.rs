@@ -50,6 +50,7 @@ fn guarded_window_op(
         crate::system::front_guard::FrontWatch {
             target: crate::system::front_target::FrontTarget::of_process(adapter, live.pid.get()),
             settle: WINDOW_SETTLE,
+            children: false,
         },
         |_| adapter.window_op(live, op, policy, lease),
     )?;

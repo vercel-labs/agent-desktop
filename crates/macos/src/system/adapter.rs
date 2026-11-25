@@ -116,6 +116,10 @@ impl SystemOps for MacOSAdapter {
         crate::system::window::window_front::front_process(pid)
     }
 
+    fn spawned_descendants(&self, root: u32, since_ms: u64) -> Option<Vec<u32>> {
+        crate::system::window::window_front::spawned_descendants(root, since_ms)
+    }
+
     fn give_back(
         &self,
         window: &agent_desktop_core::FrontWindow,

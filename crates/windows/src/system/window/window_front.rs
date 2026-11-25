@@ -56,12 +56,37 @@ pub(crate) fn read_front(_deadline: Deadline) -> Result<FrontView, AdapterError>
             .flatten(),
         top: top.and_then(front_window),
         windows,
+        owners: Vec::new(),
     })
 }
 
 #[cfg(not(target_os = "windows"))]
 pub(crate) fn read_front(_deadline: Deadline) -> Result<FrontView, AdapterError> {
     Err(AdapterError::not_supported("read_front"))
+}
+
+/// The running processes that descend from `root` and started at or after
+/// `since_ms`, from the Toolhelp snapshot's parent ids. Only a descendant's
+/// start time is read.
+pub(crate) fn spawned_descendants(root: u32, since_ms: u64) -> Option<Vec<u32>> {
+    let rows = crate::system::app_ops::process_snapshot().ok()?;
+    let parents: Vec<(u32, u32)> = rows
+        .iter()
+        .map(|row| (row.pid.get(), row.parent.get()))
+        .collect();
+    Some(agent_desktop_core::spawned_descendants_of(
+        root,
+        since_ms,
+        &parents,
+        |pid| {
+            crate::system::process_identity::ProcessIdentity::capture(
+                agent_desktop_core::ProcessId::new(pid),
+            )
+            .ok()
+            .flatten()
+            .map(|identity| identity.started_unix_ms())
+        },
+    ))
 }
 
 /// The executable name and start time of the process behind a window.

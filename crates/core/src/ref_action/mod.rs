@@ -145,8 +145,12 @@ pub(crate) fn dispatch_resolved_landing(
     let presentation_action = request.action.clone();
     let ripples = presentation::effect_ripples(&final_target, &presentation_action);
     presentation::before_dispatch(&final_target, &preflight, &presentation_action, lease);
-    let dispatch_result =
-        crate::execute_verified_action(final_target.adapter, final_target.handle, request, lease);
+    let (dispatch_result, front) = crate::actions::post_action::execute_verified_deferred(
+        final_target.adapter,
+        final_target.handle,
+        request,
+        lease,
+    );
     let mut preflight = preflight;
     if presentation::after_text_entry(&final_target, &presentation_action, &dispatch_result) {
         preflight.presentation_bounds = None;
@@ -169,7 +173,10 @@ pub(crate) fn dispatch_resolved_landing(
     Ok(ref_action_dispatched::DispatchedAction {
         result,
         handle,
-        surfaces_of: raises_surface.then_some(expected_process),
+        after_release: ref_action_dispatched::AfterRelease {
+            surfaces_of: raises_surface.then_some(expected_process),
+            front,
+        },
     })
 }
 
@@ -307,7 +314,7 @@ pub(crate) fn execute_resolved(
     let result = dispatch_resolved_landing(target.target, request, lease).map(|mut dispatched| {
         ref_action_dispatched::read_surfaces_after_release(
             target.adapter,
-            dispatched.surfaces_of.take(),
+            std::mem::take(&mut dispatched.after_release),
             target.deadline,
             &mut dispatched.result,
         );

@@ -114,7 +114,7 @@ pub(crate) fn execute_ref_action_landing(
     let mut result = landing.result;
     crate::ref_action::ref_action_dispatched::read_surfaces_after_release(
         adapter,
-        landing.surfaces_of,
+        landing.after_release,
         landing.deadline,
         &mut result,
     );
