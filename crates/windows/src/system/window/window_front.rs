@@ -25,15 +25,23 @@ pub(crate) fn can_be_front(window: &EnumeratedWindow) -> bool {
 /// one qualifies.
 #[cfg(target_os = "windows")]
 pub(crate) fn read_front(_deadline: Deadline) -> Result<FrontView, AdapterError> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, IsWindowVisible};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId, IsWindowVisible,
+    };
 
     let mut windows = Vec::new();
+    let mut owners = Vec::new();
     let mut top = None;
     super::window_enum::enumerate_handles(|handle| {
         if unsafe { IsWindowVisible(handle) } == 0 {
             return true;
         }
         windows.push(window_id(handle));
+        let mut owner = 0_u32;
+        unsafe { GetWindowThreadProcessId(handle, &mut owner) };
+        if owner != 0 && !owners.contains(&owner) {
+            owners.push(owner);
+        }
         if top.is_none() && can_be_front(&super::window_enum::describe(handle)) {
             top = Some(handle);
         }
@@ -56,7 +64,7 @@ pub(crate) fn read_front(_deadline: Deadline) -> Result<FrontView, AdapterError>
             .flatten(),
         top: top.and_then(front_window),
         windows,
-        owners: Vec::new(),
+        owners,
     })
 }
 
