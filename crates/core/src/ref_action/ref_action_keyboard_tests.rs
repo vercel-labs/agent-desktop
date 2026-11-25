@@ -93,7 +93,7 @@ fn a_headed_type_on_a_session_that_cannot_activate_skips_window_focus() {
     let entry: RefEntry = serde_json::from_value(serde_json::json!({
         "pid": 1, "process_instance": "test-instance", "role": "textfield", "name": "Field",
         "source_window_id": "w-1", "source_surface": "window", "path": [0],
-        "unique_at_capture": true,
+        "proof": "unique",
         "available_actions": ["TypeText"], "states": []
     }))
     .unwrap();

@@ -14,6 +14,7 @@ pub(crate) mod launch_completion;
 #[cfg(target_os = "macos")]
 pub(crate) mod launch_frontmost;
 #[cfg(target_os = "macos")]
+pub(crate) mod launch_plan;
 pub(crate) mod launch_settled;
 pub(crate) mod launch_window;
 pub(crate) mod launch_workspace;

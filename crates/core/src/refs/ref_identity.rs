@@ -259,6 +259,9 @@ pub(crate) fn meaningful_field<T: AsRef<str>>(field: &LocatorField<T>) -> Locato
     }
 }
 
+/// The name an element is compared by. A value that could not be read cannot
+/// repeat the name, and capture records the name when the value is unread, so
+/// resolution compares the same name instead of refusing the element.
 pub(crate) fn stable_name_field<'a, T: AsRef<str>>(
     role: &str,
     name: &'a LocatorField<T>,
@@ -273,8 +276,9 @@ pub(crate) fn stable_name_field<'a, T: AsRef<str>>(
     };
     match meaningful_field(value) {
         LocatorField::Known(value) if value_matches_name(Some(value), name) => LocatorField::Absent,
-        LocatorField::Known(_) | LocatorField::Absent => LocatorField::Known(name),
-        LocatorField::Unknown => LocatorField::Unknown,
+        LocatorField::Known(_) | LocatorField::Absent | LocatorField::Unknown => {
+            LocatorField::Known(name)
+        }
     }
 }
 

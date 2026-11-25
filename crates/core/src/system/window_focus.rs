@@ -4,7 +4,6 @@ use crate::{
     AdapterError, AppError, DeliverySemantics, ErrorCode, PlatformAdapter, WindowFilter, WindowInfo,
 };
 
-const FOCUS_SETTLE_TIMEOUT_MS: u64 = 750;
 const FOCUS_POLL_INTERVAL_MS: u64 = 50;
 const FOCUS_CONFIRMATIONS: u8 = 2;
 
@@ -63,28 +62,63 @@ pub(crate) fn already_focused(
     focused
 }
 
+/// Where a focus confirmation stands. A focus request lands some time after it
+/// is sent, so the wait has two phases that share one deadline: waiting for the
+/// requested window to become the focused one, then waiting for it to stay so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FocusWait {
+    AwaitingFocus,
+    Stabilizing { confirmed: u8 },
+    Settled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FocusRead {
+    OnTarget,
+    OffTarget,
+}
+
+impl FocusWait {
+    pub(crate) fn advance(self, read: FocusRead) -> Self {
+        match (self, read) {
+            (Self::Settled, _) => Self::Settled,
+            (_, FocusRead::OffTarget) => Self::AwaitingFocus,
+            (Self::AwaitingFocus, FocusRead::OnTarget) => Self::confirmed(1),
+            (Self::Stabilizing { confirmed }, FocusRead::OnTarget) => {
+                Self::confirmed(confirmed.saturating_add(1))
+            }
+        }
+    }
+
+    fn confirmed(confirmed: u8) -> Self {
+        if confirmed >= FOCUS_CONFIRMATIONS {
+            Self::Settled
+        } else {
+            Self::Stabilizing { confirmed }
+        }
+    }
+}
+
 pub(crate) fn wait_for_focused_window_with_poll_interval(
     adapter: &dyn PlatformAdapter,
     window_id: &str,
     app: Option<&str>,
     poll_interval: Duration,
-    parent_deadline: crate::Deadline,
+    deadline: crate::Deadline,
 ) -> Result<WindowInfo, AppError> {
-    let deadline = parent_deadline.capped(Duration::from_millis(FOCUS_SETTLE_TIMEOUT_MS));
-    let mut confirmations = 0;
+    let mut state = FocusWait::AwaitingFocus;
     loop {
-        match observed_focused_window(adapter, app, deadline) {
-            Ok(Some(window)) if window.id == window_id => {
-                confirmations += 1;
-                if confirmations >= FOCUS_CONFIRMATIONS {
-                    return Ok(window);
-                }
-            }
-            Ok(_) => confirmations = 0,
+        let (read, window) = match observed_focused_window(adapter, app, deadline) {
+            Ok(Some(window)) if window.id == window_id => (FocusRead::OnTarget, Some(window)),
+            Ok(_) => (FocusRead::OffTarget, None),
             Err(AppError::Adapter(error)) if error.permits_retry_by_default() => {
-                confirmations = 0;
+                (FocusRead::OffTarget, None)
             }
             Err(error) => return Err(error),
+        };
+        state = state.advance(read);
+        if let (FocusWait::Settled, Some(window)) = (state, window) {
+            return Ok(window);
         }
         if deadline.is_expired() {
             return Err(AdapterError::new(

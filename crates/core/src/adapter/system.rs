@@ -1,3 +1,4 @@
+use crate::response::headed_mode::window_focus_suggestion;
 use crate::{
     AdapterError, AdapterSession, AppInfo, CursorOverlayControl, Deadline, DeliverySemantics,
     DismissAllNotificationsRequest, DismissNotificationRequest, ErrorCode, ImageBuffer,
@@ -276,9 +277,8 @@ pub trait SystemOps: Send + Sync {
         Err(AdapterError::not_supported("press_key_for_app"))
     }
 
-    /// Checks the exact focused window before process-scoped key delivery.
-    /// Adapters can override this to retain the window identity through their
-    /// native delivery gates.
+    /// Checks the exact focused window before process-scoped key delivery;
+    /// adapters can override it to keep the window identity through their gates.
     fn press_key_for_window(
         &self,
         window: &WindowInfo,
@@ -287,14 +287,11 @@ pub trait SystemOps: Send + Sync {
         lease: &InteractionLease,
     ) -> Result<ActionResult, AdapterError> {
         let refusal = || {
-            AdapterError::stale_ref_because(
-                "The named window's exact focus could not be confirmed, so no key was sent",
+            AdapterError::new(
+                ErrorCode::ActionFailed,
+                "The named window does not hold keyboard focus; no key was sent",
             )
-            .with_suggestion(if policy.is_headed() {
-                "Ensure the named window remains active before retrying; a sibling window or another application's menu can hold the keyboard".to_owned()
-            } else {
-                format!("{} Or name the already active window.", crate::headed_mode_suggestion("brings the named window to the foreground before sending keys"))
-            })
+            .with_suggestion(window_focus_suggestion(policy))
             .with_details(serde_json::json!({
                 "check": "window_active",
                 "cause": "exact_window_focus_unconfirmed",
@@ -307,7 +304,10 @@ pub trait SystemOps: Send + Sync {
             .process_instance
             .as_deref()
             .filter(|instance| !instance.is_empty())
-            .ok_or_else(refusal)?;
+            .ok_or_else(|| {
+                AdapterError::stale_ref_because("The named window has no process identity")
+                    .with_suggestion("Run 'list-windows' again and use the window's current id")
+            })?;
         let focused = self
             .focused_window(lease.deadline())
             .map_err(AdapterError::unsent)?;
