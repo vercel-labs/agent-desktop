@@ -17,7 +17,7 @@ fn a_skeleton_anchor_resolves_and_its_drill_resolves() {
     );
     let (anchor_ref, anchor) = named(&captured.refmap, "Sidebar");
     assert!(
-        anchor.identity.unique_at_capture,
+        anchor.identity.proof.is_unique(),
         "an inert anchor is counted by the capture census too"
     );
     assert_eq!(captured.refmap.len(), 1);
@@ -37,7 +37,7 @@ fn a_skeleton_anchor_resolves_and_its_drill_resolves() {
 
     let (_, button) = named(&drilled.refmap, "Save");
     assert!(
-        button.identity.unique_at_capture,
+        button.identity.proof.is_unique(),
         "the drill counted its refs against the window it will be resolved in"
     );
     assert_eq!(button.identity.role, "button");
@@ -61,7 +61,7 @@ fn a_twin_below_the_skeleton_depth_is_not_offered_as_an_anchor() {
     );
     let (_, toolbar) = named(&captured.refmap, "Toolbar");
     assert!(
-        toolbar.identity.unique_at_capture,
+        toolbar.identity.proof.is_unique(),
         "the census that refuses the twin still proves its neighbour"
     );
 
@@ -128,7 +128,7 @@ fn a_token_rooted_drill_proves_its_tokenless_descendants() {
 
     let (_, button) = named(&drilled.refmap, "Save");
     assert!(
-        button.identity.unique_at_capture,
+        button.identity.proof.is_unique(),
         "the button below a token root is counted against the whole window"
     );
     resolve(&adapter, button).expect("the drilled ref resolves");

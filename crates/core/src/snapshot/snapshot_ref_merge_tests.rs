@@ -122,3 +122,42 @@ fn test_run_from_ref_empty_subtree() {
         "no new refs added for empty subtree"
     );
 }
+
+#[test]
+fn test_run_from_ref_re_drill_replaces_drill_refs_only() {
+    let _guard = HomeGuard::new();
+    let snapshot_id = save_latest(seed_skeleton_refmap());
+
+    let subtree = with_child(named("group", "Sidebar"), named("button", "Save"));
+    let adapter = StubAdapter::new(subtree);
+
+    let first = run_from_ref(&adapter, &drill_opts(), "@e1", Some(&snapshot_id)).unwrap();
+    let first_count = first.refmap.len();
+    let first_button_ref = first.tree.children[0]
+        .ref_id
+        .clone()
+        .expect("button should get a ref");
+
+    let second = run_from_ref(&adapter, &drill_opts(), "@e1", Some(&snapshot_id)).unwrap();
+    let second_count = second.refmap.len();
+    let second_button_ref = second.tree.children[0]
+        .ref_id
+        .clone()
+        .expect("button should get a ref");
+
+    assert_eq!(
+        first_count, second_count,
+        "ref count stable across re-drill"
+    );
+    assert_ne!(
+        first_button_ref, second_button_ref,
+        "re-drill should issue a fresh ref id (counter continues)"
+    );
+    let on_disk = load_latest();
+    assert!(on_disk.get("@e1").is_some(), "skeleton anchor preserved");
+    assert!(on_disk.get(&local_ref(&second_button_ref)).is_some());
+    assert!(
+        on_disk.get(&local_ref(&first_button_ref)).is_none(),
+        "first drill ref must be invalidated by remove_by_root_ref"
+    );
+}

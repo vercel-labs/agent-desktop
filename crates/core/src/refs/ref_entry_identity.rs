@@ -12,8 +12,8 @@ pub struct RefEntryIdentity {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_id: Option<crate::ElementIdentifier>,
-    /// Set when the capture read complete evidence and exactly one observed
-    /// element matched this entry's full identity predicate.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub unique_at_capture: bool,
+    /// What the capture established: `Unique` when it read complete evidence and
+    /// exactly one observed element matched this entry's full identity predicate.
+    #[serde(default, skip_serializing_if = "crate::IdentityProof::is_unproven")]
+    pub proof: crate::IdentityProof,
 }

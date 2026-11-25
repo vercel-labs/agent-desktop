@@ -14,7 +14,7 @@ fn entry(role: &str) -> RefEntry {
             process_instance: Some("test-instance".into()),
         },
         identity: RefEntryIdentity {
-            unique_at_capture: false,
+            proof: agent_desktop_core::IdentityProof::Unproven,
             retained_object: None,
             role: role.into(),
             name: Some("Investors".into()),
