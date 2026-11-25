@@ -68,20 +68,25 @@ pub(crate) fn guarded<T>(
     let processes = Mutex::new(HashMap::<u32, Option<FrontProcess>>::new());
     let processes = &processes;
     let target = watch.target.clone();
+    let learned = &mark;
     let owner: Owner<'_> = Box::new(move |window, is_new| {
-        target.owns(
-            window,
-            is_new,
-            || {
-                processes.lock().map_or(None, |mut known| {
-                    known
-                        .entry(window.pid)
-                        .or_insert_with(|| adapter.front_process(window.pid))
-                        .clone()
-                })
-            },
-            captured_ms,
-        )
+        learned
+            .learned_pid
+            .get()
+            .is_some_and(|pid| *pid == window.pid)
+            || target.owns(
+                window,
+                is_new,
+                || {
+                    processes.lock().map_or(None, |mut known| {
+                        known
+                            .entry(window.pid)
+                            .or_insert_with(|| adapter.front_process(window.pid))
+                            .clone()
+                    })
+                },
+                captured_ms,
+            )
     });
     let machine = FrontGuardMachine::new(prior, owner);
     let returned = OnceLock::new();
@@ -133,11 +138,22 @@ fn read(adapter: &dyn PlatformAdapter) -> Result<FrontView, AdapterError> {
 /// dispatch through dispatch plus the settle however long those reads take.
 /// A command that never marks it settles from its return.
 #[derive(Default)]
-pub(crate) struct DispatchMark(OnceLock<Instant>);
+pub(crate) struct DispatchMark {
+    at: OnceLock<Instant>,
+    learned_pid: OnceLock<u32>,
+}
 
 impl DispatchMark {
     pub(crate) fn dispatched(&self) {
-        let _ = self.0.set(Instant::now());
+        let _ = self.at.set(Instant::now());
+    }
+
+    /// The process the command turned out to act on, known once it returns: a
+    /// launch that attached to or was forwarded to a running instance names
+    /// that instance. Its windows are the target's for the rest of the watch,
+    /// whatever its executable is called.
+    pub(crate) fn learn_target(&self, pid: u32) {
+        let _ = self.learned_pid.set(pid);
     }
 }
 
@@ -151,7 +167,7 @@ impl Ends<'_> {
     /// the return when nothing was marked, and never before the return.
     fn at(&self, settle: Duration) -> Option<Instant> {
         let returned = *self.returned.get()?;
-        let anchor = self.mark.0.get().copied().unwrap_or(returned);
+        let anchor = self.mark.at.get().copied().unwrap_or(returned);
         Some((anchor + settle).max(returned))
     }
 }
