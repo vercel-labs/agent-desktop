@@ -111,6 +111,25 @@ const WINDOW_GRACE: Duration = Duration::from_millis(2_000);
 /// was already running and forwarded the request.
 const NEW_WINDOW_WAIT: Duration = Duration::from_millis(5_000);
 
+/// How long an attach keeps asking an application that does not answer for
+/// its windows. An attach sends nothing, so waiting longer cannot change what
+/// the application will say; a spawned application is different, because its
+/// windows are still being created.
+const ATTACH_READ_GRACE: Duration = Duration::from_millis(2_000);
+
+/// A window read that says nothing about the windows: the application did
+/// not answer, or the display could not prove them.
+fn is_window_unreadable(error: &AdapterError) -> bool {
+    is_unproven(error)
+        || matches!(
+            error.code,
+            ErrorCode::Timeout
+                | ErrorCode::AppUnresponsive
+                | ErrorCode::AppNotFound
+                | ErrorCode::WindowNotFound
+        )
+}
+
 const UNLISTED_RUNNING: &str = "The process started but is not on the accessibility bus yet. Its pid is the spawned process's and may be a wrapper of the application. Run 'list-apps' to see whether it appears.";
 
 const UNLISTED_EXITED: &str = "The launcher exited cleanly and no owner of the launch was proven: it handed its work to another process, for example a running instance it forwarded the arguments to. Its pid is the launcher's. Run 'list-windows' to see where the work arrived.";
@@ -148,6 +167,11 @@ impl Launch<'_> {
         mut read: impl FnMut() -> Result<(Vec<WindowInfo>, RootRead), AdapterError>,
     ) -> Result<Option<WindowInfo>, AdapterError> {
         let limit = self.wait_limit(known);
+        let unreadable_end = if waits {
+            self.deadline
+        } else {
+            self.deadline.capped(ATTACH_READ_GRACE)
+        };
         loop {
             let observed = read().and_then(|(windows, status)| {
                 let own: Vec<WindowInfo> = windows
@@ -166,18 +190,7 @@ impl Launch<'_> {
             let unproven = match observed {
                 Ok(Some(window)) => return Ok(Some(window)),
                 Ok(None) => None,
-                Err(error)
-                    if is_unproven(&error)
-                        || matches!(
-                            error.code,
-                            ErrorCode::Timeout
-                                | ErrorCode::AppUnresponsive
-                                | ErrorCode::AppNotFound
-                                | ErrorCode::WindowNotFound
-                        ) =>
-                {
-                    Some(error)
-                }
+                Err(error) if is_window_unreadable(&error) => Some(error),
                 Err(error) => {
                     return Err(error.with_disposition(DeliverySemantics::delivered_unverified()));
                 }
@@ -186,7 +199,7 @@ impl Launch<'_> {
                 exited_early(owner, liveness(owner.pid, &owner.instance))?;
             }
             let until = if unproven.is_some() {
-                self.deadline
+                unreadable_end
             } else {
                 limit
             };
@@ -240,10 +253,37 @@ impl Launch<'_> {
         plan: &Plan,
         running: &[Running],
     ) -> Result<LaunchResult, AdapterError> {
-        match self.window_of(owner, false, &HashSet::new())? {
-            Some(window) => Ok(self.conclude_with(owner, Some(window), LaunchArrival::Attached)),
-            None => self.start(plan, running),
+        match self.window_of(owner, false, &HashSet::new()) {
+            Ok(Some(window)) => {
+                Ok(self.conclude_with(owner, Some(window), LaunchArrival::Attached))
+            }
+            Ok(None) => self.start(plan, running),
+            Err(error) if is_window_unreadable(&error) => Ok(self.attached_unread(owner, &error)),
+            Err(error) => Err(error),
         }
+    }
+
+    /// An attach to an application that does not answer for its windows:
+    /// nothing was sent and nothing is known about its windows, so the result
+    /// names the application, carries no window, and says why. Starting the
+    /// application again would send a request to an application that cannot
+    /// be read.
+    fn attached_unread(&self, owner: &Running, error: &AdapterError) -> LaunchResult {
+        let mut result = conclude(owner, None, self.options, LaunchArrival::Attached, |_| {
+            Ok(FocusAnswer {
+                window: None,
+                dispatched: false,
+            })
+        });
+        let note = format!(
+            "Attached to the running application, but its windows could not be read: {}. Run 'list-windows' to see whether they can be read now.",
+            error.message
+        );
+        result.guidance.suggestion = Some(match result.guidance.suggestion.take() {
+            Some(earlier) => format!("{earlier} {note}"),
+            None => note,
+        });
+        result
     }
 
     fn report_unlisted(&self, spawned: &Spawned) -> LaunchResult {
