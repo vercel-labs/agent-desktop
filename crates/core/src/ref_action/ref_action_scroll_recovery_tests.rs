@@ -273,10 +273,12 @@ fn a_terminal_refusal_never_scrolls_the_view() {
             "a {code:?} refusal must not scroll"
         );
     }
-    assert!(crate::ref_action::ref_action_wait_evidence::should_scroll_after_preflight(
-        &request,
-        &refusal_with_failed_visible(ErrorCode::ActionFailed),
-    ));
+    assert!(
+        crate::ref_action::ref_action_wait_evidence::should_scroll_after_preflight(
+            &request,
+            &refusal_with_failed_visible(ErrorCode::ActionFailed),
+        )
+    );
 }
 
 #[test]

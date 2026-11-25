@@ -149,6 +149,14 @@ pub(crate) fn note_preparatory_scroll(mut error: AdapterError) -> AdapterError {
     error
 }
 
+pub(crate) fn note_scroll_if(scrolled: bool, error: AdapterError) -> AdapterError {
+    if scrolled {
+        note_preparatory_scroll(error)
+    } else {
+        error
+    }
+}
+
 pub(crate) fn trace_scroll_error(
     target: &crate::ref_action::ref_action_context::RefActionContext<'_>,
     error: &AdapterError,

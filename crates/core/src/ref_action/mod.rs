@@ -4,7 +4,7 @@ use crate::adapter::{NativeHandle, PlatformAdapter};
 use crate::context::CommandContext;
 use crate::ref_action::ref_action_context::RefActionContext;
 use crate::ref_action::ref_action_wait_support::{
-    after_scroll, note_preparatory_scroll, trace_scroll_error,
+    after_scroll, note_preparatory_scroll, note_scroll_if, trace_scroll_error,
 };
 use crate::refs::{RefEntry, resolve_saved_ref::resolve_saved_ref};
 use crate::{AdapterError, AppError, actionability};
@@ -157,13 +157,7 @@ pub(crate) fn dispatch_resolved_landing(
         ripples,
         &dispatch_result,
     );
-    let mut result = dispatch_result.map_err(|error| {
-        if scrolled {
-            note_preparatory_scroll(error)
-        } else {
-            error
-        }
-    })?;
+    let mut result = dispatch_result.map_err(|error| note_scroll_if(scrolled, error))?;
     if raises_surface {
         result.surfaces = settled_surfaces(&final_target, expected_process);
     }
