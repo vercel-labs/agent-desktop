@@ -23,6 +23,10 @@ use crate::{
     adapter::PlatformAdapter,
 };
 
+/// How long a give-back is given to show in a read: a window manager applies
+/// a raise a moment after the request returns.
+const READBACK: Duration = Duration::from_millis(200);
+const READBACK_POLL: Duration = Duration::from_millis(10);
 const POLL: Duration = Duration::from_millis(20);
 const READ_BUDGET_MS: u64 = 500;
 
@@ -198,13 +202,20 @@ fn give_back(
     if adapter.give_back(focus, lease).is_err() {
         return false;
     }
-    read(adapter).is_ok_and(|now| {
-        now.focused.as_ref().map(|window| &window.id) == Some(&focus.id)
-            && prior
-                .top
-                .as_ref()
-                .is_none_or(|top| now.top.as_ref().map(|window| &window.id) == Some(&top.id))
-    })
+    let deadline = Instant::now() + READBACK;
+    loop {
+        let restored = read(adapter).is_ok_and(|now| {
+            now.focused.as_ref().map(|window| &window.id) == Some(&focus.id)
+                && prior
+                    .top
+                    .as_ref()
+                    .is_none_or(|top| now.top.as_ref().map(|window| &window.id) == Some(&top.id))
+        });
+        if restored || Instant::now() >= deadline {
+            return restored;
+        }
+        std::thread::sleep(READBACK_POLL);
+    }
 }
 
 #[cfg(test)]

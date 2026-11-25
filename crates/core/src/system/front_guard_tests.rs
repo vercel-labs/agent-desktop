@@ -32,6 +32,7 @@ struct Desk {
     now: Mutex<FrontView>,
     calls: Mutex<Vec<String>>,
     reads: Mutex<u32>,
+    gave_back_at: Mutex<Option<Instant>>,
     obeys: bool,
 }
 
@@ -41,6 +42,7 @@ impl Desk {
             now: Mutex::new(front("user", &["user"])),
             calls: Mutex::new(Vec::new()),
             reads: Mutex::new(0),
+            gave_back_at: Mutex::new(None),
             obeys,
         }
     }
@@ -49,8 +51,18 @@ impl Desk {
         *self.now.lock().unwrap() = front("mine", &["user", "mine"]);
     }
 
+    fn intrude_top_only(&self) {
+        let mut view = front("user", &["user", "new"]);
+        view.top = Some(win("new", pid_of("new")));
+        *self.now.lock().unwrap() = view;
+    }
+
     fn intrude(&self) {
         *self.now.lock().unwrap() = front("new", &["user", "new"]);
+    }
+
+    fn gave_back_at(&self) -> Option<Instant> {
+        *self.gave_back_at.lock().unwrap()
     }
 
     fn calls(&self) -> Vec<String> {
@@ -106,6 +118,10 @@ impl SystemOps for Desk {
         window: &FrontWindow,
         _lease: &InteractionLease,
     ) -> Result<(), AdapterError> {
+        self.gave_back_at
+            .lock()
+            .unwrap()
+            .get_or_insert_with(Instant::now);
         self.calls
             .lock()
             .unwrap()
@@ -188,7 +204,7 @@ fn a_front_that_cannot_be_returned_reports_the_failure() {
     let desk = Desk::new(false);
     let (_, outcome) = run(&desk, InteractionPolicy::headless(), |_| {
         desk.intrude();
-        std::thread::sleep(Duration::from_millis(150));
+        std::thread::sleep(Duration::from_millis(1_000));
     });
     assert_eq!(outcome, FrontOutcome::GiveBackFailed);
     assert!(!outcome.focus_returned());
@@ -348,4 +364,35 @@ fn a_window_that_opens_after_the_return_but_inside_dispatch_plus_settle_is_retur
     )
     .unwrap();
     assert_eq!(outcome, FrontOutcome::GivenBack);
+}
+
+#[test]
+fn an_intrusion_is_given_back_when_it_is_seen_not_when_the_command_returns() {
+    let desk = Desk::new(true);
+    let started = Instant::now();
+    let mut returned = None;
+    let (_, outcome) = guarded(
+        &desk,
+        InteractionPolicy::headless(),
+        &lease(&desk),
+        watch_for(60),
+        |mark| {
+            mark.dispatched();
+            std::thread::sleep(Duration::from_millis(40));
+            desk.intrude_top_only();
+            std::thread::sleep(Duration::from_millis(400));
+            returned = Some(Instant::now());
+        },
+    )
+    .unwrap();
+    assert_eq!(outcome, FrontOutcome::GivenBack);
+    let gave_back = desk
+        .gave_back_at()
+        .expect("a give-back")
+        .duration_since(started);
+    let returned = returned.unwrap().duration_since(started);
+    assert!(
+        gave_back < Duration::from_millis(200) && gave_back + Duration::from_millis(150) < returned,
+        "given back at {gave_back:?}, command returned at {returned:?}"
+    );
 }

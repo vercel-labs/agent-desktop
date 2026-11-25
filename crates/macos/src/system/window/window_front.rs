@@ -7,8 +7,9 @@ use core_foundation::string::CFString;
 
 use super::cg_window::{WindowDictionary, bool_field, required_int_field};
 use crate::system::app::workspace_apps::focused_owner_until;
-use crate::system::focus_bridge;
 use crate::system::process::process_identity::ProcessIdentity;
+
+const GIVE_BACK_BUDGET_MS: u64 = 1_500;
 
 /// One window of the screen's order: its id, its owner and whether it is on
 /// screen.
@@ -132,14 +133,40 @@ fn executable_name(_pid: i32) -> Option<String> {
     None
 }
 
-/// Re-activating the user's application raises its windows over the
-/// intruder's. macOS has no call that places one window below another.
+/// Returns the user's window to the front. An application that is not
+/// frontmost is made frontmost first, through its accessibility `AXFrontmost`
+/// attribute: `NSRunningApplication` activation waits a full second on a
+/// thread the main run loop does not serve, which is where the guard runs.
+/// The window itself is then raised through accessibility, which reorders it
+/// over an intruder's window.
 pub(crate) fn give_back(window: &FrontWindow) -> Result<(), AdapterError> {
     let pid = i32::try_from(window.pid)
         .map_err(|_| AdapterError::internal("front window pid is out of range"))?;
+    let number = super::window_resolve::parse_window_number(&window.id)
+        .ok_or_else(|| AdapterError::internal("front window id is not a window number"))?;
+    let deadline = Deadline::detached_after(GIVE_BACK_BUDGET_MS)?;
     let identity = ProcessIdentity::capture(pid)?
         .ok_or_else(|| AdapterError::stale_ref_because("The front application has exited"))?;
-    focus_bridge::activate(identity).map(drop)
+    if !crate::system::focus::is_frontmost(identity, deadline)? {
+        make_frontmost(pid, deadline)?;
+    }
+    let element = super::window_resolve::ax_window_element_for_number(pid, number, None, deadline)?
+        .ok_or_else(|| AdapterError::stale_ref_because("The user's window has closed"))?;
+    super::window_ops::raise_window(&element, deadline)
+}
+
+fn make_frontmost(pid: i32, deadline: Deadline) -> Result<(), AdapterError> {
+    use core_foundation::{base::TCFType, boolean::CFBoolean, string::CFString};
+
+    let app = crate::tree::properties::element::element_for_pid(pid);
+    let attribute = CFString::new("AXFrontmost");
+    let error = crate::tree::properties::ax_ipc::set_attribute_value(
+        &app,
+        attribute.as_concrete_TypeRef(),
+        CFBoolean::true_value().as_CFTypeRef(),
+        deadline,
+    )?;
+    crate::system::focus::finish_mutation(&app, error, "make frontmost", deadline)
 }
 
 #[cfg(test)]
