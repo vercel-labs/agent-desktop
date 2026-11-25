@@ -1,4 +1,6 @@
-use agent_desktop_core::{Deadline, ObservationRoot, ProcessId, WindowInfo, WindowState};
+use agent_desktop_core::{
+    Deadline, ObservationRoot, ProcessId, SnapshotSurface, WindowInfo, WindowState,
+};
 use agent_desktop_windows::tree::automation::failure_of;
 use agent_desktop_windows::tree::element::UIAElement;
 use agent_desktop_windows::tree::name_evidence::read_label;
@@ -341,6 +343,7 @@ fn walk_verdict(root: &UIAElement, deadline: Deadline) -> Value {
     match walk_uia_subtree(
         root,
         &ObservationRoot::Window(&window),
+        SnapshotSurface::Window,
         WalkBudget::new(u8::MAX, deadline),
         false,
     ) {

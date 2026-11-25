@@ -58,6 +58,7 @@ pub(crate) fn observe_tree(
     let outcome = walk_uia_subtree(
         &element,
         &root,
+        request.surface,
         budget,
         request.observation_mode.identity_only,
     )?;

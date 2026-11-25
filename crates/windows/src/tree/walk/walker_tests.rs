@@ -3,8 +3,9 @@ use crate::tree::automation::UiaFailure;
 use crate::tree::walk::walker_enumerate::TreeWalk;
 use crate::tree::walk::walker_fake::{
     E_FAIL, EXHAUSTION, FakeTree, REAL_FAILURE, budget, walk, walk_expecting_failure,
+    walk_on_surface,
 };
-use agent_desktop_core::{Deadline, ErrorCode};
+use agent_desktop_core::{Deadline, ErrorCode, SnapshotSurface};
 
 /// The fakes encode the measured pair, not a reading of the crate. If this
 /// fails, every other fake-driven assertion below is testing the wrong model.
@@ -368,4 +369,16 @@ fn an_identity_walk_leaves_actions_and_states_unknown() {
     assert_eq!(identity.name, full.name);
     assert_eq!(identity.available_actions, LocatorField::Unknown);
     assert_eq!(identity.states, LocatorField::Unknown);
+}
+
+/// A window-rooted read of a surface the window presents names that surface,
+/// so a ref anchored from this observation resolves in the surface it was
+/// read from instead of at the window root.
+#[test]
+fn a_window_rooted_walk_of_a_surface_records_that_surface() {
+    let fake = FakeTree::default().with_chain(&[1, 2]);
+
+    let outcome = walk_on_surface(&fake, SnapshotSurface::Menu, budget(10));
+
+    assert_eq!(outcome.tree.surface(), SnapshotSurface::Menu);
 }

@@ -1,4 +1,4 @@
-use agent_desktop_core::{AdapterError, ObservationRoot};
+use agent_desktop_core::{AdapterError, ObservationRoot, SnapshotSurface};
 
 use super::walker::{WalkBudget, WalkOutcome, walk_from_root};
 use crate::tree::element::UIAElement;
@@ -375,12 +375,13 @@ pub(crate) use imp::{
 pub fn walk_uia_subtree(
     root: &UIAElement,
     root_source: &ObservationRoot<'_>,
+    surface: SnapshotSurface,
     budget: WalkBudget,
     identity_only: bool,
 ) -> Result<WalkOutcome, AdapterError> {
     let source = UiaTreeSource::for_root_reading(root, identity_only)?;
     let prepared = source.prepare_root(root)?;
-    walk_from_root(&source, &prepared, root_source, budget)
+    walk_from_root(&source, &prepared, root_source, surface, budget)
 }
 
 #[cfg(test)]

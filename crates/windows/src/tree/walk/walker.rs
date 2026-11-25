@@ -1,6 +1,6 @@
 use agent_desktop_core::{
     AdapterError, Deadline, ErrorCode, LocatorEvidence, LocatorField, LocatorStats,
-    ObservationRoot, ObservationSource, ObservedTree,
+    ObservationRoot, ObservationSource, ObservedTree, SnapshotSurface,
 };
 use serde_json::json;
 
@@ -137,6 +137,7 @@ pub fn walk_from_root<S: TreeSource>(
     source: &S,
     root: &S::Node,
     root_source: &ObservationRoot<'_>,
+    surface: SnapshotSurface,
     budget: WalkBudget,
 ) -> Result<WalkOutcome, AdapterError> {
     let mut walk = TreeWalk::new(source, budget);
@@ -145,7 +146,7 @@ pub fn walk_from_root<S: TreeSource>(
     let root_subtree = root_subtree.ok_or_else(|| root_missing_error(&stats))?;
     let tree = ObservedTree::from_roots(
         vec![root_subtree],
-        ObservationSource::from_root(root_source, root_source.surface()),
+        ObservationSource::from_root(root_source, surface),
         stats.clone(),
         structurally_complete,
     )?;

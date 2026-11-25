@@ -43,6 +43,16 @@ impl ObservedTree {
         Ok(tree)
     }
 
+    /// The surface this observation read, which a ref anchored from it records
+    /// so a later resolution reads the same surface.
+    pub fn surface(&self) -> crate::SnapshotSurface {
+        match &self.source {
+            ObservationSource::Application { surface, .. }
+            | ObservationSource::Window { surface, .. } => *surface,
+            ObservationSource::Element { entry, .. } => entry.source.source_surface,
+        }
+    }
+
     pub fn is_complete(&self) -> bool {
         self.structurally_complete
     }

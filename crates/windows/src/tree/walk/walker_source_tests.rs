@@ -82,7 +82,7 @@ mod non_windows_only {
     use super::super::*;
     use crate::tree::element::{CannedElement, UIAElement};
     use crate::tree::walk::walker_fake::{budget, window};
-    use agent_desktop_core::ObservationRoot;
+    use agent_desktop_core::{ObservationRoot, SnapshotSurface};
 
     /// The canned arm exists so every module that calls the walk compiles and
     /// runs off Windows. It enumerates nothing, which is the exhaustion answer,
@@ -92,8 +92,14 @@ mod non_windows_only {
         let window = window();
         let root = UIAElement::from(CannedElement);
 
-        let outcome = walk_uia_subtree(&root, &ObservationRoot::Window(&window), budget(10), false)
-            .expect("the canned walk assembles an observation");
+        let outcome = walk_uia_subtree(
+            &root,
+            &ObservationRoot::Window(&window),
+            SnapshotSurface::Window,
+            budget(10),
+            false,
+        )
+        .expect("the canned walk assembles an observation");
 
         assert!(outcome.tree.is_complete());
         assert!(outcome.failures.is_empty());

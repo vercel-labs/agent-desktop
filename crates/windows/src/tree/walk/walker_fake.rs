@@ -1,6 +1,6 @@
 use agent_desktop_core::{
-    AdapterError, Deadline, LocatorEvidence, ObservationRoot, ProcessId, RefEntry, WindowInfo,
-    WindowState,
+    AdapterError, Deadline, LocatorEvidence, ObservationRoot, ProcessId, RefEntry, SnapshotSurface,
+    WindowInfo, WindowState,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -233,8 +233,16 @@ pub(crate) fn window() -> WindowInfo {
 }
 
 pub(crate) fn walk(fake: &FakeTree, budget: WalkBudget) -> WalkOutcome {
+    walk_on_surface(fake, SnapshotSurface::Window, budget)
+}
+
+pub(crate) fn walk_on_surface(
+    fake: &FakeTree,
+    surface: SnapshotSurface,
+    budget: WalkBudget,
+) -> WalkOutcome {
     let window = window();
-    walk_from_root(fake, &1, &ObservationRoot::Window(&window), budget)
+    walk_from_root(fake, &1, &ObservationRoot::Window(&window), surface, budget)
         .expect("the walk assembles an observation")
 }
 
@@ -242,7 +250,13 @@ pub(crate) fn walk(fake: &FakeTree, budget: WalkBudget) -> WalkOutcome {
 /// error the caller receives can be asserted.
 pub(crate) fn walk_expecting_failure(fake: &FakeTree, budget: WalkBudget) -> AdapterError {
     let window = window();
-    walk_from_root(fake, &1, &ObservationRoot::Window(&window), budget)
-        .err()
-        .expect("the walk was expected to fail")
+    walk_from_root(
+        fake,
+        &1,
+        &ObservationRoot::Window(&window),
+        SnapshotSurface::Window,
+        budget,
+    )
+    .err()
+    .expect("the walk was expected to fail")
 }
