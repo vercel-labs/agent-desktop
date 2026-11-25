@@ -14,6 +14,11 @@ pub struct RefEntryIdentity {
     pub native_id: Option<crate::ElementIdentifier>,
     /// What the capture established: `Unique` when it read complete evidence and
     /// exactly one observed element matched this entry's full identity predicate.
-    #[serde(default, skip_serializing_if = "crate::IdentityProof::is_unproven")]
+    #[serde(
+        default,
+        alias = "unique_at_capture",
+        deserialize_with = "crate::refs::identity_proof::deserialize_proof_or_legacy_bool",
+        skip_serializing_if = "crate::IdentityProof::is_unproven"
+    )]
     pub proof: crate::IdentityProof,
 }
