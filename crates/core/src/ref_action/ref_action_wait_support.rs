@@ -148,6 +148,29 @@ pub(crate) fn note_preparatory_scroll(mut error: AdapterError) -> AdapterError {
     error
 }
 
+/// Whether a failed scroll call may already have moved the view. A scroll the
+/// adapter does not implement, refused by policy, or reported as not
+/// delivered moved nothing. The exception is a ref that no longer resolves:
+/// the adapter looks it up again after the scroll, so a stale, ambiguous or
+/// missing element is evidence the view moved even though it says
+/// `not_delivered`.
+pub(crate) fn scroll_was_sent(error: &AdapterError) -> bool {
+    let after_the_scroll = matches!(
+        error.code,
+        ErrorCode::StaleRef | ErrorCode::AmbiguousTarget | ErrorCode::ElementNotFound
+    );
+    if after_the_scroll {
+        return true;
+    }
+    !(error.disposition == crate::DeliverySemantics::not_delivered()
+        || matches!(
+            error.code,
+            ErrorCode::ActionNotSupported
+                | ErrorCode::PlatformNotSupported
+                | ErrorCode::PolicyDenied
+        ))
+}
+
 pub(crate) fn note_scroll_if(scrolled: bool, error: AdapterError) -> AdapterError {
     if scrolled {
         note_preparatory_scroll(error)
