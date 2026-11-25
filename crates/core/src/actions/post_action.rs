@@ -3,6 +3,20 @@ use crate::{
     InteractionLease, LiveElement, NativeHandle, PlatformAdapter,
 };
 
+/// An adapter that refuses an action as unsupported or invalid has sent
+/// nothing: it decides from the target's capabilities before it writes. An
+/// error that already carries a disposition keeps it.
+fn unsent_refusal(error: AdapterError) -> AdapterError {
+    if matches!(
+        error.code,
+        ErrorCode::ActionNotSupported | ErrorCode::InvalidArgs
+    ) {
+        error.unsent()
+    } else {
+        error
+    }
+}
+
 /// Executes once, then verifies stateful actions from fresh platform observations.
 pub fn execute_verified_action(
     adapter: &dyn PlatformAdapter,
@@ -12,7 +26,9 @@ pub fn execute_verified_action(
 ) -> Result<ActionResult, AdapterError> {
     let action = request.action.clone();
     if !action.requires_state_readback() {
-        return adapter.execute_action(handle, request, lease);
+        return adapter
+            .execute_action(handle, request, lease)
+            .map_err(unsent_refusal);
     }
     let deadline = lease.deadline();
     let before = matches!(action, Action::TypeText(_) | Action::Toggle)
@@ -40,6 +56,7 @@ pub fn execute_verified_action(
     };
     let execution = adapter
         .execute_action(handle, request, lease)
+        .map_err(unsent_refusal)
         .map(|mut result| {
             if matches!(action, Action::Toggle) {
                 result.action = action.name().into();

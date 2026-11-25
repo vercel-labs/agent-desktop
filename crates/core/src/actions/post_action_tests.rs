@@ -342,6 +342,27 @@ fn missing_before_evidence_does_not_block_or_repeat_headed_or_headless_delivery(
 }
 
 #[test]
+fn a_refusal_without_a_disposition_is_not_delivered_and_safe() {
+    for action in [Action::Click, Action::Select("x".into())] {
+        for code in [ErrorCode::ActionNotSupported, ErrorCode::InvalidArgs] {
+            let mut adapter = adapter(element(None, &[]), element(None, &[]));
+            adapter.execution = Err(AdapterError::new(code, "refused"));
+            let error = execute(&adapter, action.clone()).unwrap_err();
+            assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+        }
+    }
+}
+
+#[test]
+fn a_refusal_that_reports_a_send_keeps_its_disposition() {
+    let mut adapter = adapter(element(None, &[]), element(None, &[]));
+    adapter.execution = Err(AdapterError::new(ErrorCode::ActionNotSupported, "late")
+        .with_disposition(DeliverySemantics::delivered_unverified()));
+    let error = execute(&adapter, Action::Click).unwrap_err();
+    assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
+}
+
+#[test]
 fn clicks_do_not_read_a_target_that_navigation_can_destroy() {
     let adapter = adapter(element(None, &[]), element(None, &[]));
     execute(&adapter, Action::Click).unwrap();
