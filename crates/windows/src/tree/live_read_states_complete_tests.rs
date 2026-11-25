@@ -51,6 +51,7 @@ fn read_with(role: &str, reads: Vec<(TreeProperty, PropertyOutcome)>) -> LiveRea
                 descriptors: NodeDescriptor::default(),
             },
         },
+        value_oversize: None,
     }
 }
 

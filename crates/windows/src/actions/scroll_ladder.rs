@@ -263,7 +263,7 @@ mod imp {
         let offscreen = match read_one(element, TreeProperty::IsOffscreen) {
             PropertyOutcome::Known(PropertyValue::Flag(flag)) => Some(flag),
             PropertyOutcome::Absent => None,
-            PropertyOutcome::Unknown => {
+            PropertyOutcome::Unknown | PropertyOutcome::Oversize(_) => {
                 return Err(AdapterError::new(
                     ErrorCode::ActionFailed,
                     format!("Could not re-read IsOffscreen {context}"),
