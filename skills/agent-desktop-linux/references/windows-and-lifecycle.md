@@ -53,8 +53,10 @@ agent-desktop launch gnome-text-editor --arg=/tmp/note.txt
   its `/proc/<pid>/exe` and the invocation name and the entry's own arguments
   match. A single-letter switch in the desktop entry's `Exec`, such as
   `kate -b`, is a launcher switch and is not compared, and neither are the
-  caller's `--arg` values. Missing evidence starts a new process; names alone
-  never attach.
+  caller's `--arg` values. A launch of a script matches the interpreter
+  process that runs that script (`python3 /usr/bin/update-manager`), never
+  another script of the same interpreter. Missing evidence starts a new
+  process; names alone never attach.
 - One verified match with no arguments returns the owner. With arguments the
   command is spawned so that it forwards them to the running instance; a
   launcher that exits cleanly and shows no owner within about 2 s ends as
