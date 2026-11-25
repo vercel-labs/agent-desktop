@@ -264,3 +264,7 @@ mod identity_tests;
 #[cfg(test)]
 #[path = "launch_launcher_tests.rs"]
 mod launcher_tests;
+
+#[cfg(test)]
+#[path = "launch_no_attach_tests.rs"]
+mod no_attach_tests;

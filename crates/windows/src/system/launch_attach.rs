@@ -50,14 +50,19 @@ pub(super) fn prepare(
         return Err(super::ambiguous_apps(&rows));
     }
     if let Some((row, token, _process)) = attachable(&mut exact_matches, options) {
-        let sighting = super::observe_window(row.pid, &token, options, deadline)?;
+        let target = super::launch_watch::Target {
+            pid: row.pid,
+            process_instance: &token,
+            resident: None,
+        };
+        let sighting = super::observe_window(&target, options, deadline)?;
         return Ok((
             executable,
             Some(super::launch_result(super::Reported {
                 id,
                 pid: row.pid,
                 process_instance: token,
-                window: sighting.window,
+                window: sighting.seen.map(|seen| seen.window),
                 arrival: LaunchArrival::Attached,
                 suggestion: None,
             })),
@@ -80,6 +85,15 @@ pub(super) fn matching_processes(image: &str) -> Result<Vec<ProcessRow>, Adapter
         .into_iter()
         .filter(|row| row.name.eq_ignore_ascii_case(image))
         .collect())
+}
+
+pub(super) fn same_file(expected: &Path, actual: &Path) -> bool {
+    same_executable_path(expected, actual)
+}
+
+/// The image file of a running process, or `None` when it cannot be read.
+pub(super) fn image_of(pid: ProcessId) -> Option<PathBuf> {
+    ProcessPin::open(pid)?.image_path()
 }
 
 fn same_executable_path(expected: &Path, actual: &Path) -> bool {

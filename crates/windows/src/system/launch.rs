@@ -11,7 +11,7 @@ use std::time::Duration;
 #[cfg(test)]
 use self::launch_attach::matching_processes;
 use self::launch_attach::prepare;
-use self::launch_watch::{Sighting, Watch, observe_window};
+use self::launch_watch::{Origin, Resident, Seen, Sighting, Target, Watch, observe_window};
 use super::app_ops::ProcessRow;
 use super::launch_path::{
     child_environment_block, image_file_name, launch_identifier, validate_launch_options,
@@ -37,8 +37,17 @@ pub(crate) fn launch_app_impl(
     if let Some(attached) = attached {
         return Ok(attached);
     }
+    let known_windows = launch_watch::window_ids(deadline);
     let (pid, token) = create_process(&executable, options, deadline)?;
-    let sighting = observe_window(pid, &token, options, deadline)?;
+    let target = Target {
+        pid,
+        process_instance: &token,
+        resident: known_windows.map(|known_windows| Resident {
+            image: executable.clone(),
+            known_windows,
+        }),
+    };
+    let sighting = observe_window(&target, options, deadline)?;
     Ok(spawned_result(id, pid, token, sighting))
 }
 
@@ -48,7 +57,10 @@ const RUNNING_WITHOUT_WINDOW: &str = "The launched process is running and showed
 
 /// The one place a finished watch becomes a result. A window owned by the
 /// launched process is `Spawned`; one owned by a process it started is
-/// `Appeared` and names that owner. Without a window the process was created
+/// `Appeared` and names that owner. A window the launch caused in an instance
+/// of the program that was already running is `Forwarded`: the request
+/// arrived, and the arrival was read but not attributed beyond the program
+/// and the new window. Without a window the process was created
 /// and nothing of the launch was observed, so the result says what ended the
 /// wait and claims no verification.
 fn spawned_result(
@@ -57,13 +69,16 @@ fn spawned_result(
     process_instance: String,
     sighting: Sighting,
 ) -> LaunchResult {
-    let Sighting { window, end } = sighting;
-    match (window, end) {
-        (Some(window), _) => {
-            let spawned = window.pid == pid;
+    let Sighting { seen, end } = sighting;
+    match seen {
+        Some(Seen { window, origin }) => {
             let owner = window.pid;
             let instance = window.process_instance.clone().unwrap_or(process_instance);
-            let arrival = LaunchArrival::started(spawned, true);
+            let arrival = match origin {
+                Origin::Launched => LaunchArrival::Spawned,
+                Origin::Started => LaunchArrival::Appeared,
+                Origin::Resident => LaunchArrival::Forwarded,
+            };
             launch_result(Reported {
                 id,
                 pid: owner,
@@ -73,7 +88,7 @@ fn spawned_result(
                 suggestion: None,
             })
         }
-        (None, end) => launch_result(Reported {
+        None => launch_result(Reported {
             id,
             pid,
             process_instance,
@@ -340,6 +355,10 @@ fn after_launch(error: AdapterError) -> AdapterError {
 #[cfg(test)]
 #[path = "launch_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "launch_result_tests.rs"]
+mod result_tests;
 
 #[cfg(all(test, target_os = "windows"))]
 #[path = "launch_lease_isolation_tests.rs"]

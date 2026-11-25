@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use agent_desktop_core::{
@@ -9,6 +11,7 @@ use super::super::app_ops::{ProcessRow, process_snapshot};
 use super::super::process_identity;
 use super::super::window::window_ops::list_windows_live;
 use super::after_launch;
+use super::launch_attach::{image_of, same_file};
 
 const POLL_START: Duration = Duration::from_millis(50);
 const POLL_LIMIT: Duration = Duration::from_millis(250);
@@ -46,9 +49,54 @@ impl Watch {
     }
 }
 
+/// Whose window the launch reports. A launcher can hand its work to a process
+/// it started, or to an instance of the same program that was already running
+/// and opens the window itself; each is a different arrival.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Origin {
+    Launched,
+    Started,
+    Resident,
+}
+
+pub(super) struct Seen {
+    pub(super) window: WindowInfo,
+    pub(super) origin: Origin,
+}
+
 pub(super) struct Sighting {
-    pub(super) window: Option<WindowInfo>,
+    pub(super) seen: Option<Seen>,
     pub(super) end: Watch,
+}
+
+/// What the launch looks for. `resident` is set when the launch can hand its
+/// work to a running instance of the same program: the image of that program
+/// and the windows that existed before the launch, so that only a window the
+/// launch caused counts as its arrival.
+pub(super) struct Target<'a> {
+    pub(super) pid: ProcessId,
+    pub(super) process_instance: &'a str,
+    pub(super) resident: Option<Resident>,
+}
+
+pub(super) struct Resident {
+    pub(super) image: PathBuf,
+    pub(super) known_windows: HashSet<String>,
+}
+
+/// The ids of the windows open now, or `None` when the desktop could not be
+/// read, in which case no later window can be called new.
+pub(super) fn window_ids(deadline: Deadline) -> Option<HashSet<String>> {
+    list_windows_live(&all_windows(), deadline)
+        .ok()
+        .map(|windows| windows.into_iter().map(|window| window.id).collect())
+}
+
+fn all_windows() -> WindowFilter {
+    WindowFilter {
+        focused_only: false,
+        app: None,
+    }
 }
 
 pub(super) fn should_poll_after_first_observation(timeout_ms: u64) -> bool {
@@ -85,17 +133,17 @@ fn launch_finished(pid: ProcessId) -> bool {
 /// deadline passes. A window counts when the launched process owns it or a
 /// process it started does.
 pub(super) fn observe_window(
-    pid: ProcessId,
-    process_instance: &str,
+    target: &Target<'_>,
     options: &LaunchOptions,
     deadline: Deadline,
 ) -> Result<Sighting, AdapterError> {
+    let pid = target.pid;
     let polls = should_poll_after_first_observation(options.timeout_ms);
     let mut state = Watch::Polling;
     let mut interval = POLL_START;
     loop {
-        let window = observe_window_once(pid, process_instance, deadline)?;
-        let sight = if window.is_some() {
+        let seen = observe_window_once(target, deadline)?;
+        let sight = if seen.is_some() {
             Sight::Window
         } else if launch_finished(pid) {
             Sight::NothingLeftRunning
@@ -106,7 +154,7 @@ pub(super) fn observe_window(
         };
         state = state.advance(sight);
         if state != Watch::Polling {
-            return Ok(Sighting { window, end: state });
+            return Ok(Sighting { seen, end: state });
         }
         std::thread::sleep(interval.min(deadline.remaining()));
         interval = (interval * 3 / 2).min(POLL_LIMIT);
@@ -123,12 +171,11 @@ pub(super) fn observe_window(
 /// target whose process instance changed underneath the launch is a real
 /// answer, not a race.
 pub(super) fn observe_window_once(
-    pid: ProcessId,
-    process_instance: &str,
+    target: &Target<'_>,
     deadline: Deadline,
-) -> Result<Option<WindowInfo>, AdapterError> {
-    match exact_window(pid, process_instance, deadline) {
-        Ok(window) => Ok(window),
+) -> Result<Option<Seen>, AdapterError> {
+    match exact_window(target, deadline) {
+        Ok(seen) => Ok(seen),
         Err(error) if is_unobservable_within_budget(&error) => Ok(None),
         Err(error) => Err(after_launch(error)),
     }
@@ -138,37 +185,55 @@ fn is_unobservable_within_budget(error: &AdapterError) -> bool {
     matches!(error.code, ErrorCode::WindowNotFound | ErrorCode::Timeout)
 }
 
-fn exact_window(
-    pid: ProcessId,
-    process_instance: &str,
-    deadline: Deadline,
-) -> Result<Option<WindowInfo>, AdapterError> {
-    let windows = list_windows_live(
-        &WindowFilter {
-            focused_only: false,
-            app: None,
-        },
-        deadline,
-    )?;
-    if let Some(window) = windows.iter().find(|window| window.pid == pid) {
-        if window.process_instance.as_deref() != Some(process_instance) {
+fn exact_window(target: &Target<'_>, deadline: Deadline) -> Result<Option<Seen>, AdapterError> {
+    let windows = list_windows_live(&all_windows(), deadline)?;
+    if let Some(window) = windows.iter().find(|window| window.pid == target.pid) {
+        if window.process_instance.as_deref() != Some(target.process_instance) {
             return Err(AdapterError::new(
                 ErrorCode::AppUnresponsive,
                 "Application process instance changed while waiting for its window",
             )
-            .with_details(serde_json::json!({ "pid": pid, "complete": false })));
+            .with_details(serde_json::json!({ "pid": target.pid, "complete": false })));
         }
-        return Ok(Some(window.clone()));
+        return Ok(Some(Seen {
+            window: window.clone(),
+            origin: Origin::Launched,
+        }));
     }
     if windows.is_empty() {
         return Ok(None);
     }
     let started = process_snapshot()
-        .map(|rows| descendants(&rows, pid))
+        .map(|rows| descendants(&rows, target.pid))
         .unwrap_or_default();
-    Ok(windows
-        .into_iter()
-        .find(|window| started.contains(&window.pid) && window.process_instance.is_some()))
+    if let Some(window) = windows
+        .iter()
+        .find(|window| started.contains(&window.pid) && window.process_instance.is_some())
+    {
+        return Ok(Some(Seen {
+            window: window.clone(),
+            origin: Origin::Started,
+        }));
+    }
+    Ok(target
+        .resident
+        .as_ref()
+        .and_then(|resident| new_window_of_image(windows, resident))
+        .map(|window| Seen {
+            window,
+            origin: Origin::Resident,
+        }))
+}
+
+/// A window that did not exist before the launch and belongs to a running
+/// process of the launched program. A launcher that forwards to a single-instance
+/// application leaves exactly this behind.
+fn new_window_of_image(windows: Vec<WindowInfo>, resident: &Resident) -> Option<WindowInfo> {
+    windows.into_iter().find(|window| {
+        window.process_instance.is_some()
+            && !resident.known_windows.contains(&window.id)
+            && image_of(window.pid).is_some_and(|image| same_file(&image, &resident.image))
+    })
 }
 
 #[cfg(test)]
