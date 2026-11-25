@@ -74,7 +74,7 @@ pub(crate) fn execute_verified_deferred(
         crate::system::front_guard::FrontWatch {
             target,
             settle: ACTION_SETTLE,
-            children: true,
+            after_release: true,
         },
         |mark| run_verified_action(adapter, handle, request, lease, mark),
     )?;
@@ -101,13 +101,11 @@ fn run_verified_action(
         );
     }
     if !action.requires_state_readback() {
+        let result = adapter
+            .execute_action(handle, request, lease)
+            .map_err(settle_disposition);
         mark.dispatched();
-        return (
-            adapter
-                .execute_action(handle, request, lease)
-                .map_err(settle_disposition),
-            None,
-        );
+        return (result, None);
     }
     (
         run_readback_action(adapter, handle, request, lease, mark),
@@ -147,16 +145,14 @@ fn run_readback_action(
         }),
         _ => None,
     };
+    let acknowledged = adapter.execute_action(handle, request, lease);
     mark.dispatched();
-    let execution = adapter
-        .execute_action(handle, request, lease)
-        .map_err(settle_disposition)
-        .map(|mut result| {
-            if matches!(action, Action::Toggle) {
-                result.action = action.name().into();
-            }
-            result
-        });
+    let execution = acknowledged.map_err(settle_disposition).map(|mut result| {
+        if matches!(action, Action::Toggle) {
+            result.action = action.name().into();
+        }
+        result
+    });
     if execution
         .as_ref()
         .is_err_and(|error| error.disposition == DeliverySemantics::not_delivered())

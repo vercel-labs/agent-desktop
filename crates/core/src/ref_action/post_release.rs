@@ -25,23 +25,28 @@ impl PostRelease {
         deadline: Deadline,
         result: ActionResult,
     ) -> ActionResult {
-        let mut result = match self.witness {
-            Some(witness) => witness.settle(adapter, landed_on, deadline, result),
-            None => result,
+        let surfaces_of = self.surfaces_of;
+        let witness = self.witness;
+        let work = move || {
+            let result = match witness {
+                Some(witness) => witness.settle(adapter, landed_on, deadline, result),
+                None => result,
+            };
+            match surfaces_of {
+                Some(process) => result
+                    .with_surfaces_read(adapter.surfaces_raised_by(process, landed_on, deadline)),
+                None => result,
+            }
         };
-        if let Some(front) = self.front {
-            let resolution = front.finish(adapter);
-            resolution.outcome.note_in(&mut result.details);
-            if let Some(reason) = resolution.pending_reason {
-                crate::FrontOutcome::note_watch_in(reason, &mut result.details);
-            }
+        let Some(front) = self.front else {
+            return work();
+        };
+        let (mut result, resolution) = front.run_around(adapter, work);
+        resolution.outcome.note_in(&mut result.details);
+        if let Some(reason) = resolution.pending_reason {
+            crate::FrontOutcome::note_watch_in(reason, &mut result.details);
         }
-        match self.surfaces_of {
-            Some(process) => {
-                result.with_surfaces_read(adapter.surfaces_raised_by(process, landed_on, deadline))
-            }
-            None => result,
-        }
+        result
     }
 }
 
