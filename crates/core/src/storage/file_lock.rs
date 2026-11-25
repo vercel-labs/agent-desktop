@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::path::Path;
 
-use crate::storage::file_lock_wait::{LockWaitFailure, wait_for_lock};
+use crate::storage::file_lock_wait::{LockWaitFailure, settle_abandoned_waiters, wait_for_lock};
 use crate::{AdapterError, Deadline, ErrorCode};
 
 /// A private state-file lock held until this guard is dropped.
@@ -104,17 +104,23 @@ fn lock_file(
     if deadline.is_expired() {
         return Err(lock_timeout(deadline, purpose, path, 0));
     }
-    let (file, contention_count) = match file.try_lock() {
-        Ok(()) => (file, 0_u64),
-        Err(std::fs::TryLockError::WouldBlock) => {
-            let file = wait_for_lock(file, deadline).map_err(|failure| match failure {
-                LockWaitFailure::TimedOut => lock_timeout(deadline, purpose, path, 1),
-                LockWaitFailure::Failed(message) => acquire_failure(purpose, &message),
-            })?;
-            (file, 1_u64)
-        }
-        Err(std::fs::TryLockError::Error(error)) => {
-            return Err(acquire_failure(purpose, &error.to_string()));
+    let mut contention_count = 0_u64;
+    let file = loop {
+        match file.try_lock() {
+            Ok(()) => break file,
+            Err(std::fs::TryLockError::Error(error)) => {
+                return Err(acquire_failure(purpose, &error.to_string()));
+            }
+            Err(std::fs::TryLockError::WouldBlock) => {
+                contention_count = 1;
+                if settle_abandoned_waiters(path, deadline) {
+                    continue;
+                }
+                break wait_for_lock(file, deadline, path).map_err(|failure| match failure {
+                    LockWaitFailure::TimedOut => lock_timeout(deadline, purpose, path, 1),
+                    LockWaitFailure::Failed(message) => acquire_failure(purpose, &message),
+                })?;
+            }
         }
     };
     if deadline.is_expired() {

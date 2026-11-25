@@ -303,6 +303,20 @@ pub(crate) fn wait_on<'a, T>(
     }
 }
 
+/// Waits on `condvar` for an event, for at most `duration` of real time. Unlike
+/// [`wait_on`] it never advances a frozen test clock: the event it waits for is
+/// another thread finishing, which takes real time whatever the clock says.
+pub(crate) fn wait_for_event<'a, T>(
+    condvar: &std::sync::Condvar,
+    guard: std::sync::MutexGuard<'a, T>,
+    duration: Duration,
+) -> std::sync::MutexGuard<'a, T> {
+    condvar
+        .wait_timeout(guard, duration)
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .0
+}
+
 #[cfg(test)]
 thread_local! {
     static VIRTUAL_NOW: Cell<Option<Instant>> = const { Cell::new(None) };
