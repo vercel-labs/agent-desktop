@@ -208,6 +208,7 @@ pub(crate) fn emit_snapshot_saved(
     })
 }
 
+pub(crate) mod drill_retry;
 pub(crate) mod grid_collapse;
 pub mod hints;
 pub(crate) mod ref_owner_observation;
