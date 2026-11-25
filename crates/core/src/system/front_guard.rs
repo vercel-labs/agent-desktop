@@ -8,14 +8,14 @@
 //! The adapter supplies three primitives: `read_front`, `keep_below` and
 //! `give_back`. Everything that decides is in [`FrontGuardMachine`].
 
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::front_guard_machine::{FrontGuardMachine, Owner, Sighting, Step};
 use super::front_guard_state::FrontGuardState;
 use super::front_outcome::FrontOutcome;
-use super::front_process::FrontProcess;
+use super::front_pending::FrontPending;
+use super::front_shared::FrontShared;
 use super::front_target::FrontTarget;
 use super::front_view::FrontView;
 use crate::{
@@ -29,7 +29,7 @@ const READBACK: Duration = Duration::from_millis(200);
 const READBACK_POLL: Duration = Duration::from_millis(10);
 /// How often the watcher reads the front. An intrusion is seen within one
 /// poll plus one read, and the give-back follows at once.
-const POLL: Duration = Duration::from_millis(10);
+pub(super) const POLL: Duration = Duration::from_millis(10);
 const READ_BUDGET_MS: u64 = 500;
 
 /// What one guarded command asks of the guard.
@@ -39,12 +39,13 @@ pub(crate) struct FrontWatch {
     pub target: FrontTarget,
     /// How long the guard keeps watching after the command returns.
     pub settle: Duration,
+    /// Whether a descendant the target spawned lets the watch go on after the
+    /// caller has released the lease (see [`FrontPending`]).
+    pub children: bool,
 }
 
-/// Runs `command` under the guard. A policy that lets a window take the focus
-/// runs it with no guard and no reads, and so does an adapter that has no way
-/// to read the front. An adapter that has one and fails to read it refuses the
-/// command before it starts: a guard that cannot see the front cannot keep it.
+/// Runs `command` under the guard and drops any watch that outlives it. See
+/// [`guarded_deferred`].
 pub(crate) fn guarded<T>(
     adapter: &dyn PlatformAdapter,
     policy: InteractionPolicy,
@@ -52,61 +53,70 @@ pub(crate) fn guarded<T>(
     watch: FrontWatch,
     command: impl FnOnce(&DispatchMark) -> T,
 ) -> Result<(T, FrontOutcome), AdapterError> {
-    let mark = DispatchMark::default();
+    guarded_deferred(adapter, policy, lease, watch, command)
+        .map(|(value, outcome, _)| (value, outcome))
+}
+
+/// Runs `command` under the guard. A policy that lets a window take the focus
+/// runs it with no guard and no reads, and so does an adapter that has no way
+/// to read the front. An adapter that has one and fails to read it refuses the
+/// command before it starts: a guard that cannot see the front cannot keep it.
+///
+/// When the watch ends with nothing seen and the target has spawned a process
+/// since the capture that is still running, the guard cannot yet say that no
+/// window will follow, so the third part of the answer is the rest of the
+/// watch. The caller runs it with [`FrontPending::finish`] once it has
+/// released the interaction lease.
+pub(crate) fn guarded_deferred<T>(
+    adapter: &dyn PlatformAdapter,
+    policy: InteractionPolicy,
+    lease: &InteractionLease,
+    watch: FrontWatch,
+    command: impl FnOnce(&DispatchMark) -> T,
+) -> Result<(T, FrontOutcome, Option<FrontPending>), AdapterError> {
+    let shared = Arc::new(FrontShared::new(watch.target.clone()));
+    let mark = DispatchMark::of(Arc::clone(&shared));
     if policy.allow_focus_steal {
-        return Ok((command(&mark), FrontOutcome::Off));
+        return Ok((command(&mark), FrontOutcome::Off, None));
     }
     let prior = match read(adapter) {
         Ok(view) if view.focused.is_some() => view,
-        Ok(_) => return Ok((command(&mark), FrontOutcome::Off)),
+        Ok(_) => return Ok((command(&mark), FrontOutcome::Off, None)),
         Err(error) if error.code == ErrorCode::PlatformNotSupported => {
-            return Ok((command(&mark), FrontOutcome::Off));
+            return Ok((command(&mark), FrontOutcome::Off, None));
         }
         Err(_) => return Err(unreadable(policy)),
     };
     let captured_ms = unix_ms();
-    let processes = Mutex::new(HashMap::<u32, Option<FrontProcess>>::new());
-    let processes = &processes;
-    let target = watch.target.clone();
-    let learned = &mark;
-    let owner: Owner<'_> = Box::new(move |window, is_new| {
-        learned
-            .learned_pid
-            .get()
-            .is_some_and(|pid| *pid == window.pid)
-            || target.owns(
-                window,
-                is_new,
-                || {
-                    processes.lock().map_or(None, |mut known| {
-                        known
-                            .entry(window.pid)
-                            .or_insert_with(|| adapter.front_process(window.pid))
-                            .clone()
-                    })
-                },
-                captured_ms,
-            )
-    });
+    shared.set_captured_ms(captured_ms);
+    let owner: Owner = {
+        let shared = Arc::clone(&shared);
+        Box::new(move |window, is_new| shared.owns(window, is_new))
+    };
     let machine = FrontGuardMachine::new(prior, owner);
     let returned = OnceLock::new();
     let watching = lease.with_deadline(lease.deadline());
-    Ok(std::thread::scope(|scope| {
+    let (value, joined) = std::thread::scope(|scope| {
         let guard = scope.spawn(|| {
             let ends = Ends {
                 mark: &mark,
                 returned: &returned,
             };
-            keep_watching(adapter, &watching, machine, &watch, &ends)
+            keep_watching(adapter, &watching, machine, &watch, &ends, &shared)
         });
         let value = command(&mark);
         let _ = returned.set(Instant::now());
         guard.thread().unpark();
-        let outcome = guard
-            .join()
-            .map_or(FrontOutcome::Off, FrontOutcome::from_state);
-        (value, outcome)
-    }))
+        (value, guard.join().ok())
+    });
+    let Some((state, machine)) = joined else {
+        return Ok((value, FrontOutcome::Off, None));
+    };
+    let outcome = FrontOutcome::from_state(state);
+    let pending = (outcome == FrontOutcome::Clean && watch.children)
+        .then(|| FrontPending::start(adapter, machine, shared, lease.deadline()))
+        .flatten();
+    Ok((value, outcome, pending))
 }
 
 fn unix_ms() -> u64 {
@@ -129,7 +139,7 @@ fn unreadable(policy: InteractionPolicy) -> AdapterError {
     ))
 }
 
-fn read(adapter: &dyn PlatformAdapter) -> Result<FrontView, AdapterError> {
+pub(super) fn read(adapter: &dyn PlatformAdapter) -> Result<FrontView, AdapterError> {
     adapter.read_front(Deadline::detached_after(READ_BUDGET_MS)?)
 }
 
@@ -137,13 +147,25 @@ fn read(adapter: &dyn PlatformAdapter) -> Result<FrontView, AdapterError> {
 /// here, beside the reads the command makes after it, so the watch covers
 /// dispatch through dispatch plus the settle however long those reads take.
 /// A command that never marks it settles from its return.
-#[derive(Default)]
 pub(crate) struct DispatchMark {
     at: OnceLock<Instant>,
-    learned_pid: OnceLock<u32>,
+    shared: Arc<FrontShared>,
+}
+
+impl Default for DispatchMark {
+    fn default() -> Self {
+        Self::of(Arc::new(FrontShared::new(FrontTarget::default())))
+    }
 }
 
 impl DispatchMark {
+    fn of(shared: Arc<FrontShared>) -> Self {
+        Self {
+            at: OnceLock::new(),
+            shared,
+        }
+    }
+
     pub(crate) fn dispatched(&self) {
         let _ = self.at.set(Instant::now());
     }
@@ -153,7 +175,7 @@ impl DispatchMark {
     /// that instance. Its windows are the target's for the rest of the watch,
     /// whatever its executable is called.
     pub(crate) fn learn_target(&self, pid: u32) {
-        let _ = self.learned_pid.set(pid);
+        self.shared.learn(pid);
     }
 }
 
@@ -175,10 +197,11 @@ impl Ends<'_> {
 fn keep_watching(
     adapter: &dyn PlatformAdapter,
     lease: &InteractionLease,
-    mut machine: FrontGuardMachine<'_>,
+    mut machine: FrontGuardMachine,
     watch: &FrontWatch,
     ends: &Ends<'_>,
-) -> FrontGuardState {
+    shared: &FrontShared,
+) -> (FrontGuardState, FrontGuardMachine) {
     loop {
         let end = ends.at(watch.settle);
         let settled = end.is_some_and(|end| Instant::now() >= end);
@@ -186,7 +209,10 @@ fn keep_watching(
             Sighting::Settled
         } else {
             match read(adapter) {
-                Ok(view) => Sighting::Front(view),
+                Ok(view) => {
+                    shared.prefetch(adapter, &view);
+                    Sighting::Front(view)
+                }
                 Err(_) => Sighting::Unreadable,
             }
         };
@@ -196,17 +222,17 @@ fn keep_watching(
             step = machine.returned(restored);
         }
         if step == Step::Done {
-            return machine.state();
+            return (machine.state(), machine);
         }
         let until_end = end.map_or(POLL, |end| end.saturating_duration_since(Instant::now()));
         std::thread::park_timeout(POLL.min(until_end));
     }
 }
 
-fn give_back(
+pub(super) fn give_back(
     adapter: &dyn PlatformAdapter,
     lease: &InteractionLease,
-    machine: &FrontGuardMachine<'_>,
+    machine: &FrontGuardMachine,
     intruder: &super::front_window::FrontWindow,
 ) -> bool {
     let prior = machine.prior();
@@ -243,3 +269,7 @@ mod tests;
 #[cfg(test)]
 #[path = "front_guard_phase_tests.rs"]
 mod phase_tests;
+
+#[cfg(test)]
+#[path = "front_guard_child_tests.rs"]
+mod child_tests;

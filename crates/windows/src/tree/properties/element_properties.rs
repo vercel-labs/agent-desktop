@@ -4,7 +4,7 @@ use agent_desktop_core::{
 };
 
 use super::property_ids::TreeProperty;
-use super::property_outcome::{PropertyOutcome, PropertyValue};
+use super::property_outcome::{MAX_EVIDENCE_CHARS, PropertyOutcome, PropertyValue};
 
 /// Withholds a value-bearing property from a secure element.
 ///
@@ -16,7 +16,7 @@ use super::property_outcome::{PropertyOutcome, PropertyValue};
 /// answered must not be able to satisfy them.
 fn withheld(outcome: PropertyOutcome) -> PropertyOutcome {
     match outcome {
-        PropertyOutcome::Known(_) => PropertyOutcome::Absent,
+        PropertyOutcome::Known(_) | PropertyOutcome::Oversize(_) => PropertyOutcome::Absent,
         PropertyOutcome::Absent => PropertyOutcome::Absent,
         PropertyOutcome::Unknown => PropertyOutcome::Unknown,
     }
@@ -38,7 +38,7 @@ pub(crate) fn known_as_bool(value: &PropertyValue) -> Option<bool> {
 fn withholds_content(outcome: &PropertyOutcome) -> bool {
     match outcome {
         PropertyOutcome::Known(value) => known_as_bool(value).unwrap_or(true),
-        PropertyOutcome::Unknown => true,
+        PropertyOutcome::Unknown | PropertyOutcome::Oversize(_) => true,
         PropertyOutcome::Absent => false,
     }
 }
@@ -168,7 +168,9 @@ impl ElementProperties {
         }
         match self.get(property) {
             PropertyOutcome::Known(value) => known_as_bool(&value),
-            PropertyOutcome::Unknown | PropertyOutcome::Absent => None,
+            PropertyOutcome::Unknown | PropertyOutcome::Oversize(_) | PropertyOutcome::Absent => {
+                None
+            }
         }
     }
 
@@ -209,7 +211,9 @@ impl ElementProperties {
         match property.gate() {
             Some(gate) => match self.get(gate) {
                 PropertyOutcome::Known(value) => known_as_bool(&value).unwrap_or(false),
-                PropertyOutcome::Unknown | PropertyOutcome::Absent => false,
+                PropertyOutcome::Unknown
+                | PropertyOutcome::Oversize(_)
+                | PropertyOutcome::Absent => false,
             },
             None => true,
         }
@@ -254,15 +258,13 @@ impl ElementProperties {
     }
 
     fn value_without_rich_edit_terminator(&self) -> LocatorField<String> {
-        match self.get(TreeProperty::Value).text() {
-            LocatorField::Known(value) if self.is_rich_edit() && value.ends_with('\r') => {
-                LocatorField::Known(value[..value.len() - 1].to_string())
-            }
+        let read = match self.get(TreeProperty::Value).text() {
             LocatorField::Absent => self
                 .gated_range_text()
                 .map_or(LocatorField::Absent, LocatorField::Known),
             other => other,
-        }
+        };
+        project_value(read, self.is_rich_edit())
     }
 
     pub(crate) fn is_rich_edit(&self) -> bool {
@@ -291,8 +293,48 @@ impl ElementProperties {
                 )
             }
             PropertyOutcome::Known(_) | PropertyOutcome::Absent => IdentifierEvidence::absent(),
-            PropertyOutcome::Unknown => IdentifierEvidence::unknown(),
+            PropertyOutcome::Unknown | PropertyOutcome::Oversize(_) => {
+                IdentifierEvidence::unknown()
+            }
         }
+    }
+}
+
+/// The value as evidence: a RichEdit control's trailing paragraph mark is not
+/// user content, and what remains must fit the evidence bound or it is unread,
+/// never a truncated prefix.
+fn project_value(read: LocatorField<String>, rich_edit: bool) -> LocatorField<String> {
+    let LocatorField::Known(value) = read else {
+        return read;
+    };
+    let value = match value.strip_suffix('\r') {
+        Some(content) if rich_edit => content.to_string(),
+        _ => value,
+    };
+    match super::bounded_text(value) {
+        PropertyOutcome::Known(PropertyValue::Text(value)) => LocatorField::Known(value),
+        _ => LocatorField::Unknown,
+    }
+}
+
+/// The characters of a value the provider answered but the evidence bound
+/// refused, after a RichEdit paragraph mark is dropped; `None` when the value
+/// was read, absent, or failed to read.
+pub(crate) fn oversize_value_length(
+    properties: &ElementProperties,
+    rich_edit: bool,
+) -> Option<usize> {
+    match properties.get(TreeProperty::Value) {
+        PropertyOutcome::Oversize(length) => Some(length),
+        PropertyOutcome::Known(PropertyValue::Text(text)) => {
+            let content = match text.strip_suffix('\r') {
+                Some(content) if rich_edit => content,
+                _ => text.as_str(),
+            };
+            let length = content.chars().count();
+            (length > MAX_EVIDENCE_CHARS).then_some(length)
+        }
+        _ => None,
     }
 }
 

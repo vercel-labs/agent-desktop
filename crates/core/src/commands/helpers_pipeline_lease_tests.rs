@@ -124,7 +124,7 @@ impl SystemOps for CountingPipelineAdapter {
 }
 
 #[test]
-fn ref_action_pipeline_resolves_under_lease_before_dispatch() {
+fn ref_action_pipeline_resolves_before_the_lease_and_confirms_under_it() {
     let _guard = HomeGuard::new();
     let store = crate::refs::refs_store::RefStore::new().unwrap();
     let mut refmap = RefMap::new();
@@ -144,7 +144,7 @@ fn ref_action_pipeline_resolves_under_lease_before_dispatch() {
     assert_eq!(
         *adapter.calls.lock().unwrap(),
         [
-            "resolve under lease",
+            "resolve without lease",
             "live read under lease",
             "execute under lease"
         ]

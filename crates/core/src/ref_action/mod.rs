@@ -17,6 +17,7 @@ pub(crate) mod ref_action_dispatched;
 pub(crate) mod ref_action_landing;
 pub(crate) mod ref_action_poll;
 pub(crate) mod ref_action_poll_state;
+pub(crate) mod ref_action_resolve;
 pub(crate) mod ref_action_single;
 pub(crate) mod ref_action_wait;
 pub(crate) mod ref_action_wait_context;
@@ -72,20 +73,13 @@ pub(crate) fn dispatch_resolved_landing(
     target: RefActionContext<'_>,
     mut request: ActionRequest,
     lease: &crate::InteractionLease,
+    resolved: Option<NativeHandle>,
 ) -> Result<ref_action_dispatched::DispatchedAction, AppError> {
     let expected_process =
         target.entry.process.identity().ok_or_else(|| {
             AdapterError::stale_ref_because("target process instance is unavailable")
         })?;
-    let mut handle = resolve_saved_ref(target.adapter, target.entry, target.deadline, Some(lease))
-        .map_err(mark_pre_dispatch_resolution_failure)
-        .inspect_err(|error| {
-            crate::ref_action::ref_action_wait_support::trace_resolve_error(
-                target.context,
-                target.ref_id,
-                error,
-            )
-        })?;
+    let mut handle = ref_action_resolve::resolve_for_dispatch(&target, resolved, lease)?;
     crate::ref_action::ref_action_wait_support::trace_resolve_ok(target.context, target.ref_id);
     let initial_target = ResolvedRefAction::new(target, &handle);
     let mut scrolled = false;
@@ -145,8 +139,12 @@ pub(crate) fn dispatch_resolved_landing(
     let presentation_action = request.action.clone();
     let ripples = presentation::effect_ripples(&final_target, &presentation_action);
     presentation::before_dispatch(&final_target, &preflight, &presentation_action, lease);
-    let dispatch_result =
-        crate::execute_verified_action(final_target.adapter, final_target.handle, request, lease);
+    let (dispatch_result, front) = crate::actions::post_action::execute_verified_deferred(
+        final_target.adapter,
+        final_target.handle,
+        request,
+        lease,
+    );
     let mut preflight = preflight;
     if presentation::after_text_entry(&final_target, &presentation_action, &dispatch_result) {
         preflight.presentation_bounds = None;
@@ -169,7 +167,10 @@ pub(crate) fn dispatch_resolved_landing(
     Ok(ref_action_dispatched::DispatchedAction {
         result,
         handle,
-        surfaces_of: raises_surface.then_some(expected_process),
+        after_release: ref_action_dispatched::AfterRelease {
+            surfaces_of: raises_surface.then_some(expected_process),
+            front,
+        },
     })
 }
 
@@ -304,16 +305,19 @@ pub(crate) fn execute_resolved(
     let stability =
         actionability::StabilityExpectation::permissive(target.entry.geometry.bounds_hash);
     preflight_resolved(&target, &request, stability)?;
-    let result = dispatch_resolved_landing(target.target, request, lease).map(|mut dispatched| {
-        ref_action_dispatched::read_surfaces_after_release(
-            target.adapter,
-            dispatched.surfaces_of.take(),
-            &dispatched.handle,
-            target.deadline,
-            &mut dispatched.result,
-        );
-        dispatched.result
-    });
+    let resolved = resolve_saved_ref(target.adapter, target.entry, target.deadline, None)?;
+    let result = dispatch_resolved_landing(target.target, request, lease, Some(resolved)).map(
+        |mut dispatched| {
+            ref_action_dispatched::read_surfaces_after_release(
+                target.adapter,
+                std::mem::take(&mut dispatched.after_release),
+                &dispatched.handle,
+                target.deadline,
+                &mut dispatched.result,
+            );
+            dispatched.result
+        },
+    );
     finish_artifacts(target.target, &pre);
     result
 }

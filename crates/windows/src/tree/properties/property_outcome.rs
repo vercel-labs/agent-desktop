@@ -21,6 +21,10 @@ pub enum PropertyOutcome {
     Absent,
     /// The read failed, or its answer cannot be trusted as identity evidence.
     Unknown,
+    /// The provider answered with text longer than `MAX_EVIDENCE_CHARS`; the
+    /// count is its length in characters. It is an observation, not a failed
+    /// read, and it is never cut into a prefix.
+    Oversize(usize),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -38,7 +42,7 @@ impl PropertyOutcome {
             Self::Known(PropertyValue::Text(value)) => LocatorField::Known(value.clone()),
             Self::Known(_) => LocatorField::Unknown,
             Self::Absent => LocatorField::Absent,
-            Self::Unknown => LocatorField::Unknown,
+            Self::Unknown | Self::Oversize(_) => LocatorField::Unknown,
         }
     }
 
@@ -48,6 +52,14 @@ impl PropertyOutcome {
     pub fn non_blank_text(&self) -> Option<String> {
         match self.text() {
             LocatorField::Known(value) if !value.trim().is_empty() => Some(value),
+            _ => None,
+        }
+    }
+
+    /// The character count of an answer that exceeded the evidence bound.
+    pub fn oversize_length(&self) -> Option<usize> {
+        match self {
+            Self::Oversize(length) => Some(*length),
             _ => None,
         }
     }
@@ -78,7 +90,7 @@ impl PropertyOutcome {
             Self::Known(PropertyValue::Bounds(value)) => LocatorField::Known(*value),
             Self::Known(_) => LocatorField::Unknown,
             Self::Absent => LocatorField::Absent,
-            Self::Unknown => LocatorField::Unknown,
+            Self::Unknown | Self::Oversize(_) => LocatorField::Unknown,
         }
     }
 }

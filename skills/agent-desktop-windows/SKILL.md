@@ -30,7 +30,7 @@ Use `$env:NAME = 'value'` for environment variables.
 ## Platform behavior
 
 - A covered window can be driven headless; minimized controls report offscreen.
-  Restore a minimized target and observe again rather than focusing it by reflex. Headless `restore` un-minimizes without taking the foreground.
+  Headless `restore` of a minimized window is refused with `POLICY_DENIED` and nothing is sent, because some applications (the Management Console, Character Map) activate themselves when restored whatever show command is used. Stop on that refusal; restoring a maximized window stays headless.
 - UIPI (User Interface Privilege Isolation) blocks input into a higher-integrity
   process. Ask the user to run the CLI at the target's integrity level when needed;
   a working observation does not establish input permission.
@@ -45,6 +45,7 @@ Use `$env:NAME = 'value'` for environment variables.
 - A grid reports `row_count` and `column_count`. A row is a record: find it by its own
   name, and its cells through it. `agent-desktop click` on a grid cell that lists `Click`
   selects the row that holds it. A cell carries no grid position.
+- A field whose text is longer than 2048 characters cannot be read: `get` returns `ACTION_FAILED` with `details.kind: "value_exceeds_read_limit"` and the length. Do not retry it. `clear`, `set-value`, `focus` and `click` on its ref still work.
 - `agent-desktop launch` takes an absolute executable path or a bare program name in the
   Windows or System32 directory, not an arbitrary display name or a PATH search.
   Without `--activate` the process starts with a show-window hint that asks for no

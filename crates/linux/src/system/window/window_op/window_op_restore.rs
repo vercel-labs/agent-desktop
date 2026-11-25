@@ -1,5 +1,5 @@
 use agent_desktop_core::{
-    AdapterError, Deadline, DeliverySemantics, Effect, ErrorCode, InteractionPolicy, WindowInfo,
+    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionPolicy, WindowInfo, WindowOp,
 };
 
 use super::hold::give_back_place;
@@ -34,7 +34,7 @@ pub(super) fn restore(
         ));
     }
     if current.hidden {
-        policy.require(Effect::FocusSteal, "restore of a minimized window")?;
+        WindowOp::require_unminimize_allowed(policy)?;
         if let Lifted::StillHidden { manager } = world.lift(client)? {
             return Err(still_hidden(&manager, world.overview_open() == Some(true)));
         }

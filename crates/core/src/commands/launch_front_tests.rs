@@ -18,6 +18,7 @@ fn front(id: &str, windows: &[&str]) -> FrontView {
         focused: Some(window.clone()),
         top: Some(window),
         windows: windows.iter().map(|id| (*id).into()).collect(),
+        ..Default::default()
     }
 }
 
@@ -126,6 +127,7 @@ mod attach {
             focused: Some(window(id, pid)),
             top: Some(window(id, pid)),
             windows: windows.iter().map(|id| (*id).into()).collect(),
+            ..Default::default()
         }
     }
 

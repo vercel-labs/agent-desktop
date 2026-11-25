@@ -6,9 +6,7 @@ use agent_desktop_core::{
 };
 
 use super::window_identity::WindowIdentityEvidence;
-use super::window_op_verb::{
-    ShowVerb, restore_command, restore_goes_below_foreground, verb_is_satisfied,
-};
+use super::window_op_verb::{ShowVerb, restore_command, restore_permitted, verb_is_satisfied};
 use super::window_op_wait::wait_for_placement;
 use super::window_ops::parse_handle;
 
@@ -36,6 +34,16 @@ fn ensure_window_is_pumping(handle: super::window_enum::WindowHandle) -> Result<
         "Target window is not processing messages, so the window operation would block",
     )
     .with_suggestion("Wait for the application to recover, or close it with --force"))
+}
+
+#[cfg(target_os = "windows")]
+fn window_is_minimized(handle: super::window_enum::WindowHandle) -> bool {
+    unsafe { windows_sys::Win32::UI::WindowsAndMessaging::IsIconic(handle) != 0 }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn window_is_minimized(_handle: super::window_enum::WindowHandle) -> bool {
+    false
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -76,6 +84,9 @@ pub(crate) fn window_op_impl(
     };
     evidence.verify_stored().map_err(before_write)?;
     ensure_window_is_pumping(handle).map_err(before_write)?;
+    if matches!(op, WindowOp::Restore) {
+        restore_permitted(window_is_minimized(handle), policy).map_err(before_write)?;
+    }
     let plan = Placement::plan(&op).map_err(before_write)?;
     apply(handle, &evidence, plan, policy, deadline)
 }
@@ -159,13 +170,7 @@ fn apply(
     wait_for_placement(deadline, || {
         ensure_owned_after(evidence)?;
         placement_is_satisfied(handle, plan)
-    })?;
-    match plan {
-        Placement::Show(verb) if restore_goes_below_foreground(verb, policy) => {
-            super::window_front::place_below_foreground(handle)
-        }
-        _ => Ok(()),
-    }
+    })
 }
 
 #[cfg(not(target_os = "windows"))]

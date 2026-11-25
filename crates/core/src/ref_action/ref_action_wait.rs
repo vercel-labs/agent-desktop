@@ -23,7 +23,7 @@ pub(crate) fn execute_with_auto_wait(
     let mut result = landing.result;
     crate::ref_action::ref_action_dispatched::read_surfaces_after_release(
         context.adapter,
-        landing.surfaces_of,
+        landing.after_release,
         &landing.handle,
         landing.deadline,
         &mut result,
@@ -59,11 +59,31 @@ fn execute_with_deadline(
     let mut saw_ambiguity = false;
     let mut refusal: Option<AdapterError> = None;
     loop {
-        let mut state = if polls {
+        let (mut state, resolved) = if polls {
             execute_poll_loop(context, &request, deadline)
                 .map_err(|error| with_refusal(error, refusal.as_ref()))?
         } else {
-            RefActionPollState::default()
+            let handle = request
+                .headed_focus()
+                .is_none()
+                .then(|| {
+                    crate::refs::resolve_saved_ref::resolve_saved_ref(
+                        context.adapter,
+                        context.entry,
+                        deadline,
+                        None,
+                    )
+                    .map_err(crate::ref_action::mark_pre_dispatch_resolution_failure)
+                    .inspect_err(|error| {
+                        crate::ref_action::ref_action_wait_support::trace_resolve_error(
+                            context.context,
+                            context.ref_id,
+                            error,
+                        )
+                    })
+                })
+                .transpose()?;
+            (RefActionPollState::default(), handle)
         };
         state.saw_ambiguity |= saw_ambiguity;
         let pre = crate::ref_action::capture_pre_artifact(
@@ -86,12 +106,12 @@ fn execute_with_deadline(
             request.timeout_ms = Some(deadline.remaining_ms());
         }
         let lease_started = std::time::Instant::now();
-        match execute_single_shot(context, request.clone(), deadline, &lease) {
+        match execute_single_shot(context, request.clone(), deadline, &lease, resolved) {
             Ok(dispatched) => {
                 let ref_action_dispatched::DispatchedAction {
                     mut result,
                     handle,
-                    surfaces_of,
+                    after_release,
                 } = dispatched;
                 state.attach_transient_ambiguity(&mut result);
                 state.attach_wait_metrics(
@@ -106,7 +126,7 @@ fn execute_with_deadline(
                     pre,
                     deadline,
                     lease_started,
-                    surfaces_of,
+                    after_release,
                 });
             }
             Err(error) => {

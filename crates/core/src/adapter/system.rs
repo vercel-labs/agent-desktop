@@ -301,6 +301,14 @@ pub trait SystemOps: Send + Sync {
         None
     }
 
+    /// The processes that descend from `root` and started at or after
+    /// `since_ms` (milliseconds since the Unix epoch) and are still running,
+    /// or `None` where the adapter cannot list them. The front guard uses it
+    /// to keep watching for a window a spawned helper has not yet shown.
+    fn spawned_descendants(&self, _root: u32, _since_ms: u64) -> Option<Vec<u32>> {
+        None
+    }
+
     fn keep_below(
         &self,
         _window: &crate::FrontWindow,

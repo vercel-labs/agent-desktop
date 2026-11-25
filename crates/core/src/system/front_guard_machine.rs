@@ -36,17 +36,17 @@ enum Verdict {
 
 /// Says whether a window is the command target's, given whether it is new:
 /// absent from the view read before the command.
-pub(crate) type Owner<'a> = Box<dyn Fn(&FrontWindow, bool) -> bool + Send + 'a>;
+pub(crate) type Owner = Box<dyn Fn(&FrontWindow, bool) -> bool + Send>;
 
-pub(crate) struct FrontGuardMachine<'a> {
+pub(crate) struct FrontGuardMachine {
     prior: FrontView,
-    owner: Owner<'a>,
+    owner: Owner,
     state: FrontGuardState,
     give_backs: u8,
 }
 
-impl<'a> FrontGuardMachine<'a> {
-    pub(crate) fn new(prior: FrontView, owner: Owner<'a>) -> Self {
+impl FrontGuardMachine {
+    pub(crate) fn new(prior: FrontView, owner: Owner) -> Self {
         Self {
             prior,
             owner,
@@ -97,6 +97,14 @@ impl<'a> FrontGuardMachine<'a> {
         }
         self.state = FrontGuardState::Watching;
         Step::Poll
+    }
+
+    /// Takes a guard that ended clean back to watching, for the part of the
+    /// watch that runs after the interaction lease is released.
+    pub(crate) fn resume(&mut self) {
+        if self.state == FrontGuardState::Clean {
+            self.state = FrontGuardState::Watching;
+        }
     }
 
     fn finish(&mut self) {
