@@ -85,6 +85,7 @@ pub fn slot(outcome: &PropertyOutcome) -> Value {
         }),
         PropertyOutcome::Absent => json!("<absent>"),
         PropertyOutcome::Unknown => json!("<unknown>"),
+        PropertyOutcome::Oversize(length) => json!(format!("<oversize {length}>")),
     }
 }
 

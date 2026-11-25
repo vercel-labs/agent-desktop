@@ -67,6 +67,7 @@ observation, actions and capture there fail or return nothing.
   `--headed`. It ends `delivered_unverified` (`verification_scope:
   "unavailable"`) when the field exposes no readable Text selection, and can
   verify when one is readable: confirm with a fresh `get`.
+- A field whose text is longer than 2048 characters cannot be read: `get` returns `ACTION_FAILED` with `details.kind: "value_exceeds_read_limit"` and the length. Do not retry it. `clear`, `set-value`, `focus` and `click` on its ref still work.
 - **`press --app` writes to the foreground queue** with no per-process
   targeting. A headless press to a non-frontmost app fails closed. A
   non-interactive caller (service, scheduled task, CI job) gets
