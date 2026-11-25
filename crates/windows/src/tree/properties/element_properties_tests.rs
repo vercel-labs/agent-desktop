@@ -94,3 +94,53 @@ fn a_rich_edit_value_drops_only_its_final_paragraph_mark() {
         LocatorField::Known("hi".into())
     );
 }
+
+fn read_through_the_bound(class: &str, raw: String) -> LocatorField<String> {
+    ElementProperties::from_reads(vec![
+        (
+            TreeProperty::ClassName,
+            PropertyOutcome::Known(PropertyValue::Text(class.into())),
+        ),
+        (
+            TreeProperty::Value,
+            crate::tree::properties::bounded_property_text(TreeProperty::Value, raw),
+        ),
+    ])
+    .locator_evidence(ResolvedVocabulary::unknown())
+    .value
+}
+
+/// A RichEdit field of exactly the evidence bound reads back the bound plus its
+/// paragraph mark; counting the mark made `get`, `clear` and `set-value` fail
+/// on it with incomplete evidence.
+#[test]
+fn a_rich_edit_value_is_bounded_by_its_content_not_its_paragraph_mark() {
+    for length in [2047, 2048] {
+        let text = "x".repeat(length);
+        assert_eq!(
+            read_through_the_bound("RICHEDIT50W", format!("{text}\r")),
+            LocatorField::Known(text),
+            "{length} characters of content"
+        );
+    }
+    assert_eq!(
+        read_through_the_bound("RICHEDIT50W", format!("{}\r", "x".repeat(2049))),
+        LocatorField::Unknown
+    );
+}
+
+#[test]
+fn a_value_past_the_bound_is_unread_never_cut_to_a_prefix() {
+    assert_eq!(
+        read_through_the_bound("Edit", "x".repeat(2049)),
+        LocatorField::Unknown
+    );
+    assert_eq!(
+        read_through_the_bound("RICHEDIT50W", "x".repeat(2050)),
+        LocatorField::Unknown
+    );
+    assert_eq!(
+        read_through_the_bound("Edit", "x".repeat(2048)),
+        LocatorField::Known("x".repeat(2048))
+    );
+}
