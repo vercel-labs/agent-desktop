@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use agent_desktop_core::{
-    AdapterError, Deadline, ErrorCode, ProcessId, system::launch_options::LaunchOptions,
-    system::launch_result::LaunchResult,
+    AdapterError, Deadline, ErrorCode, LaunchArrival, ProcessId,
+    system::launch_options::LaunchOptions, system::launch_result::LaunchResult,
 };
 
 use super::super::app_ops::{ProcessRow, process_snapshot};
@@ -16,8 +16,9 @@ pub(super) fn prepare(
 ) -> Result<(PathBuf, Option<LaunchResult>), AdapterError> {
     let matches = matching_processes(image_file_name(id))?;
     if !options.attach_if_running {
-        if let Some(row) = matches.first() {
-            return Err(super::already_running_error(row.pid, &matches));
+        if !matches.is_empty() {
+            let pids: Vec<ProcessId> = matches.iter().map(|row| row.pid).collect();
+            return Err(agent_desktop_core::launch_already_running(id, &pids));
         }
         return Ok((resolve_executable(id)?, None));
     }
@@ -48,20 +49,30 @@ pub(super) fn prepare(
             .collect::<Vec<_>>();
         return Err(super::ambiguous_apps(&rows));
     }
-    if let Some((row, token, _process)) = exact_matches.pop() {
-        let window = super::observe_window(row.pid, &token, options, deadline)?;
+    if let Some((row, token, _process)) = attachable(&mut exact_matches, options) {
+        let sighting = super::observe_window(row.pid, &token, options, deadline)?;
         return Ok((
             executable,
-            Some(super::launch_result(
+            Some(super::launch_result(super::Reported {
                 id,
-                row.pid,
-                token,
-                window,
-                super::ATTACHED,
-            )),
+                pid: row.pid,
+                process_instance: token,
+                window: sighting.window,
+                arrival: LaunchArrival::Attached,
+                suggestion: None,
+            })),
         ));
     }
     Ok((executable, None))
+}
+
+/// The single running instance a launch may attach to. An attach sends
+/// nothing, so a launch that carries arguments cannot be satisfied by it: the
+/// arguments would be dropped. With arguments the launch spawns, and the
+/// process the system starts hands them to the running instance the way the
+/// system does for any launch.
+pub(super) fn attachable<T>(exact_matches: &mut Vec<T>, options: &LaunchOptions) -> Option<T> {
+    exact_matches.pop().filter(|_| options.args.is_empty())
 }
 
 pub(super) fn matching_processes(image: &str) -> Result<Vec<ProcessRow>, AdapterError> {
@@ -128,3 +139,7 @@ impl ProcessPin {
         None
     }
 }
+
+#[cfg(test)]
+#[path = "launch_attach_tests.rs"]
+mod tests;
