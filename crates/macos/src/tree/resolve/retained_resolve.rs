@@ -12,6 +12,7 @@ pub(in crate::tree) enum RetainedMismatch {
     Pid,
     Role,
     NativeId,
+    Window,
 }
 
 impl RetainedMismatch {
@@ -21,6 +22,7 @@ impl RetainedMismatch {
             Self::Pid => "pid",
             Self::Role => "role",
             Self::NativeId => "native_identifier",
+            Self::Window => "window",
         }
     }
 }
@@ -32,6 +34,7 @@ pub(in crate::tree) struct RetainedFacts<'a> {
     pub(in crate::tree) role: Option<&'a str>,
     pub(in crate::tree) subrole: Option<&'a str>,
     pub(in crate::tree) native_id: Option<&'a str>,
+    pub(in crate::tree) window_live: bool,
 }
 
 /// Resolves a saved token to its element without a tree search, or reports why
@@ -83,6 +86,7 @@ fn verify_token_element(
         role: role.as_deref(),
         subrole: subrole.as_deref(),
         native_id: native_id.as_deref(),
+        window_live: super::retained_window::owning_window_is_live(entry, element, deadline)?,
     };
     if let Some(mismatch) = token_mismatch(entry, &facts) {
         return Err(stale_token_error(entry, mismatch));
@@ -109,7 +113,7 @@ fn destroyed_as_stale(entry: &RefEntry, error: AdapterError) -> AdapterError {
 }
 
 /// Accepts a token's element only when its pid, snapshot role and recorded
-/// native identifier all still agree with the saved ref.
+/// native identifier all still agree with the saved ref and its window is open.
 pub(in crate::tree) fn token_mismatch(
     entry: &RefEntry,
     facts: &RetainedFacts<'_>,
@@ -128,6 +132,9 @@ pub(in crate::tree) fn token_mismatch(
         if facts.native_id != Some(recorded) {
             return Some(RetainedMismatch::NativeId);
         }
+    }
+    if !facts.window_live {
+        return Some(RetainedMismatch::Window);
     }
     None
 }

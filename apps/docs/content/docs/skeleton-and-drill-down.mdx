@@ -202,7 +202,7 @@ A drill changes a saved snapshot, so it refuses anything that could leave the sn
   <tbody>
     <tr><td><code>--root</code> with <code>--surface</code></td><td><code>INVALID_ARGS</code>, "--root cannot be combined with --surface". A ref already carries the surface it was captured from. An explicit <code>--surface window</code>, the default, is allowed.</td></tr>
     <tr><td><code>--root</code> with <code>--wait-for</code> or <code>--wait-for-gone</code></td><td><code>INVALID_ARGS</code>, "--root cannot be combined with --wait-for or --wait-for-gone". Run <code>snapshot</code> without <code>--root</code>, or omit the wait flags.</td></tr>
-    <tr><td>The read of the region is incomplete or misses the deadline</td><td><code>TIMEOUT</code>. The read happens before any write, so the saved snapshot is untouched.</td></tr>
+    <tr><td>The read of the region is incomplete or misses the deadline</td><td><code>TIMEOUT</code>. The drill reads again until a read is whole or <code>--timeout-ms</code> is spent, so a list that changes during one read does not fail at once. The message says whether the reads ran out of time (raise <code>--timeout-ms</code> or drill a narrower subtree) or the region kept changing (drill a narrower subtree). The read happens before any write, so the saved snapshot is untouched.</td></tr>
     <tr><td>The root ref is not in its snapshot, or no live element matches it</td><td><code>STALE_REF</code>. A missing snapshot is <code>SNAPSHOT_NOT_FOUND</code>.</td></tr>
     <tr><td>The ref's source window is gone</td><td><code>WINDOW_NOT_FOUND</code>. Nothing is saved.</td></tr>
   </tbody>
@@ -218,7 +218,7 @@ A drill is all or nothing. It replaces refs inside an existing snapshot, and a p
   "error": {
     "code": "TIMEOUT",
     "message": "Operation exceeded its deadline",
-    "suggestion": "The target application may be busy or unresponsive",
+    "suggestion": "The operation did not finish within its deadline; retry once, and if it repeats report the timeout instead of retrying",
     "recovery": {
       "strategy": "inspect_state_then_retry_original",
       "retryable": true,

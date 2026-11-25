@@ -153,7 +153,7 @@ fn read_clients(display: &str) -> ControlRead<Vec<X11Client>> {
                 id: window,
                 shadow,
                 pid,
-                title: title_of(&connection, window, *name, *utf8),
+                title: title_of(&connection, window, *name, *utf8).into(),
                 extents,
                 bounds: super::reader::bounds(&connection, root, window),
                 hidden: is_hidden,

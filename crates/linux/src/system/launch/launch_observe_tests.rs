@@ -189,15 +189,24 @@ fn a_failure_names_the_status_and_marks_the_exact_crash_disposition() {
 fn a_launcher_that_exited_is_reported_under_the_name_the_caller_asked_for() {
     let child = std::process::Command::new("/bin/true").spawn().unwrap();
     let spawned = Spawned::new(child, "gnome-calculator");
-    let error = spawned.failure(exited(0));
+    let error = spawned.failure(exited(3));
     assert!(
         error
             .message
-            .contains("'gnome-calculator' exited with status 0")
+            .contains("'gnome-calculator' exited with status 3")
     );
-    assert!(
-        error
-            .message
-            .contains("no running instance of the executable opened a window")
-    );
+}
+
+#[test]
+fn a_clean_exit_with_no_owner_stops_waiting_after_the_grace_not_the_deadline() {
+    let exited = Instant::now();
+
+    assert!(!handoff_unresolved(exited, exited, false));
+    assert!(!handoff_unresolved(
+        exited,
+        exited + HANDOFF_GRACE - Duration::from_millis(1),
+        false
+    ));
+    assert!(handoff_unresolved(exited, exited + HANDOFF_GRACE, false));
+    assert!(handoff_unresolved(exited, exited, true));
 }

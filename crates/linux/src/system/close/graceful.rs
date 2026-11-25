@@ -3,7 +3,6 @@ use agent_desktop_core::{AdapterError, DeliverySemantics};
 use super::standing::Standing;
 use super::world::World;
 use super::{Request, refusal};
-use crate::system::focus::prior_focus::PriorFocus;
 use crate::system::process::liveness::Liveness;
 use crate::system::x11::control::ControlRead;
 use crate::system::x11::control::control_error::ControlError;
@@ -76,11 +75,7 @@ fn fan_out(
     unless_gone(world, failure)
 }
 
-fn request_close(
-    world: &impl World,
-    request: &Request<'_>,
-    focus_unreadable: bool,
-) -> Result<bool, AdapterError> {
+fn request_close(world: &impl World, request: &Request<'_>) -> Result<bool, AdapterError> {
     let windows = match world.toplevels() {
         ControlRead::Ready(windows) => windows,
         ControlRead::NotX11 | ControlRead::NoManager if world.on_wayland() => {
@@ -114,15 +109,12 @@ fn request_close(
         Err(error) => return unless_gone(world, error.unsent()),
     };
     if standing.has_dialog() {
-        return Err(refusal::dialog_pending(request, &standing, false, false));
+        return Err(refusal::dialog_pending(request, &standing, false));
     }
     if standing.dialogs_unknown() {
         return Err(refusal::dialogs_unknown(request));
     }
     let ids: Vec<u32> = standing.windows.iter().map(|window| window.id).collect();
-    if focus_unreadable {
-        return Err(refusal::focus_unreadable(request));
-    }
     fan_out(world, request, &ids)
 }
 
@@ -198,16 +190,7 @@ pub(super) fn close(world: &impl World, request: &Request<'_>) -> Result<bool, A
         Liveness::Stopped => return Err(AdapterError::app_unresponsive(request.name)),
         Liveness::Alive => {}
     }
-    let prior = (!request.policy.allow_focus_steal).then(|| world.read_prior());
-    let focus_unreadable = matches!(prior, Some(PriorFocus::Unreadable));
-    let outcome = request_close(world, request, focus_unreadable);
-    let held = prior.and_then(PriorFocus::held);
-    let delivered = match &outcome {
-        Ok(sent) => *sent,
-        Err(error) => error.disposition != DeliverySemantics::not_delivered(),
-    };
-    let returned = delivered && held.is_some_and(|prior| world.watch_focus(&prior));
-    let sent = outcome?;
+    let sent = request_close(world, request)?;
     if !sent && world.liveness() == Liveness::Gone {
         return Ok(false);
     }
@@ -215,7 +198,7 @@ pub(super) fn close(world: &impl World, request: &Request<'_>) -> Result<bool, A
         Waited::Gone => return Ok(sent),
         Waited::Dialog(first) => {
             return match settled(world, first) {
-                Some(standing) => Err(refusal::dialog_pending(request, &standing, true, returned)),
+                Some(standing) => Err(refusal::dialog_pending(request, &standing, true)),
                 None => Ok(sent),
             };
         }

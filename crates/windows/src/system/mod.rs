@@ -12,7 +12,6 @@ pub(crate) mod escape_popup;
 pub(crate) mod interaction_lease;
 pub(crate) mod key_dispatch;
 pub(crate) mod launch;
-mod launch_focus;
 mod launch_path;
 pub(crate) mod lifecycle_envelope_parity;
 #[cfg(all(test, target_os = "windows"))]

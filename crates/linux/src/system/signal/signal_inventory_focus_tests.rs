@@ -47,7 +47,7 @@ fn an_active_window_no_client_claims_is_not_a_candidate() {
     let clients = vec![X11Client {
         id: 0x40_0003,
         pid: Some(1),
-        title: "other".to_owned(),
+        title: "other".into(),
         extents: None,
         bounds: None,
         hidden: false,
@@ -111,7 +111,7 @@ fn an_active_window_with_a_client_keeps_its_candidacy() {
     let clients = vec![X11Client {
         id: 0x40_0003,
         pid: Some(1),
-        title,
+        title: title.into(),
         extents: None,
         bounds: Some(Extents {
             x: 0,

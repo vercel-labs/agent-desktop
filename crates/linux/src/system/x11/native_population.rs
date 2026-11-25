@@ -62,7 +62,7 @@ pub(crate) fn read(pid: u32, clients: Vec<u32>, deadline: Deadline) -> NativePop
                                 menus.push(X11Client {
                                     id: window,
                                     pid: Some(pid),
-                                    title: String::new(),
+                                    title: Default::default(),
                                     bounds: Some(super::reader::bounds(&connection, root, window)?),
                                     extents: None,
                                     hidden: false,

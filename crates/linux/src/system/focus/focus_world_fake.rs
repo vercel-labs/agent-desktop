@@ -72,7 +72,7 @@ pub(super) fn x11_client(id: u32, title: &str) -> X11Client {
         id,
         hidden: false,
         pid: Some(100),
-        title: title.to_owned(),
+        title: title.into(),
         extents: None,
         bounds: None,
     }

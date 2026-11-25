@@ -34,6 +34,8 @@ pub(super) fn selected_matches(
     observed: &ObservedTree,
 ) -> Result<(), AppError> {
     let deadline = request.deadline;
+    let anchor_query = query.without_subtree_predicates();
+    let query = &anchor_query;
     let proof = crate::refs::ref_capture_proof::CaptureProof::new(observed);
     let mut refmap = RefMap::new();
     for matched in &mut resolution.matches {
@@ -44,7 +46,7 @@ pub(super) fn selected_matches(
         let has_bounds = preliminary.geometry.bounds_hash.is_some();
         let index = matched.document_order as usize;
         proof.prove_node(&mut preliminary, index);
-        let proven = preliminary.identity.unique_at_capture;
+        let proven = preliminary.identity.proof.is_unique();
         tracing::debug!(
             role = preliminary.identity.role,
             path_len = preliminary.scope.path.len(),
@@ -82,8 +84,7 @@ pub(super) fn selected_matches(
         let mut hydrated = crate::tree::renderer_accessibility::observe_tree(
             adapter,
             hydration_root,
-            &ObservationRequest::selected_hydration(query, request, hydration_root, deadline)
-                .validate()?,
+            &ObservationRequest::selected_hydration(query, hydration_root, deadline).validate()?,
             None,
         )?;
         hydrated.stats.reads.counts.observation_attempts =

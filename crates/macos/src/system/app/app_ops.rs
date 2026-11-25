@@ -1,5 +1,6 @@
 use agent_desktop_core::{AdapterError, AppInfo, Deadline, ErrorCode, ProcessIdentity};
 
+use crate::system::app::close_modal;
 pub(crate) use crate::system::app::close_outcome::CloseOutcome;
 
 #[cfg(target_os = "macos")]
@@ -73,6 +74,14 @@ fn terminate_running_application(
     {
         return Ok(CloseOutcome::AlreadyGone);
     }
+    if !force && let Some(modal) = open_modal(identity, deadline) {
+        return Err(close_modal::modal_pending(
+            id,
+            identity.pid(),
+            &modal,
+            false,
+        ));
+    }
     let outcome = crate::system::appkit_bridge::terminate(
         identity.pid(),
         identity.launch_time_seconds(),
@@ -127,6 +136,38 @@ fn termination_request_not_accepted(id: &str, pid: i32, force: bool) -> AdapterE
     .with_disposition(agent_desktop_core::DeliverySemantics::not_delivered())
 }
 
+/// How long one read of the application's prompts may take. A hung
+/// application must not hold the close past the deadline it already has.
+#[cfg(target_os = "macos")]
+const MODAL_READ_BUDGET: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// How often the wait for an exit looks for a prompt that blocks it.
+#[cfg(target_os = "macos")]
+const MODAL_PROBE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// The open alert or sheet of the application, or `None` when there is none
+/// or the read could not be completed. An unreadable application is not
+/// refused: the request still goes out and the exit wait judges it.
+#[cfg(target_os = "macos")]
+fn open_modal(
+    identity: crate::system::process::process_identity::ProcessIdentity,
+    deadline: Deadline,
+) -> Option<agent_desktop_core::SurfaceInfo> {
+    let surfaces = crate::tree::surface_inventory::list_surfaces_for_process(
+        identity,
+        deadline.capped(MODAL_READ_BUDGET),
+    )
+    .ok()?;
+    close_modal::pending_modal(&surfaces).cloned()
+}
+
+#[cfg(target_os = "macos")]
+enum CloseWatch {
+    Running,
+    Gone,
+    Blocked(agent_desktop_core::SurfaceInfo),
+}
+
 #[cfg(target_os = "macos")]
 fn wait_for_exit(
     id: &str,
@@ -135,25 +176,38 @@ fn wait_for_exit(
     deadline: Deadline,
 ) -> Result<CloseOutcome, AdapterError> {
     let step = std::time::Duration::from_millis(25);
-    let running = deadline
+    let mut last_probe = std::time::Instant::now();
+    let watched = deadline
         .poll_until(
             deadline.remaining(),
             step,
-            || identity.still_matches(),
-            |read| !matches!(read, Ok(true)),
+            || {
+                if !identity.still_matches()? {
+                    return Ok(CloseWatch::Gone);
+                }
+                if force || last_probe.elapsed() < MODAL_PROBE_INTERVAL {
+                    return Ok(CloseWatch::Running);
+                }
+                last_probe = std::time::Instant::now();
+                Ok(open_modal(identity, deadline).map_or(CloseWatch::Running, CloseWatch::Blocked))
+            },
+            |read: &Result<CloseWatch, AdapterError>| !matches!(read, Ok(CloseWatch::Running)),
         )
         .map_err(after_termination_request)?;
-    if !running {
-        return Ok(CloseOutcome::Exited);
+    match watched {
+        CloseWatch::Gone => Ok(CloseOutcome::Exited),
+        CloseWatch::Blocked(modal) => {
+            Err(close_modal::modal_pending(id, identity.pid(), &modal, true))
+        }
+        CloseWatch::Running => Err(deadline
+            .timeout_error()
+            .with_details(serde_json::json!({
+                "app": id,
+                "pid": identity.pid(),
+                "force": force,
+            }))
+            .with_disposition(agent_desktop_core::DeliverySemantics::delivered_unverified())),
     }
-    Err(deadline
-        .timeout_error()
-        .with_details(serde_json::json!({
-            "app": id,
-            "pid": identity.pid(),
-            "force": force,
-        }))
-        .with_disposition(agent_desktop_core::DeliverySemantics::delivered_unverified()))
 }
 
 #[cfg(target_os = "macos")]

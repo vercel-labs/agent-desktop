@@ -1,4 +1,5 @@
 pub(crate) mod file_lock;
+mod file_lock_wait;
 pub(crate) mod private_file;
 pub(crate) mod private_file_ops;
 pub(crate) mod private_file_parent;

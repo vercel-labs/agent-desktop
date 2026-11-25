@@ -45,7 +45,9 @@ pub(crate) fn execute_witnessed_action(
     let deadline = lease.deadline();
     let action_name = request.action.name();
     let before = adapter.read_effect_witness(handle, deadline).ok();
-    let dispatch = adapter.execute_action(handle, request, lease);
+    let dispatch = adapter
+        .execute_action(handle, request, lease)
+        .map_err(crate::actions::post_action::settle_disposition);
     let Some(before) = before else {
         return dispatch;
     };

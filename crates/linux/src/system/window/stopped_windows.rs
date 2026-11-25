@@ -45,7 +45,7 @@ pub(crate) fn of_stopped_apps(
                 app: index,
                 info: WindowInfo {
                     id,
-                    title: client.title.clone(),
+                    title: client.title.display().to_owned(),
                     app: app.name.clone(),
                     pid: pid.into(),
                     process_instance: Some(app.facts.instance.clone()),
@@ -63,7 +63,7 @@ pub(crate) fn of_stopped_apps(
                 frame: FrameFacts {
                     size_identity: false,
                     pid,
-                    title: client.title.clone(),
+                    title: client.title.display().to_owned(),
                     extents: client.bounds,
                     global_position: false,
                 },

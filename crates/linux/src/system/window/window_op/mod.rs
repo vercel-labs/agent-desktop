@@ -1,16 +1,14 @@
 use std::time::Duration;
 
 use agent_desktop_core::{
-    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionLease, OperationReport,
-    OperationTarget, Rect, WindowInfo, WindowOp,
+    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionLease, InteractionPolicy,
+    OperationReport, OperationTarget, Rect, WindowInfo, WindowOp,
 };
 use serde_json::Value;
 
-use self::hold::{
-    confirm_rectangle, give_back_place, holds_place, is_resize, move_client, remember_place,
-};
+use self::hold::{confirm_rectangle, holds_place, is_resize, move_client, remember_place};
 use self::owner::{ensure_owned_after, ensure_owned_before};
-use self::refuse::{no_client, refused, unreadable, unsupported_session, write_failed};
+use self::refuse::{no_client, unsupported_session, write_failed};
 use self::window_place::PlaceStore;
 use super::window_client::{ClientWorld, client_of};
 use super::window_op::window_op_shadow::{Shadow, to_client, to_visible, visible_of};
@@ -21,7 +19,7 @@ use crate::system::display::display_server::{DisplayServer, session_server};
 use crate::system::focus::focus_cause::Cause;
 use crate::system::focus::focus_window::FocusWorld;
 use crate::system::focus::focus_world::LiveWorld as FrameWorld;
-use crate::system::focus::restore_minimized::{Lifted, lift, still_hidden};
+use crate::system::focus::restore_minimized::{Lifted, lift};
 use crate::system::process::process_lookup::Lookup;
 use crate::system::x11::control::control_error::ControlError;
 use crate::system::x11::control::control_send::{WindowWrite, write_window};
@@ -244,48 +242,6 @@ fn apply(
     outcome.map_err(|error| reobserve(world, client, error))
 }
 
-fn read_before(world: &impl OpWorld, client: u32) -> Result<WindowFacts, AdapterError> {
-    match world.facts(client) {
-        ControlRead::Ready(facts) => Ok(facts),
-        _ => Err(unreadable()),
-    }
-}
-
-fn restore(
-    world: &impl OpWorld,
-    win: &WindowInfo,
-    client: u32,
-    deadline: Deadline,
-) -> Result<(), AdapterError> {
-    let mut current = read_before(world, client)?;
-    if current.hidden && world.on_wayland() {
-        return Err(refused(
-            ErrorCode::ActionNotSupported,
-            "wayland_session",
-            "A Wayland compositor refuses to show a minimized window for another client",
-            "Show the window yourself, for example from the overview",
-        ));
-    }
-    if current.hidden {
-        if let Lifted::StillHidden { manager } = world.lift(client)? {
-            return Err(still_hidden(&manager, world.overview_open() == Some(true)));
-        }
-        current = read_before(world, client)
-            .map_err(|error| error.with_disposition(DeliverySemantics::delivered_unverified()))?;
-    }
-    if !current.maximized_vertical && !current.maximized_horizontal {
-        return give_back_place(world, win, client, deadline);
-    }
-    apply(
-        world,
-        win,
-        client,
-        &WindowWrite::SetMaximized(false),
-        deadline,
-    )?;
-    give_back_place(world, win, client, deadline)
-}
-
 fn reobserve(world: &impl OpWorld, client: u32, mut error: AdapterError) -> AdapterError {
     let (ControlRead::Ready(facts), Some(observed)) = (
         world.facts(client),
@@ -305,6 +261,7 @@ fn dispatch(
     world: &impl OpWorld,
     win: &WindowInfo,
     op: &WindowOp,
+    policy: InteractionPolicy,
     deadline: Deadline,
 ) -> Result<Option<Value>, AdapterError> {
     let write = requested(op)?;
@@ -321,7 +278,7 @@ fn dispatch(
     }
     let done = match write {
         Some(write) => apply(world, win, client, &to_client(write, shadow), deadline),
-        None => restore(world, win, client, deadline),
+        None => restoring::restore(world, win, client, policy, deadline),
     };
     done.map(|()| match op {
         WindowOp::Resize { .. } => world
@@ -337,9 +294,10 @@ fn run(
     world: &impl OpWorld,
     win: &WindowInfo,
     op: &WindowOp,
+    policy: InteractionPolicy,
     deadline: Deadline,
 ) -> Result<OperationReport, AdapterError> {
-    let dispatched = dispatch(world, win, op, deadline);
+    let dispatched = dispatch(world, win, op, policy, deadline);
     let observed = dispatched.as_ref().ok().cloned().flatten();
     let mut report = OperationReport::from_window_dispatch(
         win,
@@ -359,6 +317,7 @@ pub(crate) fn window_op(
     bus: &SharedBus,
     win: &WindowInfo,
     op: WindowOp,
+    policy: InteractionPolicy,
     lease: &InteractionLease,
 ) -> Result<OperationReport, AdapterError> {
     OperationTarget::for_window(win)?;
@@ -377,6 +336,7 @@ pub(crate) fn window_op(
         },
         win,
         &op,
+        policy,
         deadline,
     )
 }
@@ -387,6 +347,8 @@ mod hold;
 mod owner;
 #[path = "window_op_refuse.rs"]
 mod refuse;
+#[path = "window_op_restore.rs"]
+mod restoring;
 pub(in crate::system) mod window_op_shadow;
 pub(in crate::system) mod window_op_verdict;
 #[path = "window_place.rs"]

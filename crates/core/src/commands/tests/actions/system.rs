@@ -67,6 +67,7 @@ impl SystemOps for AppStub {
         &self,
         win: &WindowInfo,
         op: WindowOp,
+        _: crate::InteractionPolicy,
         _: &InteractionLease,
     ) -> Result<OperationReport, AdapterError> {
         let readback = Some(WindowReadback::for_window_op(&op, 2.0, "px"));
@@ -134,11 +135,11 @@ fn window_commands_and_a_window_scoped_press_report_the_adapter_results() {
 
     let data = json!({
         "press": press::execute(press_args, &stub, &CommandContext::default()).unwrap(),
-        "move": move_window::execute(move_args, &stub).unwrap(),
-        "resize": resize_window::execute(resize_args, &stub).unwrap(),
-        "minimize": minimize::execute(app(), &stub).unwrap(),
-        "maximize": maximize::execute(app(), &stub).unwrap(),
-        "restore": restore::execute(app(), &stub).unwrap(),
+        "move": move_window::execute(move_args, &stub, crate::InteractionPolicy::headless()).unwrap(),
+        "resize": resize_window::execute(resize_args, &stub, crate::InteractionPolicy::headless()).unwrap(),
+        "minimize": minimize::execute(app(), &stub, crate::InteractionPolicy::headless()).unwrap(),
+        "maximize": maximize::execute(app(), &stub, crate::InteractionPolicy::headless()).unwrap(),
+        "restore": restore::execute(app(), &stub, crate::InteractionPolicy::headless()).unwrap(),
     });
 
     assert_golden(

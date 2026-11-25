@@ -151,8 +151,16 @@ impl ExecutableIdentity {
             return false;
         }
         let mut rest = actual[1..].iter();
-        consume_in_order(&argv[1..], &mut rest) && rest.all(is_bare_long_option)
+        consume_in_order(&argv[1..], &mut rest)
+            && rest.all(|word| is_bare_long_option(word) || is_short_switch(word))
     }
+}
+
+/// A single-letter switch such as `-b`: a mode of the process, never other
+/// code or another file, so a launch without it still names the process.
+fn is_short_switch(word: &OsString) -> bool {
+    let bytes = word.as_encoded_bytes();
+    bytes.len() == 2 && bytes[0] == b'-' && bytes[1] != b'-'
 }
 
 fn compared(argv: &[OsString]) -> Vec<&OsString> {
@@ -170,3 +178,7 @@ fn same_invocation(expected: &[OsString], actual: &[OsString]) -> bool {
         || (!invocation.as_encoded_bytes().contains(&b'/')
             && Path::new(program).file_name() == Some(invocation.as_os_str()))
 }
+
+#[cfg(test)]
+#[path = "executable_identity_switch_tests.rs"]
+mod switch_tests;

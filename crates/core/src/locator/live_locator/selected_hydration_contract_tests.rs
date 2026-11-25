@@ -59,7 +59,7 @@ impl ObservationOps for HydrationContractAdapter {
     ) -> Result<NativeHandle, AdapterError> {
         self.strict_resolutions.fetch_add(1, Ordering::SeqCst);
         assert!(
-            entry.identity.unique_at_capture
+            entry.identity.proof.is_unique()
                 || crate::refs::ref_identity::has_meaningful_identity(entry)
                 || entry.geometry.bounds_hash.is_some()
         );
@@ -128,7 +128,7 @@ fn a_capture_proven_path_only_anchor_is_admitted_and_published_proven() {
     let entry = resolution.refmap.unwrap().get("@e1").unwrap().clone();
     assert_eq!(entry.identity.name, None);
     assert_eq!(entry.geometry.bounds, Some(bounds()));
-    assert!(entry.identity.unique_at_capture);
+    assert!(entry.identity.proof.is_unique());
 }
 
 /// Hydration re-materializes the entry from a second read, so it must carry the
@@ -152,7 +152,7 @@ fn a_hydrated_entry_keeps_the_capture_proof_and_its_ref_resolves() {
     let entry = resolution.refmap.unwrap().get("@e1").unwrap().clone();
     assert_eq!(entry.identity.name.as_deref(), Some("Save"));
     assert!(
-        entry.identity.unique_at_capture,
+        entry.identity.proof.is_unique(),
         "hydration must keep the proof the whole-window read gave the match"
     );
 
@@ -190,7 +190,7 @@ fn a_name_hydration_adds_is_shown_while_the_saved_ref_keeps_its_proof() {
 
     let entry = resolution.refmap.unwrap().get("@e1").unwrap().clone();
     assert_eq!(entry.identity.name, None);
-    assert!(entry.identity.unique_at_capture);
+    assert!(entry.identity.proof.is_unique());
     crate::refs::resolve_saved_ref::resolve_saved_ref(
         &adapter,
         &entry,

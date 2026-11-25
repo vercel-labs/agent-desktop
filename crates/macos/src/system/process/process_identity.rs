@@ -78,6 +78,11 @@ impl ProcessIdentity {
         self.start_seconds as f64 + self.start_microseconds as f64 / 1_000_000.0
     }
 
+    /// When the process started, in milliseconds since the Unix epoch.
+    pub(crate) fn started_unix_ms(self) -> u64 {
+        self.start_seconds * 1_000 + self.start_microseconds / 1_000
+    }
+
     pub(crate) fn token(self) -> String {
         format!(
             "{TOKEN_PREFIX}:{}:{}",
