@@ -4,7 +4,8 @@ use crate::adapter::{NativeHandle, PlatformAdapter};
 use crate::context::CommandContext;
 use crate::ref_action::ref_action_context::RefActionContext;
 use crate::ref_action::ref_action_wait_support::{
-    note_preparatory_scroll, note_scroll_if, require_route_before_scroll, trace_scroll_error,
+    note_preparatory_scroll, note_scroll_if, require_route_before_scroll, scroll_was_sent,
+    trace_scroll_error,
 };
 use crate::refs::{RefEntry, resolve_saved_ref::resolve_saved_ref};
 use crate::{AdapterError, AppError, actionability};
@@ -93,7 +94,6 @@ pub(crate) fn dispatch_resolved_landing(
                 return Err(error.into());
             }
             require_route_before_scroll(target.adapter, &handle, &request, lease)?;
-            scrolled = true;
             let recovered = match target.adapter.scroll_ref_into_view(
                 target.entry,
                 &handle,
@@ -103,7 +103,8 @@ pub(crate) fn dispatch_resolved_landing(
                 Ok(recovered) => recovered,
                 Err(scroll_error) => {
                     trace_scroll_error(&target, &scroll_error);
-                    return Err(note_preparatory_scroll(
+                    return Err(note_scroll_if(
+                        scroll_was_sent(&scroll_error),
                         crate::ref_action::ref_action_wait_evidence::attach_scroll_recovery_failure(
                             error,
                             &scroll_error,
@@ -112,6 +113,7 @@ pub(crate) fn dispatch_resolved_landing(
                     .into());
                 }
             };
+            scrolled = true;
             handle = match recovered {
                 Some(handle) => handle,
                 None => {
