@@ -111,14 +111,22 @@ fn within(surface: Option<Rect>, clips: &[Option<Rect>]) -> Option<Rect> {
         .fold(surface, |viewport, bounds| narrowed(viewport, *bounds))
 }
 
+/// The viewport inside an `AXWindow` ancestor. The element's own `AXWindow`
+/// attribute names that window when it answers; an element drawn in a sheet has
+/// no such value, so the ancestor the parent walk reached is the owning window.
+fn window_viewport(
+    attribute_window: Option<Rect>,
+    ancestor_window: Option<Rect>,
+    clips: &[Option<Rect>],
+) -> Option<Rect> {
+    within(attribute_window.or(ancestor_window), clips)
+}
+
 pub(crate) fn ancestor_viewport(
     element: &AXElement,
     deadline: Deadline,
 ) -> Result<Option<Rect>, AdapterError> {
     let window = owning_window_bounds(element, deadline)?;
-    if window.is_none() {
-        return Ok(None);
-    }
     let instant = deadline;
     let mut clips = Vec::new();
     let mut current = super::surface_read::element(element, "AXParent", instant)?;
@@ -141,11 +149,15 @@ pub(crate) fn ancestor_viewport(
             let surface = read_bounds_with_deadline(&parent, instant)?;
             return Ok(within(surface, &clips));
         }
-        if clips_descendants(&role) {
-            clips.push(read_bounds_with_deadline(&parent, instant)?);
-        }
+        let own_bounds = if clips_descendants(&role) {
+            let bounds = read_bounds_with_deadline(&parent, instant)?;
+            clips.push(bounds);
+            bounds
+        } else {
+            None
+        };
         if role == "AXWindow" {
-            return Ok(within(window, &clips));
+            return Ok(window_viewport(window, own_bounds, &clips));
         }
         current = super::surface_read::element(&parent, "AXParent", instant)?;
     }
@@ -285,6 +297,21 @@ mod tests {
         assert_eq!(within(popover, &[scroll_area]), scroll_area);
         assert_eq!(within(popover, &[]), popover);
         assert_eq!(within(popover, &[None]), None);
+    }
+
+    #[test]
+    fn an_element_with_no_window_attribute_is_clipped_by_its_window_ancestor() {
+        let window = Some(rect(100.0, 600.0));
+        let sheet = Some(rect(50.0, 800.0));
+        assert_eq!(window_viewport(None, window, &[sheet, window]), window);
+        assert_eq!(window_viewport(None, None, &[sheet]), None);
+    }
+
+    #[test]
+    fn the_window_attribute_wins_over_the_ancestor_window() {
+        let attributed = Some(rect(100.0, 600.0));
+        let ancestor = Some(rect(0.0, 50.0));
+        assert_eq!(window_viewport(attributed, ancestor, &[]), attributed);
     }
 
     #[test]
