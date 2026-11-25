@@ -285,48 +285,7 @@ pub trait SystemOps: Send + Sync {
         policy: InteractionPolicy,
         lease: &InteractionLease,
     ) -> Result<ActionResult, AdapterError> {
-        let refusal = || {
-            AdapterError::new(
-                ErrorCode::ActionFailed,
-                "The named window does not hold keyboard focus; no key was sent",
-            )
-            .with_suggestion(if policy.is_headed() {
-                "Make sure the named window stays active before you retry; a sibling window or another application's menu can hold the keyboard"
-            } else {
-                "Bring the named window to the front yourself, or tell the user it is not in front. Use --headed only if the user asked for focus changes: it brings the named window forward first"
-            })
-            .with_details(serde_json::json!({
-                "check": "window_active",
-                "cause": "exact_window_focus_unconfirmed",
-                "physical_delivery_started": false,
-                "window_id": window.id,
-            }))
-            .with_disposition(crate::DeliverySemantics::not_delivered())
-        };
-        let instance = window
-            .process_instance
-            .as_deref()
-            .filter(|instance| !instance.is_empty())
-            .ok_or_else(|| {
-                AdapterError::stale_ref_because("The named window has no process identity")
-                    .with_suggestion("Run 'list-windows' again and use the window's current id")
-            })?;
-        let focused = self
-            .focused_window(lease.deadline())
-            .map_err(AdapterError::unsent)?;
-        if !focused.is_some_and(|focused| {
-            focused.id == window.id
-                && focused.pid == window.pid
-                && focused.process_instance.as_deref() == Some(instance)
-        }) {
-            return Err(refusal());
-        }
-        self.press_key_for_app(
-            ProcessIdentity::new(window.pid, instance),
-            combo,
-            policy,
-            lease,
-        )
+        super::window_key_gate::press_in_exact_window(self, window, combo, policy, lease)
     }
 
     fn wait_for_menu(
