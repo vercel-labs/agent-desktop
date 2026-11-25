@@ -88,3 +88,14 @@ fn tree_has_match_finds_nested_node() {
     };
     assert!(tree_has_match(&root, &query));
 }
+
+#[test]
+fn validate_selector_rejects_an_unknown_role_before_any_dispatch() {
+    let error = validate_selector("badselector").unwrap_err();
+    assert!(
+        error.to_string().contains("Unknown role query"),
+        "got: {error}"
+    );
+    assert!(validate_selector("button:Save").is_ok());
+    assert!(validate_selector(":Saved!").is_ok());
+}

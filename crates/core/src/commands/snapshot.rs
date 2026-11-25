@@ -136,7 +136,7 @@ pub(crate) fn format_snapshot_fields(
         "app": result.owner.app_name(),
         "ref_count": ref_count,
         "snapshot_id": result.snapshot_id,
-        "complete": result.complete,
+        "complete": result.complete && result.identity_unproven.is_none(),
         "tree": tree
     });
     if let Some(window) = result.owner.window() {
@@ -146,8 +146,9 @@ pub(crate) fn format_snapshot_fields(
         body["truncated"] = json!(true);
         body["nodes_observed"] = json!(result.nodes_observed);
     }
-    if result.identity_unproven.is_some() {
+    if let Some(reason) = &result.identity_unproven {
         body["identity_unproven"] = json!(true);
+        body["identity_unproven_reason"] = json!(reason);
     }
     if let Some(ms) = elapsed_ms {
         body["elapsed_ms"] = json!(ms);

@@ -3,7 +3,7 @@ use crate::system::launch::launch_step::Step;
 use std::collections::HashSet;
 use std::os::unix::process::ExitStatusExt;
 use std::process::{Child, ExitStatus};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use agent_desktop_core::{AdapterError, Deadline, DeliverySemantics, ErrorCode, ProcessId};
 
@@ -17,6 +17,13 @@ use crate::system::registry::Registry;
 
 pub(in crate::system) const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const POLL_LIMIT: Duration = Duration::from_millis(250);
+
+/// How long a launcher that exited cleanly is given to show an owner. A
+/// launcher that forwards to a running instance exits at once and the
+/// instance's windows are readable within a poll or two; waiting longer cannot
+/// prove anything the registry did not already show, and the wait is the one
+/// cost the caller pays for an arrival that was never going to be observed.
+const HANDOFF_GRACE: Duration = Duration::from_millis(2_000);
 
 fn pick(mut found: Vec<&Running>) -> Option<Step> {
     match found.len() {
@@ -67,6 +74,12 @@ pub(crate) fn step(sample: &Sample<'_>) -> Step {
                 })
         }
     }
+}
+
+/// Whether a launcher that exited cleanly has run out of time to show the
+/// owner it handed off to.
+fn handoff_unresolved(exited: Instant, now: Instant, launch_expired: bool) -> bool {
+    launch_expired || now.saturating_duration_since(exited) >= HANDOFF_GRACE
 }
 
 /// The registry as one record per process, with the facts launching reads.
@@ -138,15 +151,9 @@ impl Drop for Spawned {
 fn failed(status: ExitStatus, identifier: &str) -> AdapterError {
     let (what, detail) = match status.code() {
         Some(code) => (
-            if code == 0 {
-                format!(
-                    "'{identifier}' exited with status 0 but no running instance of the executable opened a window"
-                )
-            } else {
-                format!(
-                    "'{identifier}' exited with status {code} without a verified application owner"
-                )
-            },
+            format!(
+                "'{identifier}' exited with status {code} without a verified application owner"
+            ),
             serde_json::json!({ "kind": "exited", "status": code }),
         ),
         None => {
@@ -183,7 +190,9 @@ fn after_spawn(error: AdapterError) -> AdapterError {
 
 /// Polls the registry until the launch has an owner, the launcher failed, or
 /// the deadline. A child that is alive with no registry entry at the deadline
-/// is reported as `NotOnBus`: the pid is the spawned process's.
+/// is reported as unobserved: the pid is the spawned process's. A launcher that
+/// exited cleanly and showed no owner within `HANDOFF_GRACE` ends the same
+/// way: it handed its work to another process and the arrival was not seen.
 pub(super) fn find_owner(
     bus: &SharedBus,
     spawned: &mut Spawned,
@@ -193,6 +202,7 @@ pub(super) fn find_owner(
 ) -> Result<Option<Running>, AdapterError> {
     let identifier = spawned.identifier.clone();
     let mut interval = POLL_INTERVAL;
+    let mut exited_at: Option<Instant> = None;
     loop {
         let child = spawned.state();
         let expired = deadline.is_expired();
@@ -220,9 +230,10 @@ pub(super) fn find_owner(
             && status.success()
             && matches!(next, Step::Wait | Step::Failed(_))
         {
+            let exited = *exited_at.get_or_insert_with(Instant::now);
             next = launch_handoff::observe(bus, before, &apps, &plan.aliases, deadline);
-            if next == Step::Wait && expired {
-                next = Step::Failed(status);
+            if next == Step::Wait && handoff_unresolved(exited, Instant::now(), expired) {
+                return Ok(None);
             }
         }
         match next {

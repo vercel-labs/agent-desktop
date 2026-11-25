@@ -30,10 +30,10 @@ agent-desktop launch <APP> [--timeout MS] [--arg VALUE]... [--env KEY=VALUE]... 
   <tbody>
     <tr><td><code>APP</code></td><td>required</td><td>Application name, bundle ID, or path. The accepted forms depend on the platform.</td></tr>
     <tr><td><code>--timeout MS</code></td><td><code>30000</code></td><td>Upper bound for the whole launch.</td></tr>
-    <tr><td><code>--arg VALUE</code></td><td>none</td><td>Command-line argument for the app. Repeatable, order preserved. Write <code>--arg=-x</code> for a value that starts with a hyphen.</td></tr>
+    <tr><td><code>--arg VALUE</code></td><td>none</td><td>Command-line argument for the app. Repeatable, order preserved. Write <code>--arg=-x</code> for a value that starts with a hyphen. On a running app, Windows and Linux hand the argument to the instance through the program (<code>delivered_unverified</code>). On macOS an explicit path to an existing file (absolute, <code>./</code>, <code>~/</code>, or a <code>file://</code> URL) opens as a document, and any other argument refuses with <code>not_delivered</code>.</td></tr>
     <tr><td><code>--env KEY=VALUE</code></td><td>none</td><td>Environment variable for the launched process. Repeatable. A repeated key is <code>INVALID_ARGS</code>.</td></tr>
     <tr><td><code>--cwd PATH</code></td><td>none</td><td>Working directory for the launched process.</td></tr>
-    <tr><td><code>--no-attach</code></td><td>off</td><td>Start a fresh instance instead of attaching to a running one.</td></tr>
+    <tr><td><code>--no-attach</code></td><td>off</td><td>Require a fresh instance. When the app already runs, the launch returns <code>ACTION_FAILED</code> with <code>not_delivered</code> and the running pids, before anything is sent, on every platform.</td></tr>
     <tr><td><code>--activate</code></td><td>off</td><td>Bring the app forward so it presents a window, and wait for one up to <code>--timeout</code>. This takes the foreground.</td></tr>
     <tr><td><code>--cdp [PORT]</code></td><td>off</td><td>Launch with a loopback-only Chrome DevTools Protocol endpoint and verify that it answers. Omit <code>PORT</code>, or pass <code>0</code>, to pick a free port.</td></tr>
   </tbody>
@@ -69,7 +69,7 @@ agent-desktop launch gtk3-demo
 }
 ```
 
-The result also carries `cdp` when `--cdp` was verified, `renderer: "chromium"` for a detected Chromium or Electron app, and sometimes a `suggestion`. A missing `window` is not a failure. `disposition` says what the launch proved: `not_delivered` when it attached to a running app and sent nothing — `--activate` was not passed, or its target was already active so no request was needed (`retry: "safe"`); `delivered_verified` when the adapter read back the process it started, or confirmed the attached app came forward after `--activate`; and `delivered_unverified` when it cannot prove either, including a spawned process that never reached the accessibility bus. With `--cdp`, `data.cdp` holds `http_endpoint`, `port`, `product`, and `websocket_url` for a CDP client such as agent-browser; [Chromium and Electron apps](/desktop/guides/chromium-and-electron) walks through the handoff.
+The result also carries `cdp` when `--cdp` was verified, `renderer: "chromium"` for a detected Chromium or Electron app, and sometimes a `suggestion`. A missing `window` is not a failure. `disposition` says what the launch proved: `not_delivered` when it attached to a running app and sent nothing — `--activate` was not passed, or its target was already active so no request was needed (`retry: "safe"`); `delivered_verified` when the adapter read back the process it started, or confirmed the attached app came forward after `--activate`; and `delivered_unverified` when it cannot prove either, including a spawned process that never reached the accessibility bus, a launcher that exited without a window after it handed its work to another process, and arguments handed to a running instance. With `--cdp`, `data.cdp` holds `http_endpoint`, `port`, `product`, and `websocket_url` for a CDP client such as agent-browser; [Chromium and Electron apps](/desktop/guides/chromium-and-electron) walks through the handoff.
 
 Errors specific to `launch`:
 
@@ -136,6 +136,7 @@ agent-desktop close-app <APP> [--force]
 - `APP_NOT_FOUND` when no running app matches, `AMBIGUOUS_TARGET` when several instances share the name.
 - `INVALID_ARGS` for a protected system process, with or without `--force`.
 - A save prompt keeps the app open. Read it with `snapshot --surface sheet`, answer it, then close again.
+- On macOS a graceful close returns `ACTION_FAILED` with `details.cause: modal_pending` and names the prompt when an alert or sheet is open before the request (`not_delivered`, nothing sent) or when the request raises one (`delivered_unverified`). Answer the prompt, or use `--force`.
 - On Linux a headless graceful close is `POLICY_DENIED` (`details.check: foreground`, `details.kind: may_prompt`) before any close request, because an app with unsaved work answers it with a save prompt over the user's window. Use `--force` (it discards unsaved work) or `agent-desktop --headed close-app`; the graceful example above is the `--headed` form there.
 
 Platform limits: graceful close needs an X11 client on Linux, and the protected processes differ by OS. See [macOS](/desktop/platforms/macos), [Windows](/desktop/platforms/windows), and [Linux](/desktop/platforms/linux).
