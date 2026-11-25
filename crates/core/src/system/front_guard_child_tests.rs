@@ -8,7 +8,7 @@ use crate::adapter::SystemOps;
 
 const TARGET_PID: u32 = 50;
 
-fn watch(children: bool) -> FrontWatch {
+fn watch(after_release: bool) -> FrontWatch {
     FrontWatch {
         target: FrontTarget {
             pid: Some(TARGET_PID),
@@ -16,7 +16,7 @@ fn watch(children: bool) -> FrontWatch {
             forwarded: false,
         },
         settle: Duration::from_millis(60),
-        children,
+        after_release,
     }
 }
 
@@ -97,8 +97,10 @@ fn an_action_that_spawns_nothing_ends_at_dispatch_plus_the_settle() {
     )
     .unwrap();
     assert_eq!(outcome, FrontOutcome::Clean);
-    assert!(pending.is_none());
-    assert!(started.elapsed() < Duration::from_millis(120));
+    let resolution = pending.unwrap().finish(&desk);
+    assert_eq!(resolution.outcome, FrontOutcome::Clean);
+    assert_eq!(resolution.pending_reason, None);
+    assert!(started.elapsed() < Duration::from_millis(150));
 }
 
 #[test]
@@ -153,4 +155,57 @@ fn a_helper_still_running_at_the_command_deadline_is_reported_as_pending() {
     assert_eq!(resolution.outcome, FrontOutcome::Clean);
     assert_eq!(resolution.pending_reason, Some("child_window_pending"));
     assert!(started.elapsed() < Duration::from_secs(2));
+}
+
+#[test]
+fn an_intrusion_while_the_post_release_reads_run_is_given_back_when_it_is_seen() {
+    let desk = Arc::new(Desk::new(true));
+    let lease = lease_of(&desk, 5_000);
+    let started = Instant::now();
+    let (_, outcome, pending) = guarded_deferred(
+        &*desk,
+        InteractionPolicy::headless(),
+        &lease,
+        watch(true),
+        |mark| mark.dispatched(),
+    )
+    .unwrap();
+    assert_eq!(outcome, FrontOutcome::Clean);
+    drop(lease);
+    *desk.kids.lock().unwrap() = vec![300];
+    let intruder = Arc::clone(&desk);
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(280));
+        *intruder.now.lock().unwrap() = front("child", &["user", "child"]);
+    });
+    let ((), resolution) = pending.unwrap().run_around(&*desk, || {
+        std::thread::sleep(Duration::from_millis(400));
+    });
+    assert_eq!(resolution.outcome, FrontOutcome::GivenBack);
+    let gave_back = desk.gave_back_at().unwrap().duration_since(started);
+    assert!(
+        gave_back < Duration::from_millis(440),
+        "given back at {gave_back:?}, while the 400 ms of reads still ran"
+    );
+}
+
+#[test]
+fn the_watch_around_post_release_work_adds_no_time_when_the_work_outlasts_the_settle() {
+    let desk = Desk::new(true);
+    let lease = lease_of(&desk, 5_000);
+    let (_, _, pending) = guarded_deferred(
+        &desk,
+        InteractionPolicy::headless(),
+        &lease,
+        watch(true),
+        |mark| mark.dispatched(),
+    )
+    .unwrap();
+    drop(lease);
+    let started = Instant::now();
+    let (_, resolution) = pending.unwrap().run_around(&desk, || {
+        std::thread::sleep(Duration::from_millis(300));
+    });
+    assert_eq!(resolution.outcome, FrontOutcome::Clean);
+    assert!(started.elapsed() < Duration::from_millis(340));
 }

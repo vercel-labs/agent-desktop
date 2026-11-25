@@ -32,14 +32,19 @@ pub(crate) fn read_surfaces_after_release(
     deadline: crate::Deadline,
     result: &mut ActionResult,
 ) {
-    if let Some(front) = after_release.front {
-        let resolution = front.finish(adapter);
-        resolution.outcome.note_in(&mut result.details);
-        if let Some(reason) = resolution.pending_reason {
-            crate::FrontOutcome::note_watch_in(reason, &mut result.details);
+    let surfaces_of = after_release.surfaces_of;
+    let read_overlays = |result: &mut ActionResult| {
+        if let Some(process) = surfaces_of {
+            result.surfaces = adapter.list_surfaces(process, deadline).unwrap_or_default();
         }
-    }
-    if let Some(process) = after_release.surfaces_of {
-        result.surfaces = adapter.list_surfaces(process, deadline).unwrap_or_default();
+    };
+    let Some(front) = after_release.front else {
+        read_overlays(result);
+        return;
+    };
+    let ((), resolution) = front.run_around(adapter, || read_overlays(result));
+    resolution.outcome.note_in(&mut result.details);
+    if let Some(reason) = resolution.pending_reason {
+        crate::FrontOutcome::note_watch_in(reason, &mut result.details);
     }
 }

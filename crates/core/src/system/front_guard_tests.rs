@@ -154,7 +154,7 @@ pub(super) fn watch() -> FrontWatch {
     FrontWatch {
         target: FrontTarget::program("fixture"),
         settle: Duration::from_millis(60),
-        children: false,
+        after_release: false,
     }
 }
 

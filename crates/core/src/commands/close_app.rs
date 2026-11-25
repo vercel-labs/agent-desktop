@@ -39,7 +39,7 @@ pub fn execute(args: CloseAppArgs, adapter: &dyn PlatformAdapter) -> Result<Valu
         crate::system::front_guard::FrontWatch {
             target: crate::system::front_target::FrontTarget::of_process(adapter, live.pid.get()),
             settle: CLOSE_SETTLE,
-            children: false,
+            after_release: false,
         },
         |_| adapter.close_app(&live, args.force, &lease, args.policy),
     )?;
