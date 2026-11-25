@@ -5,7 +5,7 @@ use serde_json::json;
 
 use super::anchor::Anchor;
 use super::identity::ShellRoot;
-use super::light::{Light, LiveNodes, Nodes};
+use super::light::{Detail, Light, LiveNodes, Nodes};
 use super::located::Located;
 use super::search::{Visit, walk};
 use crate::system::SharedBus;
@@ -59,15 +59,17 @@ fn locate_in<N: Nodes>(
             });
         }
         Anchor::Landmark(Landmark::MessageList) => {
-            let walked = walk(nodes, &start, deadline, &|_| false)?;
+            let walked = walk(nodes, &start, deadline, Detail::Structure, &|_| false)?;
             (
-                lists(&walked.visits),
+                read_in_full(nodes, lists(&walked.visits))?,
                 walked.complete,
                 "Several shell containers have the requested role chain",
             )
         }
         Anchor::Landmark(Landmark::DateMenu) => {
-            let walked = walk(nodes, &start, deadline, &|light| !light.showing)?;
+            let walked = walk(nodes, &start, deadline, Detail::Full, &|light| {
+                !light.showing
+            })?;
             (
                 date_menus(&walked.visits),
                 walked.complete,
@@ -115,6 +117,21 @@ fn lists(visits: &[Visit]) -> Vec<Light> {
     found
         .into_iter()
         .map(|index| visits[index].light.clone())
+        .collect()
+}
+
+/// A structure read leaves a node's name, extents and state empty, so the
+/// containers a rule named are read again in full before they are reported.
+/// A container that left the tree between the two reads is a lost node.
+fn read_in_full<N: Nodes>(nodes: &N, found: Vec<Light>) -> Result<Vec<Light>, AdapterError> {
+    found
+        .iter()
+        .map(|light| match nodes.read(&light.element) {
+            Err(error) if error.code == ErrorCode::ElementNotFound => {
+                Err(lost_a_node(Anchor::Landmark(Landmark::MessageList)))
+            }
+            other => other,
+        })
         .collect()
 }
 

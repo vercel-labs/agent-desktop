@@ -1,6 +1,6 @@
 use crate::tree::placement::visibility::is_placed;
 use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
-use futures_util::future::{join_all, join5};
+use futures_util::future::{join, join_all, join5};
 use zbus::Connection;
 use zbus::zvariant::OwnedValue;
 
@@ -36,12 +36,35 @@ pub(crate) fn same_object(left: &AtspiElement, right: &AtspiElement) -> bool {
     left.bus_name() == right.bus_name() && left.path() == right.path()
 }
 
+/// How much of each node a walk reads. A structure read asks only for the
+/// role and the children, two bus calls per node; every other field of the
+/// `Light` it returns is left empty and must not be consulted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Detail {
+    Structure,
+    Full,
+}
+
 /// Reads shell nodes. The bus implements it; a test substitutes a tree.
 pub(crate) trait Nodes {
     fn read(&self, element: &AtspiElement) -> Result<Light, AdapterError>;
 
-    fn read_level(&self, elements: &[AtspiElement]) -> Vec<Result<Light, AdapterError>> {
-        elements.iter().map(|element| self.read(element)).collect()
+    fn read_structure(&self, element: &AtspiElement) -> Result<Light, AdapterError> {
+        self.read(element)
+    }
+
+    fn read_level(
+        &self,
+        elements: &[AtspiElement],
+        detail: Detail,
+    ) -> Vec<Result<Light, AdapterError>> {
+        elements
+            .iter()
+            .map(|element| match detail {
+                Detail::Structure => self.read_structure(element),
+                Detail::Full => self.read(element),
+            })
+            .collect()
     }
 }
 
@@ -185,6 +208,33 @@ async fn read_one(connection: &Connection, element: &AtspiElement) -> Result<Lig
     })
 }
 
+async fn read_structure_one(
+    connection: &Connection,
+    element: &AtspiElement,
+) -> Result<Light, AdapterError> {
+    let (children, role) = join(
+        list_children(connection, element),
+        role_of(connection, element),
+    )
+    .await;
+    let children = children.map_err(missing_when_dead)?;
+    let role = role?.ok_or_else(|| {
+        AdapterError::new(ErrorCode::ElementNotFound, "The shell node did not answer")
+    })?;
+    Ok(Light {
+        element: element.address(),
+        role,
+        name: String::new(),
+        extents: None,
+        showing: false,
+        visible: false,
+        children: children
+            .into_iter()
+            .map(|(bus, path)| AtspiElement::new(bus, path, element.pid()))
+            .collect(),
+    })
+}
+
 pub(crate) struct LiveNodes {
     connection: Connection,
     deadline: Deadline,
@@ -204,15 +254,24 @@ impl Nodes for LiveNodes {
         within(self.deadline, read_one(&self.connection, element))
     }
 
-    fn read_level(&self, elements: &[AtspiElement]) -> Vec<Result<Light, AdapterError>> {
+    fn read_structure(&self, element: &AtspiElement) -> Result<Light, AdapterError> {
+        within(self.deadline, read_structure_one(&self.connection, element))
+    }
+
+    fn read_level(
+        &self,
+        elements: &[AtspiElement],
+        detail: Detail,
+    ) -> Vec<Result<Light, AdapterError>> {
         let mut reads = Vec::with_capacity(elements.len());
         for chunk in elements.chunks(LEVEL_IN_FLIGHT) {
             let chunk_reads = within(self.deadline, async {
-                Ok(join_all(
-                    chunk
-                        .iter()
-                        .map(|element| read_one(&self.connection, element)),
-                )
+                Ok(join_all(chunk.iter().map(|element| async move {
+                    match detail {
+                        Detail::Structure => read_structure_one(&self.connection, element).await,
+                        Detail::Full => read_one(&self.connection, element).await,
+                    }
+                }))
                 .await)
             });
             match chunk_reads {

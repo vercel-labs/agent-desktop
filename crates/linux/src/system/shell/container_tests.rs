@@ -186,3 +186,41 @@ fn an_unproven_native_tray_uses_only_the_logical_shell_root() {
     assert_eq!(located.container.element.path(), "/w");
     assert_eq!(located.container.role, WINDOW);
 }
+
+struct Counting<'a> {
+    tree: &'a FakeTree,
+    structure_reads: Cell<usize>,
+    full_reads: std::cell::RefCell<Vec<String>>,
+}
+
+impl Nodes for Counting<'_> {
+    fn read(&self, node: &AtspiElement) -> Result<Light, AdapterError> {
+        self.full_reads.borrow_mut().push(node.path().to_owned());
+        self.tree.read(node)
+    }
+
+    fn read_structure(&self, node: &AtspiElement) -> Result<Light, AdapterError> {
+        self.structure_reads.set(self.structure_reads.get() + 1);
+        self.tree.read(node)
+    }
+}
+
+#[test]
+fn locating_the_message_list_reads_structure_and_reads_only_the_list_in_full() {
+    let tree = gnome_shell(true, false);
+    let nodes = Counting {
+        tree: &tree,
+        structure_reads: Cell::new(0),
+        full_reads: Default::default(),
+    };
+    let located = locate_in(
+        &nodes,
+        &FakeTree::root(),
+        Anchor::Landmark(Landmark::MessageList),
+        Deadline::after(5_000).unwrap(),
+    )
+    .expect("the footer row proves the list");
+    assert_eq!(located.container.element.path(), "/list");
+    assert!(nodes.structure_reads.get() > 1);
+    assert_eq!(*nodes.full_reads.borrow(), vec!["/list".to_owned()]);
+}
