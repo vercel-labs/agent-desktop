@@ -387,3 +387,11 @@ fn clear_that_leaves_a_newline_is_not_verified() {
     assert_eq!(error.code, ErrorCode::ActionFailed);
     assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
 }
+
+#[test]
+fn an_error_of_another_kind_without_a_disposition_is_never_marked_not_delivered() {
+    let mut adapter = adapter(element(None, &[]), element(None, &[]));
+    adapter.execution = Err(AdapterError::timeout("late"));
+    let error = execute(&adapter, Action::Click).unwrap_err();
+    assert_ne!(error.disposition, DeliverySemantics::not_delivered());
+}
