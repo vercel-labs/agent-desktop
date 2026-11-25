@@ -63,7 +63,8 @@ use a private session and runtime directory for isolated work.
 - Password-role values are withheld, but a field that merely masks its text can
   still be readable. Treat observation output as sensitive.
 - `launch` accepts a program on PATH, an absolute path, an installed desktop id,
-  or an unambiguous desktop entry name. Use process and window identity from
+  or an unambiguous desktop entry name. A script launch attaches only to the interpreter
+  process that runs that script, never to another script of the same interpreter. Use process and window identity from
   observations rather than guessing from a window title.
 - Sandboxes are not available on Linux yet. To run agent-desktop in a container you manage yourself, see `agent-browser.dev/desktop/guides/docker-container`.
 

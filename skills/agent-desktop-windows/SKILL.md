@@ -40,6 +40,7 @@ Use `$env:NAME = 'value'` for environment variables.
   work instead when it matches the user's task. Never retry a refusal headed.
 - Refs require whole-window uniqueness at capture and resolution. A root drill
   cannot make identical twins unique. Choose a distinct control.
+- A field whose text is longer than 2048 characters cannot be read: `get` returns `ACTION_FAILED` with `details.kind: "value_exceeds_read_limit"` and the length. Do not retry it. `clear`, `set-value`, `focus` and `click` on its ref still work.
 - `agent-desktop launch` takes an absolute executable path or a bare program name in the
   Windows or System32 directory, not an arbitrary display name or a PATH search.
 - Chromium/Electron trees can be thin while accessibility settles. Finish a
