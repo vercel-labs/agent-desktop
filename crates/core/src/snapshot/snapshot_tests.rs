@@ -236,7 +236,7 @@ fn test_skeleton_named_container_gets_ref() {
     let entry = refmap
         .get(result.children[0].ref_id.as_deref().unwrap())
         .unwrap();
-    assert!(entry.identity.unique_at_capture);
+    assert!(entry.identity.proof.is_unique());
     assert!(entry.capabilities.available_actions.is_empty());
 }
 

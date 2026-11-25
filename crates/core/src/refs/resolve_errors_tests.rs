@@ -128,7 +128,8 @@ fn every_settled_ref_refusal_refuses_a_retry() {
     let refusals = [
         ("saved_ref_absent", absent(&entry)),
         ("saved_ref_ambiguous", ambiguous_live_match(&entry)),
-        ("identity_not_unique", identity_not_unique(&entry)),
+        ("identity_not_unique", identity_twins(&entry)),
+        ("identity_unproven", identity_unproven(&entry)),
         ("element_token_required", element_token_required(&entry)),
         (
             "retained_object_stale",
