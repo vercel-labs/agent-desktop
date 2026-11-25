@@ -13,6 +13,7 @@ use serde_json::json;
 pub(crate) mod presentation;
 pub(crate) mod ref_action_actionability;
 pub(crate) mod ref_action_context;
+pub(crate) mod ref_action_dispatched;
 pub(crate) mod ref_action_landing;
 pub(crate) mod ref_action_poll;
 pub(crate) mod ref_action_poll_state;
@@ -71,7 +72,7 @@ pub(crate) fn dispatch_resolved_landing(
     target: RefActionContext<'_>,
     mut request: ActionRequest,
     lease: &crate::InteractionLease,
-) -> Result<(ActionResult, NativeHandle), AppError> {
+) -> Result<ref_action_dispatched::DispatchedAction, AppError> {
     let expected_process =
         target.entry.process.identity().ok_or_else(|| {
             AdapterError::stale_ref_because("target process instance is unavailable")
@@ -157,10 +158,7 @@ pub(crate) fn dispatch_resolved_landing(
         ripples,
         &dispatch_result,
     );
-    let mut result = dispatch_result.map_err(|error| note_scroll_if(scrolled, error))?;
-    if raises_surface {
-        result.surfaces = settled_surfaces(&final_target, expected_process);
-    }
+    let result = dispatch_result.map_err(|error| note_scroll_if(scrolled, error))?;
     final_target
         .context
         .trace_lazy(
@@ -168,21 +166,11 @@ pub(crate) fn dispatch_resolved_landing(
             || json!({ "ref": final_target.ref_id, "action": action_name, "result": &result }),
         )
         .map_err(trace_error_after_delivery)?;
-    Ok((result, handle))
-}
-
-/// An action that opens a sheet, menu, or alert leaves the caller staring at a
-/// success envelope with no hint that the application is now waiting on a
-/// dialog. Reporting the overlays saves a round of window archaeology. Purely
-/// informational, so a failed read never disturbs delivered work.
-fn settled_surfaces(
-    target: &ResolvedRefAction<'_>,
-    process: crate::ProcessIdentity,
-) -> Vec<crate::SurfaceInfo> {
-    target
-        .adapter
-        .list_surfaces(process, target.deadline)
-        .unwrap_or_default()
+    Ok(ref_action_dispatched::DispatchedAction {
+        result,
+        handle,
+        surfaces_of: raises_surface.then_some(expected_process),
+    })
 }
 
 pub(crate) fn mark_pre_dispatch_resolution_failure(error: AdapterError) -> AdapterError {
@@ -316,7 +304,15 @@ pub(crate) fn execute_resolved(
     let stability =
         actionability::StabilityExpectation::permissive(target.entry.geometry.bounds_hash);
     preflight_resolved(&target, &request, stability)?;
-    let result = dispatch_resolved_landing(target.target, request, lease).map(|(result, _)| result);
+    let result = dispatch_resolved_landing(target.target, request, lease).map(|mut dispatched| {
+        ref_action_dispatched::read_surfaces_after_release(
+            target.adapter,
+            dispatched.surfaces_of.take(),
+            target.deadline,
+            &mut dispatched.result,
+        );
+        dispatched.result
+    });
     finish_artifacts(target.target, &pre);
     result
 }
