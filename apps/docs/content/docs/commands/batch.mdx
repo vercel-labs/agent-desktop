@@ -24,6 +24,15 @@ agent-desktop batch '[{"command":"version"},{"command":"wait","args":{"ms":100}}
   </tbody>
 </table>
 
+In Windows PowerShell 5.1 the double quotes inside the JSON argument are dropped, and `batch` fails with `INVALID_ARGS` ("key must be a string"). Escape each quote with a backslash. `batch` has no stdin or file input.
+
+```powershell
+$json = @'
+[{"command":"version"},{"command":"wait","args":{"ms":100}}]
+'@
+agent-desktop batch ($json -replace '"','\"') --stop-on-error
+```
+
 ### Entry format
 
 <table>

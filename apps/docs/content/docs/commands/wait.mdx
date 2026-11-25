@@ -76,7 +76,7 @@ agent-desktop wait --element @s2txcl95uvubmn:e6 --predicate value --value 7 --ti
 
 ### Window
 
-`--window TITLE` waits for any window whose title contains `TITLE`, focused or not.
+`--window TITLE` waits for any window whose title contains `TITLE`, focused or not. When you do not know the title, wait for the event instead: `wait --event window-opened --app NAME`, in the same [batch](/desktop/commands/batch) as the action that opens the window. `--app` alone is not a wait mode.
 
 ```bash
 agent-desktop wait --window Calculator --app gnome-calculator --timeout 3000

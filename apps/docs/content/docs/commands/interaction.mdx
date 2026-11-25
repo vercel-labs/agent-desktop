@@ -178,6 +178,8 @@ printf '%s' 'hello' | agent-desktop type @s8f3k2p9:e2 --stdin
 
 The action timeout starts after the input ends; it doesn't limit this wait. Empty input and all line breaks are kept, including a final newline. Use `printf '%s'` to avoid adding one. Input must be valid UTF-8 without NUL bytes (`\0`). The limits are 10,000 bytes for `type` and 128 KiB for `set-value`.
 
+`--stdin` uses the bytes it receives, so a trailing newline becomes part of the text. `printf '%s'` sends none. PowerShell adds a line ending to a piped string; to send exact text on Windows, redirect a file in `cmd`: `cmd /c "agent-desktop set-value @s8f3k2p9:e2 --stdin < text.txt"`.
+
 Provide either `--stdin` or a command-line value. To enter the text `--stdin`, put it after `--`: `agent-desktop type @s8f3k2p9:e2 -- --stdin`. Batch uses the JSON `text` or `value` field, which puts the text in process arguments. Run secret steps as separate `--stdin` commands.
 
 `--stdin` keeps text out of process arguments and omits observed `value` fields from JSON results, including `post_state.value`. Other app text and screenshot artifacts aren't redacted.

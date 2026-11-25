@@ -61,8 +61,8 @@ pub(crate) fn open_trace_file(path: &Path) -> Result<std::fs::File, AppError> {
     crate::storage::private_file::open_private_append(path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::PermissionDenied {
             return AppError::invalid_input_with_suggestion(
-                "Trace path must be a private user-owned regular file with one link",
-                "Use a new --trace path or replace the existing unsafe file.",
+                "Trace path must be a private user-owned regular file with one link, and on Windows its folder must be private too",
+                "Use a new --trace path in a folder only you can write, or replace the existing unsafe file.",
             );
         }
         AppError::from(error)

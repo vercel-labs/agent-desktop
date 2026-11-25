@@ -74,7 +74,7 @@ agent-desktop --trace /tmp/run.jsonl find --app gnome-calculator --role button -
 jq -c 'select(.event == "command.end")' /tmp/run.jsonl
 ```
 
-The file is created private. While `--trace` is set, the session's trace directory receives nothing. A trace write failure does not fail the command unless you add `--trace-strict`.
+The file must be private: a regular file you own with one link. On Windows its folder must also exist and be private (only you, SYSTEM and Administrators); a folder that grants `Users` write is refused with `INVALID_ARGS`, so use a new folder under your profile. The file is created private. While `--trace` is set, the session's trace directory receives nothing. A trace write failure does not fail the command unless you add `--trace-strict`.
 
 ## Capture screenshots with a session
 

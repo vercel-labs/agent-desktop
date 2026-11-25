@@ -42,6 +42,8 @@ may report `unknown` when consent would require a prompt.
 - `menu` and `menubar` observations are application-owned and can omit `data.window`.
   An app without an ordinary window may still expose process-owned surfaces.
   Inspect `supported_surfaces` rather than assuming every surface exists.
+- `press --app` headless: `return` and `escape` run as accessibility actions on the focused element. Any other key needs a focused element in the
+  app (`ACTION_FAILED`, `details.check: process_focus`, `not_delivered` otherwise). A modifier shortcut never runs a menu item: `click` the item.
 - `agent-desktop press escape --app <app>` closes an open menu or popover with its
   cancel action when no focused element takes Escape, and reads that it closed;
   with `--window-id <id>` it closes the surface that window or the app shows. A
@@ -78,8 +80,7 @@ may report `unknown` when consent would require a prompt.
   cell editor no keyboard input from a press always takes that failure; type there
   with `--headed` only if the user explicitly asked for that. The write also commits
   an edit that is open in another cell.
-- AX success alone does not prove an application effect. Verify the task's
-  result independently, especially after a menu action or a value write.
+- AX success alone does not prove an application effect. Verify the result independently, especially after a menu action or value write.
 
 ## Troubleshooting
 
