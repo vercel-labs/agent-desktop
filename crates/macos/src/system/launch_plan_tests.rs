@@ -15,24 +15,70 @@ fn options(attach: bool, activate: bool) -> LaunchOptions {
     }
 }
 
-#[test]
-fn an_existing_path_is_a_document_and_everything_else_stays_an_argument() {
-    let known = |argument: &str| (argument == "doc.txt").then(|| "/abs/doc.txt".to_owned());
-
-    let classified = LaunchArguments::classify_with(
-        &["doc.txt".into(), "--new".into(), "missing.txt".into()],
-        known,
-    );
-
-    assert_eq!(classified.documents, vec!["/abs/doc.txt"]);
-    assert_eq!(classified.plain, vec!["--new", "missing.txt"]);
+fn everything_exists(path: &str) -> Option<String> {
+    Some(path.to_owned())
 }
 
 #[test]
-fn a_dash_prefixed_value_is_never_a_document_even_when_a_file_has_that_name() {
-    let everything_exists = |argument: &str| Some(format!("/abs/{argument}"));
+fn a_bare_word_stays_an_argument_even_when_a_file_of_that_name_exists() {
+    let classified = LaunchArguments::classify_with(
+        &["build".into(), "doc.txt".into()],
+        None,
+        everything_exists,
+    );
 
-    let classified = LaunchArguments::classify_with(&["-x".into()], everything_exists);
+    assert!(classified.documents.is_empty());
+    assert_eq!(classified.plain, vec!["build", "doc.txt"]);
+}
+
+#[test]
+fn an_explicit_path_to_an_existing_file_is_a_document() {
+    let existing = |path: &str| (path != "/missing").then(|| path.to_owned());
+
+    let classified = LaunchArguments::classify_with(
+        &["/tmp/a.txt".into(), "./b.txt".into(), "/missing".into()],
+        None,
+        existing,
+    );
+
+    assert_eq!(classified.documents, vec!["/tmp/a.txt", "./b.txt"]);
+    assert_eq!(classified.plain, vec!["/missing"]);
+}
+
+#[test]
+fn a_file_url_is_a_document_with_its_escapes_decoded() {
+    let classified = LaunchArguments::classify_with(
+        &[
+            "file:///tmp/my%20doc.txt".into(),
+            "file://localhost/tmp/b.txt".into(),
+        ],
+        None,
+        everything_exists,
+    );
+
+    assert_eq!(classified.documents, vec!["/tmp/my doc.txt", "/tmp/b.txt"]);
+}
+
+#[test]
+fn a_home_relative_path_needs_a_home_and_a_relative_url_is_not_a_path() {
+    let with_home = LaunchArguments::classify_with(
+        &["~/notes.txt".into()],
+        Some("/Users/me/"),
+        everything_exists,
+    );
+    let without_home =
+        LaunchArguments::classify_with(&["~/notes.txt".into()], None, everything_exists);
+    let relative_url =
+        LaunchArguments::classify_with(&["file://tmp/x".into()], None, everything_exists);
+
+    assert_eq!(with_home.documents, vec!["/Users/me/notes.txt"]);
+    assert_eq!(without_home.plain, vec!["~/notes.txt"]);
+    assert_eq!(relative_url.plain, vec!["file://tmp/x"]);
+}
+
+#[test]
+fn a_dash_prefixed_value_is_never_a_document() {
+    let classified = LaunchArguments::classify_with(&["-x".into()], None, everything_exists);
 
     assert!(classified.documents.is_empty());
     assert_eq!(classified.plain, vec!["-x"]);
@@ -96,4 +142,12 @@ fn several_running_instances_are_ambiguous_when_attaching() {
         plan(2, &options(true, false), &arguments(&[], &[])),
         LaunchPlan::Ambiguous
     );
+}
+
+#[test]
+fn a_word_that_names_a_folder_of_the_working_directory_stays_an_argument() {
+    let classified = LaunchArguments::classify(&["src".into(), "Cargo.toml".into()]);
+
+    assert!(classified.documents.is_empty());
+    assert_eq!(classified.plain, vec!["src", "Cargo.toml"]);
 }
