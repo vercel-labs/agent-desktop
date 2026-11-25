@@ -8,6 +8,7 @@ use agent_desktop_core::{
 };
 
 use crate::system::SharedBus;
+use crate::system::display::display_server::{DisplayServer, session_server};
 
 pub struct LinuxAdapter {
     bus: SharedBus,
@@ -275,6 +276,24 @@ impl LinuxAdapter {
 }
 
 impl ActionOps for LinuxAdapter {
+    fn headed_focus_for_ref(
+        &self,
+        _entry: &agent_desktop_core::RefEntry,
+        request: &ActionRequest,
+        _deadline: Deadline,
+    ) -> Result<Option<agent_desktop_core::HeadedFocus>, AdapterError> {
+        Ok(headed_focus_on(&session_server(), request))
+    }
+
+    fn headed_focus(
+        &self,
+        _handle: &NativeHandle,
+        request: &ActionRequest,
+        _deadline: Deadline,
+    ) -> Result<Option<agent_desktop_core::HeadedFocus>, AdapterError> {
+        Ok(headed_focus_on(&session_server(), request))
+    }
+
     fn foreground_effect(
         &self,
         handle: &NativeHandle,
@@ -312,6 +331,18 @@ impl ActionOps for LinuxAdapter {
         crate::actions::before_pointer(crate::actions::scroll_into_view(self.bus(), handle, lease))
     }
 }
+/// A Wayland session lets no client activate a window, so a headed action
+/// there focuses nothing and reaches the element through its own route.
+pub(crate) fn headed_focus_on(
+    server: &DisplayServer,
+    request: &ActionRequest,
+) -> Option<agent_desktop_core::HeadedFocus> {
+    match server {
+        DisplayServer::Wayland => None,
+        _ => request.headed_focus(),
+    }
+}
+
 impl InputOps for LinuxAdapter {
     fn physical_pointer_refusal(&self) -> Option<AdapterError> {
         match crate::input::backend::backend() {
