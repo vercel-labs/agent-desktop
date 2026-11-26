@@ -1,4 +1,4 @@
-use agent_desktop_core::{DeliverySemantics, ErrorCode, RetryDisposition};
+use agent_desktop_core::{DeliverySemantics, ErrorCode, InteractionPolicy, RetryDisposition};
 
 use super::super::Request;
 use super::super::fake::{Fake, dialog, window};
@@ -13,6 +13,7 @@ fn request() -> Request<'static> {
         pid: 42,
         instance: Some("t"),
         force: false,
+        policy: InteractionPolicy::headless(),
     }
 }
 
@@ -161,6 +162,37 @@ fn a_windowless_process_that_exited_on_a_wayland_session_is_ok() {
     world.wayland = true;
     world.state_after_toplevels = Some(Liveness::Gone);
     close(&world, &request()).expect("it left meanwhile");
+}
+
+#[test]
+fn a_headless_graceful_close_on_wayland_with_xwayland_windows_fails_closed() {
+    let mut world = Fake::new(Liveness::Alive);
+    world.windows = ControlRead::Ready(vec![window(1)]);
+    world.wayland = true;
+    world.exits_on_close = true;
+
+    let error = close(&world, &request()).expect_err("unmonitored Wayland focus must fail closed");
+
+    assert_eq!(error.code, ErrorCode::PolicyDenied);
+    assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+    assert_eq!(world.count("close"), 0);
+    assert_no_signal(&world);
+}
+
+#[test]
+fn a_headed_graceful_close_on_wayland_with_xwayland_windows_dispatches() {
+    let mut world = Fake::new(Liveness::Alive);
+    world.windows = ControlRead::Ready(vec![window(1)]);
+    world.wayland = true;
+    world.exits_on_close = true;
+    let headed = Request {
+        policy: InteractionPolicy::headed(),
+        ..request()
+    };
+
+    assert!(close(&world, &headed).expect("headed close is allowed on Wayland"));
+    assert_eq!(world.count("close"), 1);
+    assert_no_signal(&world);
 }
 
 #[test]

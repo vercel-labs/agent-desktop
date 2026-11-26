@@ -63,10 +63,11 @@ pub(crate) fn launch_app_impl(
         return Ok(attached);
     }
     let known_windows = launch_watch::window_ids(deadline);
-    let (pid, token) = create_process(&executable, options, deadline)?;
+    let (pid, token, started_ms) = create_process(&executable, options, deadline)?;
     let target = Target {
         pid,
         process_instance: &token,
+        started_ms,
         resident: known_windows.map(|known_windows| Resident {
             image: executable.clone(),
             known_windows,
@@ -203,7 +204,7 @@ fn create_process(
     executable: &Path,
     options: &LaunchOptions,
     deadline: Deadline,
-) -> Result<(ProcessId, String), AdapterError> {
+) -> Result<(ProcessId, String, u64), AdapterError> {
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::Threading::{
         CREATE_UNICODE_ENVIRONMENT, CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW,
@@ -268,7 +269,7 @@ fn create_process(
         CloseHandle(information.hThread);
         CloseHandle(information.hProcess);
     }
-    let token = process_identity::token_for_pid(pid)
+    let identity = process_identity::ProcessIdentity::capture(pid)
         .map_err(after_launch)?
         .ok_or_else(|| {
             after_launch(
@@ -279,7 +280,7 @@ fn create_process(
                 .with_details(serde_json::json!({ "pid": pid, "complete": false })),
             )
         })?;
-    Ok((pid, token))
+    Ok((pid, identity.token(), identity.started_unix_ms()))
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -287,7 +288,7 @@ fn create_process(
     _executable: &Path,
     _options: &LaunchOptions,
     _deadline: Deadline,
-) -> Result<(ProcessId, String), AdapterError> {
+) -> Result<(ProcessId, String, u64), AdapterError> {
     Err(AdapterError::not_supported("launch_app"))
 }
 
