@@ -178,7 +178,7 @@ impl ElementProperties {
     /// the other platforms report for a slider: the number without a trailing
     /// `.0`. A non-finite number is not a value.
     pub(crate) fn gated_range_text(&self) -> Option<String> {
-        if !self.gate_open(TreeProperty::RangeValue) {
+        if self.secure || !self.gate_open(TreeProperty::RangeValue) {
             return None;
         }
         let number = self.get(TreeProperty::RangeValue).real()?;
