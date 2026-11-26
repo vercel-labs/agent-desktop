@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use agent_desktop_core::{AdapterError, DeliverySemantics, ErrorCode};
+use agent_desktop_core::{AdapterError, DeliverySemantics, ErrorCode, InteractionPolicy};
 
 use super::super::Request;
 use super::super::fake::Fake;
@@ -14,6 +14,7 @@ fn request() -> Request<'static> {
         pid: 42,
         instance: Some("t"),
         force: true,
+        policy: InteractionPolicy::headless(),
     }
 }
 
