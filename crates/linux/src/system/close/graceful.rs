@@ -104,6 +104,9 @@ fn request_close(world: &impl World, request: &Request<'_>) -> Result<bool, Adap
         };
         return unless_gone(world, refused);
     }
+    if world.on_wayland() && !request.policy.allow_focus_steal {
+        return Err(refusal::wayland_headless_graceful(request));
+    }
     let standing = match Standing::of(world, windows) {
         Ok(standing) => standing,
         Err(error) => return unless_gone(world, error.unsent()),

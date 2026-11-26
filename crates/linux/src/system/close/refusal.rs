@@ -68,6 +68,19 @@ pub(super) fn wayland_session(request: &Request<'_>) -> AdapterError {
     }))
 }
 
+pub(super) fn wayland_headless_graceful(request: &Request<'_>) -> AdapterError {
+    agent_desktop_core::foreground_denied(
+        "Closing an application gracefully on Wayland cannot monitor or return focus if a save prompt opens, which the interaction policy does not allow",
+        "wayland_focus_unmonitored",
+        "close-app",
+        request.policy,
+    )
+    .with_suggestion(format!(
+        "{} Or use --force to end the process without a close request.",
+        agent_desktop_core::headed_mode_suggestion("may raise a save prompt that takes focus")
+    ))
+}
+
 pub(super) fn windowless(request: &Request<'_>) -> AdapterError {
     refused(
         ErrorCode::ActionFailed,

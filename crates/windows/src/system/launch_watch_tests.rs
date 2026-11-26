@@ -49,16 +49,29 @@ fn descendants_follow_parent_links_through_started_processes() {
         row(21, 20),
     ];
 
-    let started = descendants(&rows, ProcessId::from(10));
+    let started = descendants(&rows, ProcessId::from(10), 10_000, |_| Some(10_000));
 
     assert_eq!(started, vec![ProcessId::from(11), ProcessId::from(12)]);
+}
+
+#[test]
+fn descendants_ignore_preexisting_processes_on_a_reused_parent_pid() {
+    let rows = [row(10, 1), row(11, 10), row(12, 10)];
+
+    let started = descendants(&rows, ProcessId::from(10), 20_000, |pid| match pid {
+        11 => Some(1_000),
+        12 => Some(20_050),
+        _ => None,
+    });
+
+    assert_eq!(started, vec![ProcessId::from(12)]);
 }
 
 #[test]
 fn a_process_with_nothing_started_has_no_descendants() {
     let rows = [row(10, 1), row(20, 1)];
 
-    assert!(descendants(&rows, ProcessId::from(10)).is_empty());
+    assert!(descendants(&rows, ProcessId::from(10), 10_000, |_| Some(10_000)).is_empty());
 }
 
 #[test]
@@ -66,10 +79,10 @@ fn a_parent_cycle_ends_instead_of_looping() {
     let rows = [row(10, 11), row(11, 10), row(0, 0)];
 
     assert_eq!(
-        descendants(&rows, ProcessId::from(10)),
+        descendants(&rows, ProcessId::from(10), 10_000, |_| Some(10_000)),
         vec![ProcessId::from(11)]
     );
-    assert!(descendants(&rows, ProcessId::from(0)).is_empty());
+    assert!(descendants(&rows, ProcessId::from(0), 10_000, |_| Some(10_000)).is_empty());
 }
 
 #[test]
