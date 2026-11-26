@@ -71,42 +71,78 @@ impl ExecutableIdentity {
 
 /// The process arguments from the script on, when `actual` runs `script`:
 /// the process executable is the interpreter the script's `#!` line names,
-/// and its first argument is the script's path. A program that only opens
-/// the file, such as an editor, is not running it.
+/// the words between `actual[0]` and the script path match the exact
+/// interpreter options declared on that `#!` line, and the script path sits
+/// immediately after them. Extra interpreter options or code-evaluation flags
+/// are refused so an option operand cannot spoof a script launcher.
 fn script_run<'a>(
     script: &Path,
     interpreter: &Path,
     actual: &'a [OsString],
 ) -> Option<&'a [OsString]> {
-    let index = 1 + actual
-        .iter()
-        .skip(1)
-        .position(|word| !word.as_encoded_bytes().starts_with(b"-"))?;
-    let word = &actual[index];
-    (word.as_encoded_bytes().contains(&b'/')
-        && std::fs::canonicalize(word).ok()? == script
-        && shebang_interpreter(script)? == interpreter)
+    let (expected_interpreter, shebang_args) = shebang_spec(script)?;
+    if expected_interpreter != interpreter {
+        return None;
+    }
+    let index = 1 + shebang_args.len();
+    if actual.get(1..index)? != shebang_args.as_slice() {
+        return None;
+    }
+    let word = actual.get(index)?;
+    (word.as_encoded_bytes().contains(&b'/') && std::fs::canonicalize(word).ok()? == script)
         .then(|| &actual[index..])
 }
 
-fn shebang_interpreter(script: &Path) -> Option<PathBuf> {
+fn shebang_spec(script: &Path) -> Option<(PathBuf, Vec<OsString>)> {
     use std::io::Read;
     let mut head = [0_u8; 256];
     let read = std::fs::File::open(script).ok()?.read(&mut head).ok()?;
-    let line = head[..read]
-        .strip_prefix(b"#!")?
-        .split(|byte| *byte == b'\n')
-        .next()?;
-    let mut words = std::str::from_utf8(line).ok()?.split_whitespace();
-    let program = PathBuf::from(words.next()?);
-    if program.file_name()? == "env" {
-        let path = crate::system::launch::launch_search::Search::from_env().path_dirs;
-        let named = words.find(|word| !word.starts_with('-'))?;
-        return crate::system::launch::launch_target::find_on_path(named, &path)?
-            .canonicalize()
-            .ok();
+    let line = std::str::from_utf8(
+        head[..read]
+            .strip_prefix(b"#!")?
+            .split(|byte| *byte == b'\n')
+            .next()?,
+    )
+    .ok()?
+    .trim();
+    let (program_str, rest) = match line.split_once(char::is_whitespace) {
+        Some((program, rest)) => (program, rest.trim()),
+        None => (line, ""),
+    };
+    if program_str.is_empty() {
+        return None;
     }
-    program.canonicalize().ok()
+    let program = PathBuf::from(program_str);
+    if program.file_name()? == "env" {
+        return env_shebang_spec(rest);
+    }
+    let args = if rest.is_empty() {
+        Vec::new()
+    } else {
+        vec![OsString::from(rest)]
+    };
+    Some((program.canonicalize().ok()?, args))
+}
+
+fn env_shebang_spec(rest: &str) -> Option<(PathBuf, Vec<OsString>)> {
+    let mut words = rest.split_whitespace();
+    let first = words.next()?;
+    let (named, args) = if first == "-S" {
+        let named = words.next()?;
+        if named.starts_with('-') {
+            return None;
+        }
+        (named, words.map(OsString::from).collect())
+    } else if first.starts_with('-') || words.next().is_some() {
+        return None;
+    } else {
+        (first, Vec::new())
+    };
+    let path = crate::system::launch::launch_search::Search::from_env().path_dirs;
+    let interpreter = crate::system::launch::launch_target::find_on_path(named, &path)?
+        .canonicalize()
+        .ok()?;
+    Some((interpreter, args))
 }
 
 impl ExecutableIdentity {
@@ -159,3 +195,7 @@ fn same_invocation(expected: &[OsString], actual: &[OsString]) -> bool {
         || (!invocation.as_encoded_bytes().contains(&b'/')
             && Path::new(program).file_name() == Some(invocation.as_os_str()))
 }
+
+#[cfg(test)]
+#[path = "executable_identity_tests.rs"]
+mod tests;
