@@ -291,7 +291,12 @@ pub(crate) fn wait_on<'a, T>(
 ) -> std::sync::MutexGuard<'a, T> {
     match VIRTUAL_NOW.get() {
         Some(at) => {
-            VIRTUAL_NOW.set(Some(at.checked_add(duration).unwrap_or(at)));
+            let (guard, result) = condvar
+                .wait_timeout(guard, duration.min(Duration::from_millis(50)))
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if result.timed_out() {
+                VIRTUAL_NOW.set(Some(at.checked_add(duration).unwrap_or(at)));
+            }
             guard
         }
         None => {
