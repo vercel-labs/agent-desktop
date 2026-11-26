@@ -149,17 +149,19 @@ fn a_disabled_element_fails_closed_without_sampling_even_with_a_stale_hash() {
 }
 
 /// A slow whole-window read is not part of what the lease protects. One agent's
-/// action spends 600 ms reading the window before it can dispatch; a second
-/// agent's action, started 100 ms later with a 300 ms budget, still gets the
-/// lease and dispatches. Before the read moved ahead of the lease, the first
+/// action pauses inside its whole-window census before it can dispatch; a second
+/// agent's action starts while the first is parked in that read and still gets
+/// the lease and dispatches. Before the read moved ahead of the lease, the first
 /// action held the lease through its read and the second timed out waiting.
 #[test]
 fn a_slow_whole_window_read_does_not_keep_a_parallel_action_from_the_lease() {
+    let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
     let shared = Arc::new(AtomicBool::new(false));
     let mut slow = adapter(0, 5_000, None);
-    slow.census_delay = std::time::Duration::from_millis(600);
+    slow.census_gate = Some((entered_tx, std::sync::Mutex::new(release_rx)));
     slow.shared_lease = Some(Arc::clone(&shared));
-    let mut quick = adapter(0, 300, None);
+    let mut quick = adapter(0, 2_000, None);
     quick.shared_lease = Some(Arc::clone(&shared));
 
     let slow_action = std::thread::spawn(move || {
@@ -174,7 +176,9 @@ fn a_slow_whole_window_read_does_not_keep_a_parallel_action_from_the_lease() {
         )
         .is_ok()
     });
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    entered_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("slow action must enter whole-window census");
     let quick_result = execute_with_auto_wait(
         RefActionWaitCtx {
             adapter: &quick,
@@ -182,8 +186,9 @@ fn a_slow_whole_window_read_does_not_keep_a_parallel_action_from_the_lease() {
             ref_id: "@e2",
             context: &CommandContext::default(),
         },
-        ActionRequest::headless(Action::Click).with_timeout_ms(Some(300)),
+        ActionRequest::headless(Action::Click).with_timeout_ms(Some(2_000)),
     );
+    let _ = release_tx.send(());
 
     assert!(slow_action.join().unwrap());
     assert!(quick_result.is_ok(), "{quick_result:?}");

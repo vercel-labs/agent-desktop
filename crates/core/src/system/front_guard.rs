@@ -104,9 +104,9 @@ pub(crate) fn guarded_deferred<T>(
             };
             keep_watching(adapter, &watching, machine, &watch, &ends, &shared)
         });
+        let signal = SignalOnDrop::new(&returned, guard.thread().clone());
         let value = command(&mark);
-        let _ = returned.set(Instant::now());
-        guard.thread().unpark();
+        drop(signal);
         (value, guard.join().ok())
     });
     let Some((state, machine)) = joined else {
@@ -148,6 +148,26 @@ fn unreadable(policy: InteractionPolicy) -> AdapterError {
 
 pub(super) fn read(adapter: &dyn PlatformAdapter) -> Result<FrontView, AdapterError> {
     adapter.read_front(Deadline::detached_after(READ_BUDGET_MS)?)
+}
+
+/// Signals a watcher thread when the guarded closure returns or unwinds so a
+/// panicking closure cannot hang the surrounding thread scope.
+pub(super) struct SignalOnDrop<'a> {
+    done: &'a OnceLock<Instant>,
+    watcher: std::thread::Thread,
+}
+
+impl<'a> SignalOnDrop<'a> {
+    pub(super) fn new(done: &'a OnceLock<Instant>, watcher: std::thread::Thread) -> Self {
+        Self { done, watcher }
+    }
+}
+
+impl Drop for SignalOnDrop<'_> {
+    fn drop(&mut self) {
+        let _ = self.done.set(Instant::now());
+        self.watcher.unpark();
+    }
 }
 
 /// When the command dispatched what can open a window. The settle runs from

@@ -149,6 +149,7 @@ fn an_unclear_answer_with_a_strong_change_is_a_verified_success() {
 
 #[test]
 fn an_unclear_answer_with_no_change_stays_uncertain_without_a_wait() {
+    let clock = crate::wait::deadline::VirtualClock::freeze();
     let adapter = adapter(
         vec![
             Ok(witness(false, "A")),
@@ -157,13 +158,12 @@ fn an_unclear_answer_with_no_change_stays_uncertain_without_a_wait() {
         ],
         uncertain(),
     );
-    let started = std::time::Instant::now();
     let error = run(&adapter).unwrap_err();
 
     assert_eq!(error.disposition, DeliverySemantics::uncertain());
     assert_eq!(error.details.unwrap()["effect"], "not_observed");
     assert_eq!(*adapter.read_count.lock().unwrap(), 2);
-    assert!(started.elapsed() < std::time::Duration::from_millis(40));
+    assert_eq!(clock.elapsed(), std::time::Duration::ZERO);
 }
 
 #[test]

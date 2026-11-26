@@ -45,24 +45,25 @@ fn run(
     (outcome, pending, lease)
 }
 
-fn map_child_window_after(desk: &Arc<Desk>, delay_ms: u64) {
+fn map_child_window_after(desk: &Arc<Desk>, delay_ms: u64) -> std::thread::JoinHandle<()> {
     let desk = Arc::clone(desk);
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(delay_ms));
         *desk.now.lock().unwrap() = front("child", &["user", "child"]);
-    });
+    })
 }
 
 #[test]
 fn a_window_a_spawned_helper_maps_after_the_settle_is_given_back_once_the_lease_is_released() {
     let desk = Arc::new(Desk::new(true));
-    map_child_window_after(&desk, 400);
+    let mapper = map_child_window_after(&desk, 400);
     let (outcome, pending, lease) = run(&desk, true, 5_000);
     assert_eq!(outcome, FrontOutcome::Clean);
     let pending = pending.expect("a helper is running with no window yet");
     drop(lease);
     let started = Instant::now();
     let resolution = pending.finish(&*desk);
+    mapper.join().unwrap();
     assert_eq!(resolution.outcome, FrontOutcome::GivenBack);
     assert_eq!(resolution.pending_reason, None);
     assert!(started.elapsed() > Duration::from_millis(250));
@@ -72,10 +73,10 @@ fn a_window_a_spawned_helper_maps_after_the_settle_is_given_back_once_the_lease_
 #[test]
 fn a_watch_that_ignores_spawned_helpers_ends_with_the_window_still_in_front() {
     let desk = Arc::new(Desk::new(true));
-    map_child_window_after(&desk, 400);
+    let mapper = map_child_window_after(&desk, 400);
     let (outcome, pending, _lease) = run(&desk, false, 5_000);
     assert_eq!((outcome, pending.is_none()), (FrontOutcome::Clean, true));
-    std::thread::sleep(Duration::from_millis(500));
+    mapper.join().unwrap();
     assert_eq!(
         desk.now.lock().unwrap().focused.as_ref().unwrap().id,
         "child"
@@ -198,7 +199,7 @@ fn the_watch_around_post_release_work_adds_no_time_when_the_work_outlasts_the_se
     let desk = Desk::new(true);
     let lease = lease_of(&desk, 5_000);
     let mut cfg = watch(true);
-    cfg.settle = Duration::from_millis(200);
+    cfg.settle = Duration::from_millis(450);
     let (_, _, pending) =
         guarded_deferred(&desk, InteractionPolicy::headless(), &lease, cfg, |mark| {
             mark.dispatched()
@@ -207,13 +208,13 @@ fn the_watch_around_post_release_work_adds_no_time_when_the_work_outlasts_the_se
     drop(lease);
     let mut work_done = None;
     let (_, resolution) = pending.unwrap().run_around(&desk, || {
-        std::thread::sleep(Duration::from_millis(300));
+        std::thread::sleep(Duration::from_millis(550));
         work_done = Some(Instant::now());
     });
     assert_eq!(resolution.outcome, FrontOutcome::Clean);
     let tail = work_done.unwrap().elapsed();
     assert!(
-        tail < Duration::from_millis(120),
-        "watch waited {tail:?} after post-release work that already outlasted the 200 ms settle"
+        tail < Duration::from_millis(300),
+        "watch waited {tail:?} after post-release work that already outlasted the 450 ms settle"
     );
 }

@@ -4,6 +4,11 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
 };
 
+type CensusGate = (
+    std::sync::mpsc::SyncSender<()>,
+    std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+);
+
 struct DoubleCheckAdapter {
     live_calls: AtomicU32,
     bounds_reads: AtomicU32,
@@ -14,7 +19,7 @@ struct DoubleCheckAdapter {
     available_action: &'static str,
     surface_reads_under_lease: std::sync::Mutex<Vec<bool>>,
     witness_reads: std::sync::Mutex<Vec<(bool, u64)>>,
-    census_delay: std::time::Duration,
+    census_gate: Option<CensusGate>,
     shared_lease: Option<Arc<AtomicBool>>,
     element_name: &'static str,
 }
@@ -97,7 +102,10 @@ impl ObservationOps for DoubleCheckAdapter {
             root,
             crate::locator::live_locator::ObservationRoot::Window(_)
         ) {
-            std::thread::sleep(self.census_delay);
+            if let Some((entered, release)) = &self.census_gate {
+                let _ = entered.send(());
+                let _ = release.lock().unwrap().recv();
+            }
         }
         if let crate::locator::live_locator::ObservationRoot::Element { entry, .. } = &root {
             let mut node = crate::adapter::minimal_accessibility_node(&entry.identity.role, "");
@@ -294,6 +302,7 @@ fn run_with_entry(
 
 #[test]
 fn lease_acquisition_receives_the_exact_original_deadline() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let deadline = crate::Deadline::after(80).unwrap();
     let adapter = adapter(0, 80, Some(deadline));
     let error = super::super::execute_with_deadline(
@@ -330,7 +339,7 @@ fn adapter(
         available_action: capability::CLICK,
         surface_reads_under_lease: std::sync::Mutex::new(Vec::new()),
         witness_reads: std::sync::Mutex::new(Vec::new()),
-        census_delay: std::time::Duration::ZERO,
+        census_gate: None,
         shared_lease: None,
         element_name: "Run",
     }
