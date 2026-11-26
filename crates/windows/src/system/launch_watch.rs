@@ -81,6 +81,7 @@ pub(super) struct Sighting {
 pub(super) struct Target<'a> {
     pub(super) pid: ProcessId,
     pub(super) process_instance: &'a str,
+    pub(super) started_ms: u64,
     pub(super) resident: Option<Resident>,
 }
 
@@ -115,30 +116,42 @@ pub(super) fn should_poll_after_first_observation(timeout_ms: u64) -> bool {
     timeout_ms > 0
 }
 
-/// The processes the root started, directly or through other processes that
-/// are still running. A launcher that hands its work to a child owns that
-/// child's windows; a window of an unrelated process is never the launch's.
-pub(super) fn descendants(rows: &[ProcessRow], root: ProcessId) -> Vec<ProcessId> {
-    let mut found = vec![root];
-    let mut index = 0;
-    while index < found.len() {
-        let parent = found[index];
-        for row in rows {
-            if row.parent == parent && !found.contains(&row.pid) {
-                found.push(row.pid);
-            }
-        }
-        index += 1;
-    }
-    found.remove(0);
-    found
+/// The processes `root` started at or after `since_ms`, directly or through
+/// other processes that are still running. Filtering by start time prevents an
+/// earlier process whose dead parent happened to share a reused PID from being
+/// attributed to this launch.
+pub(super) fn descendants(
+    rows: &[ProcessRow],
+    root: ProcessId,
+    since_ms: u64,
+    start_of: impl Fn(u32) -> Option<u64>,
+) -> Vec<ProcessId> {
+    let parents: Vec<(u32, u32)> = rows
+        .iter()
+        .map(|row| (row.pid.get(), row.parent.get()))
+        .collect();
+    agent_desktop_core::spawned_descendants_of(root.get(), since_ms, &parents, start_of)
+        .into_iter()
+        .map(ProcessId::new)
+        .collect()
 }
 
-fn launch_finished(pid: ProcessId) -> bool {
+fn started_ms_of(pid: u32) -> Option<u64> {
+    process_identity::ProcessIdentity::capture(ProcessId::new(pid))
+        .ok()
+        .flatten()
+        .map(process_identity::ProcessIdentity::started_unix_ms)
+}
+
+fn live_descendants(root: ProcessId, since_ms: u64) -> Option<Vec<ProcessId>> {
+    process_snapshot()
+        .ok()
+        .map(|rows| descendants(&rows, root, since_ms, started_ms_of))
+}
+
+fn launch_finished(pid: ProcessId, started_ms: u64) -> bool {
     process_identity::wait_for_exit(pid, Duration::ZERO)
-        && process_snapshot()
-            .map(|rows| descendants(&rows, pid).is_empty())
-            .unwrap_or(false)
+        && live_descendants(pid, started_ms).is_some_and(|children| children.is_empty())
 }
 
 /// Watches until the launch shows a window, finishes without one, or the
@@ -155,17 +168,22 @@ pub(super) fn observe_window(
     let mut interval = POLL_START;
     let mut finished_at: Option<Instant> = None;
     loop {
-        let seen = observe_window_once(target, deadline)?;
+        let mut seen = observe_window_once(target, deadline)?;
         let sight = if seen.is_some() {
             Sight::Window
-        } else if launch_finished(pid)
+        } else if launch_finished(pid, target.started_ms)
             && forward_search_over(
                 target.resident.is_some(),
                 *finished_at.get_or_insert_with(Instant::now),
                 Instant::now(),
             )
         {
-            Sight::NothingLeftRunning
+            seen = observe_window_once(target, deadline)?;
+            if seen.is_some() {
+                Sight::Window
+            } else {
+                Sight::NothingLeftRunning
+            }
         } else if !polls || deadline.remaining().is_zero() {
             Sight::OutOfTime
         } else {
@@ -222,9 +240,7 @@ fn exact_window(target: &Target<'_>, deadline: Deadline) -> Result<Option<Seen>,
     if windows.is_empty() {
         return Ok(None);
     }
-    let started = process_snapshot()
-        .map(|rows| descendants(&rows, target.pid))
-        .unwrap_or_default();
+    let started = live_descendants(target.pid, target.started_ms).unwrap_or_default();
     if let Some(window) = windows
         .iter()
         .find(|window| started.contains(&window.pid) && window.process_instance.is_some())
