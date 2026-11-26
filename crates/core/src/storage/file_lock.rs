@@ -108,7 +108,7 @@ fn lock_file(
     }
     let mut contention_count = 0_u64;
     let file = loop {
-        let before_epoch = abandoned_waiter_epoch();
+        let before_epoch = abandoned_waiter_epoch(path);
         match file.try_lock() {
             Ok(()) => break file,
             Err(std::fs::TryLockError::Error(error)) => {
@@ -117,6 +117,9 @@ fn lock_file(
             Err(std::fs::TryLockError::WouldBlock) => {
                 contention_count = 1;
                 if settle_abandoned_waiters(path, deadline, before_epoch) {
+                    if deadline.is_expired() {
+                        return Err(lock_timeout(deadline, purpose, path, contention_count));
+                    }
                     continue;
                 }
                 break wait_for_lock(file, deadline, path).map_err(|failure| match failure {
