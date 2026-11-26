@@ -213,3 +213,44 @@ fn a_text_value_wins_over_a_range_number() {
         LocatorField::Known("high".into())
     );
 }
+
+/// A secure element withholds `RangeValue` alongside text values so the numeric
+/// fallback never republishes protected content when `IsPassword` is true or
+/// unreadable.
+#[test]
+fn a_secure_range_control_withholds_its_numeric_value() {
+    for is_password in [flag(true), PropertyOutcome::Unknown] {
+        let properties = ElementProperties::from_reads(vec![
+            (TreeProperty::IsPassword, is_password),
+            (
+                TreeProperty::Value,
+                PropertyOutcome::Known(PropertyValue::Text("secret".into())),
+            ),
+            (TreeProperty::RangeValueAvailable, flag(true)),
+            (TreeProperty::RangeValue, real(42.0)),
+        ]);
+        assert!(properties.is_secure());
+        assert_eq!(
+            properties.get(TreeProperty::RangeValue),
+            PropertyOutcome::Absent
+        );
+        assert_eq!(
+            properties
+                .locator_evidence(ResolvedVocabulary::unknown())
+                .value,
+            LocatorField::Absent
+        );
+    }
+
+    let public = ElementProperties::from_reads(vec![
+        (TreeProperty::IsPassword, flag(false)),
+        (TreeProperty::Value, PropertyOutcome::Absent),
+        (TreeProperty::RangeValueAvailable, flag(true)),
+        (TreeProperty::RangeValue, real(42.0)),
+    ]);
+    assert!(!public.is_secure());
+    assert_eq!(
+        public.locator_evidence(ResolvedVocabulary::unknown()).value,
+        LocatorField::Known("42".into())
+    );
+}

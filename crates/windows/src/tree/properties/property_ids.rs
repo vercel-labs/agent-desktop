@@ -79,11 +79,12 @@ impl TreeProperty {
     /// it, because the text crosses an element boundary before this element's
     /// gate runs; that is sufficient, because the text belongs to the label
     /// target, not to this element.
-    pub const VALUE_BEARING: [TreeProperty; 6] = [
+    pub const VALUE_BEARING: [TreeProperty; 7] = [
         TreeProperty::Name,
         TreeProperty::HelpText,
         TreeProperty::FullDescription,
         TreeProperty::Value,
+        TreeProperty::RangeValue,
         TreeProperty::LegacyValue,
         TreeProperty::LegacyDefaultAction,
     ];
