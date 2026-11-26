@@ -78,6 +78,7 @@ fn the_walk_set_carries_the_flag_that_gates_it() {
 fn the_gate_covers_exactly_the_properties_whose_content_comes_from_the_target() {
     assert!(TreeProperty::Name.is_value_bearing());
     assert!(TreeProperty::Value.is_value_bearing());
+    assert!(TreeProperty::RangeValue.is_value_bearing());
     assert!(TreeProperty::HelpText.is_value_bearing());
     assert!(TreeProperty::LegacyValue.is_value_bearing());
     assert!(TreeProperty::FullDescription.is_value_bearing());
