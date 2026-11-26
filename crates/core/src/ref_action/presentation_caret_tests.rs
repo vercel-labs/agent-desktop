@@ -142,6 +142,7 @@ fn typing_draws_the_caret_at_the_insertion_point_and_drops_the_outline() {
         .find(|instruction| instruction.phase() == CursorPhase::Caret)
         .expect("a caret instruction");
     assert_eq!(caret.target(), Some(&CARET));
+    assert_eq!(caret.owner(), Some(field().process.pid));
     let effect = presented
         .iter()
         .filter_map(CursorOverlayControl::instruction)

@@ -52,7 +52,12 @@ pub(crate) fn execute(
         let mut landed = None;
         let delivered = match &burst {
             Some(burst) => deliver(adapter, burst, request, budget(unit)).map(|_| {
-                crate::ref_action::presentation::move_caret(adapter, context, &burst.handle);
+                crate::ref_action::presentation::move_caret(
+                    adapter,
+                    context,
+                    &burst.handle,
+                    burst.entry.process.pid,
+                );
             }),
             None => execute_landing(
                 RefArgs {

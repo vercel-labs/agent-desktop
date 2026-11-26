@@ -1,7 +1,9 @@
+mod arrival;
 mod caret_follow;
 mod config;
 mod control;
 mod cursor_hold;
+mod effect;
 mod hand_path;
 mod image;
 mod images;
@@ -17,10 +19,12 @@ mod style;
 mod submit;
 mod timing;
 
+pub use arrival::CursorArrival;
 pub(crate) use caret_follow::follow_caret_after_key;
 pub use config::{CursorOverlayConfig, MAX_CURSOR_LABEL_BYTES, MAX_CURSOR_LABEL_WORDS};
 pub use control::{CURSOR_OVERLAY_GREETING, CursorOverlayControl};
 pub(crate) use cursor_hold::hold_cursor;
+pub(crate) use effect::CursorEffect;
 pub use image::{
     CursorImage, MAX_CURSOR_IMAGE_BYTES, MAX_CURSOR_IMAGE_PATH_BYTES, MAX_CURSOR_IMAGE_PIXELS,
 };
@@ -37,9 +41,9 @@ pub use phase::CursorPhase;
 pub use pose::CursorPose;
 pub use style::CursorOverlayStyle;
 pub(crate) use submit::{
-    cancel_drag, confirms_delivery, dispatch_mouse_event_with_cursor, input_was_delivered, submit,
-    submit_caret, submit_caret_follow, submit_drag, submit_drag_effect, submit_travel,
-    submit_travel_before_lease,
+    cancel_drag, confirms_delivery, dispatch_mouse_event_with_cursor, input_was_delivered,
+    submit_caret, submit_caret_follow, submit_drag, submit_drag_effect, submit_effect,
+    submit_travel, submit_travel_before_lease,
 };
 pub use timing::{
     CURSOR_ARRIVAL_TIMEOUT_MS, CURSOR_HIGHLIGHT_HOLD_MS, CURSOR_IDLE_REST_MS,

@@ -1,7 +1,7 @@
-use super::CursorPhase;
+use super::{CursorArrival, CursorEffect, CursorPhase};
 use crate::{
     AdapterError, CommandContext, DeliveryDisposition, DeliverySemantics, MouseEvent,
-    OperationReport, PlatformAdapter, Point, Rect,
+    OperationReport, PlatformAdapter, Point, ProcessId, Rect,
 };
 
 const DISPATCH_RESERVE_MS: u64 = 100;
@@ -33,23 +33,21 @@ pub(crate) fn submit_travel_before_lease(
     context: &CommandContext,
     destination: Point,
     deadline: crate::Deadline,
-    pointer: bool,
+    arrival: CursorArrival,
 ) -> bool {
-    travel_within(adapter, context, destination, deadline, pointer)
+    travel_within(adapter, context, destination, deadline, arrival)
 }
 
-/// Moves the drawn cursor to `destination` before an action; `pointer` arrives showing the
-/// pointer image because the action lands on a pressable control. The flag is sent only
-/// when a pointer image is configured, so controls without one stay byte-identical to what
-/// earlier renderers accept.
+/// Moves the drawn cursor to `destination` before an action, arriving as `arrival` says. The
+/// pointer flag is sent only when a pointer image is configured.
 pub(crate) fn submit_travel(
     adapter: &dyn PlatformAdapter,
     context: &CommandContext,
     destination: Point,
     lease: &crate::InteractionLease,
-    pointer: bool,
+    arrival: CursorArrival,
 ) {
-    travel_within(adapter, context, destination, lease.deadline(), pointer);
+    travel_within(adapter, context, destination, lease.deadline(), arrival);
 }
 
 fn travel_within(
@@ -57,7 +55,7 @@ fn travel_within(
     context: &CommandContext,
     destination: Point,
     deadline: crate::Deadline,
-    pointer: bool,
+    arrival: CursorArrival,
 ) -> bool {
     let Some(_scope) = travel_scope_within(deadline) else {
         return false;
@@ -65,17 +63,22 @@ fn travel_within(
     let instruction =
         super::CursorOverlayInstruction::new(destination, context.cursor_overlay(), false).map(
             |instruction| {
-                instruction.with_pointer(
-                    pointer && context.cursor_overlay().style().pointer_image().is_some(),
-                )
+                let pointer =
+                    arrival.pointer() && context.cursor_overlay().style().pointer_image().is_some();
+                instruction.with_arrival(CursorArrival::new(pointer, arrival.owner()))
             },
         );
     send(adapter, context, instruction)
 }
 
-/// Places the agent's text caret at `caret`, where the app is inserting text,
+/// Places the agent's text caret at `caret`, where `owner` is inserting text,
 /// without moving the cursor.
-pub(crate) fn submit_caret(adapter: &dyn PlatformAdapter, context: &CommandContext, caret: Rect) {
+pub(crate) fn submit_caret(
+    adapter: &dyn PlatformAdapter,
+    context: &CommandContext,
+    caret: Rect,
+    owner: ProcessId,
+) {
     let destination = Point {
         x: caret.x,
         y: caret.y + caret.height / 2.0,
@@ -86,6 +89,7 @@ pub(crate) fn submit_caret(adapter: &dyn PlatformAdapter, context: &CommandConte
                 instruction
                     .with_target(Some(caret))
                     .with_phase(CursorPhase::Caret)
+                    .with_arrival(CursorArrival::new(false, Some(owner)))
             },
         );
     let _ = send(adapter, context, instruction);
@@ -129,17 +133,24 @@ pub(crate) fn confirms_delivery(disposition: DeliverySemantics) -> bool {
     )
 }
 
-pub(crate) fn submit(
+/// Plays an action's effect. It names its owner itself rather than relying on
+/// the travel before it, because that travel is optional.
+pub(crate) fn submit_effect(
     adapter: &dyn PlatformAdapter,
     context: &CommandContext,
-    destination: Point,
-    target: Option<Rect>,
-    click: bool,
-    phase: CursorPhase,
+    effect: CursorEffect,
 ) {
-    let instruction =
-        super::CursorOverlayInstruction::new(destination, context.cursor_overlay(), click)
-            .map(|instruction| instruction.with_target(target).with_phase(phase));
+    let instruction = super::CursorOverlayInstruction::new(
+        effect.destination,
+        context.cursor_overlay(),
+        effect.click,
+    )
+    .map(|instruction| {
+        instruction
+            .with_target(effect.target)
+            .with_phase(CursorPhase::Effect)
+            .with_arrival(CursorArrival::new(false, effect.owner))
+    });
     let _ = send(adapter, context, instruction);
 }
 
@@ -252,16 +263,24 @@ pub(crate) fn dispatch_mouse_event_with_cursor(
     lease: &crate::InteractionLease,
 ) -> Result<OperationReport, AdapterError> {
     let point = event.point.clone();
-    crate::cursor_overlay::submit_travel(adapter, context, point.clone(), lease, click);
+    crate::cursor_overlay::submit_travel(
+        adapter,
+        context,
+        point.clone(),
+        lease,
+        CursorArrival::new(click, None),
+    );
     let result = adapter.mouse_event(event, lease);
     if crate::cursor_overlay::input_was_delivered(&result) {
-        crate::cursor_overlay::submit(
+        crate::cursor_overlay::submit_effect(
             adapter,
             context,
-            point,
-            None,
-            click,
-            crate::CursorPhase::Effect,
+            CursorEffect {
+                destination: point,
+                target: None,
+                click,
+                owner: None,
+            },
         );
     }
     result

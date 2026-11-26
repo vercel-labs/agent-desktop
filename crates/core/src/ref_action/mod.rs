@@ -150,13 +150,7 @@ pub(crate) fn dispatch_resolved_landing(
     if presentation::after_text_entry(&final_target, &presentation_action, &dispatch_result) {
         preflight.presentation_bounds = None;
     }
-    presentation::after_dispatch(
-        final_target.adapter,
-        final_target.context,
-        &preflight,
-        ripples,
-        &dispatch_result,
-    );
+    presentation::after_dispatch(&final_target, &preflight, ripples, &dispatch_result);
     let mut result = dispatch_result?;
     if raises_surface {
         result.surfaces = settled_surfaces(&final_target, expected_process);

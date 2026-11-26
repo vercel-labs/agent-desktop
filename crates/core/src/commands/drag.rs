@@ -139,7 +139,13 @@ pub fn execute(
         params.validate(deadline)?;
         Ok((from, to, lease, params))
     })?;
-    crate::cursor_overlay::submit_travel(adapter, context, from.point.clone(), &lease, false);
+    crate::cursor_overlay::submit_travel(
+        adapter,
+        context,
+        from.point.clone(),
+        &lease,
+        crate::CursorArrival::new(false, None),
+    );
     let drag_tracking = crate::cursor_overlay::submit_drag(
         adapter,
         context,
@@ -159,13 +165,15 @@ pub fn execute(
             to.point.clone(),
         );
     } else if delivered {
-        crate::cursor_overlay::submit(
+        crate::cursor_overlay::submit_effect(
             adapter,
             context,
-            to.point.clone(),
-            None,
-            false,
-            crate::CursorPhase::Effect,
+            crate::cursor_overlay::CursorEffect {
+                destination: to.point.clone(),
+                target: None,
+                click: false,
+                owner: None,
+            },
         );
     } else {
         crate::cursor_overlay::cancel_drag(adapter, context);

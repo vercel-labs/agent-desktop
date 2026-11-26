@@ -1,7 +1,6 @@
 use std::cell::Cell;
 
 use super::{ActionabilityPreflight, ResolvedRefAction};
-use crate::cursor_overlay::CursorPhase;
 use crate::{Action, CommandContext, PlatformAdapter};
 
 const SAME_POINT: f64 = 1.5;
@@ -31,7 +30,7 @@ pub(super) fn before_dispatch(
         target.context,
         destination,
         lease,
-        pointer,
+        crate::CursorArrival::new(pointer, Some(target.entry.process.pid)),
     );
 }
 
@@ -62,7 +61,7 @@ pub(super) fn before_lease(
         context.context,
         destination.clone(),
         deadline,
-        pointer,
+        crate::CursorArrival::new(pointer, Some(context.entry.process.pid)),
     ) {
         TRAVELLED_BEFORE_LEASE.set(Some((destination.x, destination.y)));
     }
@@ -142,8 +141,7 @@ pub(super) fn shows_pointer(role: &str, action: &Action) -> bool {
 }
 
 pub(super) fn after_dispatch(
-    adapter: &dyn PlatformAdapter,
-    context: &CommandContext,
+    target: &super::ref_action_wait_context::RefActionWaitContext<'_>,
     preflight: &ActionabilityPreflight,
     ripples: bool,
     result: &Result<crate::ActionResult, crate::AdapterError>,
@@ -162,13 +160,15 @@ pub(super) fn after_dispatch(
     else {
         return;
     };
-    crate::cursor_overlay::submit(
-        adapter,
-        context,
-        destination,
-        preflight.presentation_bounds,
-        ripples,
-        CursorPhase::Effect,
+    crate::cursor_overlay::submit_effect(
+        target.adapter,
+        target.context,
+        crate::cursor_overlay::CursorEffect {
+            destination,
+            target: preflight.presentation_bounds,
+            click: ripples,
+            owner: Some(target.entry.process.pid),
+        },
     );
 }
 
@@ -185,13 +185,21 @@ pub(super) fn after_text_entry(
         Ok(result) => crate::cursor_overlay::confirms_delivery(result.disposition()),
         Err(error) => crate::cursor_overlay::confirms_delivery(error.disposition),
     };
-    delivered && enters_text(action) && place_caret(target.adapter, target.context, target.handle)
+    delivered
+        && enters_text(action)
+        && place_caret(
+            target.adapter,
+            target.context,
+            target.handle,
+            target.entry.process.pid,
+        )
 }
 
 fn place_caret(
     adapter: &dyn PlatformAdapter,
     context: &CommandContext,
     handle: &crate::NativeHandle,
+    owner: crate::ProcessId,
 ) -> bool {
     if !context.cursor_overlay().is_enabled() {
         return false;
@@ -202,7 +210,7 @@ fn place_caret(
     let Ok(Some(caret)) = adapter.get_insertion_caret(handle, deadline) else {
         return false;
     };
-    crate::cursor_overlay::submit_caret(adapter, context, caret);
+    crate::cursor_overlay::submit_caret(adapter, context, caret, owner);
     true
 }
 
@@ -213,8 +221,9 @@ pub(crate) fn move_caret(
     adapter: &dyn PlatformAdapter,
     context: &CommandContext,
     handle: &crate::NativeHandle,
+    owner: crate::ProcessId,
 ) {
-    place_caret(adapter, context, handle);
+    place_caret(adapter, context, handle, owner);
 }
 
 fn destination(preflight: &ActionabilityPreflight) -> Option<crate::Point> {

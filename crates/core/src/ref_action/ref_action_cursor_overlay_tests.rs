@@ -172,12 +172,14 @@ fn enabled_cursor_moves_before_dispatch_then_clicks_after_it() {
         !travel.is_pointer(),
         "clicking into a text field keeps the arrow"
     );
+    assert_eq!(travel.owner(), Some(entry().process.pid));
     assert_eq!(click.destination(), &center);
     assert!(
         click.is_click(),
         "the click effect lands after dispatch confirms"
     );
     assert_eq!(click.target().map(|rect| rect.width), Some(20.0));
+    assert_eq!(click.owner(), Some(entry().process.pid));
     assert_eq!(presented[0].label(), Some("Opening menu"));
     assert_eq!(
         *adapter.events.lock().unwrap(),
@@ -201,6 +203,9 @@ fn short_action_budget_skips_optional_travel_before_dispatch() {
         *adapter.events.lock().unwrap(),
         [CursorEvent::Dispatch, CursorEvent::Effect]
     );
+    let presented = adapter.presented.lock().unwrap();
+    let effect = presented[0].instruction().expect("effect instruction");
+    assert_eq!(effect.owner(), Some(entry().process.pid));
 }
 
 #[test]
@@ -238,40 +243,6 @@ fn headed_click_retains_travel_and_effect_around_physical_dispatch() {
             &crate::Point { x: 11.0, y: 11.0 }
         );
     }
-}
-
-#[test]
-fn physical_effect_uses_verified_input_point_and_requires_delivery() {
-    let adapter = CursorAdapter::new(false);
-    let context = enabled_context().with_headed(true);
-    let preflight = ActionabilityPreflight {
-        verified_point: Some(crate::Point { x: 4.0, y: 5.0 }),
-        presentation_point: Some(crate::Point { x: 11.0, y: 11.0 }),
-        presentation_bounds: entry().geometry.bounds,
-        pointer_delivery: actionability::PointerDelivery::Physical,
-    };
-    presentation::after_dispatch(
-        &adapter,
-        &context,
-        &preflight,
-        true,
-        &Err(AdapterError::stale_ref("blocked")
-            .with_disposition(crate::DeliverySemantics::NotDelivered)),
-    );
-    assert!(adapter.presented.lock().unwrap().is_empty());
-    presentation::after_dispatch(
-        &adapter,
-        &context,
-        &preflight,
-        true,
-        &Ok(ActionResult::delivered_unverified("click")),
-    );
-    let presented = adapter.presented.lock().unwrap();
-    assert_eq!(presented.len(), 1);
-    assert_eq!(
-        presented[0].instruction().unwrap().destination(),
-        &crate::Point { x: 4.0, y: 5.0 }
-    );
 }
 
 #[test]
@@ -396,3 +367,6 @@ fn headed_and_headless_contexts_present_the_same_cursor() {
 
 #[path = "ref_action_cursor_overlay_unknown_tests.rs"]
 mod unknown_hit_tests;
+
+#[path = "ref_action_cursor_overlay_effect_tests.rs"]
+mod effect_tests;

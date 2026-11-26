@@ -1,6 +1,7 @@
 use agent_desktop_core::{
     AdapterError, CURSOR_HIGHLIGHT_HOLD_MS, CursorImage, CursorOverlayInstruction,
-    CursorOverlayStyle, CursorPhase, CursorPose, ErrorCode, LabelPill, Point, Rect, place_label,
+    CursorOverlayStyle, CursorPhase, CursorPose, ErrorCode, LabelPill, Point, ProcessId, Rect,
+    place_label,
 };
 use std::ffi::{CString, c_char};
 
@@ -56,6 +57,7 @@ unsafe extern "C" {
         hotspot_y: f64,
     ) -> bool;
     fn agent_desktop_cursor_overlay_idle();
+    fn agent_desktop_cursor_overlay_anchor(pid: u32, x: f64, y: f64);
     fn agent_desktop_cursor_overlay_label_width(label: *const c_char) -> f64;
     fn agent_desktop_cursor_overlay_caret(x: f64, y: f64, width: f64, height: f64);
     fn agent_desktop_cursor_overlay_caret_clear();
@@ -107,6 +109,17 @@ pub(super) fn apply_caret(instruction: &CursorOverlayInstruction, at: Option<&Po
         unsafe { agent_desktop_cursor_overlay_caret_clear() }
     }
     false
+}
+
+/// Anchors the overlay to the window of the process that owns the target,
+/// looked up again for every instruction, because an action can close that
+/// window or open a sheet over it. Each instruction names its own owner, so
+/// none depends on one before it. Raw coordinates, a drag and the caret that
+/// follows a key press name none, and the overlay draws above every window.
+pub(super) fn anchor(instruction: &CursorOverlayInstruction) {
+    let pid = instruction.owner().map_or(0, ProcessId::get);
+    let at = instruction.destination();
+    unsafe { agent_desktop_cursor_overlay_anchor(pid, at.x, at.y) }
 }
 
 pub(super) fn begin_drag(from: &Point, trail: bool) {

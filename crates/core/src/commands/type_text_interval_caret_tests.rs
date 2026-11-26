@@ -125,18 +125,24 @@ fn an_interval_burst_moves_the_caret_with_every_keystroke() {
     )
     .expect("typing succeeds");
 
-    let carets: Vec<f64> = adapter
-        .presented
-        .lock()
-        .unwrap()
+    let presented = adapter.presented.lock().unwrap();
+    let carets: Vec<_> = presented
         .iter()
         .filter_map(CursorOverlayControl::instruction)
         .filter(|instruction| instruction.phase() == CursorPhase::Caret)
-        .filter_map(|instruction| instruction.target().map(|caret| caret.x))
         .collect();
     assert_eq!(
-        carets,
+        carets
+            .iter()
+            .filter_map(|instruction| instruction.target().map(|caret| caret.x))
+            .collect::<Vec<_>>(),
         [17.0, 24.0, 31.0, 38.0, 45.0],
         "one caret per keystroke, each at the insertion point it left"
+    );
+    assert!(
+        carets
+            .iter()
+            .all(|caret| caret.owner() == Some(crate::ProcessId::new(1))),
+        "every caret of the burst names the field's process"
     );
 }
