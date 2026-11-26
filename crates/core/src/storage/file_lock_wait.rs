@@ -40,24 +40,24 @@ impl Pending {
 /// the same path waits for these to finish instead of reading that brief hold
 /// as another command holding the lock.
 struct Ghosts {
-    state: Mutex<(BTreeMap<PathBuf, usize>, u64)>,
+    state: Mutex<(BTreeMap<PathBuf, usize>, BTreeMap<PathBuf, u64>)>,
     finished: Condvar,
 }
 
 static GHOSTS: Ghosts = Ghosts {
-    state: Mutex::new((BTreeMap::new(), 0)),
+    state: Mutex::new((BTreeMap::new(), BTreeMap::new())),
     finished: Condvar::new(),
 };
 
 impl Ghosts {
-    fn state(&self) -> MutexGuard<'_, (BTreeMap<PathBuf, usize>, u64)> {
+    fn state(&self) -> MutexGuard<'_, (BTreeMap<PathBuf, usize>, BTreeMap<PathBuf, u64>)> {
         self.state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn vanished_epoch(&self) -> u64 {
-        self.state().1
+    fn vanished_epoch(&self, path: &Path) -> u64 {
+        self.state().1.get(path).copied().unwrap_or(0)
     }
 
     fn appeared(&self, path: &Path) {
@@ -72,7 +72,8 @@ impl Ghosts {
                 state.0.remove(path);
             }
         }
-        state.1 = state.1.wrapping_add(1);
+        let epoch = state.1.entry(path.to_path_buf()).or_insert(0);
+        *epoch = epoch.wrapping_add(1);
         self.finished.notify_all();
     }
 }
@@ -81,20 +82,20 @@ impl Ghosts {
 /// The kernel's grant to the helper and the helper's release are two steps a
 /// few microseconds apart. A helper still blocked after this long is queued
 /// behind another holder, and the acquirer queues behind it in the kernel.
-const ABANDONED_HELPER_GRACE: Duration = Duration::from_millis(250);
+const ABANDONED_HELPER_GRACE: Duration = Duration::from_millis(500);
 
-/// Reads the current abandoned-waiter completion epoch before a non-blocking
-/// lock attempt, so `settle_abandoned_waiters` detects a helper that released
-/// the lock between `try_lock` and the ghost check.
-pub(crate) fn abandoned_waiter_epoch() -> u64 {
-    GHOSTS.vanished_epoch()
+/// Reads the current abandoned-waiter completion epoch for `path` before a
+/// non-blocking lock attempt, so `settle_abandoned_waiters` detects a helper
+/// that released the lock between `try_lock` and the ghost check.
+pub(crate) fn abandoned_waiter_epoch(path: &Path) -> u64 {
+    GHOSTS.vanished_epoch(path)
 }
 
 /// Waits, in real time, for the abandoned helpers of this process that are
 /// blocked on `path` to finish, for at most the grace and the remaining budget.
 /// Returns `true` when it waited and none is left, or when an abandoned helper
-/// finished since `before_epoch`, so the caller tries the lock again; `false`
-/// when none finished and none is left, or one is still blocked.
+/// for `path` finished since `before_epoch`, so the caller tries the lock
+/// again; `false` when none finished and none is left, or one is still blocked.
 pub(crate) fn settle_abandoned_waiters(path: &Path, deadline: Deadline, before_epoch: u64) -> bool {
     let real_end = Instant::now() + deadline.remaining().min(ABANDONED_HELPER_GRACE);
     let mut state = GHOSTS.state();
@@ -107,7 +108,8 @@ pub(crate) fn settle_abandoned_waiters(path: &Path, deadline: Deadline, before_e
         waited = true;
         state = crate::wait::deadline::wait_for_event(&GHOSTS.finished, state, left);
     }
-    waited || state.1 != before_epoch
+    let current_epoch = state.1.get(path).copied().unwrap_or(0);
+    waited || current_epoch != before_epoch
 }
 
 /// Blocks in the kernel for the lock until `deadline`. The blocking call runs on
