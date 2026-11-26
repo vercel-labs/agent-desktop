@@ -79,9 +79,9 @@ impl FrontPending {
         let done = OnceLock::new();
         std::thread::scope(|scope| {
             let watching = scope.spawn(|| self.watch(adapter, &done));
+            let signal = super::front_guard::SignalOnDrop::new(&done, watching.thread().clone());
             let value = work();
-            let _ = done.set(Instant::now());
-            watching.thread().unpark();
+            drop(signal);
             let resolution = watching.join().unwrap_or(FrontResolution {
                 outcome: FrontOutcome::Off,
                 pending_reason: None,
