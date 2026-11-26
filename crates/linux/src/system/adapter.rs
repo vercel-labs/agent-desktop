@@ -91,9 +91,9 @@ impl SystemOps for LinuxAdapter {
         app: &AppInfo,
         force: bool,
         lease: &InteractionLease,
-        _policy: agent_desktop_core::InteractionPolicy,
+        policy: agent_desktop_core::InteractionPolicy,
     ) -> Result<OperationReport, AdapterError> {
-        close::close_app(self.bus(), app, force, lease)
+        close::close_app(self.bus(), app, force, lease, policy)
     }
 
     fn launch_app(
