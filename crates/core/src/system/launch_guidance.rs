@@ -21,9 +21,9 @@ pub struct LaunchGuidance {
     /// when there is nothing more useful to say than the fields already do.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<String>,
-    /// True when the launched application took the keyboard focus and the
-    /// launch gave it back to the window that had it. Present only for a
-    /// launch without `--activate` that observed the window system.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub focus_returned: bool,
+    /// Whether the launch gave focus back when the launched application took
+    /// it: `Some(true)` when restored, `Some(false)` when restoration failed,
+    /// and `None` when nothing intruded or the launch did not monitor focus.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus_returned: Option<bool>,
 }
