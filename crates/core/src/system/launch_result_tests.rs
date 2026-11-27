@@ -40,6 +40,7 @@ fn present_guidance_sits_flat_beside_the_launch_keys() {
         renderer: Some(RendererKind::Chromium),
         suggestion: Some("guidance".into()),
         focus_returned: None,
+        front_watch: None,
     };
     launched.disposition = DeliverySemantics::delivered_verified();
 
