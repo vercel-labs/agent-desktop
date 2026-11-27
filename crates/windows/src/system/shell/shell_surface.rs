@@ -267,3 +267,7 @@ pub(in crate::system) fn class_chain_top_handle(chain: &[&str]) -> Option<Window
 #[cfg(all(test, target_os = "windows"))]
 #[path = "shell_surface_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "shell_surface_retry_tests.rs"]
+mod retry_tests;
