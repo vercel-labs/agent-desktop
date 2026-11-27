@@ -68,7 +68,7 @@ fn drill_incomplete(
     let (message, suggestion) = if incomplete.cause == IncompleteCause::Bounded {
         (
             "The drilled subtree exceeded the observation bound before it could be read whole, so no refs were replaced",
-            "Drill a narrower subtree, or raise --max-depth or --max-nodes",
+            "Drill a narrower subtree with --root, or use find to locate specific elements inside it",
         )
     } else if walks_finished == 0 {
         (
