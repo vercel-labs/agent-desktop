@@ -44,12 +44,15 @@ pub(in crate::system) fn retry_transient_read<T>(
     loop {
         match read() {
             Ok(value) => return Ok(value),
-            Err(error) if error.is_transient_incomplete_read() && !deadline.is_expired() => {
+            Err(error) if error.is_transient_incomplete_read() => {
                 let remaining = deadline.remaining();
-                if remaining.is_zero() {
+                if remaining <= interval {
                     return Err(error);
                 }
-                std::thread::sleep(interval.min(remaining));
+                std::thread::sleep(interval);
+                if deadline.is_expired() {
+                    return Err(error);
+                }
                 interval = (interval * 3 / 2).min(std::time::Duration::from_millis(250));
             }
             Err(error) => return Err(error),
