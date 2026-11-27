@@ -360,3 +360,33 @@ fn overflow_toolbar_resolves_while_hidden() {
         "the overflow kind roots at its own toolbar, not at the overflow window"
     );
 }
+
+#[test]
+fn retry_transient_read_recovers_from_retryable_timeout_and_stops_on_terminal() {
+    let mut attempts = 0_u32;
+    let recovered = super::retry_transient_read(deadline(2_000), || {
+        attempts += 1;
+        if attempts < 3 {
+            Err(agent_desktop_core::AdapterError::timeout("busy")
+                .with_details(serde_json::json!({ "complete": false, "retryable": true })))
+        } else {
+            Ok(42_u32)
+        }
+    });
+    assert_eq!(recovered.unwrap(), 42);
+    assert_eq!(attempts, 3);
+
+    let mut terminal_attempts = 0_u32;
+    let terminal = super::retry_transient_read(deadline(2_000), || {
+        terminal_attempts += 1;
+        Err::<u32, _>(agent_desktop_core::AdapterError::new(
+            agent_desktop_core::ErrorCode::PermDenied,
+            "denied",
+        ))
+    });
+    assert_eq!(
+        terminal.unwrap_err().code,
+        agent_desktop_core::ErrorCode::PermDenied
+    );
+    assert_eq!(terminal_attempts, 1);
+}

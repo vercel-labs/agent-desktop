@@ -63,7 +63,7 @@ pub(in crate::system) fn open_row(
     opening_of(presented, || {
         let pre_raise_children = match &row.family {
             SurfaceFamily::Immersive { .. } => {
-                super::shell_surface_immersive::witness_immersive_children()?
+                super::shell_surface_immersive::witness_immersive_children(deadline)?
             }
             SurfaceFamily::Win32Class(_) => Vec::new(),
         };
@@ -109,6 +109,7 @@ fn poll_until_observed(
                 &client,
                 pre_raise_children,
                 landmarks,
+                deadline,
             )?;
             if foreign_shape_settled(&mut foreign_since, foreign, std::time::Instant::now()) {
                 return Err(super::shell_surface_immersive::foreign_shape_error(
