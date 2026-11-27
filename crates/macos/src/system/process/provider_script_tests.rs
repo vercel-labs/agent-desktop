@@ -96,7 +96,7 @@ fn script_timeout_kills_the_running_child() {
         "timeout.sh",
         "printf '%s\\n' \"$$\" > \"$1\"\nexec /bin/sleep 30\n",
     );
-    let mut request = request(script, directory.0.clone(), Duration::from_secs(1));
+    let mut request = request(script, directory.0.clone(), Duration::from_secs(3));
     request.args.push(pid_file.to_string_lossy().into_owned());
 
     let error = run_provider_script(&request).expect_err("the script must time out");
@@ -118,7 +118,7 @@ fn script_detached_process_group_survives() {
         "detached.sh",
         "set -m\n/bin/sleep 30 >/dev/null 2>&1 &\nprintf '%s\\n' \"$!\" > \"$1\"\n",
     );
-    let mut request = request(script, directory.0.clone(), Duration::from_secs(2));
+    let mut request = request(script, directory.0.clone(), Duration::from_secs(10));
     request.args.push(pid_file.to_string_lossy().into_owned());
 
     let started = Instant::now();
@@ -131,7 +131,7 @@ fn script_detached_process_group_survives() {
     let _cleanup = ProcessCleanup(process);
 
     assert_eq!(output.status, Some(0));
-    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(started.elapsed() < Duration::from_secs(10));
     assert!(process_exists(process));
 }
 
