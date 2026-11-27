@@ -15,12 +15,20 @@ fn sample_window(pid: u32, title: &str) -> WindowInfo {
 }
 
 #[test]
-fn focus_script_escapes_title_and_unminimizes() {
+fn focus_script_escapes_title_and_requires_unique_match() {
     let js = focus_script(42, "a \"quoted\" title");
     assert!(js.contains("w.pid === 42"));
     assert!(js.contains(r#"w.caption === "a \"quoted\" title""#));
+    assert!(js.contains("exact.length === 1 ? exact[0] : null"));
+    assert!(!js.contains("|| list[0]"));
     assert!(js.contains("target.minimized = false;"));
     assert!(js.contains("workspace.activeWindow = target;"));
+}
+
+#[test]
+fn empty_title_matches_only_single_window_of_process() {
+    let js = focus_script(7, "");
+    assert!(js.contains("list.length === 1 ? list[0] : null"));
 }
 
 #[test]

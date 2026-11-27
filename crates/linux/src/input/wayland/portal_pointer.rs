@@ -2,14 +2,15 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use agent_desktop_core::{
-    AdapterError, Deadline, DragParams, ErrorCode, MouseButton, MouseEvent, MouseEventKind,
-    OperationReport, validate_mouse_click_count,
+    AdapterError, Deadline, DragParams, ErrorCode, Modifier, MouseButton, MouseEvent,
+    MouseEventKind, OperationReport, validate_mouse_click_count,
 };
 
 use super::key_session::KeySession;
 use super::keysym_send::pointer_refusal;
 use super::portal_remote_desktop::PortalRemoteDesktop;
 use crate::input::delivery::Delivery;
+use crate::input::keyboard::key_names::modifier_keysym;
 use crate::input::mouse::pointer_report::with_event_count;
 
 const BTN_LEFT: u32 = 272;
@@ -54,6 +55,33 @@ fn open_portal(
     Ok(portal)
 }
 
+fn release_modifiers(portal: &mut PortalRemoteDesktop, held: &[u32], deadline: Deadline) {
+    let budget = recovery(deadline);
+    for keysym in held.iter().rev() {
+        let _ = portal.keysym(*keysym, false, budget);
+    }
+}
+
+fn press_modifiers(
+    portal: &mut PortalRemoteDesktop,
+    modifiers: &[Modifier],
+    deadline: Deadline,
+) -> Result<Vec<u32>, AdapterError> {
+    let mut held = Vec::with_capacity(modifiers.len());
+    for modifier in modifiers {
+        let sym = modifier_keysym(modifier);
+        if held.contains(&sym) {
+            continue;
+        }
+        if let Err(error) = portal.keysym(sym, true, deadline) {
+            release_modifiers(portal, &held, deadline);
+            return Err(error);
+        }
+        held.push(sym);
+    }
+    Ok(held)
+}
+
 pub(crate) fn send_mouse(
     event: &MouseEvent,
     deadline: Deadline,
@@ -78,13 +106,29 @@ fn dispatch_mouse(
     deadline: Deadline,
 ) -> Result<u32, AdapterError> {
     let mut count = 0_u32;
-    if portal.stream_node().is_some() {
+    if portal.has_stream() {
         portal.pointer_motion_absolute(event.point.x, event.point.y, deadline)?;
         count += 1;
         sleep(SETTLE.min(deadline.remaining()));
     }
+    let held = press_modifiers(portal, &event.modifiers, deadline)?;
+    count += u32::try_from(held.len()).unwrap_or(0);
+    let action_result = dispatch_mouse_kind(portal, event, deadline);
+    if !held.is_empty() {
+        release_modifiers(portal, &held, deadline);
+        count += u32::try_from(held.len()).unwrap_or(0);
+    }
+    Ok(count + action_result?)
+}
+
+fn dispatch_mouse_kind(
+    portal: &mut PortalRemoteDesktop,
+    event: &MouseEvent,
+    deadline: Deadline,
+) -> Result<u32, AdapterError> {
+    let mut count = 0_u32;
     match &event.kind {
-        MouseEventKind::Move => Ok(count),
+        MouseEventKind::Move => Ok(0),
         MouseEventKind::Click { count: clicks } => {
             let code = evdev_button(&event.button);
             for index in 0..*clicks {

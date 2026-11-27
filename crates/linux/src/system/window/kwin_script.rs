@@ -39,16 +39,27 @@ pub(crate) fn is_available(deadline: Deadline) -> bool {
     .unwrap_or(false)
 }
 
-fn temp_script_path(plugin: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("{plugin}.js"))
-}
-
-fn write_temp_script(plugin: &str, source: &str) -> Result<PathBuf, AdapterError> {
-    let path = temp_script_path(plugin);
-    fs::write(&path, source).map_err(|error| {
+fn private_script_dir() -> Result<PathBuf, AdapterError> {
+    let base = std::env::var_os("XDG_RUNTIME_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .filter(|value| !value.is_empty())
+                .map(|home| PathBuf::from(home).join(".agent-desktop"))
+        })
+        .ok_or_else(|| {
+            AdapterError::new(
+                ErrorCode::ActionFailed,
+                "Neither XDG_RUNTIME_DIR nor HOME is set for temporary KWin scripts",
+            )
+            .with_disposition(DeliverySemantics::not_delivered())
+        })?;
+    let dir = base.join("agent-desktop-kwin");
+    fs::create_dir_all(&dir).map_err(|error| {
         AdapterError::new(
             ErrorCode::ActionFailed,
-            "Could not write temporary KWin script",
+            "Could not create private KWin script directory",
         )
         .with_platform_detail(error.to_string())
         .with_disposition(DeliverySemantics::not_delivered())
@@ -56,8 +67,39 @@ fn write_temp_script(plugin: &str, source: &str) -> Result<PathBuf, AdapterError
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+        let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o700));
     }
+    Ok(dir)
+}
+
+fn write_temp_script(plugin: &str, source: &str) -> Result<PathBuf, AdapterError> {
+    use std::io::Write;
+    let dir = private_script_dir()?;
+    let path = dir.join(format!("{plugin}.js"));
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&path).map_err(|error| {
+        AdapterError::new(
+            ErrorCode::ActionFailed,
+            "Could not create temporary KWin script",
+        )
+        .with_platform_detail(error.to_string())
+        .with_disposition(DeliverySemantics::not_delivered())
+    })?;
+    file.write_all(source.as_bytes()).map_err(|error| {
+        let _ = fs::remove_file(&path);
+        AdapterError::new(
+            ErrorCode::ActionFailed,
+            "Could not write temporary KWin script",
+        )
+        .with_platform_detail(error.to_string())
+        .with_disposition(DeliverySemantics::not_delivered())
+    })?;
     Ok(path)
 }
 
@@ -128,10 +170,18 @@ fn run_script(source: &str, deadline: Deadline) -> Result<(), AdapterError> {
 
 pub(super) fn match_target_js(pid: u32, title: &str) -> String {
     let quoted_title = serde_json::to_string(title).unwrap_or_else(|_| "\"\"".to_owned());
-    format!(
-        "const list = workspace.windowList().filter(w => w.pid === {pid} && !w.specialWindow);\n\
-         const target = list.find(w => w.caption === {quoted_title}) || list[0];\n"
-    )
+    if title.is_empty() {
+        format!(
+            "const list = workspace.windowList().filter(w => w.pid === {pid} && !w.specialWindow);\n\
+             const target = list.length === 1 ? list[0] : null;\n"
+        )
+    } else {
+        format!(
+            "const list = workspace.windowList().filter(w => w.pid === {pid} && !w.specialWindow);\n\
+             const exact = list.filter(w => w.caption === {quoted_title});\n\
+             const target = exact.length === 1 ? exact[0] : null;\n"
+        )
+    }
 }
 
 pub(super) fn focus_script(pid: u32, title: &str) -> String {

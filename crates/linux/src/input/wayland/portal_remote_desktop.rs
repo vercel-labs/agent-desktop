@@ -7,8 +7,8 @@ use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
 use super::key_session::KeySession;
 use super::portal_request::{
-    DESKTOP_PATH, PORTAL, RD_IFACE, SC_IFACE, SESSION_IFACE, check_response, classify_error,
-    parse_stream_node, portal_unavailable, wait_portal_request,
+    DESKTOP_PATH, PORTAL, RD_IFACE, SC_IFACE, SESSION_IFACE, StreamGeometry, check_response,
+    classify_error, parse_stream, portal_unavailable, run_portal_request,
 };
 use super::portal_token::{load_restore_token, next_handle_token, save_restore_token};
 use crate::system::bus::session_bus::{SessionBus, is_transport_failure};
@@ -26,7 +26,7 @@ pub(crate) struct PortalRemoteDesktop {
     connection: Connection,
     session: Option<OwnedObjectPath>,
     started: bool,
-    stream_node: Option<u32>,
+    stream: Option<StreamGeometry>,
     want_screencast: bool,
 }
 
@@ -87,7 +87,7 @@ impl PortalRemoteDesktop {
             connection,
             session: None,
             started: false,
-            stream_node: None,
+            stream: None,
             want_screencast,
         })
     }
@@ -98,8 +98,8 @@ impl PortalRemoteDesktop {
         })
     }
 
-    pub(crate) fn stream_node(&self) -> Option<u32> {
-        self.stream_node
+    pub(crate) fn has_stream(&self) -> bool {
+        self.stream.is_some()
     }
 
     pub(crate) fn pointer_motion_absolute(
@@ -109,13 +109,14 @@ impl PortalRemoteDesktop {
         deadline: Deadline,
     ) -> Result<(), AdapterError> {
         let session = self.session_path()?.clone();
-        let node = self.stream_node.ok_or_else(|| {
+        let stream = self.stream.ok_or_else(|| {
             AdapterError::new(
                 ErrorCode::ActionFailed,
                 "No ScreenCast monitor stream is attached for absolute pointer positioning",
             )
             .with_disposition(DeliverySemantics::not_delivered())
         })?;
+        let (local_x, local_y) = stream.to_local(x, y)?;
         let empty: HashMap<&str, Value<'_>> = HashMap::new();
         within(deadline, async {
             self.connection
@@ -124,7 +125,7 @@ impl PortalRemoteDesktop {
                     DESKTOP_PATH,
                     Some(RD_IFACE),
                     "NotifyPointerMotionAbsolute",
-                    &(session, empty, node, x, y),
+                    &(session, empty, stream.node_id, local_x, local_y),
                 )
                 .await
                 .map(|_| ())
@@ -188,28 +189,25 @@ impl PortalRemoteDesktop {
         deadline: Deadline,
     ) -> Result<(), AdapterError> {
         let token = next_handle_token("select");
-        let (code, _) = within(deadline, async {
-            wait_portal_request(&self.connection, &token, || async {
-                let mut options: HashMap<&str, Value<'_>> = HashMap::new();
-                options.insert("handle_token", Value::from(token.as_str()));
-                options.insert("types", Value::from(DEV_KEYBOARD | DEV_POINTER));
-                options.insert("persist_mode", Value::from(PERSIST_REVOKED));
-                if let Some(restore) = saved_token {
-                    options.insert("restore_token", Value::from(restore));
-                }
-                self.connection
-                    .call_method(
-                        Some(PORTAL),
-                        DESKTOP_PATH,
-                        Some(RD_IFACE),
-                        "SelectDevices",
-                        &(session.clone(), options),
-                    )
-                    .await?
-                    .body()
-                    .deserialize::<OwnedObjectPath>()
-            })
-            .await
+        let (code, _) = run_portal_request(&self.connection, &token, deadline, || async {
+            let mut options: HashMap<&str, Value<'_>> = HashMap::new();
+            options.insert("handle_token", Value::from(token.as_str()));
+            options.insert("types", Value::from(DEV_KEYBOARD | DEV_POINTER));
+            options.insert("persist_mode", Value::from(PERSIST_REVOKED));
+            if let Some(restore) = saved_token {
+                options.insert("restore_token", Value::from(restore));
+            }
+            self.connection
+                .call_method(
+                    Some(PORTAL),
+                    DESKTOP_PATH,
+                    Some(RD_IFACE),
+                    "SelectDevices",
+                    &(session.clone(), options),
+                )
+                .await?
+                .body()
+                .deserialize::<OwnedObjectPath>()
         })?;
         check_response(code, "SelectDevices")
     }
@@ -220,25 +218,22 @@ impl PortalRemoteDesktop {
         deadline: Deadline,
     ) -> Result<(), AdapterError> {
         let token = next_handle_token("sc");
-        let (code, _) = within(deadline, async {
-            wait_portal_request(&self.connection, &token, || async {
-                let mut options: HashMap<&str, Value<'_>> = HashMap::new();
-                options.insert("handle_token", Value::from(token.as_str()));
-                options.insert("types", Value::from(SOURCE_MONITOR));
-                options.insert("multiple", Value::from(false));
-                self.connection
-                    .call_method(
-                        Some(PORTAL),
-                        DESKTOP_PATH,
-                        Some(SC_IFACE),
-                        "SelectSources",
-                        &(session.clone(), options),
-                    )
-                    .await?
-                    .body()
-                    .deserialize::<OwnedObjectPath>()
-            })
-            .await
+        let (code, _) = run_portal_request(&self.connection, &token, deadline, || async {
+            let mut options: HashMap<&str, Value<'_>> = HashMap::new();
+            options.insert("handle_token", Value::from(token.as_str()));
+            options.insert("types", Value::from(SOURCE_MONITOR));
+            options.insert("multiple", Value::from(false));
+            self.connection
+                .call_method(
+                    Some(PORTAL),
+                    DESKTOP_PATH,
+                    Some(SC_IFACE),
+                    "SelectSources",
+                    &(session.clone(), options),
+                )
+                .await?
+                .body()
+                .deserialize::<OwnedObjectPath>()
         })?;
         check_response(code, "SelectSources")
     }
@@ -248,24 +243,21 @@ impl KeySession for PortalRemoteDesktop {
     fn create(&mut self, deadline: Deadline) -> Result<(), AdapterError> {
         let token = next_handle_token("create");
         let session_token = next_handle_token("sess");
-        let (code, results) = within(deadline, async {
-            wait_portal_request(&self.connection, &token, || async {
-                let mut options: HashMap<&str, Value<'_>> = HashMap::new();
-                options.insert("handle_token", Value::from(token.as_str()));
-                options.insert("session_handle_token", Value::from(session_token.as_str()));
-                self.connection
-                    .call_method(
-                        Some(PORTAL),
-                        DESKTOP_PATH,
-                        Some(RD_IFACE),
-                        "CreateSession",
-                        &(options,),
-                    )
-                    .await?
-                    .body()
-                    .deserialize::<OwnedObjectPath>()
-            })
-            .await
+        let (code, results) = run_portal_request(&self.connection, &token, deadline, || async {
+            let mut options: HashMap<&str, Value<'_>> = HashMap::new();
+            options.insert("handle_token", Value::from(token.as_str()));
+            options.insert("session_handle_token", Value::from(session_token.as_str()));
+            self.connection
+                .call_method(
+                    Some(PORTAL),
+                    DESKTOP_PATH,
+                    Some(RD_IFACE),
+                    "CreateSession",
+                    &(options,),
+                )
+                .await?
+                .body()
+                .deserialize::<OwnedObjectPath>()
         })?;
         check_response(code, "CreateSession")?;
         let handle_str = results
@@ -296,9 +288,8 @@ impl KeySession for PortalRemoteDesktop {
             self.select_screencast(&session, deadline)?;
         }
         let start_token = next_handle_token("start");
-        let start_deadline = Deadline::detached_after(30_000).unwrap_or(deadline);
-        let (start_code, results) = within(start_deadline, async {
-            wait_portal_request(&self.connection, &start_token, || async {
+        let (start_code, results) =
+            run_portal_request(&self.connection, &start_token, deadline, || async {
                 let mut options: HashMap<&str, Value<'_>> = HashMap::new();
                 options.insert("handle_token", Value::from(start_token.as_str()));
                 self.connection
@@ -312,9 +303,7 @@ impl KeySession for PortalRemoteDesktop {
                     .await?
                     .body()
                     .deserialize::<OwnedObjectPath>()
-            })
-            .await
-        })?;
+            })?;
         check_response(start_code, "Start")?;
         if let Some(restore) = results
             .get("restore_token")
@@ -322,7 +311,7 @@ impl KeySession for PortalRemoteDesktop {
         {
             save_restore_token(self.want_screencast, &restore);
         }
-        self.stream_node = parse_stream_node(&results);
+        self.stream = parse_stream(&results);
         self.started = true;
         Ok(())
     }
@@ -354,7 +343,7 @@ impl KeySession for PortalRemoteDesktop {
             return Ok(());
         };
         self.started = false;
-        self.stream_node = None;
+        self.stream = None;
         within(deadline, async {
             let _ = self
                 .connection
