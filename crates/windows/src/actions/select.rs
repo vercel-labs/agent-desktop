@@ -68,6 +68,9 @@ mod imp {
     use crate::actions::chain::{after_delivery, capped_verification_end};
     use crate::actions::disclosure::{EXPAND_LABEL, ExpandKind};
     use crate::actions::mutation::{classify_success, classify_write};
+    use crate::actions::select_combo::{
+        find_combobox_invoke_button, invoke_dropdown_button, is_combobox, wait_for_selection_item,
+    };
     use crate::actions::select_search::{
         find_named_selection_item, name_matches, scroll_to_realize, selection_item_available,
     };
@@ -83,17 +86,44 @@ mod imp {
         deadline: Deadline,
     ) -> Result<Vec<ActionStep>, AdapterError> {
         let self_match = selection_item_available(element) && name_matches(element, value);
-        let needs_expand = is_collapsed_container(element);
+        let collapsed_expand = is_collapsed_container(element);
+        let open_button = (!self_match && !collapsed_expand && is_combobox(element))
+            .then(|| {
+                let already_populated = find_named_selection_item(element, value, deadline, None)
+                    .ok()
+                    .flatten()
+                    .is_some();
+                if already_populated {
+                    None
+                } else {
+                    find_combobox_invoke_button(element)
+                }
+            })
+            .flatten();
+        let needs_expand = collapsed_expand || open_button.is_some();
         let expanded = Cell::new(false);
+        let expanded_by_button = Cell::new(false);
         let mut expand = || {
             deadline.ensure_remaining()?;
-            expand_container(element)?;
-            expanded.set(true);
+            if collapsed_expand {
+                expand_container(element)?;
+                expanded.set(true);
+            } else if let Some(button) = open_button.as_ref() {
+                invoke_dropdown_button(button)?;
+                expanded_by_button.set(true);
+                wait_for_selection_item(element, value, deadline).inspect_err(|_| {
+                    let _ = invoke_dropdown_button(button);
+                })?;
+            }
             Ok(())
         };
         let mut collapse = || {
             if expanded.get() {
                 let _ = collapse_container(element);
+            } else if expanded_by_button.get()
+                && let Some(button) = open_button.as_ref()
+            {
+                let _ = invoke_dropdown_button(button);
             }
         };
         let found_holder = RefCell::new(self_match.then(|| element.clone()));

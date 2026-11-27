@@ -13,11 +13,12 @@ use super::properties::property_outcome::PropertyOutcome;
 /// would let a tree where every other pattern read failed still report
 /// `Known`, which is the same failure shape the rule below forbids for every
 /// other property: an action implied by a read that did not actually succeed.
-const AFFORDANCE_AVAILABILITY: [TreeProperty; 8] = [
+const AFFORDANCE_AVAILABILITY: [TreeProperty; 9] = [
     TreeProperty::InvokeAvailable,
     TreeProperty::ToggleAvailable,
     TreeProperty::ExpandCollapseAvailable,
     TreeProperty::SelectionItemAvailable,
+    TreeProperty::SelectionAvailable,
     TreeProperty::ValueAvailable,
     TreeProperty::RangeValueAvailable,
     TreeProperty::ScrollAvailable,
@@ -65,13 +66,18 @@ pub fn resolve_actions(properties: &ElementProperties) -> LocatorField<Vec<Strin
         push_unique(&mut actions, capability::EXPAND);
         push_unique(&mut actions, capability::COLLAPSE);
     }
-    if properties.is_true(TreeProperty::SelectionItemAvailable) {
+    if properties.is_true(TreeProperty::SelectionItemAvailable)
+        || properties.is_true(TreeProperty::SelectionAvailable)
+    {
         push_unique(&mut actions, capability::SELECT);
     }
-    if properties.is_true(TreeProperty::ValueAvailable)
-        && properties.gated_flag(TreeProperty::ValueIsReadOnly) == Some(false)
-    {
+    let value_writable = properties.is_true(TreeProperty::ValueAvailable)
+        && properties.gated_flag(TreeProperty::ValueIsReadOnly) == Some(false);
+    if value_writable {
         push_unique(&mut actions, capability::SET_VALUE);
+        if is_combobox(properties) {
+            push_unique(&mut actions, capability::SELECT);
+        }
     }
     if properties.is_true(TreeProperty::RangeValueAvailable)
         && properties.gated_flag(TreeProperty::RangeValueIsReadOnly) == Some(false)
@@ -113,6 +119,13 @@ fn has_legacy_default_action(properties: &ElementProperties) -> bool {
         .get(TreeProperty::LegacyDefaultAction)
         .non_blank_text()
         .is_some()
+}
+
+fn is_combobox(properties: &ElementProperties) -> bool {
+    matches!(
+        super::roles::resolve_role(properties),
+        LocatorField::Known(ref role) if role == "combobox"
+    )
 }
 
 fn push_unique(actions: &mut Vec<String>, action: &str) {
