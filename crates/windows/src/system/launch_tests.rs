@@ -95,6 +95,7 @@ fn observe_window_once_tolerates_an_expired_deadline_as_no_window_observed() {
     let target = Target {
         pid,
         process_instance: "irrelevant-instance",
+        started_ms: 0,
         resident: None,
     };
     let observed = observe_window_once(&target, expired)
