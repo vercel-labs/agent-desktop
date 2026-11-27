@@ -77,6 +77,15 @@ impl ProcessIdentity {
         Ok(None)
     }
 
+    /// When the process started, in milliseconds since the Unix epoch.
+    pub(crate) fn started_unix_ms(self) -> u64 {
+        const UNIX_EPOCH_SECONDS_SINCE_1601: u64 = 11_644_473_600;
+        let seconds = self
+            .creation_seconds
+            .saturating_sub(UNIX_EPOCH_SECONDS_SINCE_1601);
+        seconds * 1_000 + self.creation_subtick / (TICKS_PER_SECOND / 1_000)
+    }
+
     pub(crate) fn token(self) -> String {
         format!(
             "{TOKEN_PREFIX}:{}:{}",

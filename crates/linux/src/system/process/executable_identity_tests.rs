@@ -1,4 +1,8 @@
+use std::collections::hash_map::RandomState;
 use std::ffi::OsString;
+use std::hash::{BuildHasher, Hasher};
+use std::io::Write;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use super::script_run;
@@ -7,15 +11,34 @@ struct TempDir(PathBuf);
 
 impl TempDir {
     fn new(label: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("adx-exec-id-{label}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("scratch dir");
-        Self(dir)
+        let base = std::env::temp_dir();
+        for _ in 0..32 {
+            let nonce = RandomState::new().build_hasher().finish();
+            let dir = base.join(format!(
+                "adx-exec-id-{label}-{}-{nonce:016x}",
+                std::process::id()
+            ));
+            match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+                Ok(()) => return Self(dir),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("scratch dir: {error}"),
+            }
+        }
+        panic!("could not create unique scratch dir");
     }
 
     fn write_script(&self, name: &str, shebang: &str) -> PathBuf {
         let file = self.0.join(name);
-        std::fs::write(&file, format!("{shebang}\n")).expect("write script");
+        let mut handle = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o700)
+            .open(&file)
+            .expect("create script");
+        handle
+            .write_all(format!("{shebang}\n").as_bytes())
+            .expect("write script");
+        drop(handle);
         std::fs::canonicalize(file).expect("canonical script")
     }
 }
