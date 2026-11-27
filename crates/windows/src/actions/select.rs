@@ -111,7 +111,9 @@ mod imp {
             } else if let Some(button) = open_button.as_ref() {
                 invoke_dropdown_button(button)?;
                 expanded_by_button.set(true);
-                wait_for_selection_item(element, value, deadline)?;
+                wait_for_selection_item(element, value, deadline).inspect_err(|_| {
+                    let _ = invoke_dropdown_button(button);
+                })?;
             }
             Ok(())
         };
