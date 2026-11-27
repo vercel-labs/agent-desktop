@@ -36,13 +36,14 @@ pub(super) fn prepare(
             continue;
         };
         if same_executable_path(&executable, &image_path) {
-            let token = process_identity::token_for_pid(row.pid)?.ok_or_else(|| {
-                AdapterError::new(
-                    ErrorCode::AppUnresponsive,
-                    "Running process has no exact process instance token",
-                )
-            })?;
-            exact_matches.push((row, token, process));
+            let identity =
+                process_identity::ProcessIdentity::capture(row.pid)?.ok_or_else(|| {
+                    AdapterError::new(
+                        ErrorCode::AppUnresponsive,
+                        "Running process has no exact process instance token",
+                    )
+                })?;
+            exact_matches.push((row, identity, process));
         }
     }
     match attach_plan(exact_matches.len()) {
@@ -55,12 +56,14 @@ pub(super) fn prepare(
         }
         AttachPlan::Spawn => {}
         AttachPlan::Attach => {
-            let Some((row, token, _process)) = exact_matches.pop() else {
+            let Some((row, identity, _process)) = exact_matches.pop() else {
                 return Ok((executable, None));
             };
+            let token = identity.token();
             let target = super::launch_watch::Target {
                 pid: row.pid,
                 process_instance: &token,
+                started_ms: identity.started_unix_ms(),
                 resident: None,
             };
             let sighting = super::observe_window(&target, options, deadline)?;

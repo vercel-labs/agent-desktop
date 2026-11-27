@@ -1,20 +1,52 @@
+use std::collections::hash_map::RandomState;
 use std::ffi::OsString;
+use std::hash::{BuildHasher, Hasher};
+use std::io::Write;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use super::ExecutableIdentity;
 use crate::system::launch::launch_attach::{Decision, decide};
 use crate::system::process::running_app::Running;
 
-fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("adx-script-{name}-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("scratch dir");
-    dir
+struct ScratchDir(PathBuf);
+
+impl ScratchDir {
+    fn new(name: &str) -> Self {
+        let base = std::env::temp_dir();
+        for _ in 0..32 {
+            let nonce = RandomState::new().build_hasher().finish();
+            let dir = base.join(format!(
+                "adx-script-{name}-{}-{nonce:016x}",
+                std::process::id()
+            ));
+            match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+                Ok(()) => return Self(dir),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("scratch dir: {error}"),
+            }
+        }
+        panic!("could not create unique scratch dir");
+    }
+
+    fn script(&self, name: &str) -> PathBuf {
+        let file = self.0.join(name);
+        let mut handle = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o700)
+            .open(&file)
+            .expect("create script");
+        handle.write_all(b"#!/bin/sh\n").expect("write script");
+        drop(handle);
+        std::fs::canonicalize(file).expect("canonical script")
+    }
 }
 
-fn script(dir: &Path, name: &str) -> PathBuf {
-    let file = dir.join(name);
-    std::fs::write(&file, "#!/bin/sh\n").expect("script");
-    std::fs::canonicalize(file).expect("canonical script")
+impl Drop for ScratchDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 fn launch_of(script: &Path) -> ExecutableIdentity {
@@ -43,8 +75,8 @@ fn interpreter_running(words: &[&Path]) -> Running {
 
 #[test]
 fn an_interpreter_running_the_launched_script_is_the_running_instance() {
-    let dir = scratch("same");
-    let app = script(&dir, "app");
+    let dir = ScratchDir::new("same");
+    let app = dir.script("app");
     let running = interpreter_running(&[&app]);
     let wanted = launch_of(&app);
 
@@ -63,14 +95,13 @@ fn an_interpreter_running_the_launched_script_is_the_running_instance() {
         decide(&Some(wanted), std::slice::from_ref(&running), true, false),
         Decision::Attach(running)
     );
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn the_same_interpreter_running_another_script_is_not_the_running_instance() {
-    let dir = scratch("other");
-    let app = script(&dir, "app");
-    let other = script(&dir, "other");
+    let dir = ScratchDir::new("other");
+    let app = dir.script("app");
+    let other = dir.script("other");
     let running = interpreter_running(&[&other]);
 
     assert!(!launch_of(&app).same_program(running.executable.as_ref().unwrap()));
@@ -78,15 +109,13 @@ fn the_same_interpreter_running_another_script_is_not_the_running_instance() {
         decide(&Some(launch_of(&app)), &[running], false, false),
         Decision::Spawn
     );
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn an_interpreter_that_only_opens_the_script_is_not_running_it() {
-    let dir = scratch("opened");
-    let app = script(&dir, "app");
+    let dir = ScratchDir::new("opened");
+    let app = dir.script("app");
     let running = interpreter_running(&[Path::new("-c"), Path::new("true"), &app]);
 
     assert!(!launch_of(&app).same_program(running.executable.as_ref().unwrap()));
-    let _ = std::fs::remove_dir_all(&dir);
 }
