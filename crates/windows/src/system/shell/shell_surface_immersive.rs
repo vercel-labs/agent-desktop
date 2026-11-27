@@ -5,7 +5,7 @@
 //! search's failure classification lives beside it, because "search failed"
 //! must never read as "surface closed".
 
-use agent_desktop_core::{AdapterError, ProcessId, WindowInfo};
+use agent_desktop_core::{AdapterError, Deadline, ProcessId, WindowInfo};
 
 use crate::system::window::window_enum::WindowHandle;
 
@@ -33,9 +33,10 @@ pub(in crate::system) fn resolve_immersive(
     expected_class: &str,
     host_images: &[&str],
     landmarks: &[&str],
+    deadline: Deadline,
 ) -> Result<Option<WindowInfo>, AdapterError> {
     let client = crate::tree::automation::automation_client()?;
-    let children = desktop_root_children(&client)?;
+    let children = desktop_root_children(&client, deadline)?;
     for child in children {
         if let Some(info) =
             immersive_candidate(&client, &child, expected_class, host_images, landmarks)?
@@ -51,19 +52,22 @@ pub(in crate::system) fn resolve_immersive(
 /// never appear in the Win32 top-level walk (A26-1).
 fn desktop_root_children(
     client: &uiautomation::UIAutomation,
+    deadline: Deadline,
 ) -> Result<Vec<uiautomation::UIElement>, AdapterError> {
     use uiautomation::types::TreeScope;
 
-    let root = client
-        .get_root_element()
-        .map_err(|error| crate::tree::automation::uia_error(&error, "read the UIA desktop root"))?;
-    let condition = client.create_true_condition().map_err(|error| {
-        crate::tree::automation::uia_error(&error, "build the desktop children condition")
-    })?;
-    root.find_all(TreeScope::Children, &condition)
-        .map_err(|error| {
-            crate::tree::automation::uia_error(&error, "read the UIA desktop root's children")
-        })
+    super::shell_surface::retry_transient_read(deadline, || {
+        let root = client.get_root_element().map_err(|error| {
+            crate::tree::automation::uia_error(&error, "read the UIA desktop root")
+        })?;
+        let condition = client.create_true_condition().map_err(|error| {
+            crate::tree::automation::uia_error(&error, "build the desktop children condition")
+        })?;
+        root.find_all(TreeScope::Children, &condition)
+            .map_err(|error| {
+                crate::tree::automation::uia_error(&error, "read the UIA desktop root's children")
+            })
+    })
 }
 
 /// The identity a shell-host child names once its class, live handle, cloak
@@ -167,8 +171,9 @@ pub(in crate::system) fn raise_presented_foreign_shape(
     client: &uiautomation::UIAutomation,
     pre_raise_children: &[isize],
     landmarks: &[&str],
+    deadline: Deadline,
 ) -> Result<bool, AdapterError> {
-    let children = desktop_root_children(client)?;
+    let children = desktop_root_children(client, deadline)?;
     for child in children {
         let Some((handle, _pid, _image)) = shell_host_child(
             &child,
@@ -194,9 +199,11 @@ pub(in crate::system) fn raise_presented_foreign_shape(
 /// it rather than to a sibling kind's live surface. The host set is the
 /// broad diagnostic one: newer shells route these surfaces through host
 /// images this build's rows never named.
-pub(in crate::system) fn witness_immersive_children() -> Result<Vec<isize>, AdapterError> {
+pub(in crate::system) fn witness_immersive_children(
+    deadline: Deadline,
+) -> Result<Vec<isize>, AdapterError> {
     let client = crate::tree::automation::automation_client()?;
-    let children = desktop_root_children(&client)?;
+    let children = desktop_root_children(&client, deadline)?;
     let mut handles = Vec::new();
     for child in children {
         if let Some((handle, _pid, _image)) = shell_host_child(
