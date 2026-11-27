@@ -363,18 +363,20 @@ fn overflow_toolbar_resolves_while_hidden() {
 
 #[test]
 fn retry_transient_read_recovers_from_retryable_timeout_and_stops_on_terminal() {
+    let busy = || {
+        agent_desktop_core::AdapterError::timeout("busy")
+            .with_details(serde_json::json!({ "complete": false, "retryable": true }))
+    };
     let mut attempts = 0_u32;
     let recovered = super::retry_transient_read(deadline(2_000), || {
         attempts += 1;
         if attempts < 3 {
-            Err(agent_desktop_core::AdapterError::timeout("busy")
-                .with_details(serde_json::json!({ "complete": false, "retryable": true })))
+            Err(busy())
         } else {
             Ok(42_u32)
         }
     });
-    assert_eq!(recovered.unwrap(), 42);
-    assert_eq!(attempts, 3);
+    assert_eq!((recovered.unwrap(), attempts), (42, 3));
 
     let mut terminal_attempts = 0_u32;
     let terminal = super::retry_transient_read(deadline(2_000), || {
@@ -385,8 +387,17 @@ fn retry_transient_read_recovers_from_retryable_timeout_and_stops_on_terminal() 
         ))
     });
     assert_eq!(
-        terminal.unwrap_err().code,
-        agent_desktop_core::ErrorCode::PermDenied
+        (terminal.unwrap_err().code, terminal_attempts),
+        (agent_desktop_core::ErrorCode::PermDenied, 1)
     );
-    assert_eq!(terminal_attempts, 1);
+
+    let mut short_attempts = 0_u32;
+    let short = super::retry_transient_read(deadline(10), || {
+        short_attempts += 1;
+        Err::<u32, _>(busy())
+    });
+    assert_eq!(
+        (short.unwrap_err().code, short_attempts),
+        (agent_desktop_core::ErrorCode::Timeout, 1)
+    );
 }
