@@ -48,6 +48,7 @@ pub(crate) struct FrontGuardMachine {
     state: FrontGuardState,
     give_backs: u8,
     yielded: bool,
+    give_back_failed: bool,
 }
 
 impl FrontGuardMachine {
@@ -58,6 +59,7 @@ impl FrontGuardMachine {
             state: FrontGuardState::Watching,
             give_backs: 0,
             yielded: false,
+            give_back_failed: false,
         }
     }
 
@@ -100,9 +102,11 @@ impl FrontGuardMachine {
         }
         self.give_backs += 1;
         if restored {
+            self.give_back_failed = false;
             self.state = FrontGuardState::GivenBack;
             return Step::Poll;
         }
+        self.give_back_failed = true;
         if self.give_backs >= MAX_GIVE_BACKS {
             self.state = FrontGuardState::GiveBackFailed;
             return Step::Done;
@@ -121,15 +125,23 @@ impl FrontGuardMachine {
 
     fn finish(&mut self) {
         if self.state == FrontGuardState::Watching {
-            self.state = FrontGuardState::Clean;
+            self.state = if self.give_back_failed {
+                FrontGuardState::GiveBackFailed
+            } else {
+                FrontGuardState::Clean
+            };
         }
     }
 
     fn judge(&mut self, now: &FrontView) -> Step {
         match self.classify(now) {
-            Verdict::Quiet => Step::Poll,
+            Verdict::Quiet => {
+                self.give_back_failed = false;
+                Step::Poll
+            }
             Verdict::Yielded => {
                 self.yielded = true;
+                self.give_back_failed = false;
                 self.finish();
                 Step::Done
             }
