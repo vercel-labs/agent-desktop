@@ -1,6 +1,13 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use smallvec::SmallVec;
+
+#[path = "ref_tree_index.rs"]
+mod ref_tree_index;
+
+use ref_tree_index::TreeIndex;
+
 use crate::{
     ElementIdentifier, IdentityMatch, IdentityProof, RefEntry, RefEntryIdentity, ScopeChain,
     locator::LocatorQuery,
@@ -10,12 +17,11 @@ use crate::{
     refs::ref_full_predicate::{DESCRIPTION, FullPredicate, NAME, NATIVE_ID},
     refs::ref_identity::stable_name,
     refs::ref_live_predicate::LivePredicate,
-    refs::ref_scope_resolve::members,
     refs::scope_chain::{MAX_SCOPE_CHAIN_DEPTH, ScopeInterner},
     tree::accname::non_blank,
 };
 const ROLE: u8 = DESCRIPTION << 1;
-type Bucket<'a> = HashMap<LiveKey<'a>, Census>;
+type Bucket<'a> = HashMap<LiveKey<'a>, SmallVec<[u32; 1]>>;
 const MASKS: usize = (NATIVE_ID | NAME | DESCRIPTION) as usize + 1;
 
 /// One whole-window observation, counted once into the field subsets its
@@ -32,9 +38,8 @@ pub(crate) struct CaptureProof<'a> {
     buckets: [OnceLock<Bucket<'a>>; MASKS],
     unread: Vec<(u8, LivePredicate<'a>)>,
     whole_window: bool,
-    parents: OnceLock<Vec<Option<usize>>>,
+    tree: OnceLock<TreeIndex>,
     scoped: Mutex<ScopeInterner>,
-    scope_buckets: Mutex<HashMap<(usize, u8), Arc<Bucket<'a>>>>,
 }
 
 impl<'a> CaptureProof<'a> {
@@ -48,9 +53,8 @@ impl<'a> CaptureProof<'a> {
             whole_window,
             start: observed.roots.first().map(|root| *root as usize),
             buckets: std::array::from_fn(|_| OnceLock::new()),
-            parents: OnceLock::new(),
+            tree: OnceLock::new(),
             scoped: Mutex::new(ScopeInterner::default()),
-            scope_buckets: Mutex::new(HashMap::new()),
             unread: observed
                 .nodes
                 .iter()
@@ -193,17 +197,12 @@ impl<'a> CaptureProof<'a> {
             .unwrap_or(0)
     }
 
+    fn tree_index(&self) -> &TreeIndex {
+        self.tree.get_or_init(|| TreeIndex::build(self.observed))
+    }
+
     fn parent_of(&self, index: usize) -> Option<usize> {
-        let parents = self.parents.get_or_init(|| {
-            let mut parents = vec![None; self.observed.nodes.len()];
-            for (parent, node) in self.observed.nodes.iter().enumerate() {
-                for child in &node.children {
-                    parents[*child as usize] = Some(parent);
-                }
-            }
-            parents
-        });
-        parents.get(index).copied().flatten()
+        self.tree_index().parents.get(index).copied().flatten()
     }
 
     /// Whether `entry` was proven unique in the whole window at the node it was
@@ -252,19 +251,24 @@ impl<'a> CaptureProof<'a> {
         }
         let fields = predicate.mask();
         let key = key_of(predicate);
-        let unique = match scope {
-            None => self.buckets[fields as usize]
-                .get_or_init(|| count_nodes(self.observed, fields, 0..self.observed.nodes.len()))
-                .get(&key)
-                .copied(),
-            Some(scope) => self.scope_bucket(scope, fields).get(&key).copied(),
+        let tree = self.tree_index();
+        let bucket =
+            self.buckets[fields as usize].get_or_init(|| count_nodes(self.observed, fields, tree));
+        let Some(positions) = bucket.get(&key) else {
+            return IdentityProof::Unproven;
         };
-        match unique {
-            Some(Census {
-                count: 1,
-                index: only,
-            }) if only == index => {}
-            Some(Census { count, .. }) if count > 1 => return IdentityProof::Twins,
+        let target = tree.tin[index];
+        let matched = match scope {
+            None => positions.as_slice(),
+            Some(scope) => {
+                let lo = positions.partition_point(|&pos| pos <= tree.tin[scope]);
+                let hi = positions.partition_point(|&pos| pos <= tree.tout[scope]);
+                &positions[lo..hi]
+            }
+        };
+        match matched {
+            [only] if *only == target => {}
+            slice if slice.len() > 1 => return IdentityProof::Twins,
             _ => return IdentityProof::Unproven,
         }
         let unread = self.unread.iter().any(|(bits, live)| {
@@ -276,41 +280,18 @@ impl<'a> CaptureProof<'a> {
             IdentityProof::Unique
         }
     }
-
-    fn scope_bucket(&self, scope: usize, fields: u8) -> Arc<Bucket<'a>> {
-        let Ok(mut buckets) = self.scope_buckets.lock() else {
-            return Arc::default();
-        };
-        Arc::clone(buckets.entry((scope, fields)).or_insert_with(|| {
-            Arc::new(count_nodes(
-                self.observed,
-                fields,
-                members(self.observed, Some(scope)),
-            ))
-        }))
-    }
 }
 
-/// How many nodes matched one full predicate, and the last of them.
-#[derive(Clone, Copy)]
-struct Census {
-    count: usize,
-    index: usize,
-}
-
-/// The census each full predicate of this field subset received. A predicate
-/// two nodes match is recorded with both, so it is `Twins` for each of them.
-fn count_nodes(
-    observed: &ObservedTree,
-    fields: u8,
-    members: impl IntoIterator<Item = usize>,
-) -> Bucket<'_> {
-    let mut counted: Bucket<'_> = HashMap::new();
-    for index in members {
+/// The sorted DFS positions matching each full predicate of this field subset.
+fn count_nodes<'a>(observed: &'a ObservedTree, fields: u8, tree: &TreeIndex) -> Bucket<'a> {
+    let mut counted: Bucket<'a> = HashMap::new();
+    for &index in &tree.order {
+        let pos = tree.tin[index];
         for key in keys_of(&observed.nodes[index].evidence, fields) {
-            let census = counted.entry(key).or_insert(Census { count: 0, index });
-            census.count += 1;
-            census.index = index;
+            let list = counted.entry(key).or_default();
+            if list.last().copied() != Some(pos) {
+                list.push(pos);
+            }
         }
     }
     counted
