@@ -245,14 +245,18 @@ fn wait_for_exit(
             return Ok(());
         }
         if deadline.is_expired() {
-            return Err(deadline
-                .timeout_error()
-                .with_details(serde_json::json!({
-                    "app": id,
-                    "pid": u32::from(pid),
-                    "force": force,
-                }))
-                .with_disposition(DeliverySemantics::delivered_unverified()));
+            let sheets = if force {
+                Vec::new()
+            } else {
+                super::close_dispatch::open_sheet_surfaces(pid, instance)
+            };
+            return Err(super::close_dispatch::timeout_with_sheets(
+                deadline.timeout_error(),
+                id,
+                pid,
+                force,
+                &sheets,
+            ));
         }
         deadline.ensure_remaining().map_err(after_termination)?;
         let pause = deadline
