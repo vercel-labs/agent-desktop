@@ -3,7 +3,7 @@ pub(crate) mod interaction_lease;
 mod liveness;
 mod manifest;
 pub(crate) mod process_lease_guard;
-mod process_lease_queue;
+pub(crate) mod process_lease_queue;
 pub(crate) mod session_affinity;
 mod tree;
 
