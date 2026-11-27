@@ -185,6 +185,37 @@ fn a_target_gone_after_the_action_is_a_strong_change() {
 }
 
 #[test]
+fn a_transient_or_retryable_after_read_failure_never_upgrades_delivery() {
+    for error in [
+        AdapterError::stale_ref_because("unsettled").with_details(serde_json::json!({
+            "complete": false,
+            "retryable": true,
+        })),
+        AdapterError::timeout("busy").with_details(serde_json::json!({ "retryable": true })),
+        AdapterError::new(ErrorCode::AppUnresponsive, "hung"),
+    ] {
+        let unverified_adapter = adapter(
+            vec![Ok(witness(false, "A")), Err(error.clone())],
+            unverified(),
+        );
+        let result = run(&unverified_adapter).unwrap();
+        assert_eq!(
+            result.disposition(),
+            DeliverySemantics::delivered_unverified()
+        );
+        assert_eq!(result.effect, None);
+
+        let uncertain_adapter = adapter(
+            vec![Ok(witness(false, "A")), Err(error)],
+            Err(AdapterError::timeout("reply timed out")
+                .with_disposition(DeliverySemantics::uncertain())),
+        );
+        let err = run(&uncertain_adapter).unwrap_err();
+        assert_eq!(err.disposition, DeliverySemantics::uncertain());
+    }
+}
+
+#[test]
 fn no_witness_and_an_undelivered_action_are_left_alone() {
     let unsupported = adapter(
         vec![Err(AdapterError::not_supported("read_effect_witness"))],

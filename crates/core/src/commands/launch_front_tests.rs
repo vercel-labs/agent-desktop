@@ -356,4 +356,30 @@ mod stub_launcher {
         assert_eq!(value["focus_returned"], false);
         assert!(value["suggestion"].as_str().is_some());
     }
+
+    #[test]
+    fn a_still_running_helper_at_deadline_reports_front_watch_child_window_pending() {
+        let stub = Stub {
+            now: Mutex::new(view("user", 1, &["user"])),
+            gave_back_to: Mutex::new(Vec::new()),
+            lease_held: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            window_pid: 999,
+            spawned: vec![300],
+            obeys: true,
+        };
+        let value = execute(
+            LaunchArgs {
+                app: "eventvwr.exe".into(),
+                options: LaunchOptions {
+                    timeout_ms: 300,
+                    ..LaunchOptions::default()
+                },
+            },
+            &stub,
+            InteractionPolicy::headless(),
+        )
+        .unwrap();
+        assert_eq!(value["front_watch"], "child_window_pending");
+        assert!(value.get("focus_returned").is_none());
+    }
 }

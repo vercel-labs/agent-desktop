@@ -113,10 +113,15 @@ mod imp {
             .ok_or_else(|| {
                 AdapterError::internal("the effect witness cache request did not build")
             })?;
-        let updated = element
-            .0
-            .build_updated_cache(&cache)
-            .map_err(|error| uia_error(&error, "read the effect witness target"))?;
+        let updated = element.0.build_updated_cache(&cache).map_err(|error| {
+            let mapped = uia_error(&error, "read the effect witness target");
+            if mapped.code == agent_desktop_core::ErrorCode::StaleRef {
+                AdapterError::stale_ref_because("The target element is gone")
+                    .with_details(serde_json::json!({ "complete": true, "retryable": false }))
+            } else {
+                mapped
+            }
+        })?;
         let (properties, _) = read_cached(&UIAElement::from(updated), &TARGET_SET);
         Ok(TargetWitness {
             selected: properties.gated_flag(TreeProperty::SelectionItemIsSelected),
