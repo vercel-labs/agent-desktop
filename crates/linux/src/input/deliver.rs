@@ -11,7 +11,7 @@ use super::keyboard::keysym_step::KeysymStep;
 use super::mouse::drag_plan::plan_drag;
 use super::mouse::pointer_report::with_event_count;
 use super::plan::Plan;
-use super::wayland::keysym_send;
+use super::wayland::{keysym_send, portal_pointer};
 use super::x11::{mouse_send, session};
 
 pub(crate) fn send_plans(
@@ -56,7 +56,7 @@ pub(crate) fn mouse_event(
                 &delivery,
             ))
         }
-        Backend::Wayland => Err(keysym_send::pointer_refusal("mouse_event")),
+        Backend::Wayland => portal_pointer::send_mouse(event, lease.deadline()),
     }
 }
 
@@ -74,7 +74,7 @@ pub(crate) fn drag(
                 &delivery,
             ))
         }
-        Backend::Wayland => Err(keysym_send::pointer_refusal("drag")),
+        Backend::Wayland => portal_pointer::send_drag(params, deadline),
     }
 }
 

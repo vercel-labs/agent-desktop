@@ -307,6 +307,16 @@ pub(crate) fn focus_window(
         return Ok(());
     }
     let deadline = lease.deadline();
+    if crate::system::display::display_server::session_server()
+        == crate::system::display::display_server::DisplayServer::Wayland
+        && crate::system::window::kwin_script::is_available(deadline)
+    {
+        return crate::system::window::kwin_script::focus_window(
+            win.pid.get(),
+            &win.title,
+            deadline,
+        );
+    }
     crate::system::display::display_server::require(deadline)
         .map_err(|error| error.with_disposition(DeliverySemantics::not_delivered()))?;
     let world = focus_world::LiveWorld::new(bus, win, deadline)?;

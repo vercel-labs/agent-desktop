@@ -84,7 +84,7 @@ pub(crate) fn list_windows(
         &AppQuery {
             pid: None,
             select: &select,
-            enrich: true,
+            enrich: !filter.focused_only || filter.app.is_some(),
         },
         deadline,
     )?;

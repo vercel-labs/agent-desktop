@@ -1,6 +1,7 @@
 mod embedded_group;
 pub(crate) mod frame_identity;
 pub(super) mod ghost_window;
+pub(crate) mod kwin_script;
 pub(crate) mod listed_twins;
 pub(crate) mod native_group;
 #[cfg(test)]
