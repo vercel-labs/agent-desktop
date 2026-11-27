@@ -114,16 +114,31 @@ pub(crate) fn execute_witnessed_action(
 }
 
 /// The changes since `before`, or none when the witness could not be read.
-/// A target that is gone after the action was closed or replaced by it.
+/// Only a confirmed, non-retryable `StaleRef` means the target is gone;
+/// transient or retryable read failures stay indeterminate and never upgrade
+/// delivery.
 fn after_changes(
     after: Result<EffectWitness, AdapterError>,
     before: &EffectWitness,
 ) -> Option<Vec<WitnessChange>> {
     match after {
         Ok(after) => Some(after.changes_since(before)),
-        Err(error) if error.code == ErrorCode::StaleRef => Some(vec![WitnessChange::TargetGone]),
+        Err(error) if is_confirmed_target_gone(&error) => Some(vec![WitnessChange::TargetGone]),
         Err(_) => None,
     }
+}
+
+fn is_confirmed_target_gone(error: &AdapterError) -> bool {
+    if error.code != ErrorCode::StaleRef || error.is_explicitly_retryable() {
+        return false;
+    }
+    let details_retryable = error
+        .details
+        .as_ref()
+        .and_then(|details| details.get("retryable"))
+        .and_then(serde_json::Value::as_bool)
+        == Some(true);
+    !details_retryable
 }
 
 fn adapter_proof(result: ActionResult) -> ActionResult {

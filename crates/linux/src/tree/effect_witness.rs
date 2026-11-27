@@ -99,6 +99,16 @@ pub(crate) fn content_sign(children: &[ChildAddress]) -> u64 {
 }
 
 fn gone(error: AdapterError) -> AdapterError {
+    let retryable = error.is_explicitly_retryable()
+        || error
+            .details
+            .as_ref()
+            .and_then(|details| details.get("retryable"))
+            .and_then(serde_json::Value::as_bool)
+            == Some(true);
+    if retryable {
+        return error;
+    }
     match error.code {
         ErrorCode::ElementNotFound | ErrorCode::StaleRef | ErrorCode::AppNotFound => {
             AdapterError::stale_ref_because("The target element is gone")
