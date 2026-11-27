@@ -73,16 +73,16 @@ pub fn execute(
     )?;
     drop(watching);
     let mut launched = launched?;
-    let front = match pending {
+    let (front, pending_reason) = match pending {
         Some(pending) => {
-            pending
-                .with_deadline(deadline)
-                .run_around(adapter, || ())
-                .1
-                .outcome
+            let resolution = pending.with_deadline(deadline).run_around(adapter, || ()).1;
+            (resolution.outcome, resolution.pending_reason)
         }
-        None => front,
+        None => (front, None),
     };
+    if let Some(reason) = pending_reason {
+        launched.guidance.front_watch = Some(reason.to_owned());
+    }
     match front {
         crate::FrontOutcome::GivenBack => {
             launched.guidance.focus_returned = Some(true);
