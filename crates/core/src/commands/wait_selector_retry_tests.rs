@@ -78,6 +78,7 @@ impl SystemOps for MaterializeMissAdapter {}
 #[test]
 fn materialization_timeout_uses_the_wait_timeout_envelope() {
     let _guard = HomeGuard::new();
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let error = execute(
         WaitSelectorInput {
             timeout_ms: 30,
@@ -99,6 +100,7 @@ fn materialization_timeout_uses_the_wait_timeout_envelope() {
 #[test]
 fn appearance_window_not_found_swallowed_until_timeout() {
     let _guard = HomeGuard::new();
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let err = execute(
         WaitSelectorInput {
             timeout_ms: 50,
@@ -116,6 +118,7 @@ fn appearance_window_not_found_swallowed_until_timeout() {
 #[test]
 fn appearance_element_not_found_without_retry_evidence_fails_fast() {
     let _guard = HomeGuard::new();
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let err = execute(
         WaitSelectorInput {
             timeout_ms: 50,
@@ -133,7 +136,7 @@ fn appearance_element_not_found_without_retry_evidence_fails_fast() {
 #[test]
 fn incomplete_locator_timeout_is_polled_until_wait_deadline() {
     let _guard = HomeGuard::new();
-    let started = std::time::Instant::now();
+    let clock = crate::wait::deadline::VirtualClock::freeze();
     let err = execute(
         WaitSelectorInput {
             timeout_ms: 50,
@@ -147,7 +150,7 @@ fn incomplete_locator_timeout_is_polled_until_wait_deadline() {
     .unwrap_err();
 
     assert_eq!(err.code(), "TIMEOUT");
-    assert!(started.elapsed() >= std::time::Duration::from_millis(40));
+    assert!(clock.elapsed() >= std::time::Duration::from_millis(50));
     let AppError::Adapter(error) = err else {
         panic!("expected adapter error");
     };
@@ -200,6 +203,7 @@ fn zero_timeout_persists_a_diagnostic_snapshot() {
 #[test]
 fn materialization_miss_retains_its_fresh_snapshot_for_timeout() {
     let _guard = HomeGuard::new();
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let error = execute(
         WaitSelectorInput {
             timeout_ms: 30,
@@ -269,6 +273,7 @@ impl SystemOps for DisappearingWindowAdapter {}
 #[test]
 fn gone_wait_requires_window_absence_after_accessibility_disappears() {
     let _guard = HomeGuard::new();
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     for (kind, disappears, expected) in [
         ("window_without_accessibility_element", true, None),
         (
