@@ -264,7 +264,11 @@ pub(super) fn find_menu_descendant(
         if role.as_deref() == Some("AXMenuBar") {
             return Ok((false, Vec::new()));
         }
-        if accept == Transient::MenuOrPopover && role.as_deref() == Some("AXPopover") {
+        if accept == Transient::MenuOrPopover
+            && (role.as_deref() == Some("AXPopover")
+                || surface_read::string(element, "AXSubrole", deadline)?.as_deref()
+                    == Some("AXPopover"))
+        {
             return Ok((true, Vec::new()));
         }
         if role.as_deref() == Some("AXMenu")

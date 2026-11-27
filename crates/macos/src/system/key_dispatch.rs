@@ -180,18 +180,38 @@ fn semantic_key_target(
     })
 }
 
-/// The menu or popover the application shows. A search that reached its node
-/// limit finds none, and the key then takes the event route; every other read
-/// failure, including a changed process generation, propagates.
+const ESCAPE_SURFACE_PROBE_BUDGET: std::time::Duration = std::time::Duration::from_millis(500);
+
+fn classify_surface_probe<T>(
+    result: Result<Option<T>, AdapterError>,
+    caller_deadline: Deadline,
+) -> Result<Option<T>, AdapterError> {
+    match result {
+        Ok(surface) => Ok(surface),
+        Err(error)
+            if crate::tree::app_menu::is_surface_search_limit(&error)
+                || (error.code == ErrorCode::Timeout && !caller_deadline.is_expired()) =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// The menu or popover the application shows. A bounded probe that reaches its
+/// node limit or its own sub-budget timeout while the caller's deadline still
+/// has time left falls back to the key's event route; every other read failure,
+/// including a changed process generation or an expired caller deadline,
+/// propagates.
 fn open_transient_surface(
     identity: crate::system::process::process_identity::ProcessIdentity,
     deadline: Deadline,
 ) -> Result<Option<AXElement>, AdapterError> {
-    match crate::tree::surfaces::transient_surface_for_process(identity, deadline) {
-        Ok(surface) => Ok(surface),
-        Err(error) if crate::tree::app_menu::is_surface_search_limit(&error) => Ok(None),
-        Err(error) => Err(error),
-    }
+    let probe_deadline = deadline.capped(ESCAPE_SURFACE_PROBE_BUDGET);
+    classify_surface_probe(
+        crate::tree::surfaces::transient_surface_for_process(identity, probe_deadline),
+        deadline,
+    )
 }
 
 /// Performs the action on the target the key reaches. The process generation is
