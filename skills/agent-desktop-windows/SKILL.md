@@ -72,8 +72,9 @@ observation, actions and capture there fail or return nothing.
   non-interactive caller (service, scheduled task, CI job) gets
   `delivered_unverified`.
 - **`launch` takes an absolute path or a bare name** under System32 or the
-  Windows directory, with or without `.exe` (`notepad` or `notepad.exe`), not
-  a display name. Use `list-apps` to find a running app.
+  Windows directory, or registered in the App Paths registry key (`chrome`,
+  `msedge`), with or without `.exe` (`notepad` or `notepad.exe`), not a
+  display name. Use `list-apps` to find a running app.
 - **Notifications:** `list-notifications` with the Action Center closed needs
   `--headed`. Single-item `dismiss-notification` and `notification-action` need
   `--headed` and `--expected-app` or `--expected-title` for the entry at INDEX.

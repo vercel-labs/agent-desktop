@@ -82,6 +82,6 @@ Keys need XTEST on X11 and GNOME Mutter RemoteDesktop on Wayland. The Wayland cl
 
 **Windows.** `list-surfaces` lists each process's `window`, `focused`, `sheet`, and `menu` surfaces. `snapshot --surface` also reads `taskbar`, `system-tray`, `system-tray-overflow`, `start-menu`, and `action-center` without `--app`. `quick-settings` returns `PLATFORM_NOT_SUPPORTED` and names `action-center` as the surface that carries those controls.
 
-`launch` takes an absolute path, or a bare name under System32 or the Windows directory, with or without `.exe`. It does not resolve a display name such as "Google Chrome". Use `list-apps` to find a running app.
+`launch` takes an absolute path, or a bare name under System32, the Windows directory or registered in the App Paths registry key (`chrome`, `msedge`), with or without `.exe`. It does not resolve a display name such as "Google Chrome". Use `list-apps` to find a running app.
 
 **Linux.** Semantic actions work on X11 and Wayland. On Wayland, app pointer input returns `ACTION_NOT_SUPPORTED`, and window control is refused for native windows.

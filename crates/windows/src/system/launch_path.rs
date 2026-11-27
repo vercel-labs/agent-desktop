@@ -71,13 +71,16 @@ pub(crate) fn resolve_executable(id: &str) -> Result<PathBuf, AdapterError> {
             return Ok(candidate);
         }
     }
+    if let Some(registered) = super::launch_app_paths::registered_app_path(id) {
+        return Ok(registered);
+    }
     Err(AdapterError::new(
         ErrorCode::AppNotFound,
-        "Bare launch name is not present in the system directories",
+        "Bare launch name is not in the system directories or the App Paths registry",
     )
     .with_details(serde_json::json!({ "app_name": id }))
     .with_suggestion(
-        "Pass an absolute path, or a bare name that exists under System32 or the Windows directory.",
+        "Pass an absolute path, or a bare name under System32, the Windows directory, or registered in App Paths.",
     ))
 }
 
@@ -212,7 +215,7 @@ fn invalid_identifier(id: &str) -> AdapterError {
     )
     .with_details(serde_json::json!({ "app_name": id }))
     .with_suggestion(
-        "Use a full path (drive + backslash, UNC, or \\\\?\\) or a bare name resolved only under System32 / Windows.",
+        "Use a full path (drive + backslash, UNC, or \\\\?\\) or a bare name resolved under System32 / Windows or through App Paths.",
     )
 }
 
