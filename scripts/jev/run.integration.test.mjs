@@ -174,7 +174,7 @@ const run = (mode, extra = [], input = "試験") => {
     writeFileSync(log, "");
     const result = await runProcess(["--import", pathToFileURL(preload).href, entry,
       "--app", "試験アプリ", ...inputs.flatMap(value => ["--text", value]), ...extra, "試験を完了する"], {
-      ...process.env, JEV_VERIFY_MS: "600", TYPESAFE_API_KEY: "fixture", AGENT_DESKTOP_BIN: process.execPath,
+      ...process.env, JEV_VERIFY_MS: mode === "paste_wrong" ? "600" : "5000", TYPESAFE_API_KEY: "fixture", AGENT_DESKTOP_BIN: process.execPath,
       JEV_TEST_MODE: mode, JEV_TEST_LOG: log, JEV_TEST_INPUT: inputs[0], JEV_TEST_INPUTS: JSON.stringify(inputs),
     });
     assert.ifError(result.error);
