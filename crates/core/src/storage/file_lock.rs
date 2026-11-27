@@ -26,17 +26,17 @@ impl FileLock {
             return Err(lock_timeout(deadline, purpose, path, 0));
         }
         let file = crate::storage::private_file::open_private_lock(path, true).map_err(io_error)?;
-        let (turn, contended) =
+        let (turn, _contended) =
             acquire_path_turn(path, deadline).map_err(|failure| match failure {
                 LockWaitFailure::TimedOut => lock_timeout(deadline, purpose, path, 1),
                 LockWaitFailure::Failed(message) => acquire_failure(purpose, &message),
             })?;
-        let (file, os_contended) = lock_file(file, deadline, purpose, path)?;
+        let (file, _os_contended) = lock_file(file, deadline, purpose, path)?;
         Ok(FileLock {
             _file: file,
             _turn: Some(turn),
             #[cfg(unix)]
-            contention_count: os_contended.max(u64::from(contended)),
+            contention_count: _os_contended.max(u64::from(_contended)),
         })
     }
 
