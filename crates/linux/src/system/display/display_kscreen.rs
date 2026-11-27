@@ -9,19 +9,14 @@ use crate::system::display::display_mutter::LogicalMonitor;
 
 const POLL: Duration = Duration::from_millis(10);
 
-fn logical_size(width: i32, height: i32, scale: f64, rotation: u64) -> (i32, i32) {
-    let (raw_w, raw_h) = if rotation == 2 || rotation == 8 {
-        (height, width)
-    } else {
-        (width, height)
-    };
+fn logical_size(width: i32, height: i32, scale: f64) -> (i32, i32) {
     if scale > 0.0 {
         (
-            (f64::from(raw_w) / scale).round() as i32,
-            (f64::from(raw_h) / scale).round() as i32,
+            (f64::from(width) / scale).round() as i32,
+            (f64::from(height) / scale).round() as i32,
         )
     } else {
-        (raw_w, raw_h)
+        (width, height)
     }
 }
 
@@ -43,8 +38,7 @@ fn parse_entry(entry: &Value) -> Option<LogicalMonitor> {
         .and_then(Value::as_f64)
         .filter(|value| *value > 0.0)
         .unwrap_or(1.0);
-    let rotation = entry.get("rotation").and_then(Value::as_u64).unwrap_or(1);
-    let (width, height) = logical_size(raw_w, raw_h, scale, rotation);
+    let (width, height) = logical_size(raw_w, raw_h, scale);
     if width <= 0 || height <= 0 {
         return None;
     }

@@ -26,7 +26,7 @@ fn parses_single_kde_output() {
 }
 
 #[test]
-fn applies_scale_rotation_and_filters_disabled_outputs() {
+fn applies_scale_preserves_rotated_size_and_filters_disabled_outputs() {
     let raw = r#"{
         "outputs": [
             {
@@ -47,7 +47,7 @@ fn applies_scale_rotation_and_filters_disabled_outputs() {
                 "scale": 1.5,
                 "rotation": 2,
                 "pos": { "x": 1920, "y": 0 },
-                "size": { "width": 3000, "height": 1500 }
+                "size": { "width": 1500, "height": 3000 }
             },
             {
                 "name": "eDP-1",
