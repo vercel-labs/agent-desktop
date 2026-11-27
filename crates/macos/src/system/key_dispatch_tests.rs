@@ -164,6 +164,29 @@ fn a_failed_surface_read_is_not_turned_into_an_absent_surface() {
 }
 
 #[test]
+fn a_surface_probe_timeout_falls_back_only_while_the_caller_deadline_remains() {
+    use super::classify_surface_probe;
+
+    let live = Deadline::after(5_000).unwrap();
+    assert_eq!(
+        classify_surface_probe::<u8>(Err(AdapterError::timeout("probe slice")), live).unwrap(),
+        None
+    );
+
+    let expired = Deadline::after(0).unwrap();
+    let error = classify_surface_probe::<u8>(Err(AdapterError::timeout("caller done")), expired)
+        .expect_err("an expired caller deadline must propagate");
+    assert_eq!(error.code, ErrorCode::Timeout);
+
+    let stale = classify_surface_probe::<u8>(
+        Err(AdapterError::stale_ref_because("generation changed")),
+        live,
+    )
+    .expect_err("process generation failure must propagate");
+    assert_eq!(stale.code, ErrorCode::StaleRef);
+}
+
+#[test]
 fn a_command_chord_to_a_background_app_is_refused_before_sending() {
     let headless = agent_desktop_core::InteractionPolicy::headless();
     let chord = key("s", vec![Modifier::Meta]);
