@@ -12,8 +12,8 @@ fn wayland_missing() -> AdapterError {
         "Displays cannot be listed on this Wayland session",
     )
     .with_suggestion(
-        "Run under GNOME, whose compositor answers the Mutter DisplayConfig \
-         interface; no other Wayland display source is measured",
+        "Run under GNOME (Mutter DisplayConfig) or KDE Plasma (kscreen-doctor); \
+         no other Wayland display source is available",
     )
 }
 
@@ -153,14 +153,15 @@ pub(crate) fn decide_x11(
     decide(server, Some(monitors?), mutter.unwrap_or(None))
 }
 
-/// The displays of a Wayland session as Mutter lists them, with no look at the
-/// environment: a caller that already chose the Wayland route asks here.
+/// The displays of a Wayland session as reported by Mutter or KDE KScreen,
+/// with no look at the environment: a caller that already chose the Wayland
+/// route asks here.
 pub(crate) fn list_wayland_displays(deadline: Deadline) -> Result<Vec<DisplayInfo>, AdapterError> {
-    decide(
-        DisplayServer::Wayland,
-        None,
-        display_mutter::logical_monitors(deadline)?,
-    )
+    let monitors = match display_mutter::logical_monitors(deadline)? {
+        Some(monitors) => Some(monitors),
+        None => display_kscreen::logical_monitors(deadline)?,
+    };
+    decide(DisplayServer::Wayland, None, monitors)
 }
 
 /// Lists the session's displays. On X11 the monitor list comes from RandR
@@ -192,6 +193,7 @@ mod tests;
 pub(crate) mod display_cause;
 pub(crate) mod display_env;
 pub(super) mod display_error;
+pub(super) mod display_kscreen;
 #[cfg(test)]
 pub(super) mod display_live_tests;
 pub(super) mod display_mutter;

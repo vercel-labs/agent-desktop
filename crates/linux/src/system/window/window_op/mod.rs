@@ -363,6 +363,9 @@ pub(crate) fn window_op(
 ) -> Result<OperationReport, AdapterError> {
     OperationTarget::for_window(win)?;
     let deadline = lease.deadline();
+    if let Some(report) = super::kwin_script::try_window_op(win, &op, deadline) {
+        return report;
+    }
     let frame = FrameWorld::new(bus, win, deadline)
         .map_err(|error| error.with_disposition(DeliverySemantics::not_delivered()))?;
     let owner = agent_desktop_core::ProcessIdentity::new(

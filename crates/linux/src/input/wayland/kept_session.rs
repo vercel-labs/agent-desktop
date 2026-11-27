@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use agent_desktop_core::Deadline;
 
 use super::key_session::KeySession;
-use super::remote_desktop::RemoteDesktop;
+use super::session_backend::WaylandSession;
 
 const IDLE: Duration = Duration::from_secs(5);
 const STOP_BUDGET_MS: u64 = 1_000;
@@ -47,9 +47,9 @@ impl<S> Pool<S> {
     }
 }
 
-static KEPT: Pool<RemoteDesktop> = Pool::new();
+static KEPT: Pool<WaylandSession> = Pool::new();
 static GENERATION: AtomicU64 = AtomicU64::new(0);
-fn stop_quietly(mut session: RemoteDesktop) {
+fn stop_quietly(mut session: WaylandSession) {
     if let Ok(deadline) = Deadline::detached_after(STOP_BUDGET_MS) {
         let _ = session.stop(deadline);
     }
@@ -57,7 +57,7 @@ fn stop_quietly(mut session: RemoteDesktop) {
 
 /// The session an earlier delivery of this process left open, when it is
 /// recent enough that the compositor still holds its keyboard for it.
-pub(crate) fn take() -> Option<RemoteDesktop> {
+pub(crate) fn take() -> Option<WaylandSession> {
     GENERATION.fetch_add(1, Ordering::SeqCst);
     match KEPT.take(IDLE) {
         Taken::Fresh(session) => Some(session),
@@ -71,7 +71,7 @@ pub(crate) fn take() -> Option<RemoteDesktop> {
 
 /// Keeps a session open for the next delivery of this process, and stops it
 /// once it has been idle for a while, so a long-lived host never holds one.
-pub(crate) fn keep(session: RemoteDesktop) {
+pub(crate) fn keep(session: WaylandSession) {
     KEPT.put(session);
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let _ = thread::Builder::new()

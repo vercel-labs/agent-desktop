@@ -7,7 +7,8 @@ use serde_json::json;
 use super::kept_session;
 use super::key_session::KeySession;
 use super::layout::refuse_unreachable;
-use super::remote_desktop::{RemoteDesktop, semantic_action_refusal};
+use super::remote_desktop::semantic_action_refusal;
+use super::session_backend::WaylandSession;
 use crate::input::delivery::{Delivery, Gate};
 use crate::input::keyboard::key_names::KEYSYM_SHIFT_L;
 use crate::input::keyboard::keysym_step::KeysymStep;
@@ -194,11 +195,11 @@ pub(crate) fn send_chunks(
     let reused = kept.is_some();
     let mut session = match kept {
         Some(session) => session,
-        None => RemoteDesktop::open(deadline).map_err(|error| with_progress(error, 0))?,
+        None => WaylandSession::open(deadline).map_err(|error| with_progress(error, 0))?,
     };
     let mut outcome = run_chunks(&mut session, &chunks, gate, deadline);
     if reused && outcome.as_ref().is_err_and(sent_nothing) {
-        session = RemoteDesktop::open(deadline).map_err(|error| with_progress(error, 0))?;
+        session = WaylandSession::open(deadline).map_err(|error| with_progress(error, 0))?;
         outcome = run_chunks(&mut session, &chunks, gate, deadline);
     }
     if outcome.is_ok() && session.resumed() {

@@ -72,13 +72,36 @@ pub(crate) fn close_app(
     lease: &InteractionLease,
 ) -> Result<OperationReport, AdapterError> {
     let pid = app.pid.get();
+    let deadline = lease.deadline();
     let live = Live {
         bus,
         pid,
         instance: app.process_instance.as_deref().unwrap_or_default(),
-        deadline: lease.deadline(),
+        deadline,
         started: Instant::now(),
     };
+    if !force
+        && live.on_wayland()
+        && app.process_instance.is_some()
+        && crate::system::window::kwin_script::is_available(deadline)
+    {
+        let request = Request {
+            name: &app.name,
+            pid,
+            instance: app.process_instance.as_deref(),
+            force: false,
+        };
+        if live.liveness() == crate::system::process::liveness::Liveness::Gone {
+            return OperationReport::from_close_dispatch(app, Ok(false));
+        }
+        refuse_if_protected(&live, &request)?;
+        let closed = crate::system::window::kwin_script::close_pid_windows(
+            pid,
+            || live.liveness() == crate::system::process::liveness::Liveness::Gone,
+            deadline,
+        );
+        return OperationReport::from_close_dispatch(app, closed);
+    }
     run_report(&live, app, force)
 }
 
