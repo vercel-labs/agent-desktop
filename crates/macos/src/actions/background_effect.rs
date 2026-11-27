@@ -163,14 +163,21 @@ fn inside_popover(element: &AXElement, deadline: Deadline) -> Option<bool> {
         else {
             return Some(false);
         };
-        match crate::tree::surface_read::string(&parent, "AXRole", deadline)
-            .ok()?
-            .as_deref()
-        {
-            Some("AXPopover") => return Some(true),
-            Some("AXWindow" | "AXApplication") => return Some(false),
-            _ => current = parent,
+        let role = crate::tree::surface_read::string(&parent, "AXRole", deadline).ok()?;
+        if role.as_deref() == Some("AXPopover") {
+            return Some(true);
         }
+        if role.as_deref() == Some("AXApplication") {
+            return Some(false);
+        }
+        let subrole = crate::tree::surface_read::string(&parent, "AXSubrole", deadline).ok()?;
+        if subrole.as_deref() == Some("AXPopover") {
+            return Some(true);
+        }
+        if role.as_deref() == Some("AXWindow") {
+            return Some(false);
+        }
+        current = parent;
     }
 }
 
