@@ -12,12 +12,17 @@ use crate::{AdapterError, InteractionLease, NativeHandle};
 /// ref is resolved in full, which counts the live matches under the lease. A
 /// ref that carries an element token is always resolved through the adapter,
 /// which owns its re-identification, so it never takes the confirmation read.
+/// A tokenless ref with a non-empty ancestor scope chain is also resolved in
+/// full under the lease, because confirming only the leaf would miss a recycled
+/// ancestor row whose child kept the same identity and handle.
 pub(super) fn resolve_for_dispatch(
     target: &RefActionContext<'_>,
     resolved: Option<NativeHandle>,
     lease: &InteractionLease,
 ) -> Result<NativeHandle, AdapterError> {
-    match resolved.filter(|_| element_token(target.entry).is_none()) {
+    match resolved
+        .filter(|_| element_token(target.entry).is_none() && target.entry.scope.chain.is_empty())
+    {
         Some(handle) => saved_ref_landing::confirm_resolved_under_lease(
             target.adapter,
             target.entry,
@@ -31,3 +36,7 @@ pub(super) fn resolve_for_dispatch(
     .map_err(mark_pre_dispatch_resolution_failure)
     .inspect_err(|error| trace_resolve_error(target.context, target.ref_id, error))
 }
+
+#[cfg(test)]
+#[path = "ref_action_resolve_tests.rs"]
+mod tests;
