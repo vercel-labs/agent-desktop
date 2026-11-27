@@ -19,14 +19,24 @@ pub(super) enum DrillAttempt<T> {
     Incomplete(IncompleteRead),
 }
 
+/// Why a drill-down read ended short of the whole subtree.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum IncompleteCause {
+    Deadline,
+    LiveChurn,
+    Bounded,
+}
+
 /// How a read ended short of the whole subtree.
 #[derive(Clone, Copy)]
 pub(super) struct IncompleteRead {
     pub(super) nodes_observed: usize,
-    pub(super) ran_out_of_time: bool,
+    pub(super) cause: IncompleteCause,
 }
 
 /// Repeats `read` until it returns a whole subtree or the deadline is spent.
+/// A deterministic observation bound (node/child cap or cells-in-view window)
+/// is returned on the first read without spinning until the timeout expires.
 pub(super) fn drill_until_complete<T>(
     deadline: Deadline,
     mut read: impl FnMut() -> Result<DrillAttempt<T>, AppError>,
@@ -39,7 +49,10 @@ pub(super) fn drill_until_complete<T>(
             DrillAttempt::Complete(value) => return Ok(value),
             DrillAttempt::Incomplete(incomplete) => incomplete,
         };
-        walks_finished += usize::from(!incomplete.ran_out_of_time);
+        if incomplete.cause == IncompleteCause::Bounded {
+            return Err(drill_incomplete(incomplete, attempts, walks_finished));
+        }
+        walks_finished += usize::from(incomplete.cause == IncompleteCause::LiveChurn);
         if deadline.is_expired() {
             return Err(drill_incomplete(incomplete, attempts, walks_finished));
         }
@@ -52,7 +65,12 @@ fn drill_incomplete(
     attempts: usize,
     walks_finished: usize,
 ) -> AppError {
-    let (message, suggestion) = if walks_finished == 0 {
+    let (message, suggestion) = if incomplete.cause == IncompleteCause::Bounded {
+        (
+            "The drilled subtree exceeded the observation bound before it could be read whole, so no refs were replaced",
+            "Drill a narrower subtree, or raise --max-depth or --max-nodes",
+        )
+    } else if walks_finished == 0 {
         (
             "The drill-down read ran out of time before it saw the whole subtree, so no refs were replaced",
             "Retry with a larger --timeout-ms, or drill a narrower subtree",

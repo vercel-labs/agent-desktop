@@ -96,7 +96,7 @@ fn perform_window_op(
     match adapter.inner.window_op(
         window,
         op,
-        agent_desktop_core::InteractionPolicy::headless(),
+        agent_desktop_core::InteractionPolicy::headed(),
         &lease,
     ) {
         Ok(_) => AdResult::Ok,

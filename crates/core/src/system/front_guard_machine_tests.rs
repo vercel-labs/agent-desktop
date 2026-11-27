@@ -116,6 +116,32 @@ fn a_failed_give_back_tries_again_then_gives_up() {
 }
 
 #[test]
+fn settling_after_a_failed_give_back_reports_failure_unless_a_quiet_read_clears_it() {
+    let mut failed = machine();
+    let intruded = view("n1", "n1", &["user", "other", "n1"]);
+    assert!(matches!(
+        failed.sight(Sighting::Front(intruded.clone())),
+        Step::Return(_)
+    ));
+    assert_eq!(failed.returned(false), Step::Poll);
+    assert_eq!(failed.sight(Sighting::Settled), Step::Done);
+    assert_eq!(failed.state(), FrontGuardState::GiveBackFailed);
+
+    let mut recovered = machine();
+    assert!(matches!(
+        recovered.sight(Sighting::Front(intruded)),
+        Step::Return(_)
+    ));
+    assert_eq!(recovered.returned(false), Step::Poll);
+    assert_eq!(
+        recovered.sight(Sighting::Front(view("user", "user", &["user", "other"]))),
+        Step::Poll
+    );
+    assert_eq!(recovered.sight(Sighting::Settled), Step::Done);
+    assert_eq!(recovered.state(), FrontGuardState::Clean);
+}
+
+#[test]
 fn an_application_that_takes_the_focus_again_after_a_give_back_is_returned_again() {
     let mut guard = machine();
     let now = || view("n1", "n1", &["user", "other", "n1"]);
