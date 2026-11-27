@@ -213,6 +213,20 @@ fn drill_capture_once(
     }))
 }
 
+fn is_deterministically_bounded(observed: &crate::locator::live_locator::ObservedTree) -> bool {
+    let limits = &observed.stats.traversal.limits;
+    let hit_budget = limits.node_hits > 0
+        || limits.edge_hits > 0
+        || limits.child_hits > 0
+        || limits.text_hits > 0
+        || limits.depth_hits > 0;
+    let omits_view = observed.nodes.iter().any(|node| {
+        node.children_count
+            .is_some_and(|count| count as usize > node.children.len())
+    });
+    hit_budget || omits_view
+}
+
 fn incomplete_read(observed: &crate::locator::live_locator::ObservedTree) -> IncompleteRead {
     let health = &observed.stats.reads.health;
     let limits = &observed.stats.traversal.limits;
@@ -221,6 +235,7 @@ fn incomplete_read(observed: &crate::locator::live_locator::ObservedTree) -> Inc
     } else if limits.child_count_changes > 0
         || health.cannot_complete > 0
         || health.native_read_failures > 0
+        || !is_deterministically_bounded(observed)
     {
         IncompleteCause::LiveChurn
     } else {
