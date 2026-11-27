@@ -20,6 +20,7 @@ fn inert_reads() -> Vec<(TreeProperty, PropertyOutcome)> {
         (TreeProperty::ToggleAvailable, known_flag(false)),
         (TreeProperty::ExpandCollapseAvailable, known_flag(false)),
         (TreeProperty::SelectionItemAvailable, known_flag(false)),
+        (TreeProperty::SelectionAvailable, known_flag(false)),
         (TreeProperty::ValueAvailable, known_flag(false)),
         (TreeProperty::RangeValueAvailable, known_flag(false)),
         (TreeProperty::ScrollAvailable, known_flag(false)),
@@ -183,13 +184,14 @@ fn every_emitted_action_is_a_member_of_core_capability_vocabulary() {
         );
     }
 
-    let isolated_cases: [(TreeProperty, &[&str]); 3] = [
+    let isolated_cases: [(TreeProperty, &[&str]); 4] = [
         (TreeProperty::ToggleAvailable, &[capability::TOGGLE]),
         (
             TreeProperty::ExpandCollapseAvailable,
             &[capability::EXPAND, capability::COLLAPSE],
         ),
         (TreeProperty::SelectionItemAvailable, &[capability::SELECT]),
+        (TreeProperty::SelectionAvailable, &[capability::SELECT]),
     ];
     for (property, expected) in isolated_cases {
         let mut reads = inert_reads();
@@ -305,4 +307,23 @@ fn a_read_only_range_control_does_not_advertise_set_value() {
 #[test]
 fn a_range_control_whose_read_only_flag_is_unreadable_fails_closed() {
     assert!(!advertises_set_value(None));
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn combobox_with_writable_value_advertises_select() {
+    let mut reads = inert_reads();
+    reads.retain(|(property, _)| {
+        *property != TreeProperty::ValueAvailable && *property != TreeProperty::ControlType
+    });
+    reads.push((
+        TreeProperty::ControlType,
+        PropertyOutcome::Known(PropertyValue::Number(50003)),
+    ));
+    reads.push((TreeProperty::ValueAvailable, known_flag(true)));
+    reads.push((TreeProperty::ValueIsReadOnly, known_flag(false)));
+
+    let actions = resolve_actions(&ElementProperties::from_reads(reads));
+    assert!(known_actions(&actions).contains(&capability::SET_VALUE.to_string()));
+    assert!(known_actions(&actions).contains(&capability::SELECT.to_string()));
 }
