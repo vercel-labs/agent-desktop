@@ -53,6 +53,10 @@ impl LeaseQueue {
         self.slot = Slot::Free;
     }
 
+    pub(crate) fn is_idle(&self) -> bool {
+        self.slot == Slot::Free && self.waiting.is_empty()
+    }
+
     #[cfg(test)]
     pub(crate) fn is_held(&self) -> bool {
         self.slot == Slot::Held

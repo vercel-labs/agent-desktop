@@ -78,7 +78,26 @@ fn three_agents_looping_on_one_lock_take_turns_instead_of_one_repeating() {
         .max()
         .unwrap();
 
-    assert!(longest_streak < 12, "one agent kept the lock: {order:?}");
+    assert!(
+        longest_streak <= 4,
+        "one agent hogged the lock instead of queueing FIFO: {order:?}"
+    );
+}
+
+#[test]
+fn a_timed_out_kernel_waiter_releases_its_late_grant_without_holding_the_file() {
+    let home = HomeGuard::new();
+    let path = lock_path(&home);
+    let holder = crate::storage::private_file::open_private_lock(&path, true).unwrap();
+    holder.lock().unwrap();
+    let waiter = crate::storage::private_file::open_private_lock(&path, false).unwrap();
+    let error = super::wait_for_lock(waiter, Deadline::after(40).unwrap(), &path);
+    assert!(matches!(error, Err(super::LockWaitFailure::TimedOut)));
+    drop(holder);
+
+    let next = FileLock::acquire(&path, Deadline::after(3_000).unwrap(), "next")
+        .expect("a late kernel grant must drop and free the lock");
+    drop(next);
 }
 
 #[test]

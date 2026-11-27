@@ -2,24 +2,42 @@ use std::fs::File;
 use std::path::Path;
 
 use crate::storage::file_lock_wait::{
-    LockWaitFailure, abandoned_waiter_epoch, settle_abandoned_waiters, wait_for_lock,
+    LockWaitFailure, PathTurnGuard, abandoned_waiter_epoch, acquire_path_turn,
+    settle_abandoned_waiters, wait_for_lock,
 };
 use crate::{AdapterError, Deadline, ErrorCode};
 
 /// A private state-file lock held until this guard is dropped.
 ///
 /// Releases by closing rather than unlocking: a duplicated descriptor shares
-/// the lock, so unlocking would release it for the other holder too.
+/// the lock, so unlocking would release it for the other holder too. `_file`
+/// is declared before `_turn` so the OS file lock is released before the next
+/// queued in-process waiter is woken.
 pub struct FileLock {
     _file: File,
+    _turn: Option<PathTurnGuard>,
     #[cfg(unix)]
     contention_count: u64,
 }
 
 impl FileLock {
     pub fn acquire(path: &Path, deadline: Deadline, purpose: &str) -> Result<Self, AdapterError> {
+        if deadline.is_expired() {
+            return Err(lock_timeout(deadline, purpose, path, 0));
+        }
         let file = crate::storage::private_file::open_private_lock(path, true).map_err(io_error)?;
-        lock_file(file, deadline, purpose, path)
+        let (turn, contended) =
+            acquire_path_turn(path, deadline).map_err(|failure| match failure {
+                LockWaitFailure::TimedOut => lock_timeout(deadline, purpose, path, 1),
+                LockWaitFailure::Failed(message) => acquire_failure(purpose, &message),
+            })?;
+        let (file, os_contended) = lock_file(file, deadline, purpose, path)?;
+        Ok(FileLock {
+            _file: file,
+            _turn: Some(turn),
+            #[cfg(unix)]
+            contention_count: os_contended.max(u64::from(contended)),
+        })
     }
 
     pub(crate) fn is_held(path: &Path) -> bool {
@@ -88,7 +106,13 @@ impl FileLock {
                 "Inherited interaction lease does not identify the canonical lock file",
             ));
         }
-        lock_file(inherited, deadline, purpose, canonical_path)
+        let (file, contention_count) = lock_file(inherited, deadline, purpose, canonical_path)?;
+        Ok(FileLock {
+            _file: file,
+            _turn: None,
+            #[cfg(unix)]
+            contention_count,
+        })
     }
 }
 
@@ -102,7 +126,7 @@ fn lock_file(
     deadline: Deadline,
     purpose: &str,
     path: &Path,
-) -> Result<FileLock, AdapterError> {
+) -> Result<(File, u64), AdapterError> {
     if deadline.is_expired() {
         return Err(lock_timeout(deadline, purpose, path, 0));
     }
@@ -132,11 +156,7 @@ fn lock_file(
     if deadline.is_expired() {
         return Err(lock_timeout(deadline, purpose, path, contention_count));
     }
-    Ok(FileLock {
-        _file: file,
-        #[cfg(unix)]
-        contention_count,
-    })
+    Ok((file, contention_count))
 }
 
 fn acquire_failure(purpose: &str, message: &str) -> AdapterError {
