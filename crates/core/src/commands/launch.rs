@@ -71,6 +71,7 @@ pub fn execute(
             launched
         },
     )?;
+    drop(watching);
     let mut launched = launched?;
     let front = match pending {
         Some(pending) => {
@@ -82,10 +83,18 @@ pub fn execute(
         }
         None => front,
     };
-    launched.guidance.focus_returned |= front.focus_returned();
-    if front == crate::FrontOutcome::GiveBackFailed && launched.guidance.suggestion.is_none() {
-        launched.guidance.suggestion =
-            Some(crate::system::front_outcome::RETURN_FAILED_SUGGESTION.to_owned());
+    match front {
+        crate::FrontOutcome::GivenBack => {
+            launched.guidance.focus_returned = Some(true);
+        }
+        crate::FrontOutcome::GiveBackFailed => {
+            launched.guidance.focus_returned = Some(false);
+            if launched.guidance.suggestion.is_none() {
+                launched.guidance.suggestion =
+                    Some(crate::system::front_outcome::RETURN_FAILED_SUGGESTION.to_owned());
+            }
+        }
+        crate::FrontOutcome::Off | crate::FrontOutcome::Clean => {}
     }
     if let Some(port) = options.cdp_port {
         let granted = deadline.remaining();

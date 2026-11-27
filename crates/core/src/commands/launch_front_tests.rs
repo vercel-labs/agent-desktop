@@ -210,11 +210,21 @@ mod stub_launcher {
 
     const LAUNCHED: u32 = 77;
 
+    struct NonReentrantLease(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+    impl Drop for NonReentrantLease {
+        fn drop(&mut self) {
+            self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
     struct Stub {
         now: Mutex<FrontView>,
         gave_back_to: Mutex<Vec<String>>,
+        lease_held: std::sync::Arc<std::sync::atomic::AtomicBool>,
         window_pid: u32,
         spawned: Vec<u32>,
+        obeys: bool,
     }
 
     fn view(id: &str, pid: u32, windows: &[&str]) -> FrontView {
@@ -240,7 +250,21 @@ mod stub_launcher {
     impl InputOps for Stub {}
 
     impl SystemOps for Stub {
-        crate::adapter::guarded_interaction_lease!();
+        fn acquire_interaction_lease(
+            &self,
+            deadline: crate::Deadline,
+        ) -> Result<InteractionLease, AdapterError> {
+            if self
+                .lease_held
+                .swap(true, std::sync::atomic::Ordering::SeqCst)
+            {
+                return Err(AdapterError::timeout("non-reentrant lease is still held"));
+            }
+            InteractionLease::guarded(
+                deadline,
+                NonReentrantLease(std::sync::Arc::clone(&self.lease_held)),
+            )
+        }
 
         /// The window of the launch takes the focus while the call is still
         /// running, before the launched pid is known to anyone but the adapter.
@@ -276,17 +300,21 @@ mod stub_launcher {
             _lease: &InteractionLease,
         ) -> Result<(), AdapterError> {
             self.gave_back_to.lock().unwrap().push(window.id.clone());
-            *self.now.lock().unwrap() = view(&window.id, 1, &["user", "late"]);
+            if self.obeys {
+                *self.now.lock().unwrap() = view(&window.id, 1, &["user", "late"]);
+            }
             Ok(())
         }
     }
 
-    fn launch_with(window_pid: u32, spawned: Vec<u32>) -> (Value, Vec<String>) {
+    fn launch_with(window_pid: u32, spawned: Vec<u32>, obeys: bool) -> (Value, Vec<String>) {
         let stub = Stub {
             now: Mutex::new(view("user", 1, &["user"])),
             gave_back_to: Mutex::new(Vec::new()),
+            lease_held: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             window_pid,
             spawned,
+            obeys,
         };
         let value = execute(
             LaunchArgs {
@@ -303,22 +331,29 @@ mod stub_launcher {
 
     #[test]
     fn a_launched_program_that_is_not_named_like_its_window_owner_is_given_back_once_known() {
-        let (value, gave_back_to) = launch_with(LAUNCHED, Vec::new());
+        let (value, gave_back_to) = launch_with(LAUNCHED, Vec::new(), true);
         assert_eq!(value["focus_returned"], true);
         assert_eq!(gave_back_to, ["user"]);
     }
 
     #[test]
     fn a_stub_launcher_that_exits_after_spawning_the_window_owner_is_given_back() {
-        let (value, gave_back_to) = launch_with(300, vec![300]);
+        let (value, gave_back_to) = launch_with(300, vec![300], true);
         assert_eq!(value["focus_returned"], true);
         assert_eq!(gave_back_to, ["user"]);
     }
 
     #[test]
     fn a_window_of_an_unrelated_process_during_a_launch_is_not_given_back() {
-        let (value, gave_back_to) = launch_with(400, vec![300]);
+        let (value, gave_back_to) = launch_with(400, vec![300], true);
         assert!(value.get("focus_returned").is_none());
         assert!(gave_back_to.is_empty());
+    }
+
+    #[test]
+    fn a_failed_launch_give_back_reports_focus_returned_false_with_suggestion() {
+        let (value, _) = launch_with(LAUNCHED, Vec::new(), false);
+        assert_eq!(value["focus_returned"], false);
+        assert!(value["suggestion"].as_str().is_some());
     }
 }

@@ -10,7 +10,7 @@ use crate::{
     refs::ref_root_read::{RootRead, read_saved_root},
     refs::refs_store::RefStore,
     snapshot::SnapshotResult,
-    snapshot::drill_retry::{DrillAttempt, IncompleteRead, drill_until_complete},
+    snapshot::drill_retry::{DrillAttempt, IncompleteCause, IncompleteRead, drill_until_complete},
 };
 
 /// What one drill-down presents: the window it reports, the subtree that
@@ -216,9 +216,21 @@ fn drill_capture_once(
 }
 
 fn incomplete_read(observed: &crate::locator::live_locator::ObservedTree) -> IncompleteRead {
+    let health = &observed.stats.reads.health;
+    let limits = &observed.stats.traversal.limits;
+    let cause = if health.deadline_exhausted > 0 {
+        IncompleteCause::Deadline
+    } else if limits.child_count_changes > 0
+        || health.cannot_complete > 0
+        || health.native_read_failures > 0
+    {
+        IncompleteCause::LiveChurn
+    } else {
+        IncompleteCause::Bounded
+    };
     IncompleteRead {
         nodes_observed: observed.nodes.len(),
-        ran_out_of_time: observed.stats.reads.health.deadline_exhausted > 0,
+        cause,
     }
 }
 
