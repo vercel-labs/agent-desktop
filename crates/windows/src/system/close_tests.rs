@@ -142,3 +142,39 @@ fn an_exit_code_of_still_active_is_still_observed_as_gone() {
         "a process that exited with 259 must not read as still running"
     );
 }
+
+#[test]
+fn timeout_with_open_sheet_reports_dialog_pending_and_list_surfaces_suggestion() {
+    let sheet = agent_desktop_core::SurfaceInfo {
+        kind: agent_desktop_core::SnapshotSurface::Sheet
+            .as_str()
+            .to_string(),
+        id: "w-123".to_string(),
+        title: Some("Notepad".to_string()),
+        item_count: None,
+        unclassified: Vec::new(),
+    };
+    let timeout = Deadline::after(10).expect("deadline").timeout_error();
+    let error = super::super::close_dispatch::timeout_with_sheets(
+        timeout,
+        "notepad.exe",
+        ProcessId::from(42),
+        false,
+        &[sheet],
+    );
+    assert_eq!(error.code, ErrorCode::Timeout);
+    assert_eq!(
+        error.disposition.delivery(),
+        DeliveryDisposition::DeliveredUnverified
+    );
+    let details = error.details.as_ref().expect("details");
+    assert_eq!(details["cause"], "dialog_pending");
+    assert_eq!(details["sheets"][0]["id"], "w-123");
+    assert_eq!(details["sheets"][0]["title"], "Notepad");
+    assert!(
+        error
+            .suggestion
+            .as_deref()
+            .is_some_and(|s| s.contains("list-surfaces"))
+    );
+}
