@@ -63,3 +63,22 @@ fn both_caret_phases_draw_only_the_caret_and_leave_the_pointer_alone() {
         assert!(!is_caret(&instruction(phase, false)), "{phase:?}");
     }
 }
+
+#[test]
+fn highlight_is_requested_only_when_enabled_and_a_target_is_known() {
+    let bounds = agent_desktop_core::Rect {
+        x: 10.0,
+        y: 10.0,
+        width: 80.0,
+        height: 30.0,
+    };
+    let effect = instruction(CursorPhase::Effect, false).with_target(Some(bounds));
+    assert_ne!(render_flags(&effect, true, false) & HIGHLIGHT, 0);
+    assert_eq!(render_flags(&effect, false, false) & HIGHLIGHT, 0);
+    let untargeted = instruction(CursorPhase::Effect, false);
+    assert_eq!(render_flags(&untargeted, true, false) & HIGHLIGHT, 0);
+    assert_eq!(
+        render_flags(&effect, false, true),
+        ARROW_AFTER_EFFECT | REDUCE_MOTION
+    );
+}

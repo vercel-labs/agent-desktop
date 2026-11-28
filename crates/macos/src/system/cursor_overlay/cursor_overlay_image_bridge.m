@@ -284,3 +284,35 @@ void ADPointerImageRelease(NSWindow *window, CALayer *pointer, double seconds) {
                        }
                    });
 }
+
+/// The bounds, in top-left screen points, of the control the pointing hand last clicked.
+static double ADPointerTarget[4] = {0.0, 0.0, 0.0, 0.0};
+static bool ADPointerTargetSet = false;
+
+static bool ADRectContains(const double *rect, double x, double y) {
+    return rect[2] > 0.0 && rect[3] > 0.0 && x >= rect[0] && x <= rect[0] + rect[2] &&
+           y >= rect[1] && y <= rect[1] + rect[3];
+}
+
+bool ADPointerTargetKnown(void) {
+    return ADPointerTargetSet;
+}
+
+bool ADPointerTargetContains(double x, double y) {
+    return ADPointerTargetSet && ADRectContains(ADPointerTarget, x, y);
+}
+
+void ADPointerTargetRememberIfPointing(const double *target) {
+    if (ADImageShown != ADPointerSlot || target[2] <= 0.0 || target[3] <= 0.0) {
+        ADPointerTargetSet = false;
+        return;
+    }
+    for (int index = 0; index < 4; index += 1) {
+        ADPointerTarget[index] = target[index];
+    }
+    ADPointerTargetSet = true;
+}
+
+void ADPointerTargetForget(void) {
+    ADPointerTargetSet = false;
+}
