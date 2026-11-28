@@ -88,8 +88,8 @@ impl SystemOps for StaleThenOkAdapter {
         &self,
         _window: &crate::WindowInfo,
         _lease: &crate::InteractionLease,
-    ) -> Result<(), AdapterError> {
-        Ok(())
+    ) -> Result<crate::DeliverySemantics, AdapterError> {
+        Ok(crate::DeliverySemantics::delivered_unverified())
     }
 }
 
@@ -194,8 +194,8 @@ impl SystemOps for OccludedFromAdapter {
         &self,
         _window: &crate::WindowInfo,
         _lease: &crate::InteractionLease,
-    ) -> Result<(), AdapterError> {
-        Ok(())
+    ) -> Result<crate::DeliverySemantics, AdapterError> {
+        Ok(crate::DeliverySemantics::delivered_unverified())
     }
 }
 
@@ -273,6 +273,7 @@ impl ActionOps for MutuallyOffscreenAdapter {
     fn scroll_into_view(
         &self,
         handle: &NativeHandle,
+        _policy: crate::InteractionPolicy,
         _lease: &crate::InteractionLease,
     ) -> Result<(), AdapterError> {
         self.visible_pid
@@ -307,8 +308,8 @@ impl SystemOps for MutuallyOffscreenAdapter {
         &self,
         _window: &crate::WindowInfo,
         _lease: &crate::InteractionLease,
-    ) -> Result<(), AdapterError> {
-        Ok(())
+    ) -> Result<crate::DeliverySemantics, AdapterError> {
+        Ok(crate::DeliverySemantics::delivered_unverified())
     }
 }
 

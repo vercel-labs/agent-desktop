@@ -1,5 +1,6 @@
 use crate::system::close::close_app_impl;
 use crate::system::launch::launch_app_impl;
+use crate::system::test_support::test_time::test_lease;
 use crate::system::window::window_activate::{budget_exhausted, focus_window};
 use agent_desktop_core::system::launch_options::LaunchOptions;
 use agent_desktop_core::{
@@ -50,6 +51,7 @@ fn class_b_windowless_close_escalation_is_action_failed_not_delivered() {
 fn windowless_close_live_error() -> AdapterError {
     let (_child, pid, token) = crate::system::lifecycle_test_support::spawn_windowless_child();
     let app = AppInfo {
+        aliases: Vec::new(),
         name: "cmd.exe".into(),
         pid,
         bundle_id: None,
@@ -62,12 +64,8 @@ fn windowless_close_live_error() -> AdapterError {
 
 #[test]
 fn class_b_create_process_invalid_name_is_invalid_args_not_delivered() {
-    let error = launch_app_impl(
-        r"sub\app.exe",
-        &LaunchOptions::default(),
-        Deadline::after(1_000).expect("deadline"),
-    )
-    .expect_err("relative id");
+    let error = launch_app_impl(r"sub\app.exe", &LaunchOptions::default(), test_lease(1_000))
+        .expect_err("relative id");
     assert_class_b_envelope(
         &error,
         ErrorCode::InvalidArgs,

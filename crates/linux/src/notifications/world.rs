@@ -8,7 +8,7 @@ use crate::system::shell::anchor::Anchor;
 use crate::system::shell::container::{Landmark, locate_anchor};
 use crate::system::shell::identity::find_root;
 use crate::system::shell::kinds::ShellKind;
-use crate::system::shell::light::LiveNodes;
+use crate::system::shell::light::{Detail, LiveNodes};
 use crate::system::shell::open::{Opened, close, is_showing, open};
 use crate::system::shell::search::{Walk, walk};
 use crate::tree::AtspiElement;
@@ -57,7 +57,7 @@ impl ShellWorld for LiveWorld<'_> {
 
     fn read(&self, root: &AtspiElement, deadline: Deadline) -> Result<Walk, AdapterError> {
         let nodes = LiveNodes::new(self.bus.get(deadline)?.inner().clone(), deadline);
-        walk(&nodes, root, deadline, &|_| false)
+        walk(&nodes, root, deadline, Detail::Full, &|_| false)
     }
 
     fn open(

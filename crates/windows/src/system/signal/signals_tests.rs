@@ -1,7 +1,8 @@
 use super::*;
 use agent_desktop_core::{AppInfo, ErrorCode, ProcessId, WindowInfo, WindowState};
 
-use crate::system::fixture::test_time::deadline;
+use crate::system::signal::signal_inventory::force_failure;
+use crate::system::test_support::test_time::deadline;
 
 fn window(id: &str, app: &str, pid: u32, instance: &str) -> WindowInfo {
     WindowInfo {
@@ -22,6 +23,7 @@ fn window(id: &str, app: &str, pid: u32, instance: &str) -> WindowInfo {
 
 fn app_info(name: &str, pid: u32, instance: &str) -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: name.to_string(),
         pid: ProcessId::from(pid),
         bundle_id: None,
@@ -86,111 +88,78 @@ fn a_truncated_walk_reports_windows_and_apps_incomplete() {
     );
 }
 
-#[test]
-fn a_timeout_error_passes_through_the_boundary_narrowing_unchanged() {
-    let error = AdapterError::timeout("Operation exceeded its deadline");
+const CODES_OUTSIDE_THE_RESERVED_RACE_MARKER: [ErrorCode; 15] = [
+    ErrorCode::PermDenied,
+    ErrorCode::ElementNotFound,
+    ErrorCode::AppNotFound,
+    ErrorCode::ActionFailed,
+    ErrorCode::ActionNotSupported,
+    ErrorCode::StaleRef,
+    ErrorCode::AmbiguousTarget,
+    ErrorCode::PlatformNotSupported,
+    ErrorCode::Timeout,
+    ErrorCode::InvalidArgs,
+    ErrorCode::NotificationNotFound,
+    ErrorCode::SnapshotNotFound,
+    ErrorCode::PolicyDenied,
+    ErrorCode::AppUnresponsive,
+    ErrorCode::Internal,
+];
 
-    let narrowed = narrow_to_permitted_codes(error);
-
-    assert_eq!(narrowed.code, ErrorCode::Timeout);
+fn surfaced_by_the_baseline_boundary(failure: AdapterError) -> AdapterError {
+    force_failure::with(failure, || {
+        capture_signal_baseline_impl(&SignalFilter::default(), deadline(10_000))
+    })
+    .expect_err("a forced inventory failure must surface")
 }
 
 #[test]
-fn every_non_timeout_code_the_boundary_narrowing_sees_becomes_app_unresponsive() {
-    let every_code = [
-        ErrorCode::PermDenied,
-        ErrorCode::ElementNotFound,
-        ErrorCode::AppNotFound,
-        ErrorCode::ActionFailed,
-        ErrorCode::ActionNotSupported,
-        ErrorCode::StaleRef,
-        ErrorCode::AmbiguousTarget,
-        ErrorCode::WindowNotFound,
-        ErrorCode::PlatformNotSupported,
-        ErrorCode::InvalidArgs,
-        ErrorCode::NotificationNotFound,
-        ErrorCode::SnapshotNotFound,
-        ErrorCode::PolicyDenied,
-        ErrorCode::Internal,
-    ];
+fn every_code_crosses_the_baseline_boundary_unchanged() {
+    for code in CODES_OUTSIDE_THE_RESERVED_RACE_MARKER {
+        let surfaced = surfaced_by_the_baseline_boundary(AdapterError::new(
+            code.clone(),
+            "seam-forced failure",
+        ));
 
-    for code in every_code {
-        let label = code.as_str();
-        let narrowed = narrow_to_permitted_codes(AdapterError::new(code, "seam-forced failure"));
         assert_eq!(
-            narrowed.code,
-            ErrorCode::AppUnresponsive,
-            "code {label} must be narrowed to APP_UNRESPONSIVE rather than reaching core \
-             unchanged - core aborts the whole wait on any code outside the closed set"
+            surfaced.code,
+            code,
+            "code {} must reach core as itself, not as a different code",
+            code.as_str()
         );
     }
+}
+
+#[test]
+fn a_stamped_retryable_error_keeps_its_stamp_across_the_baseline_boundary() {
+    let stamped = AdapterError::new(ErrorCode::StaleRef, "seam-forced stamped failure")
+        .with_details(serde_json::json!({ "complete": false, "retryable": true }));
+
+    let surfaced = surfaced_by_the_baseline_boundary(stamped);
+
+    assert_eq!(surfaced.code, ErrorCode::StaleRef);
+    assert!(surfaced.is_explicitly_retryable());
+    assert!(surfaced.is_retryable_poll_failure());
+}
+
+#[test]
+fn a_terminal_error_stays_terminal_across_the_baseline_boundary() {
+    let terminal = AdapterError::new(ErrorCode::PermDenied, "seam-forced terminal failure")
+        .with_details(serde_json::json!({ "complete": true, "retryable": false }));
+
+    let surfaced = surfaced_by_the_baseline_boundary(terminal);
+
+    assert_eq!(surfaced.code, ErrorCode::PermDenied);
+    assert!(!surfaced.is_retryable_poll_failure());
 }
 
 #[cfg(target_os = "windows")]
 mod windows_only {
     use super::*;
 
-    use std::time::Duration;
+    use agent_desktop_core::{ProcessIdentity, SystemOps};
 
-    use agent_desktop_core::{
-        EventKind, InteractionLease, ProcessIdentity, SystemOps, WindowState, diff_signals,
-    };
-
-    use crate::system::window::window_activate::focus_window;
-    use crate::tree::fixture::fixture_window;
-    use crate::tree::fixture::{HostedFixture, bootstrap};
-
-    const SETTLE: Duration = Duration::from_millis(250);
-
-    fn lease() -> InteractionLease {
-        InteractionLease::guarded(deadline(10_000), ())
-            .expect("a lease can be acquired for the test")
-    }
-
-    fn window_info_for(fixture: &HostedFixture) -> WindowInfo {
-        let pid = ProcessId::from(fixture.process_id());
-        let token = crate::system::process_identity::token_for_pid(pid)
-            .expect("a live process's token is readable")
-            .expect("a live process has a readable generation token");
-        WindowInfo {
-            id: format!("w-{}", fixture.handle() as usize),
-            title: String::new(),
-            app: String::new(),
-            pid,
-            process_instance: Some(token),
-            bounds: None,
-            state: WindowState::default(),
-        }
-    }
-
-    /// Reproduces `crates/core/src/commands/wait_event.rs:257-296`'s own
-    /// predicate rather than paraphrasing it: for a process-filtered wait,
-    /// every observed pid and process instance across windows, apps, and
-    /// surfaces must equal the expected one exactly.
-    fn satisfies_validate_signal_scope(
-        baseline: &SignalBaseline,
-        expected: &ProcessIdentity,
-    ) -> bool {
-        baseline
-            .windows
-            .iter()
-            .map(|window| (window.pid, window.process_instance.as_deref()))
-            .chain(
-                baseline
-                    .apps
-                    .iter()
-                    .map(|app| (app.pid, app.process_instance.as_deref())),
-            )
-            .chain(
-                baseline
-                    .surfaces
-                    .iter()
-                    .map(|surface| (surface.pid, Some(surface.process_instance.as_str()))),
-            )
-            .all(|(pid, instance)| {
-                pid == expected.pid && instance == Some(expected.instance.as_str())
-            })
-    }
+    use crate::system::test_support::apartment::bootstrap;
 
     #[test]
     fn an_unfiltered_capture_on_a_live_desktop_is_complete_with_no_surface_scan() {
@@ -203,50 +172,6 @@ mod windows_only {
         assert!(baseline.completeness.apps);
         assert!(baseline.surfaces.is_empty());
         assert!(!baseline.completeness.surfaces);
-    }
-
-    #[test]
-    fn a_process_filtered_capture_returns_only_that_process_and_satisfies_cores_scope_check() {
-        bootstrap();
-        let fixture = HostedFixture::spawn().expect("a fixture host starts");
-        let fixture_pid = ProcessId::from(fixture.process_id());
-        let token = crate::system::process_identity::token_for_pid(fixture_pid)
-            .expect("a live process's token is readable")
-            .expect("a live process has a readable generation token");
-        let expected = ProcessIdentity::new(fixture.process_id(), token);
-        let filter = SignalFilter {
-            app: None,
-            process: Some(expected.clone()),
-        };
-
-        let baseline = capture_signal_baseline_impl(&filter, deadline(10_000))
-            .expect("a process-filtered capture on a live desktop must succeed");
-
-        assert!(
-            baseline
-                .windows
-                .iter()
-                .any(|window| window.pid == fixture_pid),
-            "the filtered capture must still contain the fixture's window, or the scope checks \
-             below pass on an empty baseline"
-        );
-        assert!(
-            baseline.apps.iter().any(|app| app.pid == fixture_pid),
-            "the filtered capture must still contain the fixture's app, or the scope checks \
-             below pass on an empty baseline"
-        );
-        for window in &baseline.windows {
-            assert_eq!(window.pid, fixture_pid);
-        }
-        for app in &baseline.apps {
-            assert_eq!(app.pid, fixture_pid);
-        }
-        assert!(
-            satisfies_validate_signal_scope(&baseline, &expected),
-            "a process-filtered capture must carry no window, app, or surface whose pid or \
-             instance differs from the filter's expected process, or core's \
-             validate_signal_scope aborts the wait"
-        );
     }
 
     #[test]
@@ -267,73 +192,6 @@ mod windows_only {
         assert!(
             baseline.completeness.surfaces,
             "a filter naming a process must request and complete a surface scan"
-        );
-    }
-
-    /// Forces OS foreground onto `transition`'s window, so it holds
-    /// `fixture_window::on_screen_stage` for the whole span - both captures
-    /// plus the forced focus change between them - the same DESKTOP/
-    /// FOREGROUND-state guard `window_activate_tests.rs`'s focus tests and
-    /// `wait_event_live_tests.rs`'s no-transition negative test take. The
-    /// fixture and shell lock families are held first, in the crate-wide
-    /// order: this test's own deliberate focus change is exactly the kind of
-    /// real, unguarded foreground move that can leak into a sibling's
-    /// two-captures-no-event assertion running concurrently, and a sibling's
-    /// raise or staged window can leak into this one's baseline the same way.
-    #[test]
-    fn a_fixture_transition_still_produces_window_opened_and_focus_changed_through_the_composed_capture()
-     {
-        bootstrap();
-        let _fixture_scope = crate::system::fixture::test_support::FIXTURE_APP_NAME_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let _shell = crate::system::fixture::test_support::SHELL_SURFACE_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let _stage = fixture_window::on_screen_stage();
-
-        let parking = HostedFixture::spawn().expect("the parking fixture starts");
-        if !crate::system::fixture::test_support::stage_foreground(parking.handle()) {
-            eprintln!(concat!(
-                "skip composed focus transition: this desktop declines foreground even to a ",
-                "raw SetForegroundWindow, so no transition can be staged at all",
-            ));
-            return;
-        }
-
-        let before = capture_signal_baseline_impl(&SignalFilter::default(), deadline(10_000))
-            .expect("the composed baseline capture must succeed on a live desktop");
-
-        let transition = HostedFixture::spawn().expect("the transition fixture starts");
-        let transition_pid = ProcessId::from(transition.process_id());
-
-        focus_window(&window_info_for(&transition), &lease()).expect(concat!(
-            "foreground was granted to the parking window before the baseline was taken, so ",
-            "the product's own activation must succeed here - a refusal is a regression, not ",
-            "an environment decline",
-        ));
-        std::thread::sleep(SETTLE);
-
-        let after = capture_signal_baseline_impl(&SignalFilter::default(), deadline(10_000))
-            .expect("the composed baseline capture must succeed on a live desktop");
-
-        let events = diff_signals(&before, &after);
-        assert!(
-            events
-                .iter()
-                .any(|event| matches!(event.kind, EventKind::WindowOpened)
-                    && event.pid == Some(transition_pid)),
-            "the fixture's window must be reported opened through the composed capture: \
-             {events:?}"
-        );
-        assert!(
-            events
-                .iter()
-                .any(|event| matches!(event.kind, EventKind::FocusChangedWindow)
-                    && event.pid == Some(transition_pid)),
-            "the focus change must name the window activation was asked for, not merely \
-             report that the desktop's foreground moved - an activation that focused some \
-             other window would satisfy an unpinned assertion: {events:?}"
         );
     }
 

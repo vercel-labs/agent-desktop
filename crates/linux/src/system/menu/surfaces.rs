@@ -5,6 +5,7 @@ use agent_desktop_core::{
 use super::inventory::scan_windows;
 use super::inventory_reader::Inventory;
 use super::menu_surface;
+use super::nested_dialogs::NestedDialogs;
 use super::surface_scan::NestedScan;
 use crate::system::SharedBus;
 use crate::system::process::process_facts;
@@ -39,15 +40,23 @@ fn surface(id: &str, kind: &str, title: &Option<String>) -> SurfaceInfo {
     }
 }
 
-/// The surfaces of one listed window: a `window` entry always, a `sheet`
-/// entry alongside it when the window is a modal dialog.
+/// The kinds a listed window adds beside its `window` entry: `alert` when the
+/// frame is a showing alert, the predicate `snapshot --surface alert` roots
+/// at, and `sheet` when it is a modal dialog. A modal alert is both.
+fn extra_kinds(window: &ListedWindow) -> impl Iterator<Item = &'static str> {
+    let alert = window.alert.then_some("alert");
+    alert.into_iter().chain(window.sheet.then_some("sheet"))
+}
+
+/// The surfaces of one listed window: a `window` entry always, and an `alert`
+/// and a `sheet` entry alongside it when the window is one.
 pub(crate) fn surfaces_of(windows: &[ListedWindow]) -> Vec<SurfaceInfo> {
     windows
         .iter()
         .flat_map(|window| {
             let title = (!window.info.title.is_empty()).then(|| window.info.title.clone());
             std::iter::once("window")
-                .chain(window.sheet.then_some("sheet"))
+                .chain(extra_kinds(window))
                 .map(move |kind| surface(&window.info.id, kind, &title))
         })
         .collect()
@@ -89,21 +98,35 @@ fn windows_of_process(
     scoped_windows_of(bus, &registry, |app| app.root.pid() == pid, deadline)
 }
 
+/// The dialogs a scan found, and whether it read every window to the end. An
+/// incomplete scan still reports the dialogs it saw.
+fn nested_dialogs_of(scan: NestedScan) -> NestedDialogs {
+    let NestedScan {
+        found, complete, ..
+    } = scan;
+    NestedDialogs {
+        titles: found
+            .into_iter()
+            .map(|nested| nested.title.unwrap_or_default())
+            .collect(),
+        complete,
+    }
+}
+
 /// The titles of the dialogs drawn inside the windows of one process, which
-/// no list of its top-level windows holds. A blank title is an empty string.
+/// no list of its top-level windows holds, and whether the scan read every
+/// window to the end. A scan that did not read every window to the end still
+/// reports what it found: a dialog it saw is present, and only a scan that
+/// found nothing leaves a dialog unproven.
 pub(crate) fn nested_dialog_titles(
     bus: &SharedBus,
     pid: u32,
     deadline: Deadline,
-) -> Result<Vec<String>, AdapterError> {
+) -> Result<NestedDialogs, AdapterError> {
     let windows = windows_of_process(bus, pid, deadline)?;
     let mut inventory = Inventory::structural(bus, deadline);
     let scan = scan_windows(&windows, |window| inventory.read(window));
-    Ok(scan
-        .found
-        .into_iter()
-        .map(|nested| nested.title.unwrap_or_default())
-        .collect())
+    Ok(nested_dialogs_of(scan))
 }
 
 /// Lists the surfaces the named process presents. The process identity is

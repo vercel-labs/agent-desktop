@@ -4,7 +4,7 @@ use serde_json::Value;
 use crate::response::recovery_hint::RecoveryHint;
 use crate::{AppError, DeliverySemantics, ErrorCode, RetryDisposition};
 
-pub const ENVELOPE_VERSION: &str = "2.6";
+pub const ENVELOPE_VERSION: &str = "2.7";
 
 /// Structured output envelope used by the CLI and future programmatic transports.
 #[derive(Debug, Serialize)]
@@ -66,6 +66,9 @@ fn recovery_for_code(
     let process_exited = details
         .and_then(|details| details.get("process_state"))
         .is_some_and(|state| state == "exited");
+    let lease_not_acquired = details
+        .and_then(|details| details.get("lease"))
+        .is_some_and(|lease| lease == "not_acquired");
     match code {
         ErrorCode::StaleRef if process_exited => Some(RecoveryHint {
             strategy: "inspect_state_then_retry_original".into(),
@@ -85,6 +88,12 @@ fn recovery_for_code(
             requires_fresh_snapshot: false,
             retry_after_ms: None,
         }),
+        ErrorCode::Timeout if lease_not_acquired => Some(RecoveryHint {
+            strategy: "retry_original".into(),
+            retryable: true,
+            requires_fresh_snapshot: false,
+            retry_after_ms: Some(250),
+        }),
         ErrorCode::AppUnresponsive | ErrorCode::Timeout => Some(RecoveryHint {
             strategy: "inspect_state_then_retry_original".into(),
             retryable: true,
@@ -101,7 +110,7 @@ impl ErrorPayload {
         if let Some(suggestion) = err.suggestion() {
             payload = payload.with_suggestion(suggestion);
         }
-        if let AppError::Adapter(adapter_error) = err {
+        if let Some(adapter_error) = err.adapter_error() {
             payload.platform_detail = adapter_error.platform_detail.clone();
             payload.details = adapter_error.details.clone();
             payload.disposition = adapter_error.disposition;

@@ -1,5 +1,5 @@
 use super::*;
-use crate::tree::live::test_support::words;
+use crate::tree::test_support::helpers::words;
 
 #[test]
 fn frames_without_a_component_are_not_top_levels() {
@@ -133,7 +133,7 @@ fn a_proven_native_menu_does_not_hide_a_managed_window() {
     };
     let menu = X11Client {
         id: 21,
-        title: String::new(),
+        title: Default::default(),
         bounds: Some(Extents {
             width: 200,
             height: 300,
@@ -190,6 +190,7 @@ fn listed(
 ) -> crate::system::registry::listed_window::ListedWindow {
     use agent_desktop_core::{WindowInfo, WindowState};
     crate::system::registry::listed_window::ListedWindow {
+        alert: false,
         app: 0,
         info: WindowInfo {
             id: format!("{:?}", frame.extents),
@@ -263,7 +264,7 @@ fn embedded_accessibility_frames_preserve_the_unique_native_window_and_refuse_un
     let client = X11Client {
         id: 20,
         pid: Some(7),
-        title: main.title.clone(),
+        title: main.title.clone().into(),
         bounds: Some(bounds),
         extents: None,
         hidden: false,

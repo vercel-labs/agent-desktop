@@ -1,8 +1,8 @@
 #[cfg(target_os = "macos")]
 mod imp {
-    use agent_desktop_core::{AdapterError, Deadline};
+    use agent_desktop_core::{AdapterError, Deadline, DeliveryObservation, DeliveryOutcome};
 
-    use crate::actions::{ax_helpers, chain::chain_delivery::DeliveryOutcome, chain::chain_verify};
+    use crate::actions::{ax_helpers, chain::chain_verify};
     use crate::tree::AXElement;
 
     pub(crate) fn set_dynamic_verified(
@@ -30,7 +30,7 @@ mod imp {
                 observed.as_deref(),
             );
             return if verified {
-                Ok(DeliveryOutcome::DeliveredVerified)
+                Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified))
             } else {
                 Err(error)
             };
@@ -72,9 +72,9 @@ mod imp {
         for _ in 0..MAX_INCREMENT_STEPS {
             if increment_target_reached(&current_text, requested) {
                 return Ok(if delivered {
-                    DeliveryOutcome::DeliveredVerified
+                    DeliveryOutcome::Delivered(DeliveryObservation::Verified)
                 } else {
-                    DeliveryOutcome::SatisfiedNoDelivery
+                    DeliveryOutcome::Satisfied
                 });
             }
             if deadline.is_expired() {
@@ -114,7 +114,7 @@ mod imp {
             }
         }
         if increment_target_reached(&current_text, requested) {
-            return Ok(DeliveryOutcome::DeliveredVerified);
+            return Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified));
         }
         if (current - start).abs() >= f64::EPSILON {
             return Err(chain_verify::increment_step_limit_error(
@@ -137,7 +137,7 @@ mod imp {
                 if error.disposition == agent_desktop_core::DeliverySemantics::uncertain()
                     && focus_write_had_effect(element, attribute, value, deadline) =>
             {
-                return Ok(DeliveryOutcome::DeliveredVerified);
+                return Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified));
             }
             Err(error) => return Err(error),
         };
@@ -170,10 +170,8 @@ mod imp {
             return false;
         }
         crate::actions::activation_effect::focus_state(element, deadline)
-            .and_then(|state| state.focused_element())
-            .is_some_and(|focused| {
-                crate::actions::activation_effect::focus_reached(&focused, element, deadline)
-            })
+            .and_then(|witness| witness.focus.inside_target)
+            == Some(true)
     }
 
     pub(crate) fn increment_action(current: &str, target: &str) -> Option<&'static str> {
@@ -238,6 +236,55 @@ mod imp {
 
     fn prepare(element: &AXElement, deadline: Deadline) -> Result<(), AdapterError> {
         crate::tree::properties::attributes::set_messaging_timeout(element, deadline)
+    }
+}
+
+/// A text field that names a file (it publishes `AXFilename`, as a Finder name
+/// cell does) only displays the name. An `AXValue` or `AXSelectedText` write
+/// changes the display and every accessibility read of it, `AXFilename`
+/// included, while the file keeps its name (M-W0-10, M-W0-12; `AXConfirm`
+/// commits nothing). No read can see a commit, so the write is refused before
+/// it happens instead of being reported as delivered.
+pub(crate) fn refuse_file_name_field(
+    element: &crate::tree::AXElement,
+    deadline: agent_desktop_core::Deadline,
+) -> Result<(), agent_desktop_core::AdapterError> {
+    file_name_refusal(
+        crate::tree::properties::attributes::copy_string_attr_result(
+            element,
+            "AXFilename",
+            deadline,
+        ),
+    )
+    .map_or(Ok(()), Err)
+}
+
+/// An unreadable `AXFilename` cannot rule a file name out, so it refuses too.
+fn file_name_refusal(
+    filename: Result<Option<String>, i32>,
+) -> Option<agent_desktop_core::AdapterError> {
+    use agent_desktop_core::{AdapterError, DeliverySemantics, ErrorCode};
+    match filename {
+        Ok(None) => None,
+        Ok(Some(_)) => Some(
+            AdapterError::new(
+                ErrorCode::ActionNotSupported,
+                "The field shows a file's name; writing it changes the display, not the file",
+            )
+            .with_disposition(DeliverySemantics::not_delivered())
+            .with_suggestion(
+                "Rename the item with the application's own rename command, or through the file system.",
+            ),
+        ),
+        Err(ax_error) => Some(
+            AdapterError::new(
+                ErrorCode::ActionFailed,
+                "Could not read whether the field shows a file's name",
+            )
+            .with_details(serde_json::json!({ "ax_error": ax_error }))
+            .with_disposition(DeliverySemantics::not_delivered())
+            .with_suggestion("Retry; nothing was written."),
+        ),
     }
 }
 

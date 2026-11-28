@@ -1,4 +1,3 @@
-use crate::commands::app_error_to_adapter;
 use crate::convert::string::string_to_c;
 use crate::error::{AdResult, set_last_error};
 use agent_desktop_core::response::output::{ErrorPayload, Response};
@@ -49,7 +48,7 @@ pub(crate) unsafe fn write_command_envelope(
         Ok(data) => (Response::ok(command, data), false),
         Err(app_err) => {
             let payload = ErrorPayload::from_app_error(&app_err);
-            let ae = app_error_to_adapter(app_err);
+            let ae = agent_desktop_core::AppError::into_adapter_error(app_err);
             set_last_error(&ae);
             (Response::err(command, payload), true)
         }

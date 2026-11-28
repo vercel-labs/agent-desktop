@@ -1,5 +1,4 @@
 use crate::AdAdapter;
-use crate::commands::app_error_to_adapter;
 use crate::commands::envelope_out::write_command_envelope;
 use crate::convert::string::decode_optional_filter;
 use crate::convert::surface::snapshot_surface_from_c;
@@ -15,7 +14,7 @@ use std::ptr;
 /// interactive elements, persists the refmap to disk, and writes the JSON envelope into `*out`.
 ///
 /// The JSON shape matches `agent-desktop snapshot`:
-/// `{"version":"2.6","ok":true,"command":"snapshot","data":{"app":"...","window":{...},"ref_count":N,"snapshot_id":"...","complete":true,"tree":{...}}}`.
+/// `{"version":"2.7","ok":true,"command":"snapshot","data":{"app":"...","window":{...},"ref_count":N,"snapshot_id":"...","complete":true,"tree":{...}}}`.
 /// On macOS, `window` is omitted for application-owned menu and menubar surfaces
 /// and when a background app with no window is read through its process.
 ///
@@ -90,7 +89,7 @@ pub unsafe extern "C" fn ad_snapshot(
         let context = match adapter_ref.command_context() {
             Ok(ctx) => ctx,
             Err(e) => {
-                let ae = app_error_to_adapter(e);
+                let ae = agent_desktop_core::AppError::into_adapter_error(e);
                 set_last_error(&ae);
                 return crate::error::last_error_code();
             }

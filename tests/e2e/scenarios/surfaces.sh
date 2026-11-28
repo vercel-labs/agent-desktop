@@ -1,5 +1,5 @@
 note "Sheet surface discovery and interaction"
-"$bin" focus-window --app "$app" >/dev/null 2>&1
+"$bin" focus-window --headed --app "$app" >/dev/null 2>&1
 require_value sheet_before sheet-status
 require_target open_sheet button open-sheet
 act_target "$open_sheet" scroll-to >/dev/null 2>&1
@@ -19,7 +19,7 @@ assert "a ref found inside the sheet performs its action" \
     "before=$sheet_before after=$sheet_after"
 
 note "Context menu discovery and action"
-"$bin" focus-window --app "$app" >/dev/null 2>&1
+"$bin" focus-window --headed --app "$app" >/dev/null 2>&1
 require_value context_before right-status
 require_target context_target button context-target
 act_target "$context_target" scroll-to >/dev/null 2>&1
@@ -45,7 +45,7 @@ assert "context-menu item action is independently observed" \
     "before=$context_before after=$context_after"
 
 note "Menu bar enumeration"
-"$bin" focus-window --app "$app" >/dev/null 2>&1
+"$bin" focus-window --headed --app "$app" >/dev/null 2>&1
 sleep 0.2
 menu_snapshot="$("$bin" snapshot --app "$app" --surface menubar --max-depth 5 2>/dev/null)"
 menu_items="$(printf '%s' "$menu_snapshot" | grep -o '"role":"menuitem"' | wc -l | tr -d ' ')"
@@ -61,7 +61,7 @@ if [ -n "$drag_anchor" ]; then
     act_target "$drag_anchor" scroll-to >/dev/null 2>&1
     sleep 0.3
 fi
-drag_focus="$("$bin" focus-window --app "$app" 2>/dev/null)"
+drag_focus="$("$bin" focus-window --headed --app "$app" 2>/dev/null)"
 if [ "$(json_field "$drag_focus" ok)" != "True" ]; then
     abort_suite "drag fixture focus failed: $(json_field "$drag_focus" error.code)"
 fi

@@ -41,6 +41,7 @@ fn headed_typing_does_not_treat_a_pre_focus_selection_as_delivery_evidence() {
 
 #[test]
 fn focused_and_headless_typing_still_reject_contradictory_insertions() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     for (headed, focused) in [(true, true), (false, false)] {
         let error = type_after_focus(headed, focused).unwrap_err();
         assert_eq!(error.code, ErrorCode::ActionFailed);

@@ -19,6 +19,7 @@ pub(crate) mod resolve;
 pub(crate) mod roles;
 pub(crate) mod shell_surface;
 pub(crate) mod state_reader;
+pub(crate) mod surface_ids;
 pub(crate) mod surface_inventory;
 pub(crate) mod surface_read;
 pub(crate) mod surfaces;

@@ -171,7 +171,7 @@ fn save_ref_in_store(store: RefStore, states: Vec<String>) -> String {
             value: None,
             description: None,
             native_id: None,
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
         },
         geometry: crate::RefGeometry {
             bounds_space: None,
@@ -194,6 +194,7 @@ fn save_ref_in_store(store: RefStore, states: Vec<String>) -> String {
             root_ref: None,
             path_is_absolute: false,
             path: smallvec::SmallVec::new(),
+            chain: Default::default(),
         },
     });
     store.save_new_snapshot(&refmap).unwrap()

@@ -14,7 +14,8 @@ pub(crate) trait ItemReader {
 
     fn inspect(&mut self, node: &Self::Node) -> Result<Inspected, AdapterError>;
 
-    fn children(&mut self, node: &Self::Node) -> Result<Vec<Self::Node>, AdapterError>;
+    /// The children of `node` and whether they are all of them.
+    fn children(&mut self, node: &Self::Node) -> Result<(Vec<Self::Node>, bool), AdapterError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,7 +97,10 @@ pub(crate) fn search<R: ItemReader>(
             continue;
         }
         let children = match reader.children(&pending.node) {
-            Ok(children) => children,
+            Ok((children, whole)) => {
+                incomplete |= !whole;
+                children
+            }
             Err(error) if pending.depth == 0 => return Err(error),
             Err(_) => {
                 incomplete = true;

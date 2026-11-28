@@ -11,7 +11,6 @@
 //! The result is verified against the field as the last keystroke left it, and
 //! a `--wait-for` condition is waited on once, after the last keystroke.
 
-use std::cell::Cell;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -20,7 +19,7 @@ use crate::{
     AdapterError, AppError, DeliverySemantics,
     actions::action::Action,
     adapter::PlatformAdapter,
-    commands::helpers::{RefArgs, execute_ref_action_dispatching},
+    commands::helpers::{RefArgs, execute_ref_action_landing},
     commands::type_text::{TypeArgs, default_timeout_ms},
     context::CommandContext,
 };
@@ -54,7 +53,7 @@ pub(crate) fn execute(
             Some(burst) => deliver(adapter, burst, request, budget(unit)).map(|_| {
                 crate::ref_action::presentation::move_caret(adapter, context, &burst.handle);
             }),
-            None => execute_landing(
+            None => execute_ref_action_landing(
                 RefArgs {
                     ref_id: args.ref_id.clone(),
                     timeout_ms: waits.then(|| budget(unit)),
@@ -118,17 +117,17 @@ impl Clock {
     /// out in. The first keystroke goes at once.
     fn wait(&mut self) -> Instant {
         let Some(due) = self.due else {
-            return Instant::now();
+            return crate::wait::deadline::now();
         };
-        if let Some(wait) = due.checked_duration_since(Instant::now()) {
-            std::thread::sleep(wait);
+        if let Some(wait) = due.checked_duration_since(crate::wait::deadline::now()) {
+            crate::wait::deadline::sleep(wait);
         }
         due
     }
 
     /// Schedules the next keystroke once the one sent in `slot` has landed.
     fn delivered(&mut self, slot: Instant) {
-        self.due = Some(next_due(slot, Instant::now(), self.interval));
+        self.due = Some(next_due(slot, crate::wait::deadline::now(), self.interval));
     }
 }
 
@@ -145,34 +144,6 @@ struct Burst {
     entry: crate::RefEntry,
     handle: crate::NativeHandle,
     process: Option<crate::ProcessIdentity>,
-}
-
-/// Runs the first unit as a full ref action and returns the element it landed
-/// on beside its result, so the burst keeps that element instead of resolving
-/// it again.
-fn execute_landing(
-    args: RefArgs,
-    adapter: &dyn PlatformAdapter,
-    request: crate::ActionRequest,
-    context: &CommandContext,
-) -> Result<(Value, crate::NativeHandle), AppError> {
-    let landed = Cell::new(None);
-    let value = execute_ref_action_dispatching(
-        args,
-        adapter,
-        request,
-        context,
-        |target, request, lease| {
-            let (result, handle) =
-                crate::ref_action::dispatch_resolved_landing(target, request, lease)?;
-            landed.set(Some(handle));
-            Ok(result)
-        },
-    )?;
-    let handle = landed
-        .take()
-        .ok_or_else(|| AdapterError::internal("the ref action landed no element"))?;
-    Ok((value, handle))
 }
 
 fn burst_around(

@@ -20,24 +20,35 @@ use crate::cli_args::{
 };
 use crate::dispatch::parse::build_launch_options;
 
-pub(super) fn launch(args: LaunchArgs, adapter: &dyn PlatformAdapter) -> Result<Value, AppError> {
+pub(super) fn launch(
+    args: LaunchArgs,
+    adapter: &dyn PlatformAdapter,
+    context: &agent_desktop_core::context::CommandContext,
+) -> Result<Value, AppError> {
     launch_command::execute(
         launch_command::LaunchArgs {
             app: args.app.clone(),
             options: build_launch_options(&args)?,
         },
         adapter,
+        context.physical_input_policy(),
     )
 }
 
 pub(super) fn close_app(
     args: CloseAppArgs,
     adapter: &dyn PlatformAdapter,
+    context: &agent_desktop_core::context::CommandContext,
 ) -> Result<Value, AppError> {
     close_app_command::execute(
         close_app_command::CloseAppArgs {
             app: args.app,
             force: args.force,
+            policy: if context.is_headed() {
+                agent_desktop_core::InteractionPolicy::headed()
+            } else {
+                agent_desktop_core::InteractionPolicy::headless()
+            },
         },
         adapter,
     )
@@ -96,6 +107,7 @@ pub(super) fn open_system_surface(
 pub(super) fn focus_window(
     args: FocusWindowArgs,
     adapter: &dyn PlatformAdapter,
+    context: &agent_desktop_core::context::CommandContext,
 ) -> Result<Value, AppError> {
     focus_window_command::execute(
         focus_window_command::FocusWindowArgs {
@@ -104,12 +116,14 @@ pub(super) fn focus_window(
             title: args.title,
         },
         adapter,
+        context.physical_input_policy(),
     )
 }
 
 pub(super) fn resize_window(
     args: ResizeWindowCliArgs,
     adapter: &dyn PlatformAdapter,
+    context: &agent_desktop_core::context::CommandContext,
 ) -> Result<Value, AppError> {
     resize_window_command::execute(
         resize_window_command::ResizeWindowArgs {
@@ -119,12 +133,14 @@ pub(super) fn resize_window(
             height: args.height,
         },
         adapter,
+        context.physical_input_policy(),
     )
 }
 
 pub(super) fn move_window(
     args: MoveWindowCliArgs,
     adapter: &dyn PlatformAdapter,
+    context: &agent_desktop_core::context::CommandContext,
 ) -> Result<Value, AppError> {
     move_window_command::execute(
         move_window_command::MoveWindowArgs {
@@ -134,35 +150,51 @@ pub(super) fn move_window(
             y: args.y,
         },
         adapter,
+        context.physical_input_policy(),
     )
 }
 
-pub(super) fn minimize(args: AppRefArgs, adapter: &dyn PlatformAdapter) -> Result<Value, AppError> {
+pub(super) fn minimize(
+    args: AppRefArgs,
+    adapter: &dyn PlatformAdapter,
+    context: &agent_desktop_core::context::CommandContext,
+) -> Result<Value, AppError> {
     minimize_command::execute(
         helpers::AppArgs {
             app: args.scope.app,
             window_id: args.scope.window_id,
         },
         adapter,
+        context.physical_input_policy(),
     )
 }
 
-pub(super) fn maximize(args: AppRefArgs, adapter: &dyn PlatformAdapter) -> Result<Value, AppError> {
+pub(super) fn maximize(
+    args: AppRefArgs,
+    adapter: &dyn PlatformAdapter,
+    context: &agent_desktop_core::context::CommandContext,
+) -> Result<Value, AppError> {
     maximize_command::execute(
         helpers::AppArgs {
             app: args.scope.app,
             window_id: args.scope.window_id,
         },
         adapter,
+        context.physical_input_policy(),
     )
 }
 
-pub(super) fn restore(args: AppRefArgs, adapter: &dyn PlatformAdapter) -> Result<Value, AppError> {
+pub(super) fn restore(
+    args: AppRefArgs,
+    adapter: &dyn PlatformAdapter,
+    context: &agent_desktop_core::context::CommandContext,
+) -> Result<Value, AppError> {
     restore_command::execute(
         helpers::AppArgs {
             app: args.scope.app,
             window_id: args.scope.window_id,
         },
         adapter,
+        context.physical_input_policy(),
     )
 }

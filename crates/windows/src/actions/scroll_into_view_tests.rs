@@ -1,27 +1,16 @@
 use super::{
-    VisibilitySample, finish_observation, scroll_effect_observed, scroll_into_view_judged_for,
-    unsupported_error, visibility_verified,
+    VisibilitySample, finish_observation, scroll_effect_observed, scroll_into_view_activates,
+    scroll_into_view_judged_for, unsupported_error, visibility_verified,
 };
-use crate::adapter::WindowsAdapter;
-use crate::system::fixture::test_time::deadline;
 use crate::system::runtime::hresult::{
     E_ACCESSDENIED, RPC_E_DISCONNECTED, UIA_E_ELEMENTNOTAVAILABLE, com_hresult_detail,
 };
-use crate::tree::automation::{UiaFailure, automation_client};
-use crate::tree::element::UIAElement;
-use crate::tree::fixture::fixture_window;
-use crate::tree::fixture::{LocalFixture, ensure_test_apartment};
-use crate::tree::properties::property_ids::TreeProperty;
-use crate::tree::properties::property_outcome::{PropertyOutcome, PropertyValue};
-use crate::tree::properties::{read_one, rect_has_area};
-use agent_desktop_core::{
-    ActionOps, AdapterError, DeliveryDisposition, DeliverySemantics, ErrorCode, InteractionLease,
-    Rect,
-};
+use crate::system::test_support::test_time::deadline;
+use crate::tree::automation::UiaFailure;
+use crate::tree::properties::rect_has_area;
+use agent_desktop_core::{AdapterError, DeliveryDisposition, DeliverySemantics, ErrorCode, Rect};
 use std::cell::Cell;
-use std::ffi::c_void;
 use std::time::Duration;
-use uiautomation::types::Handle;
 
 fn rect(x: f64, y: f64, width: f64, height: f64) -> Rect {
     Rect {
@@ -50,6 +39,19 @@ fn hidden_sample(bounds: Rect) -> VisibilitySample {
 
 fn invoke_hr(hresult: i32) -> Option<UiaFailure> {
     Some(UiaFailure::Hresult(hresult))
+}
+
+#[test]
+fn only_a_win32_tree_item_is_a_foreground_scroll_into_view() {
+    use uiautomation::types::ControlType;
+
+    assert!(scroll_into_view_activates("Win32", ControlType::TreeItem));
+    assert!(!scroll_into_view_activates("Win32", ControlType::ListItem));
+    assert!(!scroll_into_view_activates("WPF", ControlType::TreeItem));
+    assert!(!scroll_into_view_activates(
+        "DirectUI",
+        ControlType::ListItem
+    ));
 }
 
 #[test]
@@ -249,52 +251,6 @@ fn transport_failed_invoke_with_failed_observation_is_delivered_unverified() {
     assert_ne!(error.disposition, DeliverySemantics::uncertain());
 }
 
-/// Drives the shipped gate against a real provider instead of a fake.
-///
-/// Every other pin here injects an observation closure or calls the error
-/// constructor directly, so the production chain — the gated
-/// `ScrollItemAvailable` read, the invoke, and the observation loop behind it —
-/// was never executed by the suite at all. A Win32 `BUTTON` exposes no
-/// `ScrollItemPattern`, which is the arm the census says is the common case, so
-/// it proves the gate reads the property and refuses before invoking, and that
-/// the refusal is the honest not-delivered `ACTION_FAILED` rather than the
-/// trait default's `PLATFORM_NOT_SUPPORTED`.
-#[test]
-fn live_element_without_scroll_item_is_unsupported_through_the_adapter() {
-    ensure_test_apartment();
-    let fixture = LocalFixture::create().expect("a fixture window");
-    let button = fixture_window::find_button(fixture.handle());
-    assert!(!button.is_null(), "the fixture exposes its BUTTON control");
-    let element = fixture_element(button).expect("a UI Automation element for the button");
-    assert_eq!(
-        read_one(&element, TreeProperty::ScrollItemAvailable),
-        PropertyOutcome::Known(PropertyValue::Flag(false)),
-        "the gate is a gated property read that genuinely answered false"
-    );
-    let handle = element.into_native_handle();
-    let lease = InteractionLease::guarded(deadline(2_000), ()).expect("an interaction lease");
-    let error = WindowsAdapter::new()
-        .scroll_into_view(&handle, &lease)
-        .expect_err("a BUTTON carries no ScrollItemPattern");
-    assert_eq!(error.code, ErrorCode::ActionFailed);
-    assert_ne!(error.code, ErrorCode::PlatformNotSupported);
-    assert_eq!(error.disposition, DeliverySemantics::not_delivered());
-    assert_eq!(
-        error.disposition.delivery(),
-        DeliveryDisposition::NotDelivered
-    );
-    let details = error.details.expect("the unsupported arm carries details");
-    assert_eq!(details["kind"], "scroll_into_view_unsupported");
-}
-
-fn fixture_element(control: *mut c_void) -> Option<UIAElement> {
-    let client = automation_client().ok()?;
-    let element = client
-        .element_from_handle(Handle::from(control as isize))
-        .ok()?;
-    Some(UIAElement::from(element))
-}
-
 #[test]
 fn zero_verify_window_unchanged_reaches_not_delivered() {
     let bounds = rect(8.0, 8.0, 25.0, 15.0);
@@ -306,5 +262,20 @@ fn zero_verify_window_unchanged_reaches_not_delivered() {
         || Ok(hidden_sample(bounds)),
     )
     .expect_err("unchanged after zero window");
+    assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+}
+
+/// A Win32 tree item outside its view reports a rectangle without area at the
+/// screen origin (A31-10). Read as a position it sends every scroll upward,
+/// away from an item that is below the view.
+#[test]
+fn a_rectangle_without_area_names_no_scroll_direction() {
+    let sample = VisibilitySample {
+        bounds: Some(rect(0.0, 0.0, 0.0, 0.0)),
+        offscreen: Some(true),
+        viewport: Some(rect(40.0, 120.0, 640.0, 400.0)),
+    };
+    let error = crate::actions::scroll_ladder::direction_after_visibility_miss(&sample)
+        .expect_err("a rectangle without area is not a position");
     assert_eq!(error.disposition, DeliverySemantics::not_delivered());
 }

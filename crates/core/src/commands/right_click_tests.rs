@@ -120,7 +120,7 @@ fn save_refmap(source_app: Option<String>) -> String {
             value: None,
             description: None,
             native_id: None,
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
         },
         geometry: crate::RefGeometry {
             bounds_space: None,
@@ -143,6 +143,7 @@ fn save_refmap(source_app: Option<String>) -> String {
             root_ref: None,
             path_is_absolute: false,
             path: smallvec::SmallVec::new(),
+            chain: Default::default(),
         },
     });
     RefStore::new().unwrap().save_new_snapshot(&refmap).unwrap()

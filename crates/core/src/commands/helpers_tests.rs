@@ -80,6 +80,7 @@ impl SystemOps for TargetedWindowAdapter {
         &self,
         win: &WindowInfo,
         op: WindowOp,
+        _: crate::InteractionPolicy,
         _lease: &crate::InteractionLease,
     ) -> Result<crate::OperationReport, AdapterError> {
         assert_eq!(win.id, "w-real");
@@ -105,14 +106,19 @@ fn targeted_window(id: &str, visible: bool) -> WindowInfo {
 }
 
 impl ObservationOps for RestoreWithoutWindowAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        Ok(vec![AppInfo {
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(vec![AppInfo {
+            aliases: Vec::new(),
             name: "TextEdit".into(),
             pid: crate::ProcessId::new(42),
             bundle_id: None,
             process_instance: Some("test-instance".into()),
             presentation: None,
-        }])
+        }]))
     }
 
     fn list_windows(
@@ -133,6 +139,7 @@ impl SystemOps for RestoreWithoutWindowAdapter {
         &self,
         win: &WindowInfo,
         op: WindowOp,
+        _: crate::InteractionPolicy,
         _lease: &crate::InteractionLease,
     ) -> Result<crate::OperationReport, AdapterError> {
         assert_eq!(win.pid, 42);
@@ -225,6 +232,7 @@ fn restore_fails_closed_when_no_window_is_currently_listed() {
         },
         &adapter,
         WindowOp::Restore,
+        crate::InteractionPolicy::headless(),
     )
     .unwrap_err();
 
@@ -249,6 +257,7 @@ fn window_id_targets_one_window_in_an_ambiguous_app_inventory() {
         },
         &adapter,
         WindowOp::Restore,
+        crate::InteractionPolicy::headless(),
     )
     .unwrap();
 

@@ -1,10 +1,34 @@
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{AdapterError, AppError, ErrorCode, PlatformAdapter, ProcessIdentity, WindowInfo};
 
+/// What a headed action focuses before it is delivered, and whether it moves
+/// the pointer. It never decides whether the action may run: the interaction
+/// policy decides that from the effects the platform declares.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HeadedFocus {
+    Application,
+    ApplicationAndCursor,
+    Window,
+    WindowAndCursor,
+}
+
+impl HeadedFocus {
+    pub fn uses_cursor(self) -> bool {
+        matches!(self, Self::ApplicationAndCursor | Self::WindowAndCursor)
+    }
+
+    pub fn focuses_application(self) -> bool {
+        matches!(self, Self::Application | Self::ApplicationAndCursor)
+    }
+}
+
 /// Focuses the window a ref came from and returns whether it did. A ref
-/// captured through a process owner has no window to raise, so it returns
-/// `false`; any other ref without a window id is refused.
+/// captured through a process owner, or from a surface the platform presents
+/// beside its windows rather than as one of them, has no census window to
+/// raise, so it returns `false`; any other ref without a window id is refused.
 pub(crate) fn focus_entry_window(
     entry: &crate::RefEntry,
     adapter: &dyn PlatformAdapter,
@@ -18,7 +42,9 @@ pub(crate) fn focus_entry_window(
         )
         .with_details(json!({ "physical_delivery_started": false }))
     })?;
-    if entry.source.is_process_owned() {
+    if entry.source.is_process_owned()
+        || adapter.is_application_surface(entry.source.source_surface)
+    {
         return Ok(false);
     }
     let expected = adapter.resolve_ref_focus_window(entry, lease.deadline())?;

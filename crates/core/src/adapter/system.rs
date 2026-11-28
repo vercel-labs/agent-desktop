@@ -1,11 +1,11 @@
 use crate::{
     AdapterError, AdapterSession, AppInfo, CursorOverlayControl, Deadline, DeliverySemantics,
-    DismissAllNotificationsRequest, DismissNotificationRequest, ErrorCode, ImageBuffer,
-    InteractionLease, InteractionPolicy, KeyCombo, NotificationActionRequest, NotificationFilter,
-    NotificationInfo, OperationReport, PermissionReport, PermissionState, ProcessIdentity,
-    ProviderScriptOutput, ProviderScriptRequest, SessionAffinity, SignalBaseline, SignalFilter,
-    WindowInfo, WindowOp, actions::action_result::ActionResult, system::display_info::DisplayInfo,
-    system::screenshot_target::ScreenshotTarget,
+    DismissAllNotificationsRequest, DismissNotificationRequest, ErrorCode, FrontWindow,
+    ImageBuffer, InteractionLease, InteractionPolicy, KeyCombo, NotificationActionRequest,
+    NotificationFilter, NotificationInfo, OperationReport, PermissionReport, PermissionState,
+    ProcessIdentity, ProviderScriptOutput, ProviderScriptRequest, SessionAffinity, SignalBaseline,
+    SignalFilter, WindowInfo, WindowOp, actions::action_result::ActionResult,
+    system::display_info::DisplayInfo, system::screenshot_target::ScreenshotTarget,
 };
 
 pub trait SystemOps: Send + Sync {
@@ -66,14 +66,14 @@ pub trait SystemOps: Send + Sync {
         Err(AdapterError::not_supported("start_permission_guide"))
     }
 
-    /// Performs the platform-native focus/raise operation for the exact window.
-    /// Core decides when focus is required; implementations must return only
-    /// after that window is confirmed focused, or return an error.
+    /// Performs the platform-native focus/raise for the exact window and
+    /// reports how far it got: `not_delivered` when nothing was sent,
+    /// `delivered_unverified` when core must confirm, or verified by the adapter.
     fn focus_window(
         &self,
         _win: &WindowInfo,
         _lease: &InteractionLease,
-    ) -> Result<(), AdapterError> {
+    ) -> Result<DeliverySemantics, AdapterError> {
         Err(AdapterError::not_supported("focus_window"))
     }
 
@@ -97,7 +97,7 @@ pub trait SystemOps: Send + Sync {
         &self,
         _id: &str,
         _options: &crate::system::launch_options::LaunchOptions,
-        _lease: &InteractionLease,
+        _lease: InteractionLease,
     ) -> Result<crate::system::launch_result::LaunchResult, AdapterError> {
         Err(AdapterError::not_supported("launch_app"))
     }
@@ -156,20 +156,23 @@ pub trait SystemOps: Send + Sync {
 
     /// Raises an OS-chrome surface - the Start menu, the Action Center, the
     /// taskbar - and returns the identity of the window the surface actually
-    /// presents, in the same shape the window observation stack consumes. It
-    /// takes the lease because it mutates OS chrome and takes the foreground;
-    /// the policy travels separately because the lease carries no
-    /// focus-steal refusal. Implementations that raise anything must refuse with
-    /// `POLICY_DENIED` first when `policy.allow_focus_steal` is false, must
-    /// return an already-present surface without raising it again, and
-    /// must answer a kind their platform does not expose with a refusal that
-    /// names what a caller should ask for instead - never with this default.
+    /// presents, in the same shape the window observation stack consumes, with
+    /// whether the adapter raised it. It takes the lease because it mutates OS
+    /// chrome and takes the foreground; the policy travels separately because
+    /// the lease carries no focus-steal refusal. Implementations that raise
+    /// anything must refuse with `POLICY_DENIED` first when
+    /// `policy.allow_focus_steal` is false, must return an already-present
+    /// surface as `SurfaceOpening::Present` without raising it again, must
+    /// return `SurfaceOpening::Raised` only after observing the raised surface
+    /// presented, and must answer a kind their platform does not expose with a
+    /// refusal that names what a caller should ask for instead - never with
+    /// this default.
     fn open_system_surface(
         &self,
         _surface: crate::adapter::SnapshotSurface,
         _policy: InteractionPolicy,
         _lease: &InteractionLease,
-    ) -> Result<WindowInfo, AdapterError> {
+    ) -> Result<crate::SurfaceOpening, AdapterError> {
         Err(AdapterError::not_supported("open_system_surface"))
     }
 
@@ -208,6 +211,7 @@ pub trait SystemOps: Send + Sync {
         _app: &AppInfo,
         _force: bool,
         _lease: &InteractionLease,
+        _policy: crate::InteractionPolicy,
     ) -> Result<OperationReport, AdapterError> {
         Err(AdapterError::not_supported("close_app"))
     }
@@ -265,9 +269,9 @@ pub trait SystemOps: Send + Sync {
         Err(AdapterError::not_supported("press_key_for_app"))
     }
 
-    /// Checks the exact focused window before process-scoped key delivery.
-    /// Adapters can override this to retain the window identity through their
-    /// native delivery gates.
+    /// Checks the exact focused window before process-scoped key delivery
+    /// (`press_key_in_focused_window`). Adapters can override this to retain
+    /// the window identity through their native delivery gates.
     fn press_key_for_window(
         &self,
         window: &WindowInfo,
@@ -275,44 +279,22 @@ pub trait SystemOps: Send + Sync {
         policy: InteractionPolicy,
         lease: &InteractionLease,
     ) -> Result<ActionResult, AdapterError> {
-        let refusal = || {
-            AdapterError::stale_ref_because(
-                "The named window's exact focus could not be confirmed, so no key was sent",
-            )
-            .with_suggestion(if policy.is_headed() {
-                "Ensure the named window remains active before retrying; a sibling window or another application's menu can hold the keyboard"
-            } else {
-                "Retry with --headed so the named window is brought forward first, or name the active window"
-            })
-            .with_details(serde_json::json!({
-                "check": "window_active",
-                "cause": "exact_window_focus_unconfirmed",
-                "physical_delivery_started": false,
-                "window_id": window.id,
-            }))
-            .with_disposition(crate::DeliverySemantics::not_delivered())
-        };
-        let instance = window
-            .process_instance
-            .as_deref()
-            .filter(|instance| !instance.is_empty())
-            .ok_or_else(refusal)?;
-        let focused = self
-            .focused_window(lease.deadline())
-            .map_err(AdapterError::unsent)?;
-        if !focused.is_some_and(|focused| {
-            focused.id == window.id
-                && focused.pid == window.pid
-                && focused.process_instance.as_deref() == Some(instance)
-        }) {
-            return Err(refusal());
-        }
-        self.press_key_for_app(
-            ProcessIdentity::new(window.pid, instance),
-            combo,
-            policy,
-            lease,
-        )
+        super::focused_window_key::press_key_in_focused_window(self, window, combo, policy, lease)
+    }
+
+    /// Closes the open transient surface (a menu, a drop-down, a popup) of
+    /// `window`, or of the process's windows when there is no window, through
+    /// the platform's own close action, verified by reading it gone. `Ok(None)`
+    /// when none is open. Core calls it only after a plain Escape was refused
+    /// because the target did not hold the keyboard.
+    fn close_transient_surface(
+        &self,
+        _process: &ProcessIdentity,
+        _window: Option<&WindowInfo>,
+        _policy: InteractionPolicy,
+        _lease: &InteractionLease,
+    ) -> Result<Option<ActionResult>, AdapterError> {
+        Err(AdapterError::not_supported("close_transient_surface"))
     }
 
     fn wait_for_menu(
@@ -324,10 +306,37 @@ pub trait SystemOps: Send + Sync {
         Err(AdapterError::not_supported("wait_for_menu"))
     }
 
+    /// What the user sees in front. Cheap: the front guard polls it.
+    fn read_front(&self, _deadline: Deadline) -> Result<crate::FrontView, AdapterError> {
+        Err(AdapterError::not_supported("read_front"))
+    }
+
+    fn front_process(&self, _pid: u32) -> Option<crate::FrontProcess> {
+        None
+    }
+
+    fn spawned_descendants(&self, _root: u32, _since_ms: u64) -> Option<Vec<u32>> {
+        None
+    }
+
+    fn keep_below(
+        &self,
+        _window: &FrontWindow,
+        _above: &FrontWindow,
+        _lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        Err(AdapterError::not_supported("keep_below"))
+    }
+
+    fn give_back(&self, _win: &FrontWindow, _lease: &InteractionLease) -> Result<(), AdapterError> {
+        Err(AdapterError::not_supported("give_back"))
+    }
+
     fn window_op(
         &self,
         _win: &WindowInfo,
         _op: WindowOp,
+        _policy: InteractionPolicy,
         _lease: &InteractionLease,
     ) -> Result<OperationReport, AdapterError> {
         Err(AdapterError::not_supported("window_op"))
@@ -371,7 +380,7 @@ pub trait SystemOps: Send + Sync {
         &self,
         _request: DismissAllNotificationsRequest<'_>,
         _lease: &InteractionLease,
-    ) -> Result<(Vec<NotificationInfo>, Vec<String>), AdapterError> {
+    ) -> Result<(Vec<NotificationInfo>, Vec<AdapterError>), AdapterError> {
         Err(AdapterError::not_supported("dismiss_all_notifications"))
     }
 

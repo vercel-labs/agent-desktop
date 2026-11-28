@@ -6,10 +6,12 @@ use agent_desktop_core::{
     InteractionLease,
 };
 
-use super::delivery::{fresh_deadline, not_delivered, unresponsive};
+use crate::system::process::process_facts;
+use crate::system::signal::{self, Signal};
+
+use super::delivery::{fresh_deadline, unresponsive};
 use super::owner::owner_locate::locate_helper;
 use super::owner::owner_record::{self, OwnerRecord};
-use super::owner::owner_signal::{PidfdControl, stop_by_identity};
 use super::owner::owner_spawn::{
     ChildProbe, Handshake, await_handshake, kill_and_reap, new_nonce, payload_file, reap_when_done,
 };
@@ -50,7 +52,8 @@ fn discard(dir: &Path, display: &str, nonce: &str) {
 }
 
 fn retire(env: &Env<'_>, display: &str, record: &OwnerRecord) {
-    let _ = stop_by_identity(&PidfdControl, record);
+    let instance = process_facts::instance_token(record.start_ticks);
+    let _ = signal::send(record.pid, &instance, Signal::Term);
     discard(env.record_dir, display, &record.nonce);
 }
 
@@ -123,14 +126,14 @@ pub(crate) fn set_with(
     lease: &InteractionLease,
 ) -> Result<(), AdapterError> {
     let deadline = lease.deadline();
-    let payload = payload_of(content).map_err(not_delivered)?;
+    let payload = payload_of(content).map_err(AdapterError::unsent)?;
     let prior = env
         .server
         .owner(display, deadline)
         .map_err(|fault| fault_error(fault, None))?;
     let earlier = owner_record::records_in(env.record_dir, display, deadline)
         .map_err(|error| record_read_error(error, DeliverySemantics::not_delivered()))?;
-    deadline.ensure_remaining().map_err(not_delivered)?;
+    deadline.ensure_remaining().map_err(AdapterError::unsent)?;
     let mut child = start_owner(env, display, &payload)?;
     let mut probe = ChildProbe {
         child: &mut child,
@@ -241,7 +244,7 @@ pub(crate) fn clear_x11(display: &str, lease: &InteractionLease) -> Result<(), A
 }
 
 fn routed(server: DisplayServer) -> Result<Route, AdapterError> {
-    route::resolve(server).map_err(not_delivered)
+    route::resolve(server).map_err(AdapterError::unsent)
 }
 
 pub(crate) fn get_from(
@@ -314,7 +317,3 @@ mod tests;
 #[cfg(test)]
 #[path = "set_clear_route_tests.rs"]
 mod route_tests;
-
-#[cfg(test)]
-#[path = "set_clear_live_tests.rs"]
-mod live_tests;

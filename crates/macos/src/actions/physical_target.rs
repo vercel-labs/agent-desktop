@@ -76,7 +76,7 @@ fn target_window(
     pid: i32,
     deadline: Deadline,
 ) -> Result<Option<AXElement>, AdapterError> {
-    let instant = crate::tree::locator_deadline::from_operation(deadline)?;
+    let instant = deadline;
     if is_background_app(pid, instant) {
         return Ok(None);
     }
@@ -108,7 +108,7 @@ fn target_window(
 
 /// Whether `pid` is an app AppKit runs without a regular activation policy. A
 /// failed inventory read answers false, which keeps every focus check.
-fn is_background_app(pid: i32, deadline: std::time::Instant) -> bool {
+fn is_background_app(pid: i32, deadline: Deadline) -> bool {
     crate::system::app::workspace_apps::window_owner_snapshot_until(deadline).is_ok_and(|owners| {
         owners.owner(pid).is_some_and(|owner| {
             owner.activation_policy != crate::system::app::workspace_apps::ActivationPolicy::Regular

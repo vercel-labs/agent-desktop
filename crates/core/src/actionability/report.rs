@@ -1,4 +1,7 @@
-use super::{PointerDelivery, check::ActionabilityCheck, status::ActionabilityStatus};
+use super::{
+    PointerDelivery, check::ActionabilityCheck, gates::LIVE_OFFSCREEN_REASON,
+    status::ActionabilityStatus,
+};
 use crate::{ErrorCode, Point, Rect};
 use serde::Serialize;
 
@@ -57,6 +60,19 @@ impl ActionabilityReport {
         let mut blocking = self.checks.iter().filter(|check| is_blocking(check));
         matches!(blocking.next(), Some(check) if check.check == "stable")
             && blocking.next().is_none()
+    }
+
+    /// Whether the live-offscreen visibility refusal is the only reason this
+    /// report is not actionable.
+    pub(crate) fn only_blocking_check_is_offscreen(&self) -> bool {
+        let mut blocking = self.checks.iter().filter(|check| is_blocking(check));
+        matches!(
+            blocking.next(),
+            Some(check)
+                if check.check == "visible"
+                    && check.status == ActionabilityStatus::Fail
+                    && check.reason.as_deref() == Some(LIVE_OFFSCREEN_REASON)
+        ) && blocking.next().is_none()
     }
 
     pub(crate) fn failure_reasons(&self) -> String {

@@ -24,6 +24,12 @@ const AFFORDANCE_AVAILABILITY: [TreeProperty; 8] = [
     TreeProperty::ScrollItemAvailable,
 ];
 
+/// UIA `ComboBox` control type id. A combo box exists to select one of its
+/// items, so it advertises `Select` even when its provider exposes no
+/// SelectionItem children: the WinForms combo box exposes none and is
+/// selected through its native messages (W-W0-14).
+const COMBO_BOX_CONTROL_TYPE: i32 = 50_003;
+
 /// Resolves the available-action list from the read set.
 ///
 /// An action is emitted only for a pattern whose availability implies a
@@ -65,7 +71,9 @@ pub fn resolve_actions(properties: &ElementProperties) -> LocatorField<Vec<Strin
         push_unique(&mut actions, capability::EXPAND);
         push_unique(&mut actions, capability::COLLAPSE);
     }
-    if properties.is_true(TreeProperty::SelectionItemAvailable) {
+    if properties.is_true(TreeProperty::SelectionItemAvailable)
+        || properties.get(TreeProperty::ControlType).number() == Some(COMBO_BOX_CONTROL_TYPE)
+    {
         push_unique(&mut actions, capability::SELECT);
     }
     if properties.is_true(TreeProperty::ValueAvailable)

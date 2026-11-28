@@ -6,7 +6,7 @@ use x11rb::rust_connection::RustConnection;
 use super::activate::{request_via, server_time};
 use super::activate_error::ActivateError;
 use super::client_message::{
-    FORMAT_LONGS, MessageData, activate, close, iconify, maximize, move_resize,
+    FORMAT_LONGS, MessageData, activate, close, iconify, maximize, move_resize, restack_below,
 };
 use super::control_grab::ServerGrab;
 use super::control_owner::with_owner;
@@ -208,6 +208,42 @@ pub(crate) fn write_window(
     deliver(
         deadline,
         prepare_write(window, write.clone(), owner.clone()),
+        emit_within(deadline),
+    )
+}
+
+fn prepare_restack(
+    window: u32,
+    sibling: u32,
+    owner: ProcessIdentity,
+) -> impl FnOnce(Deadline) -> Result<Result<Ready, ControlError>, ActivateError> + Send + 'static {
+    move |_| {
+        let (connection, root) = connect()?;
+        if let Err(error) = live(&connection, window) {
+            return Ok(Err(error));
+        }
+        let kind = single(&connection, b"_NET_RESTACK_WINDOW")?;
+        let pid_atom = single(&connection, b"_NET_WM_PID")?;
+        Ok(Ok(Ready {
+            connection,
+            root,
+            event: message(window, kind, restack_below(sibling)),
+            owner: (owner, pid_atom),
+        }))
+    }
+}
+
+/// Asks the window manager to stack `window` directly below `sibling` without
+/// activating it.
+pub(crate) fn restack_window_below(
+    window: u32,
+    sibling: u32,
+    owner: &ProcessIdentity,
+    deadline: Deadline,
+) -> Result<(), ControlError> {
+    deliver(
+        deadline,
+        prepare_restack(window, sibling, owner.clone()),
         emit_within(deadline),
     )
 }

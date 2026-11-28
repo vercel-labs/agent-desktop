@@ -11,6 +11,7 @@ fn node(name: Option<&str>, value: Option<&str>, description: Option<&str>) -> A
             value: value.map(String::from),
             description: description.map(String::from),
             native_id: None,
+            name_is_borrowed: false,
         },
         presentation: Default::default(),
         children_count: None,

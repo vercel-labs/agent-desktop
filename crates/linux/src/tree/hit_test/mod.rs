@@ -141,7 +141,7 @@ pub(crate) fn hit_test_via<W: HitWorld>(
     }
     let stacking = occlusion(&windowing.snapshot, windowing.client, point);
     let frame = windowing.descent_root.as_ref().unwrap_or(frame);
-    let standing = Standing {
+    let mut standing = Standing {
         descends: trusts_descent(&facts.toolkit),
         same_window: trusts_same_window_landing(&facts.toolkit),
         shallow: stops_above_target(&facts.toolkit),
@@ -152,7 +152,7 @@ pub(crate) fn hit_test_via<W: HitWorld>(
             frame,
             window_point: window_at,
         };
-        require_unambiguous_branch(world.nodes(), &probe, deadline)?;
+        standing.shallow |= require_unambiguous_branch(world.nodes(), &probe, deadline)?;
         let descent = descend(world.nodes(), frame, window_at, deadline)?;
         let located = locate(world.nodes(), &probe, descent.as_deref(), deadline)?;
         (located.landing, located.lander)
@@ -215,7 +215,3 @@ pub(crate) fn pointer_hit_test(
 #[cfg(test)]
 #[path = "hit_test_tests.rs"]
 pub(crate) mod tests;
-
-#[cfg(test)]
-#[path = "shell_click_receiver_live_tests.rs"]
-mod shell_click_live_tests;

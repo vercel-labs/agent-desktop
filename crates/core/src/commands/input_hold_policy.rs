@@ -8,5 +8,10 @@ pub(crate) fn reject(command: &str, replacement: &str) -> AppError {
     .with_suggestion(format!(
         "Use the atomic {replacement} command; held input requires a daemon-owned transaction that can guarantee release"
     ))
+    .unsent()
     .into()
 }
+
+#[cfg(test)]
+#[path = "input_hold_policy_tests.rs"]
+mod tests;

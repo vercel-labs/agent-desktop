@@ -1,5 +1,5 @@
 use agent_desktop_core::{
-    AdapterError, Deadline, DeliverySemantics, ErrorCode, ImageBuffer, ScreenshotTarget, WindowInfo,
+    AdapterError, Deadline, ErrorCode, ImageBuffer, ScreenshotTarget, WindowInfo,
 };
 
 use crate::system::SharedBus;
@@ -12,14 +12,6 @@ use crate::system::display::route::{Route, current};
 use crate::system::overlay::cursor_overlay;
 use crate::system::x11::DisplayReader;
 use crate::system::x11::capture::grab::DisplayGrabber;
-
-fn not_delivered(error: AdapterError) -> AdapterError {
-    if error.disposition == DeliverySemantics::Unknown {
-        error.with_disposition(DeliverySemantics::not_delivered())
-    } else {
-        error
-    }
-}
 
 /// How long a person has to answer the portal's first-use dialog. The command's
 /// own budget is for calls that need no person; a person has to read the
@@ -75,7 +67,7 @@ pub(crate) fn capture_through(
         }
         (Route::X11(_), target) => display::capture(env, &target, deadline),
     }
-    .map_err(not_delivered)
+    .map_err(AdapterError::unsent)
 }
 
 /// Captures the window for the debug frame, refusing a window whose drawables
@@ -90,7 +82,7 @@ pub(crate) fn capture_frame_with(
         Route::Wayland => Err(wayland_window()),
         Route::X11(_) => window::capture(env, window, true, deadline),
     }
-    .map_err(not_delivered)
+    .map_err(AdapterError::unsent)
 }
 
 fn with_env<T>(
@@ -119,11 +111,11 @@ pub(crate) fn screenshot(
     target: ScreenshotTarget,
     deadline: Deadline,
 ) -> Result<ImageBuffer, AdapterError> {
-    let route = current().map_err(not_delivered)?;
+    let route = current().map_err(AdapterError::unsent)?;
     with_env(bus, &route, deadline, |env| {
         capture_with(env, &route, target, deadline)
     })
-    .map_err(not_delivered)
+    .map_err(AdapterError::unsent)
 }
 
 pub(crate) fn screenshot_window_frame(
@@ -131,11 +123,11 @@ pub(crate) fn screenshot_window_frame(
     window: &WindowInfo,
     deadline: Deadline,
 ) -> Result<ImageBuffer, AdapterError> {
-    let route = current().map_err(not_delivered)?;
+    let route = current().map_err(AdapterError::unsent)?;
     with_env(bus, &route, deadline, |env| {
         capture_frame_with(env, &route, window, deadline)
     })
-    .map_err(not_delivered)
+    .map_err(AdapterError::unsent)
 }
 
 #[cfg(test)]

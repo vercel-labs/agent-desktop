@@ -1,32 +1,33 @@
-use agent_desktop_core::{AdapterError, Deadline, DeliverySemantics, ErrorCode};
+use agent_desktop_core::{
+    AdapterError, Deadline, DeliverySemantics, Effect, ErrorCode, InteractionPolicy,
+};
 
 use super::select_search::SelectSearch;
 use crate::tree::AXElement;
 
-const MAX_SELECT_NODES: usize = 2_048;
+const MAX_SELECT_NODES: usize = 16_384;
 const MAX_SELECT_DEPTH: u8 = 8;
 
 pub(crate) fn select_from_menu(
     element: &AXElement,
     value: &str,
+    policy: InteractionPolicy,
     deadline: Deadline,
 ) -> Result<bool, AdapterError> {
+    crate::actions::background_effect::require(policy, Effect::FocusSteal, "select", "shows_menu")?;
     let pid = require_pid(element, deadline)?;
     let identity = require_identity(pid)?;
-    if menu_root(pid, deadline)?.is_some() {
-        return Err(AdapterError::new(
-            ErrorCode::ActionFailed,
-            "Select refused to reuse a menu that was already open",
-        )
-        .with_suggestion("Dismiss the open menu and retry select."));
-    }
+    let needs_opening = needs_opening(
+        crate::actions::owned_menu::owned_menu_open(element, deadline) == Some(true),
+        || Ok(menu_root(pid, deadline)?.is_some()),
+    )?;
     let exposes_value = crate::tree::copy_value_typed(element, deadline).is_some();
-    let delivered = open_menu(element, deadline)?;
-    if !delivered {
+    if needs_opening && !open_menu(element, deadline)? {
         return Err(AdapterError::new(
             ErrorCode::ActionNotSupported,
             "The target did not support AXShowMenu or AXPress",
         )
+        .with_disposition(DeliverySemantics::not_delivered())
         .with_suggestion("Use click to open the control, then snapshot the menu."));
     }
     let result = select_open_menu_item(pid, identity, value, deadline);
@@ -37,9 +38,50 @@ pub(crate) fn select_from_menu(
         Ok(verified) => Ok(verified),
         Err(error) => {
             let _ = crate::actions::ax_helpers::try_ax_action_or_err(element, "AXCancel", deadline);
-            Err(error.with_disposition(DeliverySemantics::delivered_unverified()))
+            Err(failed_selection(needs_opening, error))
         }
     }
+}
+
+/// Opening the menu is already a delivery. In a menu that was open before,
+/// an item that was never found means nothing was pressed; any other error
+/// keeps the disposition its own mutation reported.
+fn failed_selection(opened_menu: bool, error: AdapterError) -> AdapterError {
+    if opened_menu {
+        return error.with_disposition(DeliverySemantics::delivered_unverified());
+    }
+    let item_not_found = error
+        .details
+        .as_ref()
+        .and_then(|details| details.get("kind"))
+        .and_then(serde_json::Value::as_str)
+        == Some("select_menu_item_not_found");
+    if item_not_found {
+        error.with_disposition(DeliverySemantics::not_delivered())
+    } else {
+        error
+    }
+}
+
+/// The control's own open menu is the one to choose from. A menu that some
+/// other control opened is refused before anything is pressed, because an
+/// item of the same name there would select into the wrong control.
+fn needs_opening(
+    own_menu_open: bool,
+    any_menu_open: impl FnOnce() -> Result<bool, AdapterError>,
+) -> Result<bool, AdapterError> {
+    if own_menu_open {
+        return Ok(false);
+    }
+    if any_menu_open()? {
+        return Err(AdapterError::new(
+            ErrorCode::ActionFailed,
+            "Select refused to use a menu that another control opened",
+        )
+        .with_suggestion("Dismiss the open menu and retry select.")
+        .with_disposition(DeliverySemantics::not_delivered()));
+    }
+    Ok(true)
 }
 
 fn verify_selected_value(
@@ -149,12 +191,23 @@ fn find_named_descendant(
     deadline: Deadline,
     search: SelectSearch,
 ) -> Result<Option<AXElement>, AdapterError> {
-    let mut stack = vec![(root.clone(), 0_u8)];
     let mut visited = 0_usize;
+    scan_named_descendant(root, value, deadline, search, &mut visited)
+        .map_err(|error| super::select_name::name_scan_deadline(error, visited, deadline))
+}
+
+fn scan_named_descendant(
+    root: &AXElement,
+    value: &str,
+    deadline: Deadline,
+    search: SelectSearch,
+    visited: &mut usize,
+) -> Result<Option<AXElement>, AdapterError> {
+    let mut stack = vec![(root.clone(), 0_u8)];
     let mut selected: Option<AXElement> = None;
     while let Some((candidate, depth)) = stack.pop() {
-        visited = visited.saturating_add(1);
-        if visited > MAX_SELECT_NODES {
+        *visited = visited.saturating_add(1);
+        if *visited > MAX_SELECT_NODES {
             return Err(AdapterError::new(
                 ErrorCode::AppUnresponsive,
                 "Select search exceeded its accessibility-node budget",
@@ -165,7 +218,7 @@ fn find_named_descendant(
                 "complete": false,
             })));
         }
-        let instant = crate::tree::locator_deadline::from_operation(deadline)?;
+        let instant = deadline;
         match search {
             SelectSearch::Collection => {
                 if let Some(target) =
@@ -233,10 +286,12 @@ fn select_collection_candidate(
     deliver_candidate(
         true,
         || {
-            use crate::actions::chain::chain_delivery::DeliveryOutcome;
+            use agent_desktop_core::{DeliveryObservation, DeliveryOutcome};
             match super::container_select::select_within_container(candidate, deadline)? {
                 DeliveryOutcome::NotDelivered => Ok(None),
-                outcome => Ok(Some(outcome.was_verified())),
+                DeliveryOutcome::Satisfied
+                | DeliveryOutcome::Delivered(DeliveryObservation::Verified) => Ok(Some(true)),
+                DeliveryOutcome::Delivered(_) => Ok(Some(false)),
             }
         },
         || press_candidate(candidate, deadline),
@@ -277,10 +332,23 @@ fn press_candidate(candidate: &AXElement, deadline: Deadline) -> Result<bool, Ad
 }
 
 fn wait_for_menu_to_close(pid: i32, deadline: Deadline) -> Result<bool, AdapterError> {
+    menu_closed_after_press(|| Ok(menu_root(pid, deadline)?.is_some()), deadline)
+}
+
+/// The item was already pressed, so a menu read that fails afterwards (a
+/// surface search that runs out of budget once the window redraws) leaves
+/// the press unverified; it is not evidence that the application stopped
+/// answering.
+fn menu_closed_after_press(
+    mut menu_open: impl FnMut() -> Result<bool, AdapterError>,
+    deadline: Deadline,
+) -> Result<bool, AdapterError> {
     let local_end = std::time::Instant::now() + std::time::Duration::from_millis(600);
     loop {
-        if menu_root(pid, deadline)?.is_none() {
-            return Ok(true);
+        match menu_open() {
+            Ok(false) => return Ok(true),
+            Ok(true) => {}
+            Err(_) => return Ok(false),
         }
         if deadline.is_expired() || std::time::Instant::now() >= local_end {
             return Ok(false);
@@ -291,7 +359,7 @@ fn wait_for_menu_to_close(pid: i32, deadline: Deadline) -> Result<bool, AdapterE
 }
 
 fn menu_root(pid: i32, deadline: Deadline) -> Result<Option<AXElement>, AdapterError> {
-    let instant = crate::tree::locator_deadline::from_operation(deadline)?;
+    let instant = deadline;
     crate::tree::surfaces::menu_element_for_pid(pid, instant)
 }
 

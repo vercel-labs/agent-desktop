@@ -131,7 +131,7 @@ fn automation_is_not_required_on_windows() {
 #[cfg(target_os = "windows")]
 #[test]
 fn screen_recording_is_not_required_when_any_capture_backend_can_run() {
-    crate::tree::fixture::bootstrap();
+    crate::system::test_support::apartment::bootstrap();
     let report = report(Deadline::after(5_000).unwrap()).unwrap();
     let probed = super::imp::probe_capture_availability();
     assert_eq!(report.screen_recording, map_capture_availability(probed));

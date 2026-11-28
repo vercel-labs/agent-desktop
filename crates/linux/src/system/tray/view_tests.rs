@@ -64,7 +64,7 @@ fn projected() -> Vec<AccessibilityNode> {
             ObservedTree::from_roots(
                 vec![node],
                 ObservationSource::Element {
-                    entry: Box::new(crate::tree::live::test_support::ref_entry("group")),
+                    entry: Box::new(crate::tree::test_support::helpers::ref_entry("group")),
                     root_ref: None,
                 },
                 Default::default(),

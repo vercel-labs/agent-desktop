@@ -17,6 +17,8 @@ permissions: {}
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
   fmt:
@@ -41,7 +43,19 @@ jobs:
           PYTHONPYCACHEPREFIX=/tmp/agent-desktop-pycache python3 scripts/perf_ab_probe_test.py
           python3 -I -B scripts/test-linux-live-gate.py
       - name: Validate GitHub Actions workflows
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11
+        env:
+          ACTIONLINT_VERSION: 1.7.11
+          ACTIONLINT_SHA256: 900919a84f2229bac68ca9cd4103ea297abc35e9689ebb842c6e34a3d1b01b0a
+        run: |
+          set -euo pipefail
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          echo "${ACTIONLINT_SHA256}  $RUNNER_TEMP/$archive" | sha256sum --check --status
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint"
+      - name: Enforce CI workflow and cache hygiene
+        run: scripts/check-ci-hygiene.sh
 
 
   docs:
@@ -73,6 +87,23 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Restore cargo registry cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Restore the Test (Linux) dependency cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/
+          key: ${{ runner.os }}-${{ runner.arch }}-linux-test-deps-v1-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}
+
       - run: rustup toolchain install 1.89.0 --profile minimal
       - run: cargo +1.89.0 check --locked -p agent-desktop-core -p agent-desktop-linux -p agent-desktop --all-targets
 
@@ -103,14 +134,12 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      - name: Cache build artifacts
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore dependency build cache
+        id: target-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: target/
-          key: ${{ runner.os }}-build-ci-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}-${{ hashFiles('crates/**/*.rs', 'src/**/*.rs', 'tests/**/*.rs') }}
-          restore-keys: |
-            ${{ runner.os }}-build-ci-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}-
-            ${{ runner.os }}-build-ci-
+          key: ${{ runner.os }}-${{ runner.arch }}-macos-test-deps-v1-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}
 
       - name: Check dependency isolation
         run: |
@@ -129,6 +158,9 @@ jobs:
 
       - name: Enforce no delivery-plan references in source
         run: scripts/check-no-phase-references.sh
+
+      - name: Enforce no application names in runtime source
+        run: scripts/check-no-app-names.sh
 
       - name: Enforce the stale_ref constructors take only ref ids
         run: scripts/check-stale-ref-constructor-misuse.sh
@@ -246,6 +278,17 @@ jobs:
       - name: NPM wrapper smoke
         run: scripts/ci-npm-wrapper-smoke.sh
 
+      - name: Prune workspace artifacts from the dependency cache
+        if: github.ref == 'refs/heads/main' && steps.target-cache.outputs.cache-hit != 'true'
+        run: scripts/prune-ci-target-cache.sh
+
+      - name: Save dependency build cache
+        if: github.ref == 'refs/heads/main' && steps.target-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/
+          key: ${{ runner.os }}-${{ runner.arch }}-macos-test-deps-v1-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}
+
   test-linux:
     name: Test (Linux)
     runs-on: ubuntu-latest
@@ -259,6 +302,9 @@ jobs:
         run: |
           rustup show
           rustup component add clippy
+
+      - name: Enforce no application names in runtime source
+        run: scripts/check-no-app-names.sh
 
       - name: Install AT-SPI bus and virtual display
         run: |
@@ -275,14 +321,12 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      - name: Cache build artifacts
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore dependency build cache
+        id: target-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: target/
-          key: ${{ runner.os }}-build-ci-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}-${{ hashFiles('crates/**/*.rs', 'src/**/*.rs', 'tests/**/*.rs') }}
-          restore-keys: |
-            ${{ runner.os }}-build-ci-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}-
-            ${{ runner.os }}-build-ci-
+          key: ${{ runner.os }}-${{ runner.arch }}-linux-test-deps-v1-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}
 
       - name: Check dependency isolation
         run: |
@@ -380,6 +424,17 @@ jobs:
           assert "session bus" in doc["error"]["suggestion"], "error does not carry the recovery step"
           '
 
+      - name: Prune workspace artifacts from the dependency cache
+        if: github.ref == 'refs/heads/main' && steps.target-cache.outputs.cache-hit != 'true'
+        run: scripts/prune-ci-target-cache.sh
+
+      - name: Save dependency build cache
+        if: github.ref == 'refs/heads/main' && steps.target-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/
+          key: ${{ runner.os }}-${{ runner.arch }}-linux-test-deps-v1-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}
+
   test-windows:
     name: Test (Windows)
     runs-on: windows-latest
@@ -394,6 +449,10 @@ jobs:
 
       - name: Install Rust toolchain
         run: rustup show
+
+      - name: Enforce no application names in runtime source
+        shell: bash
+        run: scripts/check-no-app-names.sh
 
       # Core resolves its home directory from HOME, then USERPROFILE (crates/core/src/refs/mod.rs), so the lane points both at a throwaway directory.
       - name: Isolate HOME for the whole lane
@@ -419,14 +478,12 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      - name: Cache build artifacts
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore dependency build cache
+        id: target-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: target/
-          key: ${{ runner.os }}-build-ci-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}-${{ hashFiles('crates/**/*.rs', 'src/**/*.rs', 'tests/**/*.rs') }}
-          restore-keys: |
-            ${{ runner.os }}-build-ci-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}-
-            ${{ runner.os }}-build-ci-
+          key: ${{ runner.os }}-${{ runner.arch }}-windows-test-deps-v1-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}
 
       - name: Check dependency isolation
         shell: pwsh
@@ -584,6 +641,18 @@ jobs:
           }
           Write-Host 'OK: private artifacts stayed under RUNNER_TEMP'
 
+      - name: Prune workspace artifacts from the dependency cache
+        if: github.ref == 'refs/heads/main' && steps.target-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./scripts/prune-ci-target-cache.ps1
+
+      - name: Save dependency build cache
+        if: github.ref == 'refs/heads/main' && steps.target-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/
+          key: ${{ runner.os }}-${{ runner.arch }}-windows-test-deps-v1-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}
+
   test-windows-arm:
     name: Test (Windows ARM64)
     runs-on: windows-11-arm
@@ -621,6 +690,13 @@ jobs:
             ${{ env.CARGO_HOME }}/git/db/
           key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-${{ runner.arch }}-cargo-
+
+      - name: Restore dependency build cache
+        id: target-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/
+          key: ${{ runner.os }}-${{ runner.arch }}-windows-arm-test-deps-v1-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}
 
       - name: Clippy
         run: cargo clippy --locked -p agent-desktop-core -p agent-desktop-windows -p agent-desktop -p agent-desktop-ffi --all-targets -- -D warnings
@@ -686,6 +762,18 @@ jobs:
             exit 1
           }
           Write-Host 'OK: private artifacts stayed under RUNNER_TEMP'
+
+      - name: Prune workspace artifacts from the dependency cache
+        if: github.ref == 'refs/heads/main' && steps.target-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./scripts/prune-ci-target-cache.ps1
+
+      - name: Save dependency build cache
+        if: github.ref == 'refs/heads/main' && steps.target-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/
+          key: ${{ runner.os }}-${{ runner.arch }}-windows-arm-test-deps-v1-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}
 
   windows-lib-test-parity:
     name: Windows lib-test parity (x64 vs ARM64)
@@ -761,8 +849,8 @@ jobs:
           rustup show
           rustup target add ${{ matrix.target }}
 
-      - name: Cache cargo registry
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore cargo registry cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry/index/
@@ -771,8 +859,16 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/**/Cargo.toml', 'src/Cargo.toml') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      - name: Install pinned cbindgen 0.29.4
+      - name: Restore the pinned cbindgen binary
+        id: cbindgen-cache
         if: matrix.target == 'aarch64-apple-darwin'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cbindgen
+          key: ${{ runner.os }}-${{ runner.arch }}-cbindgen-0.29.4
+
+      - name: Install pinned cbindgen 0.29.4
+        if: matrix.target == 'aarch64-apple-darwin' && steps.cbindgen-cache.outputs.cache-hit != 'true'
         run: cargo install cbindgen --version 0.29.4 --locked
 
       - name: Verify header matches source (cbindgen --verify)
@@ -785,18 +881,23 @@ jobs:
 
       - name: Build FFI dylib (stub adapter)
         if: matrix.target == 'aarch64-apple-darwin'
+        env:
+          FFI_TARGET: ${{ matrix.target }}
         run: >
           cargo build --locked --profile release-ffi
-          -p agent-desktop-ffi --features stub-adapter
+          -p agent-desktop-ffi --features stub-adapter --target "$FFI_TARGET"
 
       - name: Locate dylib
         id: dylib
         if: matrix.target == 'aarch64-apple-darwin'
+        env:
+          FFI_TARGET: ${{ matrix.target }}
         run: |
-          DYLIB=$(find target/release-ffi -name 'libagent_desktop_ffi.*' \
+          DYLIB_DIR="target/$FFI_TARGET/release-ffi"
+          DYLIB=$(find "$DYLIB_DIR" -name 'libagent_desktop_ffi.*' \
                     \( -name '*.dylib' -o -name '*.so' -o -name '*.dll' \) | head -1)
           if [ -z "$DYLIB" ]; then
-            echo "FAIL: dylib not found under target/release-ffi"
+            echo "FAIL: dylib not found under $DYLIB_DIR"
             exit 1
           fi
           echo "path=$DYLIB" >> "$GITHUB_OUTPUT"

@@ -18,7 +18,7 @@ fn text_under_a_changed_keyboard_group_or_modifiers_is_refused_before_planning()
 #[test]
 fn mapped_text_controls_are_refused_before_dispatch() {
     let map = Keymap::new(8, 1, vec![0x61, 0x62, 0xff09, 0xff0d], 0, vec![]);
-    for text in ["a\tb", "a\nb", "a\rb"] {
+    for text in ["a\tb", "a\rb"] {
         let error = plan_text(&map, text).expect_err("controls can change the target");
         assert_eq!(error.code, ErrorCode::InvalidArgs);
         assert_eq!(error.disposition, DeliverySemantics::not_delivered());
@@ -30,6 +30,18 @@ fn mapped_text_controls_are_refused_before_dispatch() {
         );
     }
     assert!(plan_text(&map, "ab").is_ok());
+}
+
+#[test]
+fn a_line_break_types_as_return() {
+    let map = Keymap::new(8, 1, vec![0x61, 0x62, 0xff09, 0xff0d], 0, vec![]);
+    let plans = plan_text(&map, "a\nb").expect("a line break is typed as Return");
+    let downs = plans[0]
+        .steps
+        .iter()
+        .filter(|step| matches!(step, Step::Key { down: true, .. }))
+        .count();
+    assert_eq!(downs, 3);
 }
 
 #[test]

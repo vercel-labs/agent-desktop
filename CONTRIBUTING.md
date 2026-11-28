@@ -78,20 +78,20 @@ CI also checks what a local run can miss:
 - The Rust 1.89 MSRV build.
 - Drift between the committed header `crates/ffi/include/agent_desktop.h` and the Rust ABI. Regenerate it with `scripts/update-ffi-header.sh`, which needs cbindgen 0.29.4.
 - The `cargo-deny` policy in `deny.toml`.
-- Secret scanning, CodeQL and workflow linting.
+- Secret scanning and workflow linting.
 
 ## Pre-commit hook
 
 `.githooks/pre-commit` mirrors the CI gates. The script is the authoritative list. For a commit that stages `.rs` or `.toml` files, the hook runs these over the host's package set:
 
-- `scripts/check-rust-file-size.sh`, `scripts/check-architecture.sh`, `scripts/check-no-phase-references.sh` and `scripts/check-stale-ref-constructor-misuse.sh`
+- `scripts/check-rust-file-size.sh`, `scripts/check-architecture.sh`, `scripts/check-no-phase-references.sh`, `scripts/check-stale-ref-constructor-misuse.sh` and `scripts/check-ci-hygiene.sh`
 - `cargo fmt --all -- --check`
 - Clippy with `-D warnings`
 - The `--lib` tests
 
 When the commit touches `crates/ffi/`, the hook also runs the stub-adapter passthrough test and the cbindgen header-drift check. The drift check is skipped when cbindgen 0.29.4 is not installed. CI still runs it.
 
-A commit with no Rust or FFI changes that touches `scripts/`, `.githooks/`, `.github/workflows/` or `tests/e2e-linux/` runs the Bash 3 compatibility and no-phase-reference checks.
+A commit with no Rust or FFI changes that touches `scripts/`, `.githooks/`, `.github/workflows/` or `tests/e2e-linux/` runs the Bash 3 compatibility, no-phase-reference and CI hygiene checks.
 
 Bypass the hook only in an emergency:
 

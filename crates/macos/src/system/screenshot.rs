@@ -12,7 +12,6 @@ mod imp {
     use std::path::{Path, PathBuf};
     use std::process::{Command, Output};
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::Instant;
 
     const SCREENCAPTURE: &str = "/usr/sbin/screencapture";
     const MAX_PNG_BYTES: u64 = 64 * 1024 * 1024;
@@ -116,10 +115,8 @@ mod imp {
             )
             .with_suggestion("Refresh the target with 'list-windows', then retry"));
         }
-        let verified = crate::system::window::window_resolve::resolve_capture_window(
-            window,
-            deadline_instant(deadline)?,
-        )?;
+        let verified =
+            crate::system::window::window_resolve::resolve_capture_window(window, deadline)?;
         let window_id = parse_window_id(&verified.id)?;
         let scale = crate::system::display::scale_for_bounds(verified.bounds, deadline)?;
         deadline.ensure_remaining()?;
@@ -130,10 +127,7 @@ mod imp {
             }
             Ok(args)
         })?;
-        crate::system::window::window_resolve::resolve_capture_window(
-            &verified,
-            deadline_instant(deadline)?,
-        )?;
+        crate::system::window::window_resolve::resolve_capture_window(&verified, deadline)?;
         Ok(captured)
     }
 
@@ -184,11 +178,7 @@ mod imp {
         command: &mut Command,
         deadline: Deadline,
     ) -> Result<Output, AdapterError> {
-        crate::system::process::run_with_deadline(
-            command,
-            "screencapture",
-            deadline_instant(deadline)?,
-        )
+        crate::system::process::run_with_deadline(command, "screencapture", deadline)
     }
 
     fn read_png(path: &Path, deadline: Deadline) -> Result<ImageBuffer, AdapterError> {
@@ -313,16 +303,6 @@ mod imp {
             .ok_or_else(|| {
                 AdapterError::new(ErrorCode::InvalidArgs, format!("Invalid window id: '{id}'"))
             })
-    }
-
-    fn deadline_instant(deadline: Deadline) -> Result<Instant, AdapterError> {
-        let remaining = deadline.remaining();
-        if remaining.is_zero() {
-            return Err(deadline.timeout_error());
-        }
-        Instant::now()
-            .checked_add(remaining)
-            .ok_or_else(|| AdapterError::new(ErrorCode::InvalidArgs, "deadline is out of range"))
     }
 }
 

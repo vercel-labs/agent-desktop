@@ -16,7 +16,7 @@ mod imp {
 
     pub fn set_messaging_timeout(
         el: &AXElement,
-        deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        deadline: agent_desktop_core::Deadline,
     ) -> Result<(), agent_desktop_core::AdapterError> {
         crate::tree::properties::ax_ipc::prepare(el, deadline).map(|_| ())
     }
@@ -24,7 +24,7 @@ mod imp {
     pub fn copy_bool_attr(
         el: &AXElement,
         attr: &str,
-        deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        deadline: agent_desktop_core::Deadline,
     ) -> Option<bool> {
         copy_bool_attr_result(el, attr, deadline).ok().flatten()
     }
@@ -32,7 +32,7 @@ mod imp {
     pub(crate) fn copy_bool_attr_result(
         el: &AXElement,
         attr: &str,
-        deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        deadline: agent_desktop_core::Deadline,
     ) -> Result<Option<bool>, i32> {
         let cf_attr = CFString::new(attr);
         let (err, value) = crate::tree::properties::ax_ipc::copy_attribute_value(
@@ -64,7 +64,7 @@ mod imp {
         el: &AXElement,
         attr: &str,
         max_values: usize,
-        deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        deadline: agent_desktop_core::Deadline,
     ) -> Result<Option<Vec<AXElement>>, i32> {
         if max_values == 0 {
             return Ok(Some(Vec::new()));
@@ -104,7 +104,29 @@ mod imp {
     pub(crate) fn copy_element_attr_result(
         el: &AXElement,
         attr: &str,
-        deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
+        deadline: agent_desktop_core::Deadline,
+    ) -> Result<Option<AXElement>, i32> {
+        copy_element_attr_with(el, attr, deadline, is_absent_error)
+    }
+
+    /// Like `copy_element_attr_result`, but `Ok(None)` only when the element
+    /// answered that the attribute has no value. An attribute it does not
+    /// implement or fails to answer is `Err`, so "none" is never a guess.
+    pub(crate) fn copy_element_attr_answered_result(
+        el: &AXElement,
+        attr: &str,
+        deadline: agent_desktop_core::Deadline,
+    ) -> Result<Option<AXElement>, i32> {
+        copy_element_attr_with(el, attr, deadline, |error| {
+            error == accessibility_sys::kAXErrorNoValue
+        })
+    }
+
+    fn copy_element_attr_with(
+        el: &AXElement,
+        attr: &str,
+        deadline: agent_desktop_core::Deadline,
+        absent: impl Fn(i32) -> bool,
     ) -> Result<Option<AXElement>, i32> {
         let cf_attr = CFString::new(attr);
         let (err, value) = crate::tree::properties::ax_ipc::copy_attribute_value(
@@ -116,11 +138,7 @@ mod imp {
             if !value.is_null() {
                 unsafe { core_foundation::base::CFRelease(value) };
             }
-            return if is_absent_error(err) {
-                Ok(None)
-            } else {
-                Err(err)
-            };
+            return if absent(err) { Ok(None) } else { Err(err) };
         }
         if value.is_null() {
             return Ok(None);
@@ -174,6 +192,40 @@ mod imp {
         Some(start..start.checked_add(length)?)
     }
 
+    /// Selects `range`, in UTF-16 units, in a text element. True when the
+    /// application acknowledged the write; the caller reads the selection
+    /// back, because an acknowledged write can be ignored.
+    pub(crate) fn set_selected_text_range(
+        element: &AXElement,
+        range: std::ops::Range<usize>,
+        deadline: agent_desktop_core::Deadline,
+    ) -> bool {
+        use accessibility_sys::{AXValueCreate, kAXValueTypeCFRange};
+        use core_foundation::base::TCFType;
+        use core_foundation_sys::base::CFRange;
+
+        let (Ok(location), Ok(length)) =
+            (isize::try_from(range.start), isize::try_from(range.len()))
+        else {
+            return false;
+        };
+        let range = CFRange { location, length };
+        let value =
+            unsafe { AXValueCreate(kAXValueTypeCFRange, (&range as *const CFRange).cast()) };
+        if value.is_null() {
+            return false;
+        }
+        let value = unsafe { CFType::wrap_under_create_rule(value as _) };
+        let attribute = CFString::new("AXSelectedTextRange");
+        crate::tree::properties::ax_ipc::set_attribute_value(
+            element,
+            attribute.as_concrete_TypeRef(),
+            value.as_CFTypeRef(),
+            deadline,
+        )
+        .is_ok_and(|error| error == kAXErrorSuccess)
+    }
+
     fn ax_array_items(arr: CFArray<CFType>) -> Vec<AXElement> {
         arr.into_iter()
             .filter_map(|item| ax_value::retained_ax_element(&item))
@@ -185,69 +237,14 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use crate::tree::ax_element::AXElement;
-
-    pub(crate) fn copy_ax_array_result(
-        _el: &AXElement,
-        _attr: &str,
-    ) -> Result<Option<Vec<AXElement>>, i32> {
-        Ok(None)
-    }
-
-    pub fn copy_bool_attr(
-        _el: &AXElement,
-        _attr: &str,
-        _deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
-    ) -> Option<bool> {
-        None
-    }
-
-    pub(crate) fn copy_bool_attr_result(
-        _el: &AXElement,
-        _attr: &str,
-        _deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
-    ) -> Result<Option<bool>, i32> {
-        Ok(None)
-    }
-
-    pub(crate) fn copy_element_attr_result(
-        _el: &AXElement,
-        _attr: &str,
-        _deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
-    ) -> Result<Option<AXElement>, i32> {
-        Ok(None)
-    }
-
-    pub(crate) fn copy_ax_array_prefix_result(
-        _el: &AXElement,
-        _attr: &str,
-        _max_values: usize,
-        _deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
-    ) -> Result<Option<Vec<AXElement>>, i32> {
-        Ok(None)
-    }
-
-    pub fn set_messaging_timeout(
-        _el: &AXElement,
-        _deadline: impl crate::tree::properties::ax_ipc::AxDeadline,
-    ) -> Result<(), agent_desktop_core::AdapterError> {
-        Ok(())
-    }
-}
-
 pub(crate) use super::text_attributes::{
     copy_string_attr_bounded_result, copy_string_attr_result, copy_value_typed,
     copy_value_typed_bounded_result, copy_value_typed_result,
 };
 pub(crate) use imp::{
-    copy_ax_array_prefix_result, copy_bool_attr, copy_bool_attr_result, copy_element_attr_result,
-    set_messaging_timeout,
+    copy_ax_array_prefix_result, copy_bool_attr, copy_bool_attr_result,
+    copy_element_attr_answered_result, copy_element_attr_result, set_messaging_timeout,
 };
 
-#[cfg(not(target_os = "macos"))]
-pub(crate) use imp::copy_ax_array_result;
-
 #[cfg(target_os = "macos")]
-pub(crate) use imp::selected_text_range;
+pub(crate) use imp::{selected_text_range, set_selected_text_range};

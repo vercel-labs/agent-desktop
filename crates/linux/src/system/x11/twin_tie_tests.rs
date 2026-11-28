@@ -13,7 +13,7 @@ fn client(id: u32, title: &str, hidden: bool) -> X11Client {
         id,
         hidden,
         pid: Some(10),
-        title: title.to_owned(),
+        title: title.into(),
         extents: None,
         bounds: None,
     }

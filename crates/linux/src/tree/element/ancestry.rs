@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::tree::AtspiElement;
 use crate::tree::vocabulary::role_numbers::{
     COMBO_BOX, MENU, MENU_BAR, POPUP_MENU, SCROLL_PANE, VIEWPORT, is_menu_item, is_web_document,
@@ -7,7 +9,9 @@ use crate::tree::vocabulary::role_numbers::{
 /// property — which the ledger records disagreeing with the walked parent
 /// (L2-2): the window root, nearest scroll container, direct button parent,
 /// and whether a web document encloses it. Ancestors are bare addresses,
-/// with menu ancestors kept in walk order.
+/// with menu ancestors kept in walk order. The chain is every ancestor the
+/// walk passed from the window frame down to the parent, frame first; the
+/// children of one parent share it.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Ancestry {
     frame: Option<Box<AtspiElement>>,
@@ -16,6 +20,8 @@ pub(crate) struct Ancestry {
     button_parent: Option<Box<AtspiElement>>,
     menu_ancestors: Vec<AtspiElement>,
     combo_owner: Option<Box<AtspiElement>>,
+    selecting_parent: bool,
+    chain: Arc<[AtspiElement]>,
 }
 
 impl Ancestry {
@@ -33,6 +39,8 @@ impl Ancestry {
             button_parent: None,
             menu_ancestors: Vec::new(),
             combo_owner: None,
+            selecting_parent: false,
+            chain: Arc::from([]),
         }
     }
 
@@ -56,6 +64,22 @@ impl Ancestry {
 
     pub(crate) fn in_web_document(&self) -> bool {
         self.in_web_document
+    }
+
+    /// Whether the parent the walk came through advertises the `Selection`
+    /// interface, so the node can be selected through it.
+    pub(crate) fn selecting_parent(&self) -> bool {
+        self.selecting_parent
+    }
+
+    /// The same ancestry, recording whether the parent advertises `Selection`.
+    pub(crate) fn with_selecting_parent(mut self, selecting: bool) -> Self {
+        self.selecting_parent = selecting;
+        self
+    }
+
+    pub(crate) fn chain(&self) -> &[AtspiElement] {
+        &self.chain
     }
 
     pub(crate) fn menu_ancestors(&self) -> &[AtspiElement] {
@@ -92,6 +116,13 @@ pub(crate) fn child(parent: &AtspiElement, role: Option<u32>) -> Ancestry {
         },
         parent.in_web_document() || is_web_document(role),
     );
+    ancestry.chain = parent
+        .ancestry()
+        .chain
+        .iter()
+        .cloned()
+        .chain(std::iter::once(parent.address()))
+        .collect();
     ancestry.combo_owner = match role {
         Some(COMBO_BOX) => Some(Box::new(parent.address())),
         _ => parent.ancestry().combo_owner.clone(),

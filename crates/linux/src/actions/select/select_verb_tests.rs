@@ -1,7 +1,7 @@
+use agent_desktop_core::DeliverySemantics;
 use std::cell::Cell;
 
 use super::*;
-use agent_desktop_core::DeliverySemantics;
 
 #[test]
 fn an_option_toggle_selects_only_a_known_unselected_row() {
@@ -21,7 +21,7 @@ fn an_option_toggle_selects_only_a_known_unselected_row() {
             Some(true) => assert_eq!(outcome.unwrap(), DeliveryOutcome::Satisfied),
             Some(false) => assert_eq!(
                 outcome.unwrap(),
-                DeliveryOutcome::Delivered(Observed::Matched)
+                DeliveryOutcome::Delivered(DeliveryObservation::Verified)
             ),
             None => assert_eq!(
                 outcome.unwrap_err().disposition,

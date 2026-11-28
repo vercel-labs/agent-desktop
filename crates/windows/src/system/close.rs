@@ -13,6 +13,16 @@ use super::runtime::hresult::{adapter_error_from_win32, win32_last_error};
 
 const EXIT_POLL: Duration = Duration::from_millis(25);
 
+pub(crate) fn close_app_report(
+    app: &AppInfo,
+    force: bool,
+    deadline: Deadline,
+) -> Result<agent_desktop_core::OperationReport, AdapterError> {
+    let dispatched =
+        close_app_impl(app, force, deadline).map(|outcome| outcome == CloseOutcome::Exited);
+    agent_desktop_core::OperationReport::from_close_dispatch(app, dispatched)
+}
+
 pub(crate) fn close_app_impl(
     app: &AppInfo,
     force: bool,
@@ -301,7 +311,7 @@ fn process_observed_gone(pid: ProcessId, instance: &str) -> Result<bool, Adapter
 fn top_level_windows_for_pid(pid: ProcessId) -> Result<Vec<isize>, AdapterError> {
     let mut handles = Vec::new();
     super::window::window_enum::enumerate_top_level(|window| {
-        if super::window::window_identity::live_window_owner(window.handle) == Some(pid) {
+        if super::window::frame_identity::application_pid(window.handle) == Some(pid) {
             handles.push(window.handle as isize);
         }
         true
@@ -320,7 +330,7 @@ fn post_wm_close_if_still_owned(
     use windows_sys::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
 
     let hwnd = hwnd as super::window::window_enum::WindowHandle;
-    if super::window::window_identity::live_window_owner(hwnd) != Some(pid) {
+    if super::window::frame_identity::application_pid(hwnd) != Some(pid) {
         return Ok(false);
     }
     if !process_identity::matches_instance(pid, instance)? {

@@ -1,6 +1,6 @@
 use super::timeout_tests::{UNCONSUMED_BUDGET, fail_until_the_third_attempt};
 use super::*;
-use agent_desktop_core::Rect;
+use agent_desktop_core::{Deadline, Rect};
 use rustc_hash::FxHashMap;
 
 #[path = "window_inventory_global_focus_tests.rs"]
@@ -248,19 +248,20 @@ fn owner_snapshot_or_process_generation_churn_is_retryable() {
 #[test]
 fn stabilization_retries_churn_and_preserves_strict_failures() {
     let mut attempts = 0;
-    let windows = stabilize_global_with(Instant::now() + UNCONSUMED_BUDGET, || {
-        attempts += 1;
-        if attempts == 1 {
-            Err(owner_churn_error(None, "test"))
-        } else {
-            Ok(Vec::new())
-        }
-    })
-    .unwrap();
+    let windows =
+        stabilize_global_with(Deadline::from_duration(UNCONSUMED_BUDGET).unwrap(), || {
+            attempts += 1;
+            if attempts == 1 {
+                Err(owner_churn_error(None, "test"))
+            } else {
+                Ok(Vec::new())
+            }
+        })
+        .unwrap();
 
     assert!(windows.is_empty());
     assert_eq!(attempts, 2);
-    let denied = stabilize_global_with(Instant::now() + UNCONSUMED_BUDGET, || {
+    let denied = stabilize_global_with(Deadline::from_duration(UNCONSUMED_BUDGET).unwrap(), || {
         Err(AdapterError::permission_denied())
     })
     .unwrap_err();
@@ -270,7 +271,7 @@ fn stabilization_retries_churn_and_preserves_strict_failures() {
 #[test]
 fn persistent_owner_churn_times_out_with_exact_attempt_metrics() {
     let mut attempts = 0_u64;
-    let error = stabilize_global_with(Instant::now() + UNCONSUMED_BUDGET, || {
+    let error = stabilize_global_with(Deadline::from_duration(UNCONSUMED_BUDGET).unwrap(), || {
         fail_until_the_third_attempt(&mut attempts, || owner_churn_error(None, "test"))
     })
     .unwrap_err();

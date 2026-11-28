@@ -16,6 +16,7 @@ struct TwoInstancesAdapter {
 
 fn instance(pid: u32) -> crate::AppInfo {
     crate::AppInfo {
+        aliases: Vec::new(),
         name: "Electron".into(),
         pid: crate::ProcessId::new(pid),
         bundle_id: Some("com.github.Electron".into()),
@@ -40,8 +41,12 @@ fn window(pid: u32) -> crate::WindowInfo {
 }
 
 impl ObservationOps for TwoInstancesAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<crate::AppInfo>, AdapterError> {
-        Ok(vec![instance(41), instance(42)])
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(vec![instance(41), instance(42)]))
     }
 
     fn list_windows(
@@ -84,9 +89,9 @@ impl SystemOps for TwoInstancesAdapter {
         &self,
         window: &crate::WindowInfo,
         _lease: &crate::InteractionLease,
-    ) -> Result<(), AdapterError> {
+    ) -> Result<crate::DeliverySemantics, AdapterError> {
         *self.focused_window.lock().unwrap() = Some(window.id.clone());
-        Ok(())
+        Ok(crate::DeliverySemantics::delivered_unverified())
     }
 
     fn focused_window(
@@ -212,7 +217,7 @@ fn another_window_of_the_process_is_refused_headless_and_nothing_is_pressed() {
 
     let error = press(None, Some("w-42-prefs"), &adapter).unwrap_err();
 
-    assert_eq!(error.code(), "STALE_REF");
+    assert_eq!(error.code(), "ACTION_FAILED");
     let crate::AppError::Adapter(error) = error else {
         panic!("an adapter error")
     };
@@ -274,7 +279,7 @@ fn a_focused_window_of_another_process_is_refused_without_delivery() {
 
     let error = press(None, Some("w-42"), &adapter).unwrap_err();
 
-    assert_eq!(error.code(), "STALE_REF");
+    assert_eq!(error.code(), "ACTION_FAILED");
     assert!(adapter.pressed_pid.lock().unwrap().is_none());
 }
 
@@ -320,7 +325,7 @@ fn missing_focused_window_refuses_without_delivery() {
 
     let error = press(None, Some("w-42-prefs"), &adapter).unwrap_err();
 
-    assert_eq!(error.code(), "STALE_REF");
+    assert_eq!(error.code(), "ACTION_FAILED");
     assert!(adapter.pressed_pid.lock().unwrap().is_none());
 }
 
@@ -342,7 +347,7 @@ fn matching_window_id_with_a_different_or_unknown_owner_refuses_without_delivery
 
         let error = press(None, Some("w-42-prefs"), &adapter).unwrap_err();
 
-        assert_eq!(error.code(), "STALE_REF");
+        assert_eq!(error.code(), "ACTION_FAILED");
         assert!(adapter.pressed_pid.lock().unwrap().is_none());
     }
 }

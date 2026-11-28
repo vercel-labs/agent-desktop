@@ -9,12 +9,12 @@ use std::ffi::c_char;
 /// strict element resolution (→ `STALE_REF`/`AMBIGUOUS_TARGET`) → live
 /// actionability preflight → dispatch → owned-handle drop.
 ///
-/// Policy: semantic actions, including `TypeText`, default to strict
-/// `headless`. Explicit `PressKey` defaults to `focus_fallback`. A policy
-/// discriminant may elevate to focus fallback or headed. Base and elevation
-/// are computed by `agent_desktop_core::commands::execute_by_ref::execute_with_timeout` via
-/// `Action::base_interaction_policy` + `InteractionPolicy::join`, so CLI and
-/// FFI share a single source of policy truth.
+/// Policy: every action, including `TypeText` and `PressKey`, defaults to
+/// strict `headless`. A policy discriminant may elevate to focus fallback or
+/// headed. `agent_desktop_core::commands::execute_by_ref::execute_with_timeout`
+/// applies that policy, and core refuses with `ErrPolicyDenied` an action whose
+/// effects it does not permit, so CLI and FFI share a single source of policy
+/// truth.
 ///
 /// `ref_id` tri-state: null → `ErrInvalidArgs`; non-null invalid UTF-8 →
 /// `ErrInvalidArgs`; valid UTF-8 that is not a snapshot-qualified
@@ -22,7 +22,8 @@ use std::ffi::c_char;
 ///
 /// `policy` is an `AdPolicyKind` discriminant (0=Headless, 1=FocusFallback,
 /// 2=Headed). An out-of-range value returns `ErrInvalidArgs`. `Headless (0)`
-/// accepts the action's base policy. `FocusFallback (1)` explicitly permits
+/// is strict headless for every action, so a `PressKey` the element does not
+/// advertise natively returns `ErrPolicyDenied`. `FocusFallback (1)` explicitly permits
 /// focus without cursor movement. `Headed (2)` opts in to physical cursor and
 /// keyboard delivery.
 ///

@@ -8,5 +8,8 @@ pub enum IdentifierKind {
     AutomationId,
     RuntimeId,
     AtspiObjectPath,
+    /// The position of a cell in its table or grid, as the platform's table
+    /// interface reports it. One grid holds one cell per position.
+    GridCell,
     Unknown,
 }

@@ -36,6 +36,7 @@ pub(crate) fn is_protected_process(identifier: &str) -> bool {
 #[derive(Debug, Clone)]
 pub(crate) struct ProcessRow {
     pub(crate) pid: ProcessId,
+    pub(crate) parent: ProcessId,
     pub(crate) name: String,
 }
 
@@ -66,6 +67,7 @@ pub(crate) fn process_snapshot() -> Result<Vec<ProcessRow>, AdapterError> {
     while ok != 0 {
         rows.push(ProcessRow {
             pid: ProcessId::from(entry.th32ProcessID),
+            parent: ProcessId::from(entry.th32ParentProcessID),
             name: process_identity::wide_buffer_to_string(&entry.szExeFile),
         });
         ok = unsafe { Process32NextW(snapshot, &mut entry) };
@@ -171,6 +173,7 @@ pub(crate) fn list_apps_live(deadline: Deadline) -> Result<Vec<AppInfo>, Adapter
             }
         }
         apps.push(AppInfo {
+            aliases: Vec::new(),
             name: row.name.clone(),
             pid,
             bundle_id: None,
@@ -182,21 +185,13 @@ pub(crate) fn list_apps_live(deadline: Deadline) -> Result<Vec<AppInfo>, Adapter
     Ok(apps)
 }
 
-/// The owner pid + token for a window, reusing the identity path.
+/// The application pid and token for a window, by the rule list-windows uses.
 fn process_token_of(
     handle: super::window::window_enum::WindowHandle,
 ) -> Option<(ProcessId, Option<String>)> {
-    #[cfg(target_os = "windows")]
-    {
-        let pid = super::window::window_identity::live_window_owner(handle)?;
-        let token = process_identity::token_for_pid(pid).ok().flatten();
-        Some((pid, token))
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = handle;
-        None
-    }
+    let pid = super::window::frame_identity::application_pid(handle)?;
+    let token = process_identity::token_for_pid(pid).ok().flatten();
+    Some((pid, token))
 }
 
 #[cfg(test)]
@@ -208,11 +203,11 @@ pub(super) mod enumeration_calls {
     }
 
     pub(super) fn record() {
-        crate::system::fixture::call_counter::record(&COUNT);
+        crate::system::test_support::call_counter::record(&COUNT);
     }
 
     pub(super) fn take() -> usize {
-        crate::system::fixture::call_counter::take(&COUNT)
+        crate::system::test_support::call_counter::take(&COUNT)
     }
 }
 
@@ -274,22 +269,5 @@ mod tests {
         assert!(!is_protected_process("my-lsass-helper.exe"));
         assert!(!is_protected_process("lsass"));
         assert!(!is_protected_process("lsass.exe.bak"));
-    }
-
-    /// A listed app owns a taskbar window, so it is reported as a registered
-    /// foreground app; an omitted presentation reads as a helper process and
-    /// made `launch --cdp` miss the running instance it must refuse.
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn a_listed_window_owning_app_is_foreground() {
-        crate::tree::fixture::bootstrap();
-        let fixture = crate::tree::fixture::HostedFixture::spawn().expect("fixture");
-        let pid = agent_desktop_core::ProcessId::new(fixture.process_id());
-        let apps = list_apps_live(Deadline::standard().expect("deadline")).expect("inventory");
-        let listed = apps
-            .iter()
-            .find(|app| app.pid == pid)
-            .expect("the fixture's window makes it a listed app");
-        assert_eq!(listed.presentation, Some(AppPresentation::Foreground));
     }
 }

@@ -99,8 +99,8 @@ impl SystemOps for OccludedTargetAdapter {
         &self,
         _window: &crate::WindowInfo,
         _lease: &crate::InteractionLease,
-    ) -> Result<(), AdapterError> {
-        Ok(())
+    ) -> Result<crate::DeliverySemantics, AdapterError> {
+        Ok(crate::DeliverySemantics::delivered_unverified())
     }
 }
 
@@ -258,10 +258,10 @@ impl SystemOps for BackgroundTargetAdapter {
         &self,
         _window: &crate::WindowInfo,
         _lease: &crate::InteractionLease,
-    ) -> Result<(), AdapterError> {
+    ) -> Result<crate::DeliverySemantics, AdapterError> {
         self.focused
             .store(true, std::sync::atomic::Ordering::SeqCst);
-        Ok(())
+        Ok(crate::DeliverySemantics::delivered_unverified())
     }
 }
 

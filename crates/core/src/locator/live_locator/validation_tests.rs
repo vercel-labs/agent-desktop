@@ -144,7 +144,7 @@ fn element_root_derives_surface_with_relative_depth_budgets() {
             value: None,
             description: None,
             native_id: None,
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
         },
         geometry: crate::RefGeometry {
             bounds_space: None,
@@ -167,6 +167,7 @@ fn element_root_derives_surface_with_relative_depth_budgets() {
             root_ref: None,
             path_is_absolute: true,
             path: smallvec::smallvec![3, 4, 5],
+            chain: Default::default(),
         },
     };
     let handle = crate::NativeHandle::null();
@@ -183,7 +184,6 @@ fn element_root_derives_surface_with_relative_depth_budgets() {
     );
     let hydration = ObservationRequest::selected_hydration(
         &LocatorQuery::default(),
-        &request(12),
         root,
         crate::Deadline::standard().unwrap(),
     );

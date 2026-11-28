@@ -1,8 +1,8 @@
-use agent_desktop_core::{Action, DeliverySemantics, ErrorCode};
+use agent_desktop_core::{
+    Action, DeliveryObservation, DeliveryOutcome, DeliverySemantics, ErrorCode,
+};
 
 use super::*;
-use crate::actions::chain::chain_delivery_outcome::DeliveryOutcome;
-use crate::actions::chain::chain_observed::Observed;
 use crate::actions::write::mutation::WriteReply;
 
 fn facts(
@@ -86,7 +86,7 @@ fn expanding_a_collapsed_node_writes_once_and_matches() {
     );
     assert_eq!(
         outcome.expect("delivered"),
-        DeliveryOutcome::Delivered(Observed::Matched)
+        DeliveryOutcome::Delivered(DeliveryObservation::Verified)
     );
     assert_eq!(writes, 1);
 }
@@ -96,6 +96,6 @@ fn collapsing_that_leaves_the_node_expanded_is_unchanged() {
     let outcome = drive_to(false, Flag::On, || Ok(WriteReply::Done), || Flag::On);
     assert_eq!(
         outcome.expect("delivered"),
-        DeliveryOutcome::Delivered(Observed::Unchanged)
+        DeliveryOutcome::Delivered(DeliveryObservation::Unverified)
     );
 }

@@ -9,8 +9,8 @@
 
 use agent_desktop_core::{AdapterError, Deadline, DeliverySemantics, Direction, ErrorCode, Rect};
 
-use crate::actions::chain::DeliveryOutcome;
 use crate::tree::element::UIAElement;
+use agent_desktop_core::DeliveryOutcome;
 
 pub(crate) const MAX_ANCESTOR_SCROLLS: usize = 10;
 pub(crate) const LADDER_SCROLL_LABEL: &str = "ScrollPattern";
@@ -112,7 +112,8 @@ pub(crate) fn direction_for_visibility(target: Rect, viewport: Rect) -> Option<D
 pub(crate) fn direction_after_visibility_miss(
     sample: &VisibilitySample,
 ) -> Result<Direction, AdapterError> {
-    let (Some(bounds), Some(viewport)) = (sample.bounds, sample.viewport) else {
+    let position = sample.bounds.filter(crate::tree::properties::rect_has_area);
+    let (Some(bounds), Some(viewport)) = (position, sample.viewport) else {
         return Err(AdapterError::new(
             ErrorCode::ActionFailed,
             "Could not determine ancestor scroll direction without target and viewport bounds",
@@ -147,9 +148,9 @@ pub(crate) fn ladder_judged_for(
             next_direction().map_err(|error| budget_disposition(scrolled, error))?
         else {
             return Ok(if attempt == 0 {
-                DeliveryOutcome::SatisfiedNoDelivery
+                DeliveryOutcome::Satisfied
             } else {
-                DeliveryOutcome::DeliveredVerified
+                DeliveryOutcome::Delivered(agent_desktop_core::DeliveryObservation::Verified)
             });
         };
         scroll_once(&direction).map_err(|error| budget_disposition(scrolled, error))?;
@@ -263,7 +264,7 @@ mod imp {
         let offscreen = match read_one(element, TreeProperty::IsOffscreen) {
             PropertyOutcome::Known(PropertyValue::Flag(flag)) => Some(flag),
             PropertyOutcome::Absent => None,
-            PropertyOutcome::Unknown => {
+            PropertyOutcome::Unknown | PropertyOutcome::Oversize(_) => {
                 return Err(AdapterError::new(
                     ErrorCode::ActionFailed,
                     format!("Could not re-read IsOffscreen {context}"),

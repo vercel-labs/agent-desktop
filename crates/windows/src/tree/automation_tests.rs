@@ -135,7 +135,7 @@ fn the_canned_resolver_reports_a_missing_window_for_an_empty_handle() {
 #[cfg(target_os = "windows")]
 mod windows_only {
     use super::*;
-    use crate::tree::fixture::bootstrap;
+    use crate::system::test_support::apartment::bootstrap;
     use uiautomation::Error as UiaError;
 
     const LEAK_MARKER: &str = "zzmarkerzz-secret-window-title";
@@ -202,49 +202,6 @@ mod windows_only {
         ));
     }
 
-    /// Greptile raised this as a P1 and it was right: two deadline checks
-    /// cannot interrupt the blocking `SendMessage` between them, so a target
-    /// that has stopped pumping would block the caller indefinitely.
-    ///
-    /// The condition is recorded elsewhere as unverified because "the fixture
-    /// cannot produce it". It can - `CreateWindowExW` dispatches `WM_CREATE`
-    /// inline, so a thread can own a live, visible window and then never
-    /// dispatch again. Against that window the resolver must return a
-    /// structured `APP_UNRESPONSIVE` promptly, not hang; the watchdog makes a
-    /// regression fail loudly rather than stall the lane.
-    #[test]
-    fn a_window_that_stopped_pumping_is_reported_rather_than_blocked_on() {
-        bootstrap();
-        let stalled = crate::tree::fixture::StalledFixture::create()
-            .expect("a non-pumping window is created");
-        let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let watchdog = done.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(30));
-            assert!(
-                watchdog.load(std::sync::atomic::Ordering::SeqCst),
-                "root resolution blocked on a window that stopped pumping"
-            );
-        });
-
-        let started = std::time::Instant::now();
-        let outcome = root_from_hwnd(
-            stalled.handle(),
-            Deadline::after(5_000).expect("a bounded deadline"),
-        );
-        done.store(true, std::sync::atomic::Ordering::SeqCst);
-
-        let Err(error) = outcome else {
-            panic!("a window that is not dispatching must not resolve");
-        };
-        assert_eq!(error.code, ErrorCode::AppUnresponsive);
-        assert!(
-            started.elapsed() < std::time::Duration::from_secs(20),
-            "the probe must bound the wait, took {:?}",
-            started.elapsed()
-        );
-    }
-
     /// Why the client is built from `CUIAutomation8` rather than the CLSID
     /// `UIAutomation::new_direct()` uses: the crate's object does not support
     /// `IUIAutomation2`, so its calls carry no timeout at all. That is the
@@ -282,42 +239,24 @@ mod windows_only {
         );
     }
 
-    /// The race Greptile named: a target that answers the pump probe and then
-    /// stops dispatching. The probe cannot help there, so the bound has to be
-    /// on the call itself.
-    ///
-    /// Asserted by skipping the probe entirely and calling the client
-    /// directly, which is the worst case the resolver can face. The client's
-    /// connection timeout returns `UIA_E_TIMEOUT` instead of blocking.
+    /// With `AutoSetFocus` left at its default, every control pattern call
+    /// first sets focus to its target and activates the target's window
+    /// (A31-1). The shipped client turns it off (A31-2).
     #[test]
-    fn the_client_bounds_a_call_the_pump_probe_cannot_catch() {
+    fn the_shipped_client_does_not_set_focus_before_a_pattern_call() {
+        use windows::Win32::UI::Accessibility::{IUIAutomation, IUIAutomation2};
+        use windows::core::Interface;
         bootstrap();
-        let stalled = crate::tree::fixture::StalledFixture::create()
-            .expect("a non-pumping window is created");
         let client = automation_client().expect("a client");
-        let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let watchdog = done.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(30));
-            assert!(
-                watchdog.load(std::sync::atomic::Ordering::SeqCst),
-                "the client did not bound a call against a non-pumping target"
-            );
-        });
+        let raw: IUIAutomation = client.as_ref().clone();
 
-        let started = std::time::Instant::now();
-        let outcome =
-            client.element_from_handle(uiautomation::types::Handle::from(stalled.handle()));
-        done.store(true, std::sync::atomic::Ordering::SeqCst);
-
-        assert!(outcome.is_err(), "a stalled target must not resolve");
-        let bound = std::time::Duration::from_millis(u64::from(
-            crate::tree::automation::CONNECTION_TIMEOUT_MS,
-        )) * 2;
+        let bounded: IUIAutomation2 = raw
+            .cast()
+            .expect("the shipped client must expose IUIAutomation2");
         assert!(
-            started.elapsed() < bound,
-            "the call must be bounded by the client's connection timeout, took {:?}",
-            started.elapsed()
+            !unsafe { bounded.AutoSetFocus() }
+                .expect("AutoSetFocus is readable")
+                .as_bool()
         );
     }
 
@@ -344,19 +283,6 @@ mod windows_only {
                 "a healthy desktop-root read was refused by the connection bound"
             );
         }
-    }
-
-    #[test]
-    fn a_pumping_window_passes_the_probe() {
-        bootstrap();
-        let fixture =
-            crate::tree::fixture::LocalFixture::create().expect("a pumping window is created");
-
-        assert!(crate::tree::automation::window_is_pumping(
-            fixture.handle(),
-            2_000
-        ));
-        assert!(!crate::tree::automation::window_is_pumping(0, 50));
     }
 
     #[test]

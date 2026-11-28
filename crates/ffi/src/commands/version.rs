@@ -1,4 +1,3 @@
-use crate::commands::app_error_to_adapter;
 use crate::commands::envelope_out::write_command_envelope;
 use crate::error::{AdResult, set_last_error};
 use crate::ffi_try::trap_panic;
@@ -24,7 +23,7 @@ pub unsafe extern "C" fn ad_version(out: *mut *mut c_char) -> AdResult {
         let context = match agent_desktop_core::context::CommandContext::new(None, None, false) {
             Ok(ctx) => ctx,
             Err(app_err) => {
-                let ae = app_error_to_adapter(app_err);
+                let ae = agent_desktop_core::AppError::into_adapter_error(app_err);
                 set_last_error(&ae);
                 return crate::error::last_error_code();
             }

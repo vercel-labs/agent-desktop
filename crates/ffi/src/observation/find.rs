@@ -6,7 +6,7 @@ use crate::types::{AdExactWindowInfo, AdFindQuery, AdFindSelectionKind, AdNative
 use agent_desktop_core::{
     AdapterError, ContainmentPredicate, ErrorCode, IdentityPredicate, LocatorMaterialization,
     LocatorQuery, LocatorResolveRequest, LocatorSelection, ObservationRoot, StatePredicate,
-    resolve_query,
+    incomplete_locator_error, resolve_query,
 };
 use std::collections::HashSet;
 
@@ -71,7 +71,7 @@ unsafe fn find_in_window(
     ) {
         Ok(resolution) => resolution,
         Err(e) => {
-            set_last_error(&crate::commands::app_error_to_adapter(e));
+            set_last_error(&agent_desktop_core::AppError::into_adapter_error(e));
             return crate::error::last_error_code();
         }
     };
@@ -79,20 +79,13 @@ unsafe fn find_in_window(
         match agent_desktop_core::require_unique(resolution) {
             Ok(selected) => selected,
             Err(error) => {
-                set_last_error(&crate::commands::app_error_to_adapter(error));
+                set_last_error(&agent_desktop_core::AppError::into_adapter_error(error));
                 return crate::error::last_error_code();
             }
         }
     } else {
         if !resolution.meta.selection_complete {
-            set_last_error(
-                &AdapterError::timeout("Locator traversal could not prove the selected result")
-                    .with_details(serde_json::json!({
-                        "kind": "locator_incomplete",
-                        "observed_matches": resolution.meta.total_matches,
-                        "query_stats": resolution.stats,
-                    })),
-            );
+            set_last_error(&incomplete_locator_error(&resolution));
             return AdResult::ErrTimeout;
         }
         let Some(selected) = resolution.matches.into_iter().next() else {
@@ -113,20 +106,8 @@ unsafe fn find_in_window(
         return AdResult::ErrInvalidArgs;
     };
     let process = agent_desktop_core::ProcessIdentity::new(entry.process.pid, process_instance);
-    match adapter
-        .inner
-        .resolve_locator_anchor(&entry, request.deadline)
-    {
+    match landed_handle(adapter.inner.as_ref(), &entry, request.deadline) {
         Ok(handle) => {
-            if let Err(error) = agent_desktop_core::refs::resolve_saved_ref::confirm_landed_element(
-                adapter.inner.as_ref(),
-                &entry,
-                &handle,
-                request.deadline,
-            ) {
-                set_last_error(&error);
-                return crate::error::last_error_code();
-            }
             match crate::actions::native_handle::into_ffi_handle(adapter_id, handle, process) {
                 Ok(token) => {
                     unsafe { (*out_handle).ptr = token };
@@ -353,3 +334,20 @@ mod tests {
 #[cfg(test)]
 #[path = "find_abi_tests.rs"]
 mod abi_tests;
+
+fn landed_handle(
+    adapter: &dyn agent_desktop_core::PlatformAdapter,
+    entry: &agent_desktop_core::RefEntry,
+    deadline: agent_desktop_core::Deadline,
+) -> Result<agent_desktop_core::NativeHandle, AdapterError> {
+    if !entry.scope.chain.is_empty() {
+        return agent_desktop_core::refs::resolve_saved_ref::resolve_saved_ref(
+            adapter, entry, deadline, None,
+        );
+    }
+    let handle = adapter.resolve_locator_anchor(entry, None, deadline)?;
+    agent_desktop_core::refs::resolve_saved_ref::confirm_landed_element(
+        adapter, entry, &handle, deadline,
+    )?;
+    Ok(handle)
+}

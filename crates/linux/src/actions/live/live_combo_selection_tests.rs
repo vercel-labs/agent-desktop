@@ -2,7 +2,7 @@ use agent_desktop_core::{Action, ActionRequest, DeliverySemantics, ErrorCode};
 
 use super::live_bench::Bench;
 use super::live_bench_env::qt_environment;
-use crate::tree::live::live_launch::{Launched, nonce};
+use crate::tree::test_support::live_launch::{Launched, nonce};
 
 const APP: &str = r#"
 import json, pathlib, sys

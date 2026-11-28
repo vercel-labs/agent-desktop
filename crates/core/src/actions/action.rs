@@ -28,7 +28,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub fn headed_requirement(&self) -> crate::HeadedRequirement {
+    pub fn headed_focus(&self) -> crate::HeadedFocus {
         match self {
             Self::Click
             | Self::DoubleClick
@@ -36,7 +36,7 @@ impl Action {
             | Self::TripleClick
             | Self::Scroll(_, _)
             | Self::Hover
-            | Self::Drag(_) => crate::HeadedRequirement::FocusedWindowAndCursor,
+            | Self::Drag(_) => crate::HeadedFocus::WindowAndCursor,
             Self::SetValue(_)
             | Self::SetFocus
             | Self::Expand
@@ -50,8 +50,25 @@ impl Action {
             | Self::KeyDown(_)
             | Self::KeyUp(_)
             | Self::TypeText(_)
-            | Self::Clear => crate::HeadedRequirement::FocusedWindow,
+            | Self::Clear => crate::HeadedFocus::Window,
         }
+    }
+
+    /// Whether the action can make the application open a window, such as a
+    /// dialog, a sheet or a prompt, that takes the focus.
+    pub fn can_open_window(&self) -> bool {
+        matches!(
+            self,
+            Self::Click
+                | Self::DoubleClick
+                | Self::RightClick
+                | Self::TripleClick
+                | Self::Select(_)
+                | Self::Toggle
+                | Self::Check
+                | Self::Uncheck
+                | Self::PressKey(_)
+        )
     }
 
     pub fn name(&self) -> &'static str {
@@ -94,6 +111,19 @@ impl Action {
 
     pub fn requires_cursor_policy(&self) -> bool {
         matches!(self, Self::Hover | Self::Drag(_))
+    }
+
+    /// Whether the action's effect lands outside the target's own state, so an
+    /// effect witness is read around it.
+    pub fn witnesses_effect(&self) -> bool {
+        matches!(
+            self,
+            Self::Click
+                | Self::DoubleClick
+                | Self::RightClick
+                | Self::TripleClick
+                | Self::Select(_)
+        )
     }
 
     pub fn requires_hit_test(&self) -> bool {
@@ -158,15 +188,6 @@ impl Action {
 
     pub fn may_use_focus_fallback(&self) -> bool {
         matches!(self, Self::TypeText(_) | Self::PressKey(_))
-    }
-
-    /// Returns the command's minimum interaction policy.
-    pub fn base_interaction_policy(&self) -> crate::actions::interaction_policy::InteractionPolicy {
-        if matches!(self, Self::PressKey(_)) {
-            crate::actions::interaction_policy::InteractionPolicy::focus_fallback()
-        } else {
-            crate::actions::interaction_policy::InteractionPolicy::headless()
-        }
     }
 }
 

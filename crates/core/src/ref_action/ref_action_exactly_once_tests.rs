@@ -60,9 +60,6 @@ impl ObservationOps for DispatchGuardAdapter {
         if self.mode == "resolve_timeout" {
             return Err(AdapterError::timeout("strict resolution timed out"));
         }
-        if self.mode == "resolve_timeout_under_lease" && self.lease_held.load(Ordering::SeqCst) {
-            return Err(AdapterError::timeout("strict re-resolution timed out"));
-        }
         if self.mode == "resolve_uncertain" {
             return Err(AdapterError::timeout("strict resolution was uncertain")
                 .with_disposition(crate::DeliverySemantics::uncertain()));
@@ -126,13 +123,33 @@ impl ObservationOps for DispatchGuardAdapter {
     ) -> Result<crate::adapter::hit_test::HitTestResult, AdapterError> {
         Ok(crate::adapter::hit_test::HitTestResult::ReachesTarget)
     }
-    crate::adapter::saved_ref_scope!("button", Some("Run"));
+    crate::adapter::saved_ref_scope!(@inventory);
+    crate::adapter::saved_ref_anchor!();
+
+    fn observe_tree(
+        &self,
+        root: crate::locator::live_locator::ObservationRoot<'_>,
+        _request: &crate::locator::live_locator::ObservationRequest,
+    ) -> Result<crate::locator::live_locator::ObservedTree, AdapterError> {
+        let confirming = matches!(
+            root,
+            crate::locator::live_locator::ObservationRoot::Element { .. }
+        );
+        if self.mode == "confirm_timeout_under_lease"
+            && confirming
+            && self.lease_held.load(Ordering::SeqCst)
+        {
+            return Err(AdapterError::timeout("element confirmation timed out"));
+        }
+        crate::adapter::saved_ref_tree(root, "button", Some("Run"))
+    }
 }
 
 impl ActionOps for DispatchGuardAdapter {
     fn scroll_into_view(
         &self,
         _handle: &NativeHandle,
+        _policy: crate::InteractionPolicy,
         _lease: &crate::InteractionLease,
     ) -> Result<(), AdapterError> {
         self.scroll_calls.fetch_add(1, Ordering::SeqCst);
@@ -207,7 +224,7 @@ fn entry() -> RefEntry {
             value: None,
             description: None,
             native_id: None,
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
         },
         geometry: crate::RefGeometry {
             bounds_space: None,
@@ -230,6 +247,7 @@ fn entry() -> RefEntry {
             root_ref: None,
             path_is_absolute: false,
             path: smallvec::SmallVec::new(),
+            chain: Default::default(),
         },
     }
 }
@@ -243,15 +261,14 @@ fn execute(adapter: &DispatchGuardAdapter, timeout_ms: u64) -> Result<ActionResu
             context: &CommandContext::default(),
         },
         ActionRequest::headless(Action::Click).with_timeout_ms(Some(timeout_ms)),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
 }
 
 #[test]
-fn failed_preflight_after_scroll_reports_nothing_delivered_and_the_moved_view() {
+fn failed_preflight_after_scroll_names_the_moved_view_and_is_not_not_delivered() {
     let adapter = DispatchGuardAdapter::new("hidden_after_scroll", 0);
     let error = execute(&adapter, 500).unwrap_err();
-    assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());
+    assert_eq!(error.disposition, crate::DeliverySemantics::uncertain());
     assert_eq!(
         error.details.unwrap()["preparatory_scroll"],
         "may_have_changed_view"
@@ -279,8 +296,8 @@ fn poll_resolution_timeout_is_retry_safe_before_dispatch() {
 }
 
 #[test]
-fn under_lease_resolution_timeout_is_retry_safe_before_dispatch() {
-    let adapter = DispatchGuardAdapter::new("resolve_timeout_under_lease", 0);
+fn under_lease_confirmation_timeout_is_retry_safe_before_dispatch() {
+    let adapter = DispatchGuardAdapter::new("confirm_timeout_under_lease", 0);
     let err = execute(&adapter, 500).unwrap_err();
 
     assert_eq!(err.code, ErrorCode::Timeout);

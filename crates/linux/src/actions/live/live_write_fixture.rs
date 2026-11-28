@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use agent_desktop_core::Deadline;
 
-use crate::tree::live::live_launch::{Launched, nonce};
+use crate::tree::test_support::live_launch::{Launched, nonce};
 
 const WIDGETS_GTK3: &str = r#"
 window = Gtk.Window(title="adw-" + sys.argv[1])

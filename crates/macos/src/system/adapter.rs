@@ -1,5 +1,5 @@
 use agent_desktop_core::{
-    ActionResult, AdapterError, Deadline, DismissAllNotificationsRequest,
+    ActionResult, AdapterError, Deadline, DeliverySemantics, DismissAllNotificationsRequest,
     DismissNotificationRequest, ImageBuffer, InteractionLease, NotificationActionRequest,
     NotificationFilter, NotificationInfo, OperationReport, PermissionReport, ProcessIdentity,
     ProviderScriptOutput, ProviderScriptRequest, ScreenshotTarget, SignalBaseline, SignalFilter,
@@ -80,8 +80,13 @@ impl SystemOps for MacOSAdapter {
         crate::system::renderer_activation::activate(process, lease.deadline())
     }
 
-    fn focus_window(&self, win: &WindowInfo, lease: &InteractionLease) -> Result<(), AdapterError> {
+    fn focus_window(
+        &self,
+        win: &WindowInfo,
+        lease: &InteractionLease,
+    ) -> Result<DeliverySemantics, AdapterError> {
         crate::system::focus::focus_window_impl(win, lease.deadline())
+            .map(|()| DeliverySemantics::delivered_unverified())
     }
 
     fn resolve_ref_focus_window(
@@ -100,11 +105,34 @@ impl SystemOps for MacOSAdapter {
         crate::system::focus::focus_process(&process, lease.deadline())
     }
 
+    fn read_front(
+        &self,
+        deadline: Deadline,
+    ) -> Result<agent_desktop_core::FrontView, AdapterError> {
+        crate::system::window::window_front::read_front(deadline)
+    }
+
+    fn front_process(&self, pid: u32) -> Option<agent_desktop_core::FrontProcess> {
+        crate::system::window::window_front::front_process(pid)
+    }
+
+    fn spawned_descendants(&self, root: u32, since_ms: u64) -> Option<Vec<u32>> {
+        crate::system::window::window_front::spawned_descendants(root, since_ms)
+    }
+
+    fn give_back(
+        &self,
+        window: &agent_desktop_core::FrontWindow,
+        _lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        crate::system::window::window_front::give_back(window)
+    }
+
     fn launch_app(
         &self,
         id: &str,
         options: &agent_desktop_core::system::launch_options::LaunchOptions,
-        lease: &InteractionLease,
+        lease: InteractionLease,
     ) -> Result<agent_desktop_core::system::launch_result::LaunchResult, AdapterError> {
         crate::system::launch::launch_app_impl(id, options, lease.deadline())
     }
@@ -139,17 +167,15 @@ impl SystemOps for MacOSAdapter {
 
     /// The Dock and the menu bar extras are always presented, so opening one
     /// returns it without raising anything or moving the foreground, which is
-    /// why no policy floor applies.
+    /// why no policy floor applies and every answer is `Present`.
     fn open_system_surface(
         &self,
         surface: SnapshotSurface,
         _policy: agent_desktop_core::InteractionPolicy,
         lease: &InteractionLease,
-    ) -> Result<WindowInfo, AdapterError> {
-        crate::tree::shell_surface::resolve_surface(
-            surface,
-            crate::tree::locator_deadline::from_operation(lease.deadline())?,
-        )
+    ) -> Result<agent_desktop_core::SurfaceOpening, AdapterError> {
+        crate::tree::shell_surface::resolve_surface(surface, lease.deadline())
+            .map(agent_desktop_core::SurfaceOpening::Present)
     }
 
     fn capture_signal_baseline(
@@ -157,10 +183,7 @@ impl SystemOps for MacOSAdapter {
         filter: &SignalFilter,
         deadline: Deadline,
     ) -> Result<SignalBaseline, AdapterError> {
-        crate::system::signals::capture_signal_baseline_impl(
-            filter,
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
+        crate::system::signals::capture_signal_baseline_impl(filter, deadline)
     }
 
     fn close_app(
@@ -168,6 +191,7 @@ impl SystemOps for MacOSAdapter {
         app: &agent_desktop_core::AppInfo,
         force: bool,
         lease: &InteractionLease,
+        _policy: agent_desktop_core::InteractionPolicy,
     ) -> Result<OperationReport, AdapterError> {
         let dispatched = crate::system::app::app_ops::close_app_impl(app, force, lease.deadline())
             .map(|outcome| outcome == CloseOutcome::Exited);
@@ -217,9 +241,7 @@ impl SystemOps for MacOSAdapter {
     }
 
     fn focused_window(&self, deadline: Deadline) -> Result<Option<WindowInfo>, AdapterError> {
-        crate::system::window::window_inventory::focused_window_until(
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
+        crate::system::window::window_inventory::focused_window_until(deadline)
     }
 
     fn press_key_for_app(
@@ -230,6 +252,16 @@ impl SystemOps for MacOSAdapter {
         lease: &InteractionLease,
     ) -> Result<ActionResult, AdapterError> {
         crate::system::key_dispatch::press_for_app_impl(process, combo, policy, lease.deadline())
+    }
+
+    fn close_transient_surface(
+        &self,
+        process: &ProcessIdentity,
+        window: Option<&WindowInfo>,
+        policy: agent_desktop_core::InteractionPolicy,
+        lease: &InteractionLease,
+    ) -> Result<Option<ActionResult>, AdapterError> {
+        crate::system::escape_popup::close_transient_surface(process, window, policy, lease)
     }
 
     fn wait_for_menu(
@@ -246,22 +278,17 @@ impl SystemOps for MacOSAdapter {
         win: &WindowInfo,
         deadline: Deadline,
     ) -> Result<WindowInfo, AdapterError> {
-        crate::system::window::window_resolve::resolve_window_strict(
-            win,
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
+        crate::system::window::window_resolve::resolve_window_strict(win, deadline)
     }
 
     fn window_op(
         &self,
         win: &WindowInfo,
         op: WindowOp,
+        policy: agent_desktop_core::InteractionPolicy,
         lease: &InteractionLease,
     ) -> Result<OperationReport, AdapterError> {
-        let readback = crate::system::window::window_report::window_readback(&op);
-        let dispatched =
-            crate::system::window::window_ops::execute(win, op.clone(), lease.deadline());
-        OperationReport::from_window_dispatch(win, &op, readback, dispatched)
+        crate::system::window::window_frame::window_op(win, op, policy, lease.deadline())
     }
 
     fn list_notifications(
@@ -297,7 +324,7 @@ impl SystemOps for MacOSAdapter {
         &self,
         request: DismissAllNotificationsRequest<'_>,
         _lease: &InteractionLease,
-    ) -> Result<(Vec<NotificationInfo>, Vec<String>), AdapterError> {
+    ) -> Result<(Vec<NotificationInfo>, Vec<AdapterError>), AdapterError> {
         crate::notifications::actions::dismiss_all(
             request.app_filter,
             request.policy,

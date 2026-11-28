@@ -21,6 +21,7 @@ pub enum TreeProperty {
     FullDescription,
     LabeledBy,
     Value,
+    RangeValue,
     LegacyValue,
     BoundingRectangle,
     IsPassword,
@@ -52,7 +53,10 @@ pub enum TreeProperty {
     ScrollAvailable,
     ScrollItemAvailable,
     WindowAvailable,
+    GridAvailable,
     GridItemAvailable,
+    GridRowCount,
+    GridColumnCount,
     TableItemAvailable,
     LegacyAvailable,
     ProviderDescription,
@@ -75,11 +79,12 @@ impl TreeProperty {
     /// it, because the text crosses an element boundary before this element's
     /// gate runs; that is sufficient, because the text belongs to the label
     /// target, not to this element.
-    pub const VALUE_BEARING: [TreeProperty; 6] = [
+    pub const VALUE_BEARING: [TreeProperty; 7] = [
         TreeProperty::Name,
         TreeProperty::HelpText,
         TreeProperty::FullDescription,
         TreeProperty::Value,
+        TreeProperty::RangeValue,
         TreeProperty::LegacyValue,
         TreeProperty::LegacyDefaultAction,
     ];
@@ -132,7 +137,7 @@ impl TreeProperty {
     /// nothing consumes it on the pinned stack (A16-6 measured it carrying no
     /// `class` token, so `dom_classes` ships schema-only), and the standing
     /// rule is that nothing unread is paid for.
-    pub const WALK_SET: [TreeProperty; 43] = [
+    pub const WALK_SET: [TreeProperty; 47] = [
         TreeProperty::Name,
         TreeProperty::AutomationId,
         TreeProperty::ClassName,
@@ -140,6 +145,7 @@ impl TreeProperty {
         TreeProperty::FullDescription,
         TreeProperty::LabeledBy,
         TreeProperty::Value,
+        TreeProperty::RangeValue,
         TreeProperty::LegacyValue,
         TreeProperty::BoundingRectangle,
         TreeProperty::IsPassword,
@@ -171,7 +177,10 @@ impl TreeProperty {
         TreeProperty::ScrollAvailable,
         TreeProperty::ScrollItemAvailable,
         TreeProperty::WindowAvailable,
+        TreeProperty::GridAvailable,
         TreeProperty::GridItemAvailable,
+        TreeProperty::GridRowCount,
+        TreeProperty::GridColumnCount,
         TreeProperty::TableItemAvailable,
         TreeProperty::LegacyAvailable,
         TreeProperty::LocalizedControlType,
@@ -204,6 +213,7 @@ impl TreeProperty {
             TreeProperty::AutomationId
             | TreeProperty::ClassName
             | TreeProperty::LabeledBy
+            | TreeProperty::RangeValue
             | TreeProperty::BoundingRectangle
             | TreeProperty::IsPassword
             | TreeProperty::IsOffscreen
@@ -233,7 +243,10 @@ impl TreeProperty {
             | TreeProperty::ScrollAvailable
             | TreeProperty::ScrollItemAvailable
             | TreeProperty::WindowAvailable
+            | TreeProperty::GridAvailable
             | TreeProperty::GridItemAvailable
+            | TreeProperty::GridRowCount
+            | TreeProperty::GridColumnCount
             | TreeProperty::TableItemAvailable
             | TreeProperty::LegacyAvailable
             | TreeProperty::ProviderDescription
@@ -272,9 +285,14 @@ impl TreeProperty {
             TreeProperty::ExpandCollapseState => Some(TreeProperty::ExpandCollapseAvailable),
             TreeProperty::SelectionItemIsSelected => Some(TreeProperty::SelectionItemAvailable),
             TreeProperty::ValueIsReadOnly => Some(TreeProperty::ValueAvailable),
-            TreeProperty::RangeValueIsReadOnly => Some(TreeProperty::RangeValueAvailable),
+            TreeProperty::RangeValue | TreeProperty::RangeValueIsReadOnly => {
+                Some(TreeProperty::RangeValueAvailable)
+            }
             TreeProperty::SelectionCanSelectMultiple => Some(TreeProperty::SelectionAvailable),
             TreeProperty::WindowIsModal => Some(TreeProperty::WindowAvailable),
+            TreeProperty::GridRowCount | TreeProperty::GridColumnCount => {
+                Some(TreeProperty::GridAvailable)
+            }
             _ => None,
         }
     }
@@ -289,6 +307,7 @@ impl TreeProperty {
             Self::FullDescription => "FullDescription",
             Self::LabeledBy => "LabeledBy",
             Self::Value => "Value",
+            Self::RangeValue => "RangeValue",
             Self::LegacyValue => "LegacyIAccessibleValue",
             Self::BoundingRectangle => "BoundingRectangle",
             Self::IsPassword => "IsPassword",
@@ -320,7 +339,10 @@ impl TreeProperty {
             Self::ScrollAvailable => "IsScrollPatternAvailable",
             Self::ScrollItemAvailable => "IsScrollItemPatternAvailable",
             Self::WindowAvailable => "IsWindowPatternAvailable",
+            Self::GridAvailable => "IsGridPatternAvailable",
             Self::GridItemAvailable => "IsGridItemPatternAvailable",
+            Self::GridRowCount => "GridRowCount",
+            Self::GridColumnCount => "GridColumnCount",
             Self::TableItemAvailable => "IsTableItemPatternAvailable",
             Self::LegacyAvailable => "IsLegacyIAccessiblePatternAvailable",
             Self::ProviderDescription => "ProviderDescription",

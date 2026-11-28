@@ -26,7 +26,7 @@ fn entry() -> RefEntry {
             value: None,
             description: None,
             native_id: None,
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
         },
         geometry: crate::RefGeometry {
             bounds_space: None,
@@ -49,6 +49,7 @@ fn entry() -> RefEntry {
             root_ref: None,
             path_is_absolute: false,
             path: smallvec::SmallVec::new(),
+            chain: Default::default(),
         },
     }
 }
@@ -59,9 +60,15 @@ struct UnresponsiveProcessAdapter {
 }
 
 impl ObservationOps for UnresponsiveProcessAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        self.inventory_calls.fetch_add(1, Ordering::SeqCst);
-        Ok(vec![app("Original")])
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer({
+            self.inventory_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![app("Original")])
+        }?))
     }
 
     fn resolve_element_strict(
@@ -76,6 +83,7 @@ impl ObservationOps for UnresponsiveProcessAdapter {
 
 fn app(name: &str) -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: name.into(),
         pid: crate::ProcessId::new(1),
         bundle_id: None,
@@ -125,7 +133,6 @@ fn terminal_stale_ref_against_unresponsive_process_surfaces_app_unresponsive() {
             context: &CommandContext::default(),
         },
         ActionRequest::headless(Action::Click),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .unwrap_err();
 
@@ -154,9 +161,15 @@ struct RecycledPidAdapter {
 }
 
 impl ObservationOps for RecycledPidAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        self.inventory_calls.fetch_add(1, Ordering::SeqCst);
-        Ok(vec![app("Replacement")])
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer({
+            self.inventory_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![app("Replacement")])
+        }?))
     }
 
     fn resolve_element_strict(
@@ -200,7 +213,6 @@ fn recycled_pid_never_upgrades_stale_ref_to_app_unresponsive() {
             context: &CommandContext::default(),
         },
         ActionRequest::headless(Action::Click),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .unwrap_err();
 
@@ -283,7 +295,6 @@ fn terminal_stale_ref_preserves_exited_and_crashed_process_details() {
                 context: &CommandContext::default(),
             },
             ActionRequest::headless(Action::Click),
-            crate::ref_action::ref_action_single::dispatch_resolved,
         )
         .unwrap_err();
 

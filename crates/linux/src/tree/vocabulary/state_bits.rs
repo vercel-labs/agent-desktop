@@ -15,6 +15,7 @@ pub(crate) const SELECTED: u32 = 23;
 pub(crate) const SELECTABLE: u32 = 22;
 pub(crate) const SENSITIVE: u32 = 24;
 pub(crate) const SHOWING: u32 = 25;
+pub(crate) const TRANSIENT: u32 = 28;
 pub(crate) const HORIZONTAL: u32 = 14;
 pub(crate) const VERTICAL: u32 = 29;
 pub(crate) const VISIBLE: u32 = 30;

@@ -6,6 +6,7 @@ use crate::system::x11::{FrameFacts, X11Client, X11State};
 
 fn window(title: &str, focused: bool) -> ListedWindow {
     ListedWindow {
+        alert: false,
         app: 0,
         info: WindowInfo {
             id: format!("w-{title}"),
@@ -38,7 +39,7 @@ fn client(id: u32, title: &str) -> X11Client {
     X11Client {
         id,
         pid: Some(7),
-        title: title.to_owned(),
+        title: title.into(),
         extents: None,
         bounds: None,
         hidden: false,

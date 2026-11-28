@@ -1,4 +1,4 @@
-use agent_desktop_core::{DeliverySemantics, ErrorCode, RetryDisposition};
+use agent_desktop_core::{DeliverySemantics, ErrorCode, InteractionPolicy, RetryDisposition};
 
 use super::super::Request;
 use super::super::fake::{Fake, dialog, window};
@@ -13,6 +13,7 @@ fn request() -> Request<'static> {
         pid: 42,
         instance: Some("t"),
         force: false,
+        policy: InteractionPolicy::headless(),
     }
 }
 
@@ -164,105 +165,34 @@ fn a_windowless_process_that_exited_on_a_wayland_session_is_ok() {
 }
 
 #[test]
-fn an_open_dialog_is_reported_and_no_close_request_is_sent_to_anything() {
+fn a_headless_graceful_close_on_wayland_with_xwayland_windows_fails_closed() {
     let mut world = Fake::new(Liveness::Alive);
-    world.windows = ControlRead::Ready(vec![window(1), dialog(2)]);
+    world.windows = ControlRead::Ready(vec![window(1)]);
+    world.wayland = true;
     world.exits_on_close = true;
-    let error = close(&world, &request()).expect_err("a prompt is open");
-    assert_eq!(error.code, ErrorCode::ActionFailed);
+
+    let error = close(&world, &request()).expect_err("unmonitored Wayland focus must fail closed");
+
+    assert_eq!(error.code, ErrorCode::PolicyDenied);
     assert_eq!(error.disposition, DeliverySemantics::not_delivered());
-    let details = error.details.expect("details");
-    assert_eq!(details["cause"], "dialog_pending");
-    assert_eq!(details["dialogs"], 1);
-    assert_eq!(details["windows_remaining"], 1);
-    assert_eq!(details["dialog"], "dialog 2");
     assert_eq!(world.count("close"), 0);
+    assert_no_signal(&world);
 }
 
 #[test]
-fn a_dialog_that_opens_after_the_request_ends_the_wait_at_once_with_its_title() {
+fn a_headed_graceful_close_on_wayland_with_xwayland_windows_dispatches() {
     let mut world = Fake::new(Liveness::Alive);
-    world.dialog_after = Some(std::time::Duration::from_millis(100));
-    let error = close(&world, &request()).expect_err("the save prompt appeared");
-    assert_eq!(error.code, ErrorCode::ActionFailed);
-    assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
-    let details = error.details.expect("details");
-    assert_eq!(details["cause"], "dialog_pending");
-    assert_eq!(details["dialog"], "dialog 99");
-    assert_eq!(world.count("close"), 1);
-    assert!(
-        world.clock.get() < std::time::Duration::from_secs(1),
-        "the wait did not run to its budget: {:?}",
-        world.clock.get()
-    );
-}
-
-#[test]
-fn a_dialog_drawn_inside_a_window_is_reported_and_no_close_request_is_sent() {
-    let mut world = Fake::new(Liveness::Alive);
-    world.nested_after = Some(std::time::Duration::ZERO);
+    world.windows = ControlRead::Ready(vec![window(1)]);
+    world.wayland = true;
     world.exits_on_close = true;
-    let error = close(&world, &request()).expect_err("a prompt is open");
-    assert_eq!(error.code, ErrorCode::ActionFailed);
-    assert_eq!(error.disposition, DeliverySemantics::not_delivered());
-    let details = error.details.expect("details");
-    assert_eq!(details["cause"], "dialog_pending");
-    assert_eq!(details["dialogs"], 1);
-    assert_eq!(details["windows_remaining"], 1);
-    assert_eq!(details["dialog"], "Save Changes?");
-    assert_eq!(world.count("close"), 0);
-}
+    let headed = Request {
+        policy: InteractionPolicy::headed(),
+        ..request()
+    };
 
-#[test]
-fn a_dialog_drawn_inside_a_window_after_the_request_ends_the_wait_at_once() {
-    let mut world = Fake::new(Liveness::Alive);
-    world.nested_after = Some(std::time::Duration::from_millis(100));
-    let error = close(&world, &request()).expect_err("the save prompt appeared");
-    assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
-    let details = error.details.expect("details");
-    assert_eq!(details["cause"], "dialog_pending");
-    assert_eq!(details["dialogs"], 1);
-    assert_eq!(details["dialog"], "Save Changes?");
+    assert!(close(&world, &headed).expect("headed close is allowed on Wayland"));
     assert_eq!(world.count("close"), 1);
-    assert!(
-        world.clock.get() < std::time::Duration::from_secs(1),
-        "the wait did not run to its budget: {:?}",
-        world.clock.get()
-    );
-}
-
-#[test]
-fn a_second_prompt_raised_by_the_same_request_is_counted_from_one_read() {
-    let mut world = Fake::new(Liveness::Alive);
-    world.dialog_after = Some(std::time::Duration::from_millis(100));
-    world.second_dialog_after = Some(std::time::Duration::from_millis(125));
-    let error = close(&world, &request()).expect_err("two save prompts opened");
-    let details = error.details.expect("details");
-    assert_eq!(details["cause"], "dialog_pending");
-    assert_eq!(details["dialogs"], 2);
-    assert_eq!(details["dialog_titles"].as_array().map(Vec::len), Some(2));
-    assert_eq!(details["windows_remaining"], 1);
-    assert!(
-        error.message.contains("2 open dialog(s)"),
-        "{}",
-        error.message
-    );
-}
-
-#[test]
-fn a_prompt_answered_while_the_result_settles_is_an_exit_not_a_refusal() {
-    let mut world = Fake::new(Liveness::Alive);
-    world.dialog_after = Some(std::time::Duration::from_millis(100));
-    world.gone_after = Some(std::time::Duration::from_millis(125));
-    assert!(close(&world, &request()).expect("it left meanwhile"));
-}
-
-#[test]
-fn a_process_that_left_while_a_dialog_was_read_is_ok() {
-    let mut world = Fake::new(Liveness::Alive);
-    world.windows = ControlRead::Ready(vec![window(1), dialog(2)]);
-    world.state_after_toplevels = Some(Liveness::Gone);
-    close(&world, &request()).expect("it left meanwhile");
+    assert_no_signal(&world);
 }
 
 #[test]
@@ -308,6 +238,19 @@ fn a_stale_close_target_refuses_further_sends_and_preserves_prior_delivery() {
         assert_eq!(world.count("close"), if sent_first { 2 } else { 1 });
         assert_no_signal(&world);
     }
+}
+
+#[test]
+fn a_stale_window_after_a_delivered_close_stays_delivered_unverified() {
+    let mut world = Fake::new(Liveness::Alive);
+    world.windows = ControlRead::Ready(vec![window(1), window(2)]);
+    let mut closes = world.closes.borrow_mut();
+    closes.push(Ok(()));
+    closes.push(Err(ControlError::StaleWindow));
+    drop(closes);
+    let error = close(&world, &request()).expect_err("the owner changed");
+    assert_eq!(error.code, ErrorCode::StaleRef);
+    assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
 }
 
 #[test]

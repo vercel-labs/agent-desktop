@@ -1,5 +1,5 @@
 use super::*;
-use crate::tree::live::test_support::{read_of, words};
+use crate::tree::test_support::helpers::{read_of, words};
 use crate::tree::vocabulary::role_numbers::{DIALOG, FRAME, PANEL};
 use crate::tree::vocabulary::state_bits::MODAL;
 use crate::tree::{COMPONENT_INTERFACE, Extents, Field};

@@ -8,6 +8,8 @@ use crate::{
     actions::capability,
 };
 
+pub(super) const LIVE_OFFSCREEN_REASON: &str = "live offscreen state is true";
+
 pub(super) fn visibility(
     evidence: &ActionabilityEvidence,
     requires_geometry: bool,
@@ -29,7 +31,7 @@ pub(super) fn visibility(
         Some(false) => {}
     }
     match evidence.state.offscreen {
-        Some(true) => return fail("visible", "live offscreen state is true"),
+        Some(true) => return fail("visible", LIVE_OFFSCREEN_REASON),
         None if !evidence.states_complete => {
             return unknown("visible", "live offscreen state unavailable");
         }

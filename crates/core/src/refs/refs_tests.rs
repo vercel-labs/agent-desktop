@@ -13,7 +13,7 @@ pub(super) fn entry(role: &str, name: Option<&str>) -> RefEntry {
             value: None,
             description: None,
             native_id: None,
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
         },
         geometry: crate::RefGeometry {
             bounds_space: None,
@@ -36,6 +36,7 @@ pub(super) fn entry(role: &str, name: Option<&str>) -> RefEntry {
             root_ref: None,
             path_is_absolute: false,
             path: smallvec::SmallVec::new(),
+            chain: Default::default(),
         },
     }
 }
@@ -251,7 +252,7 @@ fn test_save_load_roundtrip_with_home_override() {
             value: None,
             description: None,
             native_id: None,
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
         },
         geometry: crate::RefGeometry {
             bounds_space: None,
@@ -274,6 +275,7 @@ fn test_save_load_roundtrip_with_home_override() {
             root_ref: None,
             path_is_absolute: false,
             path: smallvec::SmallVec::new(),
+            chain: Default::default(),
         },
     });
     map.save().expect("save should succeed under HomeGuard");

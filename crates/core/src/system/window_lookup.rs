@@ -128,7 +128,9 @@ pub(crate) fn select_window(
         })
         .collect::<Vec<_>>();
     Err(crate::AdapterError::ambiguous_target(ambiguous_message)
-        .with_suggestion("Run 'list-windows' and retry with --window-id <id>.")
+        .with_suggestion(
+            "Retry with --window-id <id>, using an id from error.details.candidates and no --app.",
+        )
         .with_details(json!({
             "candidate_count": candidates.len(),
             "candidate_summaries_truncated": candidates.len() > summaries.len(),

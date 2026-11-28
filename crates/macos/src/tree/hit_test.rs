@@ -6,6 +6,7 @@ mod imp {
     };
     use accessibility_sys::{
         AXUIElementCreateSystemWide, kAXApplicationRole, kAXErrorSuccess, kAXRoleAttribute,
+        kAXSubroleAttribute,
     };
     use agent_desktop_core::{
         AdapterError, Point, Rect, adapter::hit_test::HitTestResult,
@@ -22,7 +23,6 @@ mod imp {
         point: Point,
         deadline: agent_desktop_core::Deadline,
     ) -> Result<HitTestResult, AdapterError> {
-        let deadline = crate::tree::locator_deadline::from_operation(deadline)?;
         hit_test_element(crate::adapter::ax_element(handle)?, point, deadline)
     }
 
@@ -31,7 +31,6 @@ mod imp {
         point: Point,
         deadline: agent_desktop_core::Deadline,
     ) -> Result<HitTestResult, AdapterError> {
-        let deadline = crate::tree::locator_deadline::from_operation(deadline)?;
         hit_test_element(target, point, deadline)
     }
 
@@ -39,14 +38,13 @@ mod imp {
         target: &AXElement,
         deadline: agent_desktop_core::Deadline,
     ) -> Result<Option<Rect>, AdapterError> {
-        let deadline = crate::tree::locator_deadline::from_operation(deadline)?;
         clipped_bounds(target, deadline)
     }
 
     fn hit_test_element(
         target: &AXElement,
         point: Point,
-        deadline: std::time::Instant,
+        deadline: agent_desktop_core::Deadline,
     ) -> Result<HitTestResult, AdapterError> {
         let Some(bounds) = read_bounds_with_deadline(target, deadline)? else {
             return Ok(HitTestResult::Unknown);
@@ -76,7 +74,7 @@ mod imp {
     fn hit_at_position(
         root: &AXElement,
         point: &Point,
-        deadline: std::time::Instant,
+        deadline: agent_desktop_core::Deadline,
     ) -> Option<AXElement> {
         let (error, hit) =
             crate::tree::properties::ax_ipc::element_at_position(root, ax_point(point), deadline);
@@ -86,7 +84,7 @@ mod imp {
     fn hit_test_in_application(
         target: &AXElement,
         point: &Point,
-        deadline: std::time::Instant,
+        deadline: agent_desktop_core::Deadline,
     ) -> HitTestResult {
         let Ok(pid) = crate::tree::properties::ax_ipc::pid(target, deadline) else {
             return HitTestResult::Unknown;
@@ -104,7 +102,7 @@ mod imp {
     fn classify_hit(
         target: &AXElement,
         hit: &AXElement,
-        deadline: std::time::Instant,
+        deadline: agent_desktop_core::Deadline,
     ) -> Option<HitClassification> {
         let limit = ABSOLUTE_MAX_DEPTH as usize;
         let reaches_target = if same_element(target, hit) {
@@ -132,7 +130,7 @@ mod imp {
     fn classification_result(
         classification: HitClassification,
         hit: &AXElement,
-        deadline: std::time::Instant,
+        deadline: agent_desktop_core::Deadline,
     ) -> HitTestResult {
         match classification {
             HitClassification::ReachesTarget => HitTestResult::ReachesTarget,
@@ -153,7 +151,7 @@ mod imp {
 
     fn intercepted_by(
         hit: &AXElement,
-        deadline: std::time::Instant,
+        deadline: agent_desktop_core::Deadline,
     ) -> Result<HitTestResult, AdapterError> {
         let mut usage = crate::tree::observation_usage::ObservationUsage::new(
             agent_desktop_core::ObservationBudget::default(),
@@ -176,11 +174,11 @@ mod imp {
     fn read_complete_text(
         element: &AXElement,
         attribute: &str,
-        deadline: std::time::Instant,
+        deadline: agent_desktop_core::Deadline,
         usage: &mut crate::tree::observation_usage::ObservationUsage,
         phase: &str,
     ) -> Result<Option<String>, AdapterError> {
-        crate::tree::locator_deadline::prepare(element, deadline)?;
+        crate::tree::properties::ax_ipc::prepare(element, deadline)?;
         match crate::tree::properties::attributes::copy_string_attr_bounded_result(
             element, attribute, deadline, usage,
         )
@@ -204,7 +202,7 @@ mod imp {
         start: &AXElement,
         expected: &AXElement,
         limit: usize,
-        deadline: std::time::Instant,
+        deadline: agent_desktop_core::Deadline,
     ) -> Ancestry {
         let mut current = start.clone();
         let mut visited = Vec::new();
@@ -230,7 +228,7 @@ mod imp {
     fn clipping_is_complete(
         target: &AXElement,
         point: &Point,
-        deadline: std::time::Instant,
+        deadline: agent_desktop_core::Deadline,
     ) -> Result<bool, AdapterError> {
         Ok(clipped_bounds(target, deadline)?.is_some_and(|bounds| {
             point.x >= bounds.x
@@ -242,7 +240,7 @@ mod imp {
 
     fn clipped_bounds(
         target: &AXElement,
-        deadline: std::time::Instant,
+        deadline: agent_desktop_core::Deadline,
     ) -> Result<Option<Rect>, AdapterError> {
         let Some(mut visible) = read_bounds_with_deadline(target, deadline)? else {
             return Ok(None);
@@ -278,6 +276,24 @@ mod imp {
                 };
                 visible = intersection;
             }
+            let role = role.as_deref().unwrap_or("");
+            let subrole = if owns_surface(role, None) {
+                None
+            } else {
+                match read_complete_text(
+                    &current,
+                    kAXSubroleAttribute,
+                    deadline,
+                    &mut usage,
+                    "hit_test.clip_subrole",
+                ) {
+                    Ok(subrole) => subrole,
+                    Err(_) => return Ok(None),
+                }
+            };
+            if owns_surface(role, subrole.as_deref()) {
+                return Ok(Some(visible));
+            }
             current = match crate::tree::resolve::resolve_ax_read::read_element(
                 &current, "AXParent", deadline,
             ) {
@@ -289,8 +305,8 @@ mod imp {
         Ok(None)
     }
 
-    use crate::tree::element_bounds::clips_descendants;
     pub(super) use crate::tree::element_bounds::intersect_rects;
+    use crate::tree::element_bounds::{clips_descendants, owns_surface};
 
     pub(super) fn remember_ancestor(visited: &mut Vec<AXElement>, current: &AXElement) -> bool {
         if visited
@@ -332,21 +348,6 @@ mod imp {
         } else {
             HitClassification::Unrelated
         }
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use agent_desktop_core::{
-        AdapterError, Point, adapter::hit_test::HitTestResult, adapter::native_handle::NativeHandle,
-    };
-
-    pub fn hit_test_impl(
-        _handle: &NativeHandle,
-        _point: Point,
-        _deadline: agent_desktop_core::Deadline,
-    ) -> Result<HitTestResult, AdapterError> {
-        Err(AdapterError::not_supported("hit_test"))
     }
 }
 

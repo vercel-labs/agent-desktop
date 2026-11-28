@@ -35,19 +35,25 @@ fn an_executable_deleted_while_it_runs_keeps_its_name() {
     assert_eq!(app_name(&facts("x", Some(" (deleted)"))), "x");
 }
 
-fn aliased(query: &str, process: &ProcessFacts, aliases: &[&str]) -> bool {
-    let aliases: Vec<String> = aliases.iter().map(|alias| (*alias).to_owned()).collect();
-    name_matches(query, &app_name(process), &aliases)
-}
-
 #[test]
-fn an_alias_matches_exactly_ignoring_case_and_never_renames_the_app() {
-    let files = facts("nautilus", Some("nautilus"));
-    assert!(aliased("Files", &files, &["Files"]));
-    assert!(aliased("files", &files, &["Files"]));
-    assert!(aliased("nautilus", &files, &["Files"]));
-    assert!(!aliased("Files", &files, &[]));
-    assert!(!aliased("File", &files, &["Files"]));
-    assert!(!aliased("Files Helper", &files, &["Files"]));
-    assert_eq!(app_name(&files), "nautilus");
+fn aliases_of_identity_reads_the_desktop_names_an_executable_answers_to() {
+    let index = AliasIndex::build(
+        &[(
+            "owned".to_owned(),
+            "[Desktop Entry]\nType=Application\nName=Owned App\nExec=/bin/sleep owned.py\n"
+                .to_owned(),
+        )],
+        &[],
+    );
+    let sleep = std::fs::canonicalize("/bin/sleep").expect("sleep");
+    let identity = |script: &str| ExecutableIdentity {
+        executable: sleep.clone(),
+        argv: Some(vec!["/bin/sleep".into(), script.into()]),
+    };
+    assert_eq!(
+        aliases_of_identity(&index, Some(&identity("owned.py"))),
+        ["Owned App", "owned"]
+    );
+    assert!(aliases_of_identity(&index, Some(&identity("other.py"))).is_empty());
+    assert!(aliases_of_identity(&index, None).is_empty());
 }

@@ -57,12 +57,14 @@ class GapScenarioTests(unittest.TestCase):
                 ctx = context()
                 ctx.tier.runtime_dir = Path("/private/test")
                 state = {"registry": True, "old_alive": True, "replacement": False}
+                actions = []
                 @contextlib.contextmanager
                 def managed(ctx, name):
                     if not state["registry"]:
                         state.update(registry=True, replacement=True)
                     yield SimpleNamespace(pid=123)
-                def event(*a):
+                def event(_ctx, _token, _scoped, action, _app="Calculator"):
+                    actions.append(action)
                     state.update(registry=False, old_alive=not exits)
                     return {"pid": 123}
                 def members(*a):
@@ -79,6 +81,30 @@ class GapScenarioTests(unittest.TestCase):
                     else:
                         with self.assertRaises(AssertionError):
                             gaps_events.close_transition(ctx, "app-terminated", True)
+                    self.assertEqual(actions, [{"command": "close-app",
+                                                "args": {"app": "Calculator", "force": True}}])
+
+    def test_launch_event_cleanup_forces_the_close_so_a_headless_run_ends_the_app(self):
+        ctx, launched, closed = context(), [False], []
+        def inventory(_ctx):
+            return [("Calculator", 1)] if launched[0] else []
+        def batch_wait(_ctx, _token, _scoped, _action, _app="Calculator"):
+            launched[0] = True
+            return {"pid": 123}
+        def product(argv):
+            closed.append(argv)
+            launched[0] = False
+            return Envelope(True, {}, None, "{}", 0, argv)
+        with patch.object(gaps_events, "inventory", side_effect=inventory), \
+            patch.object(gaps_events, "calculator_processes", return_value=0), \
+            patch.object(gaps_events, "batch_wait", side_effect=batch_wait), \
+            patch.object(gaps_events.raw, "app_root", return_value=object()), \
+            patch.object(gaps_events.raw, "owner_pid", return_value=123), \
+            patch.object(gaps_events.raw, "poll", side_effect=lambda predicate, *a, **kw: predicate()), \
+            patch.object(gaps_events, "changed", side_effect=lambda read, *a, **kw: read()), \
+            patch.object(ctx, "product", side_effect=product):
+            gaps_events.launch_transition(ctx, "app-launched", True)
+        self.assertEqual(closed, [["close-app", "Calculator", "--force"]])
 
     def test_window_close_batch_uses_the_public_ref_id_field_and_preserves_the_seed_frame(self):
         ctx, frames = context(), ["seed"]

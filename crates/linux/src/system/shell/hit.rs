@@ -3,7 +3,7 @@ use std::time::Duration;
 use agent_desktop_core::{AdapterError, Deadline, ErrorCode, HitTestResult, Point};
 
 use super::identity::find_root;
-use super::light::{LiveNodes, Nodes};
+use super::light::{Detail, LiveNodes, Nodes};
 use super::search::walk;
 use crate::system::{SharedBus, list_displays};
 use crate::tree::{AtspiElement, Extents};
@@ -46,7 +46,7 @@ pub(super) fn verdict<N: Nodes>(
         Err(error) => return Err(error),
     };
     pause(MOTION_GAP);
-    let tree = walk(nodes, root, deadline, &|light| !light.showing)?;
+    let tree = walk(nodes, root, deadline, Detail::Full, &|light| !light.showing)?;
     if !tree.complete {
         return Ok(HitTestResult::Unknown);
     }

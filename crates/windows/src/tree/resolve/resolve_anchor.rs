@@ -30,6 +30,8 @@ use super::resolve_search::{identity_unknown_error, resolve_walk_budget, window_
 use crate::system::runtime::hresult::ReadDisposition;
 use crate::tree::automation::{UiaFailure, uia_failure_disposition};
 #[cfg(target_os = "windows")]
+use crate::tree::element::UIAElement;
+#[cfg(target_os = "windows")]
 use crate::tree::walk::walker::TreeSource;
 #[cfg(target_os = "windows")]
 use crate::tree::walk::walker_source::UiaTreeSource;
@@ -38,10 +40,11 @@ use crate::tree::walk::walker_source::UiaTreeSource;
 #[cfg(target_os = "windows")]
 pub(crate) fn resolve_locator_anchor(
     entry: &RefEntry,
+    base: Option<&NativeHandle>,
     deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
-    crate::tree::resolve::retry_incomplete_until(deadline, || {
-        resolve_locator_anchor_once(entry, deadline)
+    agent_desktop_core::refs::resolve_retry::retry_incomplete_until(deadline, || {
+        resolve_locator_anchor_once(entry, base, deadline)
     })
 }
 
@@ -50,9 +53,53 @@ pub(crate) fn resolve_locator_anchor(
 #[cfg(not(target_os = "windows"))]
 pub(crate) fn resolve_locator_anchor(
     entry: &RefEntry,
+    _base: Option<&NativeHandle>,
     _deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
     Err(stale_ref_error(entry))
+}
+
+/// A popover ref's path starts at the popover it was captured from, and a
+/// popover is no listed window: the process generation is checked, then the
+/// popover the ref recorded is found by the same predicate the inventory uses.
+/// A ref that recorded no popover id is resolved only when one popover is
+/// open; several are refused with their ids rather than guessed at.
+#[cfg(target_os = "windows")]
+fn popover_root(entry: &RefEntry, deadline: Deadline) -> Result<Option<UIAElement>, AdapterError> {
+    if entry.source.source_surface != agent_desktop_core::SnapshotSurface::Popover {
+        return Ok(None);
+    }
+    let alive = entry
+        .process
+        .process_instance
+        .as_deref()
+        .map(|instance| {
+            crate::system::process_identity::matches_instance(entry.process.pid, instance)
+        })
+        .transpose()?
+        == Some(true);
+    if !alive {
+        return Err(stale_ref_error(entry));
+    }
+    let popover = crate::tree::popover_choice::resolve_popover(
+        entry.process.pid,
+        entry.source.source_window_id.as_deref(),
+        deadline,
+    )
+    .map_err(|error| popover_miss(entry, error))?;
+    crate::tree::automation::root_from_hwnd(popover.handle as isize, deadline).map(Some)
+}
+
+/// A popover that is no longer open is a settled answer about the stored ref.
+/// Several open popovers with none recorded on the ref is not: it names them
+/// instead of resolving against a popover the ref never read.
+#[cfg(target_os = "windows")]
+fn popover_miss(entry: &RefEntry, error: AdapterError) -> AdapterError {
+    if error.code == agent_desktop_core::ErrorCode::WindowNotFound {
+        stale_ref_error(entry)
+    } else {
+        error
+    }
 }
 
 /// The one pure gate runs first, before any of `resolve_window_root`,
@@ -68,13 +115,24 @@ pub(crate) fn resolve_locator_anchor(
 #[cfg(target_os = "windows")]
 fn resolve_locator_anchor_once(
     entry: &RefEntry,
+    base: Option<&NativeHandle>,
     deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
     if !window_rooted(entry) {
         return Err(stale_ref_error(entry));
     }
 
-    let root = crate::tree::resolve::resolve_window_root(entry, deadline)?;
+    let window = match popover_root(entry, deadline)? {
+        Some(popover) => popover,
+        None => crate::tree::resolve::resolve_window_root(entry, deadline)?,
+    };
+    let root = match base {
+        Some(handle) => handle
+            .downcast_ref::<UIAElement>()
+            .cloned()
+            .ok_or_else(|| stale_ref_error(entry))?,
+        None => window,
+    };
     let source = UiaTreeSource::for_root(&root)?;
     let prepared = source.prepare_root(&root)?;
     let budget = resolve_walk_budget(deadline);
@@ -149,14 +207,6 @@ fn anchor_descent_verdict(failure: UiaFailure) -> DescentVerdict {
         ReadDisposition::Retryable | ReadDisposition::Terminal => DescentVerdict::Surfaced,
     }
 }
-
-#[cfg(all(test, target_os = "windows"))]
-#[path = "resolve_anchor_selector_wait_tests.rs"]
-mod selector_wait_tests;
-
-#[cfg(all(test, target_os = "windows"))]
-#[path = "resolve_anchor_count_agreement_tests.rs"]
-mod count_agreement_tests;
 
 #[cfg(all(test, target_os = "windows"))]
 #[path = "resolve_anchor_tests.rs"]

@@ -30,7 +30,34 @@ pub(in crate::system) fn resolve_row(
     if !row.exists_on_build {
         return Err(refusal_error(row));
     }
-    resolve_present_row(row)
+    retry_transient_read(deadline, || resolve_present_row(row, deadline))
+}
+
+/// Retries a UIA shell read while the error is a transient incomplete read
+/// (such as `UIA_E_TIMEOUT` during a shell transition) and `deadline` still
+/// has time left.
+pub(in crate::system) fn retry_transient_read<T>(
+    deadline: Deadline,
+    mut read: impl FnMut() -> Result<T, AdapterError>,
+) -> Result<T, AdapterError> {
+    let mut interval = std::time::Duration::from_millis(50);
+    loop {
+        match read() {
+            Ok(value) => return Ok(value),
+            Err(error) if error.is_transient_incomplete_read() => {
+                let remaining = deadline.remaining();
+                if remaining <= interval {
+                    return Err(error);
+                }
+                std::thread::sleep(interval);
+                if deadline.is_expired() {
+                    return Err(error);
+                }
+                interval = (interval * 3 / 2).min(std::time::Duration::from_millis(250));
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 pub(crate) fn unknown_surface_error(kind: SnapshotSurface) -> AdapterError {
@@ -132,7 +159,10 @@ pub(crate) fn build_number() -> u32 {
 /// signal alone reads a dismissed surface as open, and the two are read
 /// together.
 #[cfg(target_os = "windows")]
-fn resolve_present_row(row: &SurfaceKindRow) -> Result<Option<WindowInfo>, AdapterError> {
+fn resolve_present_row(
+    row: &SurfaceKindRow,
+    deadline: Deadline,
+) -> Result<Option<WindowInfo>, AdapterError> {
     match &row.family {
         SurfaceFamily::Win32Class(chain) => {
             Ok(resolve_class_chain(chain).and_then(window_info_from_chain_window))
@@ -145,12 +175,16 @@ fn resolve_present_row(row: &SurfaceKindRow) -> Result<Option<WindowInfo>, Adapt
             expected_class,
             host_images,
             landmarks,
+            deadline,
         ),
     }
 }
 
 #[cfg(not(target_os = "windows"))]
-fn resolve_present_row(_row: &SurfaceKindRow) -> Result<Option<WindowInfo>, AdapterError> {
+fn resolve_present_row(
+    _row: &SurfaceKindRow,
+    _deadline: Deadline,
+) -> Result<Option<WindowInfo>, AdapterError> {
     Err(AdapterError::not_supported("resolve shell surface"))
 }
 
@@ -233,3 +267,7 @@ pub(in crate::system) fn class_chain_top_handle(chain: &[&str]) -> Option<Window
 #[cfg(all(test, target_os = "windows"))]
 #[path = "shell_surface_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "shell_surface_retry_tests.rs"]
+mod retry_tests;

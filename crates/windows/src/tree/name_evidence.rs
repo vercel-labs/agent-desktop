@@ -55,6 +55,15 @@ pub fn name_fields(
     )
 }
 
+/// Whether the element's name is its `LabeledBy` target's text: the label
+/// supplies it, or the provider computed `Name` from that label.
+pub fn name_borrowed(properties: &ElementProperties, label: &LabelOutcome) -> bool {
+    agent_desktop_core::name_is_borrowed(
+        &evidence_of(properties, label),
+        &status_of(properties, label),
+    )
+}
+
 fn evidence_of(properties: &ElementProperties, label: &LabelOutcome) -> NameEvidence {
     NameEvidence {
         native_title: text_of(properties.get(TreeProperty::Name)),
@@ -124,7 +133,7 @@ fn status_of(properties: &ElementProperties, label: &LabelOutcome) -> NameSlotSt
 fn placeholder_slot(properties: &ElementProperties) -> SlotStatus {
     if text_of(properties.get(TreeProperty::FullDescription)).is_some() {
         match properties.get(TreeProperty::HelpText) {
-            PropertyOutcome::Unknown => SlotStatus::Uncertain,
+            PropertyOutcome::Unknown | PropertyOutcome::Oversize(_) => SlotStatus::Uncertain,
             PropertyOutcome::Known(_) | PropertyOutcome::Absent => SlotStatus::Certain,
         }
     } else {
@@ -173,7 +182,7 @@ fn description_slot(properties: &ElementProperties) -> SlotStatus {
 
 fn slot_of(outcome: PropertyOutcome) -> SlotStatus {
     match outcome {
-        PropertyOutcome::Unknown => SlotStatus::Uncertain,
+        PropertyOutcome::Unknown | PropertyOutcome::Oversize(_) => SlotStatus::Uncertain,
         PropertyOutcome::Known(_) | PropertyOutcome::Absent => SlotStatus::Certain,
     }
 }

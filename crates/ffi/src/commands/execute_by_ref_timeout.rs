@@ -1,6 +1,5 @@
 use crate::AdAdapter;
 use crate::actions::conversion::action_from_c;
-use crate::commands::app_error_to_adapter;
 use crate::commands::envelope_out::write_command_envelope;
 use crate::commands::timeout::decode_ref_action_timeout;
 use crate::convert::string::required_adapter_string;
@@ -51,7 +50,7 @@ pub unsafe extern "C" fn ad_execute_by_ref_timeout(
         };
 
         if let Err(app_err) = validate_ref_id(&ref_str) {
-            let ae = app_error_to_adapter(app_err);
+            let ae = agent_desktop_core::AppError::into_adapter_error(app_err);
             set_last_error(&ae);
             return crate::error::last_error_code();
         }
@@ -81,7 +80,7 @@ pub unsafe extern "C" fn ad_execute_by_ref_timeout(
         let context = match adapter_ref.command_context() {
             Ok(ctx) => ctx,
             Err(e) => {
-                let ae = app_error_to_adapter(e);
+                let ae = agent_desktop_core::AppError::into_adapter_error(e);
                 set_last_error(&ae);
                 return crate::error::last_error_code();
             }

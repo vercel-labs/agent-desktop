@@ -18,6 +18,7 @@ use agent_desktop_core::AdapterError;
 use agent_desktop_core::ErrorCode;
 
 pub(crate) const S_OK: i32 = 0;
+pub(crate) const S_FALSE: i32 = 1;
 pub(crate) const E_NOINTERFACE: i32 = 0x8000_4002_u32 as i32;
 pub(crate) const E_POINTER: i32 = 0x8000_4003_u32 as i32;
 pub(crate) const E_FAIL: i32 = 0x8000_4005_u32 as i32;
@@ -25,6 +26,7 @@ pub(crate) const E_UNEXPECTED: i32 = 0x8000_FFFF_u32 as i32;
 pub(crate) const E_ACCESSDENIED: i32 = 0x8007_0005_u32 as i32;
 pub(crate) const E_INVALIDARG: i32 = 0x8007_0057_u32 as i32;
 pub(crate) const CO_E_NOTINITIALIZED: i32 = 0x8004_01F0_u32 as i32;
+pub(crate) const RPC_E_CHANGED_MODE: i32 = 0x8001_0106_u32 as i32;
 pub(crate) const RPC_E_SERVERFAULT: i32 = 0x8001_0105_u32 as i32;
 pub(crate) const RPC_E_DISCONNECTED: i32 = 0x8001_0108_u32 as i32;
 pub(crate) const RPC_S_SERVER_UNAVAILABLE: i32 = 0x8007_06BA_u32 as i32;
@@ -237,9 +239,13 @@ pub(crate) fn com_hresult_detail(hresult: i32) -> String {
 /// by the one shared table this module exists to centralize, never
 /// re-derived per subsystem.
 pub(crate) fn hresult_error(subsystem: &str, hresult: i32, context: &str) -> AdapterError {
+    adapter_error_from_hresult(hresult, format!("{subsystem} could not {context}"))
+}
+
+fn adapter_error_from_hresult(hresult: i32, message: impl Into<String>) -> AdapterError {
     let record = hresult_record(hresult);
-    let mut error = AdapterError::new(record.code, format!("{subsystem} could not {context}"))
-        .with_platform_detail(com_hresult_detail(hresult));
+    let mut error =
+        AdapterError::new(record.code, message).with_platform_detail(com_hresult_detail(hresult));
     if let Some(suggestion) = record.suggestion {
         error = error.with_suggestion(suggestion);
     }
@@ -312,14 +318,7 @@ pub(crate) fn hresult_from_win32(error: u32) -> i32 {
 /// A Win32 error code rendered through the one HRESULT table.
 #[cfg(target_os = "windows")]
 pub(crate) fn adapter_error_from_win32(error: u32, message: &str) -> AdapterError {
-    let hresult = hresult_from_win32(error);
-    let record = hresult_record(hresult);
-    let mut err =
-        AdapterError::new(record.code, message).with_platform_detail(com_hresult_detail(hresult));
-    if let Some(suggestion) = record.suggestion {
-        err = err.with_suggestion(suggestion);
-    }
-    err
+    adapter_error_from_hresult(hresult_from_win32(error), message)
 }
 
 /// Win32 `GetLastError` → `HRESULT_FROM_WIN32` into the shared HRESULT table

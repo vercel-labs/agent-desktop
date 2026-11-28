@@ -16,6 +16,7 @@ agent-desktop wait --text TEXT [--count N] [--app NAME]
 agent-desktop wait --menu [--app NAME]
 agent-desktop wait --menu-closed [--app NAME]
 agent-desktop wait --notification [--text TEXT] [--app NAME]
+agent-desktop wait --surface KIND [--app NAME] [--timeout MS]
 agent-desktop wait --event KIND [--app NAME] [--window TITLE] [--window-id ID]
 ```
 
@@ -34,9 +35,10 @@ agent-desktop wait --event KIND [--app NAME] [--window TITLE] [--window-id ID]
     <tr><td><code>--count N</code></td><td>none</td><td>For <code>--text</code>: wait until exactly N nodes match.</td></tr>
     <tr><td><code>--menu</code>, <code>--menu-closed</code></td><td>off</td><td>Wait until a menu surface is open, or dismissed.</td></tr>
     <tr><td><code>--notification</code></td><td>off</td><td>Wait until a new notification arrives.</td></tr>
+    <tr><td><code>--surface KIND</code></td><td>none</td><td>Wait until a surface of this kind is open in the app: <code>popover</code>, <code>sheet</code>, <code>alert</code>, <code>menu</code>, or <code>any</code>. A surface that is already open matches at once.</td></tr>
     <tr><td><code>--event KIND</code></td><td>none</td><td>Wait for a lifecycle signal: <code>window-opened</code>, <code>window-closed</code>, <code>app-launched</code>, <code>app-terminated</code>, <code>focus-changed</code>, <code>surface-appeared</code>, or <code>surface-dismissed</code>.</td></tr>
     <tr><td><code>--window-id ID</code></td><td>none</td><td>Requires <code>--event</code> and narrows <code>window-opened</code>, <code>window-closed</code>, or <code>focus-changed</code> to one window.</td></tr>
-    <tr><td><code>--app NAME</code></td><td>none</td><td>Scope a window, text, menu, notification, or event wait to one application. Element and time waits ignore it.</td></tr>
+    <tr><td><code>--app NAME</code></td><td>none</td><td>Scope a window, text, menu, notification, surface, or event wait to one application. Element and time waits ignore it. A surface wait resolves the application once, at the start; without it the uniquely focused window's application is used, and a missing or ambiguous one is <code>APP_NOT_FOUND</code> or <code>AMBIGUOUS_TARGET</code>.</td></tr>
     <tr><td><code>--timeout MS</code></td><td><code>30000</code></td><td>Timeout for every mode except <code>MS</code>, at most 86400000.</td></tr>
   </tbody>
 </table>
@@ -57,7 +59,7 @@ agent-desktop wait --element @s2txcl95uvubmn:e6 --predicate value --value 7 --ti
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "wait",
   "data": {
@@ -74,7 +76,7 @@ agent-desktop wait --element @s2txcl95uvubmn:e6 --predicate value --value 7 --ti
 
 ### Window
 
-`--window TITLE` waits for any window whose title contains `TITLE`, focused or not.
+`--window TITLE` waits for any window whose title contains `TITLE`, focused or not. When you do not know the title, wait for the event instead: `wait --event window-opened --app NAME`, in the same [batch](/desktop/commands/batch) as the action that opens the window. `--app` alone is not a wait mode.
 
 ```bash
 agent-desktop wait --window Calculator --app gnome-calculator --timeout 3000
@@ -92,7 +94,7 @@ agent-desktop wait --text Calculator --app gnome-calculator --timeout 3000
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "wait",
   "data": { "elapsed_ms": 112, "found": true, "ref": null, "role": "window", "snapshot_id": "s2uiek94hz3vms", "text": "Calculator" }
@@ -104,6 +106,75 @@ agent-desktop wait --text Calculator --app gnome-calculator --timeout 3000
 ### Menu
 
 `--menu` waits until a menu surface is open, and `--menu-closed` until it is gone. Both return `{ "elapsed_ms", "found": true }`. On Linux, `--menu-closed` on a menu that never opened is true at once, so wait for `--menu` first.
+
+### Surface
+
+`--surface KIND` polls the app's surface inventory until a surface of that kind is open: `popover`, `sheet`, `alert`, `menu`, or `any`. It waits for a state, not a change, so a surface that is already open matches immediately. Run it after the click that opens the surface:
+
+```bash
+agent-desktop wait --surface sheet --app gedit --timeout 2000
+```
+
+```json
+{
+  "version": "2.7",
+  "ok": true,
+  "command": "wait",
+  "data": {
+    "elapsed_ms": 87,
+    "found": true,
+    "surface": {
+      "id": "w-1.167-org-a11y-atspi-accessible-44",
+      "title": "Save As",
+      "type": "sheet"
+    }
+  }
+}
+```
+
+The result is `{ "elapsed_ms", "found": true, "surface": SURFACE }`, where `SURFACE` has the fields `list-surfaces` returns.
+
+A kind the app's inventory could not read is never reported as one the app does not show. When the last inventory named the kind as unclassified, the timeout says the surface could not be read, sets `details.unread: true`, and lists what it did read in `last_observed`:
+
+```bash
+agent-desktop wait --surface menu --app gedit --timeout 2000
+```
+
+```json
+{
+  "version": "2.7",
+  "ok": false,
+  "command": "wait",
+  "error": {
+    "code": "TIMEOUT",
+    "message": "The menu surface could not be read within 2000ms",
+    "recovery": {
+      "strategy": "inspect_state_then_retry_original",
+      "retryable": true,
+      "requires_fresh_snapshot": true,
+      "retry_after_ms": 250
+    },
+    "details": {
+      "kind": "wait_timeout",
+      "last_observed": [
+        {
+          "id": "w-1.167-org-a11y-atspi-accessible-12",
+          "title": "Untitled Document 1 - gedit",
+          "type": "window",
+          "unclassified": ["menu"]
+        }
+      ],
+      "predicate": "surface",
+      "surface": "menu",
+      "timeout_ms": 2000,
+      "unread": true
+    },
+    "disposition": { "delivery": "not_delivered", "retry": "safe" }
+  }
+}
+```
+
+A read of every window that shows no such surface is an observed absence: its timeout reads `No popover surface was open within 2000ms` and carries no `unread`.
 
 ### Notification
 
@@ -130,7 +201,7 @@ agent-desktop wait --text Calculator --app gnome-calculator --timeout 3000
   "execution": "completed",
   "index": 1,
   "ok": true,
-  "version": "2.6"
+  "version": "2.7"
 }
 ```
 
@@ -144,7 +215,7 @@ A wait that runs out of time returns `TIMEOUT` with `details.kind: "wait_timeout
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": false,
   "command": "wait",
   "error": {

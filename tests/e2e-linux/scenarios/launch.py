@@ -32,7 +32,7 @@ def launch_calculator_attributed(ctx: LegContext) -> None:
     window = ctx.product(["list-windows", "--app", CALCULATOR])
     assert window.ok and window.data, window.raw
     assert app_root(ctx.tier, "gnome-calculator")
-    closed = ctx.product(["close-app", CALCULATOR])
+    closed = ctx.product(["close-app", CALCULATOR, "--force"])
     assert closed.ok, closed.raw
     ctx.restored("proc.members", changed(lambda: members(ctx.tier.runtime_dir), before, seconds=6))
 
@@ -78,7 +78,7 @@ def launch_terminal_owner(ctx: LegContext) -> None:
     ctx.after("proc.terminal_owner", owners)
     assert owners, "no gnome-terminal-server owner in the runtime directory"
     assert app_root(ctx.tier, "gnome-terminal-server")
-    closed = ctx.product(["close-app", TERMINAL])
+    closed = ctx.product(["close-app", TERMINAL, "--force"])
     assert closed.ok, closed.raw
     ctx.restored("proc.terminal_owner", changed(read, before, seconds=6))
 

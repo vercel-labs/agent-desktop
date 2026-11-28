@@ -3,11 +3,11 @@ use crate::{
     adapter::PlatformAdapter,
     commands::{helpers::load_ref_entry, wait_predicate, wait_timeout},
     context::CommandContext,
-    refs::ref_resolve_deadline::{POLL_INTERVAL, resolve_within_deadline},
+    refs::ref_resolve_deadline::attempt_within_deadline,
     refs::resolve_attempt_outcome::ResolveAttemptOutcome,
+    wait::deadline::POLL_INTERVAL,
 };
 use serde_json::{Value, json};
-use std::time::Instant;
 
 pub(crate) struct ElementWaitInput {
     pub(crate) ref_id: String,
@@ -25,14 +25,15 @@ pub(crate) fn wait_for_element(
         predicate,
         timeout_ms,
     } = input;
-    let start = Instant::now();
-    let deadline = crate::Deadline::at(start, timeout_ms)?;
+    let deadline = crate::Deadline::after(timeout_ms)?;
     let entry = load_ref_entry(&ref_id, context)?;
 
     let mut last_observed = json!(null);
     let mut expected_bounds_hash = None;
     loop {
-        match resolve_within_deadline(adapter, &entry, deadline, None) {
+        match attempt_within_deadline(deadline, |slice| {
+            crate::refs::resolve_saved_ref::resolve_saved_ref(adapter, &entry, slice, None)
+        }) {
             ResolveAttemptOutcome::DeadlinePassed => {
                 return wait_timeout::element(ref_id, predicate, timeout_ms, last_observed);
             }
@@ -62,7 +63,7 @@ pub(crate) fn wait_for_element(
                             expected_bounds_hash = Some(observed);
                         }
                         if wait_predicate::satisfied(&predicate, &last_observed) {
-                            let elapsed = start.elapsed().as_millis();
+                            let elapsed = deadline.elapsed().as_millis();
                             return Ok(json!({
                                 "found": true,
                                 "ref": ref_id,
@@ -82,7 +83,7 @@ pub(crate) fn wait_for_element(
                     Err(err) => return Err(AppError::Adapter(err)),
                 }
             }
-            ResolveAttemptOutcome::Failed(err) if is_retryable_wait_error(&err) => {
+            ResolveAttemptOutcome::Failed(err) if err.is_explicitly_retryable() => {
                 last_observed = json!({
                     "error": err.code.as_str(),
                     "message": err.message
@@ -91,11 +92,10 @@ pub(crate) fn wait_for_element(
             ResolveAttemptOutcome::Failed(err) => return Err(AppError::Adapter(err)),
         }
 
-        let remaining = deadline.remaining();
-        if remaining.is_zero() {
+        if deadline.is_expired() {
             return wait_timeout::element(ref_id, predicate, timeout_ms, last_observed);
         }
-        std::thread::sleep(remaining.min(POLL_INTERVAL));
+        deadline.pause(POLL_INTERVAL);
     }
 }
 
@@ -105,8 +105,4 @@ fn is_retryable_observe_error(error: &crate::AdapterError) -> bool {
             error.code,
             crate::ErrorCode::Timeout | crate::ErrorCode::ElementNotFound
         )
-}
-
-fn is_retryable_wait_error(error: &crate::AdapterError) -> bool {
-    error.is_explicitly_retryable()
 }

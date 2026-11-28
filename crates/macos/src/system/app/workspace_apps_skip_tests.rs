@@ -1,8 +1,9 @@
 use super::*;
+use agent_desktop_core::Deadline;
 use serde_json::json;
 
-fn deadline() -> Instant {
-    Instant::now() + std::time::Duration::from_secs(1)
+fn deadline() -> Deadline {
+    Deadline::after(1000).unwrap()
 }
 
 #[test]
@@ -101,13 +102,14 @@ fn skipped_records_survive_an_expired_inventory_deadline() {
     })).unwrap();
     let apps_error = apps_from_json_with(
         &bytes,
-        Instant::now(),
+        Deadline::after(0).unwrap(),
         |_| true,
         true,
         |_| panic!("expired deadline must stop before identity reads"),
     )
     .unwrap_err();
-    let owners_error = window_owner_snapshot_from_json(&bytes, Instant::now()).unwrap_err();
+    let owners_error =
+        window_owner_snapshot_from_json(&bytes, Deadline::after(0).unwrap()).unwrap_err();
     for error in [apps_error, owners_error] {
         assert_eq!(error.code, ErrorCode::Timeout);
         assert_eq!(error.details.unwrap()["skipped"][0]["pid"], 11);
@@ -131,6 +133,10 @@ fn skipped_records_preserve_matching_apps_and_retry_missing_names() {
         )
     };
     let apps = crate::system::app::app_inventory::scoped_apps_from_sources(
+        agent_desktop_core::AppInventoryQuery::Exact {
+            name: "Finder",
+            bundle_id: None,
+        },
         capture("Finder"),
         Ok(Vec::new()),
     )
@@ -138,13 +144,17 @@ fn skipped_records_preserve_matching_apps_and_retry_missing_names() {
     assert_eq!(apps[0].name, "Finder");
     let mut attempts = 0_u64;
     let error = crate::system::app::app_inventory::stabilize_apps_until(
-        Instant::now() + std::time::Duration::from_secs(5),
+        Deadline::after(5000).unwrap(),
         || {
             attempts += 1;
             if attempts == 3 {
                 return Err(AdapterError::timeout("macOS app inventory timed out"));
             }
             crate::system::app::app_inventory::scoped_apps_from_sources(
+                agent_desktop_core::AppInventoryQuery::Exact {
+                    name: "Missing",
+                    bundle_id: None,
+                },
                 capture("Missing"),
                 Ok(Vec::new()),
             )

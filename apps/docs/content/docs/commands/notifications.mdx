@@ -41,7 +41,7 @@ agent-desktop list-notifications [--app NAME] [--text TEXT] [--limit N]
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "list-notifications",
   "data": {
@@ -75,7 +75,7 @@ agent-desktop --headed dismiss-notification 2 --expected-title "Standup in 10 mi
   </tbody>
 </table>
 
-`data.dismissed` is the removed notification, in the `list-notifications` row shape. Errors: `INVALID_ARGS` without an `--expected-*` flag, `POLICY_DENIED` without `--headed`, and `NOTIFICATION_NOT_FOUND` when the row no longer matches.
+`data.dismissed` is the removed notification, in the `list-notifications` row shape. `data.disposition` is `delivered_verified`, because the command returns only after re-reading that the entry is gone. Errors: `INVALID_ARGS` without an `--expected-*` flag, `POLICY_DENIED` without `--headed`, and `NOTIFICATION_NOT_FOUND` when the row no longer matches.
 
 ## dismiss-all-notifications
 
@@ -85,7 +85,7 @@ Dismisses every notification, or every one from one app.
 agent-desktop --headed dismiss-all-notifications [--app NAME]
 ```
 
-`data.dismissed_count` counts the removed notifications. When some could not be closed, `data.failures` and `data.failed_count` are added.
+`data.dismissed_count` counts the removed notifications. When some could not be closed, `data.failures` and `data.failed_count` are added. `data.disposition` comes from each entry's own delivery, not from counts: `not_delivered` (`retry: "safe"`) when nothing was found or every failure happened before anything was sent, `delivered_verified` (`retry: "unsafe"`) when every captured entry was dismissed, `delivered_unverified` (`retry: "unsafe"`) when any entry's dispatch started, and `delivered_verified` (`retry: "unsafe"`) when some entries were dismissed and every failure was never dispatched — the `failures` list names what a re-run still has to touch, and the retry stays unsafe because a re-run captures a fresh listing. An entry that disappears before its turn counts as dismissed.
 
 ## notification-action
 

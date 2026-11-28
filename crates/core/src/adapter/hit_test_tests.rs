@@ -131,7 +131,7 @@ fn clickable_entry() -> RefEntry {
             value: None,
             description: None,
             native_id: None,
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
         },
         geometry: crate::RefGeometry {
             bounds_space: None,
@@ -154,6 +154,7 @@ fn clickable_entry() -> RefEntry {
             root_ref: None,
             path_is_absolute: false,
             path: SmallVec::new(),
+            chain: Default::default(),
         },
     }
 }

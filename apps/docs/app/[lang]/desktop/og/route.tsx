@@ -1,5 +1,8 @@
-import { renderOgImage } from "./og-image";
+import { renderLabsOg } from "./labs-og";
 
 export async function GET() {
-  return renderOgImage("Desktop\nAutomation for AI");
+  return renderLabsOg({
+    product: "agent-desktop",
+    title: "Desktop automation for AI",
+  });
 }

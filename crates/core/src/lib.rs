@@ -21,17 +21,29 @@ pub mod trace;
 pub mod tree;
 mod wait;
 
+pub use actionability::foreground::{ensure_foreground_allowed, foreground_denied};
 pub use actions::action::Action;
 pub use actions::action_request::ActionRequest;
 pub use actions::action_result::ActionResult;
 pub use actions::action_step::ActionStep;
 pub use actions::action_step_outcome::ActionStepOutcome;
+pub use actions::chain_rung::ChainRung;
+pub use actions::declared_effect::DeclaredEffect;
+pub use actions::delivery_chain::{execute_chain, mechanisms_denied};
+pub use actions::delivery_observation::DeliveryObservation;
+pub use actions::delivery_outcome::DeliveryOutcome;
 pub use actions::delivery_semantics::DeliverySemantics;
-pub use actions::headed_focus::saved_ref_focus_window;
-pub use actions::headed_requirement::HeadedRequirement;
+pub use actions::effect::Effect;
+pub use actions::effect_witness::EffectWitness;
+pub use actions::focus_witness::FocusWitness;
+pub use actions::headed_focus::{HeadedFocus, saved_ref_focus_window};
 pub use actions::interaction_policy::InteractionPolicy;
+pub use actions::observed_effect::ObservedEffect;
 pub use actions::post_action::execute_verified_action;
 pub use actions::step_mechanism::StepMechanism;
+pub use actions::target_witness::TargetWitness;
+pub use actions::window_witness::WindowWitness;
+pub use actions::witness_change::WitnessChange;
 pub use adapter::PlatformAdapter;
 pub use adapter::actions::ActionOps;
 pub use adapter::adapter_session::AdapterSession;
@@ -41,6 +53,7 @@ pub use adapter::live_element::LiveElement;
 pub use adapter::live_identity::LiveIdentity;
 pub use adapter::native_handle::NativeHandle;
 pub use adapter::observation::ObservationOps;
+pub use adapter::surface_opening::SurfaceOpening;
 pub use adapter::system::SystemOps;
 pub use context::{CommandContext, WaitSelector};
 pub use cursor_overlay::{
@@ -51,7 +64,7 @@ pub use cursor_overlay::{
     CursorPhase, CursorPose, LABEL_FONT_POINTS, LABEL_PILL_HEIGHT, LABEL_PILL_MAX_WIDTH,
     LABEL_PILL_PADDING, LABEL_SHADOW_BLUR, LABEL_SHADOW_OFFSET, LABEL_SHADOW_OPACITY, LabelPill,
     MAX_CURSOR_IMAGE_BYTES, MAX_CURSOR_IMAGE_PATH_BYTES, MAX_CURSOR_IMAGE_PIXELS,
-    MAX_CURSOR_LABEL_BYTES, MAX_CURSOR_LABEL_WORDS, place_label,
+    MAX_CURSOR_LABEL_BYTES, MAX_CURSOR_LABEL_WORDS, clamp_cursor_label, place_label,
 };
 pub use input::clipboard_content::ClipboardContent;
 pub use input::clipboard_format::ClipboardFormat;
@@ -66,6 +79,7 @@ pub use input::mouse_click_count::{MAX_MOUSE_CLICK_COUNT, validate_mouse_click_c
 pub use input::mouse_event::MouseEvent;
 pub use input::mouse_event_kind::MouseEventKind;
 pub use input::pointer_observation::PointerObservation;
+pub use input::text_chunk_progress::text_chunk_progress;
 pub use locator::containment_predicate::ContainmentPredicate;
 pub use locator::identity_predicate::IdentityPredicate;
 pub use locator::live_locator::{
@@ -75,7 +89,7 @@ pub use locator::live_locator::{
     LocatorResolveRequest, LocatorSelection, LocatorSemanticReadStats, LocatorStats,
     LocatorTraversalStats, ObservationBudget, ObservationMode, ObservationRequest, ObservationRoot,
     ObservationSource, ObservedSubtree, ObservedTree, classify_query_result, evaluate_locator_tree,
-    require_unique, resolve_query,
+    incomplete_locator_error, require_unique, resolve_query,
 };
 pub use locator::state_predicate::StatePredicate;
 pub use locator::{
@@ -89,6 +103,7 @@ pub use notifications::notification_identity::NotificationIdentity;
 pub use notifications::notification_identity_check::verify_notification_identity;
 pub use notifications::notification_info::NotificationInfo;
 pub use refs::RefMap;
+pub use refs::identity_proof::IdentityProof;
 pub use refs::ref_capabilities::RefCapabilities;
 pub use refs::ref_entry::RefEntry;
 pub use refs::ref_entry_identity::RefEntryIdentity;
@@ -98,21 +113,25 @@ pub use refs::ref_process::RefProcess;
 pub use refs::ref_scope::RefScope;
 pub use refs::ref_source::RefSource;
 pub use refs::refs_store::RefStore;
+pub use refs::scope_chain::ScopeChain;
 pub use response::adapter_error::AdapterError;
 pub use response::app_error::AppError;
 pub use response::delivery_disposition::DeliveryDisposition;
 pub use response::error_code::ErrorCode;
+pub use response::headed_mode::headed_mode_suggestion;
 pub use response::output::{ErrorPayload, Response};
 pub use response::recovery_hint::RecoveryHint;
 pub use response::retry_disposition::RetryDisposition;
 pub use sandbox::exec_passthrough::ExecPassthrough;
 pub use sandbox::provider_script_output::ProviderScriptOutput;
 pub use sandbox::provider_script_request::ProviderScriptRequest;
-pub use session::interaction_lease::InteractionLease;
 #[cfg(unix)]
 pub use session::interaction_lease::{
     INTERACTION_LEASE_FD_ENV, acquire_unix_interaction_lease,
     adopt_inherited_unix_interaction_lease,
+};
+pub use session::interaction_lease::{
+    INTERACTION_LEASE_PURPOSE, InteractionLease, interaction_lease_timeout,
 };
 pub use session::process_lease_guard::ProcessLeaseGuard;
 pub use session::session_affinity::SessionAffinity;
@@ -120,15 +139,23 @@ pub use snapshot::snapshot_owner::SnapshotOwner;
 pub use snapshot::snapshot_surface::SnapshotSurface;
 pub use storage::file_lock::FileLock;
 pub use storage::private_file_ops::{
-    PrivateFileOps, bounded_read, install_private_file_ops, temporary_file_name,
+    PrivateFileOps, bounded_read, install_private_file_ops, private_file_error, temporary_file_name,
 };
 pub use storage::state_root::validate_state_root_env;
 pub use system::app_info::{AppInfo, AppPresentation, app_name_matches};
 pub use system::app_inventory::AppInventory;
 pub use system::app_inventory_query::AppInventoryQuery;
 pub use system::display_info::DisplayInfo;
+pub use system::front_outcome::FrontOutcome;
+pub use system::front_process::FrontProcess;
+pub use system::front_view::FrontView;
+pub use system::front_window::FrontWindow;
 pub use system::image_buffer::{ImageBuffer, MAX_PNG_INPUT_BYTES, parse_png_dimensions};
 pub use system::image_format::ImageFormat;
+pub use system::launch_arrival::LaunchArrival;
+pub use system::launch_facts::LaunchFacts;
+pub use system::launch_guidance::LaunchGuidance;
+pub use system::launch_refusal::already_running as launch_already_running;
 pub use system::operation_report::OperationReport;
 pub use system::operation_target::OperationTarget;
 pub use system::permission_report::PermissionReport;
@@ -136,14 +163,19 @@ pub use system::permission_state::PermissionState;
 pub use system::process_id::ProcessId;
 pub use system::process_identity::ProcessIdentity;
 pub use system::screenshot_target::ScreenshotTarget;
+pub use system::spawned_tree::spawned_descendants_of;
 pub use system::surface_info::SurfaceInfo;
 pub use system::window_filter::WindowFilter;
+pub use system::window_frame_memory::WindowFrameMemory;
+pub use system::window_frame_record::WindowFrameRecord;
 pub use system::window_info::WindowInfo;
 pub use system::window_op::WindowOp;
 pub use system::window_readback::WindowReadback;
 pub use system::window_state::WindowState;
 pub use trace::trace_sanitize::sanitize_trace_value;
-pub use tree::accname::{compute_description, compute_name, resolve_description, resolve_name};
+pub use tree::accname::{
+    compute_description, compute_name, name_is_borrowed, resolve_description, resolve_name,
+};
 pub use tree::bounds_space::BoundsSpace;
 pub use tree::element_identifier::ElementIdentifier;
 pub use tree::element_state::ElementState;
@@ -159,6 +191,7 @@ pub use tree::point::Point;
 pub use tree::rect::Rect;
 pub use tree::renderer_kind::RendererKind;
 pub use tree::role::Role;
+pub use tree::search_text::normalize as normalize_search_text;
 pub use tree::tree_options::TreeOptions;
 pub use tree::value_matches::value_matches;
 pub use wait::deadline::{DEFAULT_OPERATION_TIMEOUT_MS, Deadline};

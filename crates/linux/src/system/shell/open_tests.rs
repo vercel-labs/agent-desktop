@@ -2,7 +2,7 @@ use std::cell::Cell;
 use std::time::Duration;
 
 use agent_desktop_core::{
-    AdapterError, Deadline, ErrorCode, InteractionPolicy, WindowInfo, WindowState,
+    AdapterError, Deadline, ErrorCode, InteractionPolicy, SurfaceOpening, WindowInfo, WindowState,
 };
 
 use crate::system::shell::kinds::ShellKind;
@@ -290,4 +290,13 @@ fn a_surface_without_its_backing_service_is_refused_before_it_is_adopted() {
     assert_eq!(details["watcher"], "absent");
     assert_eq!(details["surface_opened_by_call"], false);
     assert_eq!(world.presses(), 0);
+}
+
+#[test]
+fn a_surface_already_showing_opens_as_present_and_a_pressed_one_as_raised() {
+    let (adopted, how) = open_standard(&World::open()).expect("adopted");
+    assert!(matches!(how.opening(adopted), SurfaceOpening::Present(_)));
+
+    let (pressed, how) = open_standard(&World::closed()).expect("opened");
+    assert!(matches!(how.opening(pressed), SurfaceOpening::Raised(_)));
 }

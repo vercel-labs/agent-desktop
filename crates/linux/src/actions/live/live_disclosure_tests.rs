@@ -1,7 +1,7 @@
 use super::live_bench::{Bench, Scripts, Toolkit};
 use super::live_click_tests::{act, find, open, state};
 use crate::actions::disclosure::set_expanded;
-use crate::tree::live::live_launch::nonce;
+use crate::tree::test_support::live_launch::nonce;
 use crate::tree::vocabulary::role_numbers::PUSH_BUTTON;
 use crate::tree::vocabulary::state_bits::{EXPANDABLE, EXPANDED};
 use agent_desktop_core::{Action, DeliveryDisposition};

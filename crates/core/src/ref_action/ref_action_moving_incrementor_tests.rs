@@ -88,9 +88,10 @@ impl ActionOps for Incrementor {
         &self,
         entry: &RefEntry,
         handle: &NativeHandle,
+        policy: crate::InteractionPolicy,
         lease: &crate::InteractionLease,
     ) -> Result<Option<NativeHandle>, AdapterError> {
-        self.scroll_into_view(handle, lease)?;
+        self.scroll_into_view(handle, policy, lease)?;
         let mut moved = entry.clone();
         let bounds = rectangle(true);
         moved.geometry.bounds = Some(bounds);
@@ -102,6 +103,7 @@ impl ActionOps for Incrementor {
     fn scroll_into_view(
         &self,
         _: &NativeHandle,
+        _: crate::InteractionPolicy,
         _: &crate::InteractionLease,
     ) -> Result<(), AdapterError> {
         self.scrolled.store(true, Ordering::SeqCst);
@@ -148,6 +150,6 @@ fn a_replacement_incrementor_at_the_expected_scrolled_rectangle_receives_no_writ
         ActionRequest::headless(Action::SetValue("5".into())),
     )
     .expect_err("scrolling cannot authorize a replacement control");
-    assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());
+    assert_eq!(error.disposition, crate::DeliverySemantics::uncertain());
     assert_eq!(adapter.writes.load(Ordering::SeqCst), 0);
 }

@@ -2,8 +2,11 @@ use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{Atom, AtomEnum, ConnectionExt, GetPropertyReply, MapState, Window};
 use x11rb::rust_connection::RustConnection;
 
+use super::client::ClientTitles;
 use super::control_display::property;
-use super::snapshot::{decode_cardinals, decode_frame_extents, decode_shadow, decode_title};
+use super::snapshot::{
+    decode_cardinals, decode_frame_extents, decode_narrow_title, decode_shadow, decode_wide_title,
+};
 use super::stacking::stacking_read::StackingRead;
 use super::stacking::{bounded, capped, route};
 use super::window::popup_window::PopupWindow;
@@ -301,12 +304,16 @@ fn client(connection: &RustConnection, atoms: &Atoms, root: Window, window: Wind
     X11Client {
         id: window,
         pid,
-        title: decode_title(
-            wide.as_ref()
-                .map(|reply| (reply.format, reply.value.as_slice())),
-            narrow
-                .as_ref()
-                .map(|reply| (reply.format, reply.value.as_slice())),
+        title: ClientTitles::new(
+            decode_wide_title(
+                wide.as_ref()
+                    .map(|reply| (reply.format, reply.value.as_slice())),
+            ),
+            decode_narrow_title(
+                narrow
+                    .as_ref()
+                    .map(|reply| (reply.format, reply.value.as_slice())),
+            ),
         ),
         extents,
         bounds: bounds(connection, root, window),
@@ -340,15 +347,12 @@ fn read_display(display: &str) -> X11State {
     if manager.is_none_or(|values| values.is_empty()) {
         return X11State::NoWindowManager;
     }
-    let active = cardinals(property(
-        &connection,
-        root,
-        atoms.active,
-        AtomEnum::WINDOW,
-        1,
-    ))
-    .and_then(|values| values.first().copied())
-    .filter(|window| *window != 0);
+    let Some(active) = property(&connection, root, atoms.active, AtomEnum::WINDOW, 1) else {
+        return X11State::Unavailable;
+    };
+    let active = cardinals(Some(active))
+        .and_then(|values| values.first().copied())
+        .filter(|window| *window != 0);
     let Some(listed) = cardinals(property(
         &connection,
         root,

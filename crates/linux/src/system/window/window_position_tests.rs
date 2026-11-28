@@ -4,7 +4,7 @@ use crate::system::process::toolkit_id::ToolkitId;
 use crate::system::registry::registry_app::assemble;
 use crate::system::window::window_listing::collect;
 use crate::system::x11::window::desktops::Desktops;
-use crate::tree::live::test_support::{read_of, words};
+use crate::tree::test_support::helpers::{read_of, words};
 use crate::tree::{AtspiElement, Field};
 
 fn twin_windows(active: &[bool]) -> Vec<ListedWindow> {
@@ -71,7 +71,7 @@ fn client(id: u32, x: i32, y: i32) -> X11Client {
         id,
         hidden: false,
         pid: Some(321),
-        title: "Doc".to_owned(),
+        title: "Doc".into(),
         extents: None,
         bounds: Some(Extents {
             x,

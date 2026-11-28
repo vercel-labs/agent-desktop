@@ -80,15 +80,6 @@ pub(super) fn matches_filters(
     true
 }
 
-#[cfg(not(target_os = "macos"))]
-fn list_from_nc(
-    _filter: &NotificationFilter,
-    _pid: i32,
-    _deadline: Deadline,
-) -> Result<Vec<NotificationInfo>, AdapterError> {
-    Err(AdapterError::not_supported("list_notifications"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

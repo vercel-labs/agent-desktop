@@ -14,6 +14,7 @@ fn node(name: Option<&str>, value: Option<&str>, description: Option<&str>) -> A
             value: value.map(String::from),
             description: description.map(String::from),
             native_id: None,
+            name_is_borrowed: false,
         },
         presentation: Default::default(),
         children_count: None,
@@ -330,4 +331,19 @@ fn a_traversal_timeout_names_the_budget_and_other_errors_are_untouched() {
         Some("Launch it first"),
         "only a timeout is re-suggested; anything else keeps its own"
     );
+}
+
+/// A timeout that says retrying cannot help is not a budget problem, so
+/// telling the caller to raise the budget would be false.
+#[test]
+fn a_timeout_that_declares_retrying_futile_keeps_its_own_suggestion() {
+    let futile = AppError::Adapter(
+        AdapterError::timeout("unreadable")
+            .with_suggestion("Narrow the query")
+            .with_details(serde_json::json!({ "retryable": false })),
+    );
+    let AppError::Adapter(untouched) = name_the_traversal_remedy(futile) else {
+        panic!("a timeout stays an adapter error");
+    };
+    assert_eq!(untouched.suggestion.as_deref(), Some("Narrow the query"));
 }

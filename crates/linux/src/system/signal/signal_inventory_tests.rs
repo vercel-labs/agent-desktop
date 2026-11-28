@@ -11,7 +11,7 @@ use crate::system::registry::frame_read::FrameRead;
 use crate::system::registry::listed_window::ListedWindow;
 use crate::system::registry::registry_app::{RegistryApp, assemble};
 use crate::system::x11::X11State;
-use crate::tree::live::test_support::{read_of, words};
+use crate::tree::test_support::helpers::{read_of, words};
 use crate::tree::{AtspiElement, Field, RawNode};
 
 fn app(bus: &str, pid: u32, exe: &str, answered: bool) -> RegistryApp {
@@ -139,7 +139,7 @@ fn menu_desktop() -> (Vec<ListedWindow>, Vec<super::AppOutcome>, X11State) {
     let clients = vec![X11Client {
         id: 0x40_0003,
         pid: Some(1),
-        title,
+        title: title.into(),
         extents: None,
         bounds: Some(Extents {
             x: 0,

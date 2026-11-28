@@ -47,3 +47,26 @@
 #nd-toc a[data-active="true"] {
   @apply text-gray-1000;
 }
+
+/* Vercel Labs lockup: match the OG card's slash spacing, scaled to the 18px
+   logo. The card draws the logo 51.44px tall, so the scale factor is 0.35:
+   31.5 units of leading gap -> 11px, the slash bbox 17.75x42.25 units ->
+   6.2x14.8px with a 3-unit (1.05px) stroke, and 22 units of trailing gap ->
+   7.7px to the product name's text box. */
+header span[class~="gap-2.5"] {
+  column-gap: 0;
+}
+
+header span[class~="gap-2.5"] > div[class~="w-5"] {
+  flex: none;
+  width: 6.2px;
+  height: 14.8px;
+  margin-left: 11px;
+  margin-right: 7.7px;
+  background-color: currentColor;
+  clip-path: polygon(83.1% 0, 100% 0, 18.31% 100%, 0 100%);
+}
+
+header span[class~="gap-2.5"] > div[class~="w-5"] > svg {
+  display: none;
+}

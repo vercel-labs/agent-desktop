@@ -205,9 +205,20 @@ pub(crate) fn resolve_owners(
         return super::surface_windows(adapter, app_name, window_id, surface, deadline)
             .map(|windows| windows.into_iter().map(SnapshotOwner::Window).collect());
     }
-    let app = if window_id.is_some() {
-        let window = super::resolve_window(adapter, app_name, window_id, deadline)?;
-        crate::system::app_lookup::resolve_app_owning(&window, adapter, deadline)?
+    let app = if let Some(window_id) = window_id {
+        match super::resolve_window(adapter, app_name, Some(window_id), deadline) {
+            Ok(window) => {
+                crate::system::app_lookup::resolve_app_owning(&window, adapter, deadline)?
+            }
+            Err(error) if error.code() == crate::ErrorCode::WindowNotFound.as_str() => {
+                return match surface_window_named(adapter, app_name, window_id, surface, deadline)?
+                {
+                    Some(window) => Ok(vec![SnapshotOwner::Window(window)]),
+                    None => Err(error),
+                };
+            }
+            Err(error) => return Err(error),
+        }
     } else if app_name.is_some() {
         crate::system::app_lookup::resolve_app(app_name, adapter, deadline)?
     } else {
@@ -220,7 +231,38 @@ pub(crate) fn resolve_owners(
         })?
     };
     crate::system::app_lookup::process_identity(&app)?;
+    if let Some(window) = adapter.surface_window(&app, surface, deadline)? {
+        return Ok(vec![SnapshotOwner::Window(window)]);
+    }
     Ok(vec![SnapshotOwner::Application(app)])
+}
+
+/// The surface window a capture names through `--window-id`, when that id is a
+/// surface window the window inventory leaves out. The application must also
+/// be named, because a surface window carries a process rather than a census
+/// record; an application label that cannot be resolved leaves this to the
+/// inventory's own missing-window answer.
+fn surface_window_named(
+    adapter: &dyn PlatformAdapter,
+    app_name: Option<&str>,
+    window_id: &str,
+    surface: crate::SnapshotSurface,
+    deadline: Deadline,
+) -> Result<Option<WindowInfo>, AppError> {
+    let Some(app_name) = app_name else {
+        return Ok(None);
+    };
+    let Ok(app) = crate::system::app_lookup::resolve_app(Some(app_name), adapter, deadline) else {
+        return Ok(None);
+    };
+    let process = crate::system::app_lookup::process_identity(&app)?;
+    let Some(mut window) =
+        adapter.recorded_surface_window(process, window_id, surface, deadline)?
+    else {
+        return Ok(None);
+    };
+    window.app = app.name;
+    Ok(Some(window))
 }
 
 pub(crate) fn resolve_ref_owner(
@@ -238,11 +280,12 @@ pub(crate) fn resolve_ref_owner(
     if application_surface || entry.source.is_process_owned() {
         return Ok(match adapter.process_state(process, deadline)? {
             ProcessState::Running => {
-                let app = application_from_ref(entry)?;
-                let owner = if application_surface {
-                    SnapshotOwner::Application(app)
-                } else {
-                    SnapshotOwner::Window(crate::WindowInfo::for_process(&app))
+                let owner = match (application_surface, entry.source.source_window_id.is_some()) {
+                    (true, true) => SnapshotOwner::Window(source_window_info(entry)?),
+                    (true, false) => SnapshotOwner::Application(application_from_ref(entry)?),
+                    (false, _) => SnapshotOwner::Window(crate::WindowInfo::for_process(
+                        &application_from_ref(entry)?,
+                    )),
                 };
                 RefOwnerObservation::Present(owner)
             }
@@ -254,20 +297,7 @@ pub(crate) fn resolve_ref_owner(
             }
         });
     }
-    let expected = crate::WindowInfo {
-        id: entry.source.source_window_id.clone().ok_or_else(|| {
-            AdapterError::new(
-                crate::ErrorCode::ActionNotSupported,
-                "Ref has no source window for post-action observation",
-            )
-        })?,
-        title: entry.source.source_window_title.clone().unwrap_or_default(),
-        app: entry.source.source_app.clone().unwrap_or_default(),
-        pid: entry.process.pid,
-        process_instance: Some(process.instance.clone()),
-        bounds: None,
-        state: Default::default(),
-    };
+    let expected = source_window_info(entry)?;
     match adapter.resolve_window_strict(&expected, deadline) {
         Ok(window) => {
             if window.id != expected.id
@@ -300,6 +330,7 @@ pub(crate) fn resolve_ref_owner(
 
 pub(crate) fn application_from_ref(entry: &crate::RefEntry) -> Result<crate::AppInfo, AppError> {
     Ok(crate::AppInfo {
+        aliases: Vec::new(),
         name: entry.source.source_app.clone().ok_or_else(|| {
             AdapterError::stale_ref_because("root ref has no application identity")
         })?,
@@ -307,6 +338,26 @@ pub(crate) fn application_from_ref(entry: &crate::RefEntry) -> Result<crate::App
         process_instance: entry.process.process_instance.clone(),
         bundle_id: None,
         presentation: None,
+    })
+}
+
+/// The window a ref recorded as its source. A surface an adapter presents in a
+/// window of its own records that window, so observing the ref later reads the
+/// same window the capture did.
+pub(crate) fn source_window_info(entry: &crate::RefEntry) -> Result<WindowInfo, AppError> {
+    Ok(WindowInfo {
+        id: entry.source.source_window_id.clone().ok_or_else(|| {
+            AdapterError::new(
+                crate::ErrorCode::ActionNotSupported,
+                "Ref has no source window for post-action observation",
+            )
+        })?,
+        title: entry.source.source_window_title.clone().unwrap_or_default(),
+        app: entry.source.source_app.clone().unwrap_or_default(),
+        pid: entry.process.pid,
+        process_instance: entry.process.process_instance.clone(),
+        bounds: None,
+        state: Default::default(),
     })
 }
 

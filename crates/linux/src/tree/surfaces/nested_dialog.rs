@@ -79,12 +79,22 @@ pub(crate) fn find_surface(
 }
 
 /// Whether the walk left any subtree unread, so a dialog may sit where it did
-/// not reach.
+/// not reach. A table that presents the cells in view of its grid is not cut
+/// short: it holds only cells, and a dialog is never one of them.
 pub(crate) fn is_cut_short(node: &Node) -> bool {
+    let grid_view = node
+        .payload
+        .node
+        .properties
+        .grid
+        .slots
+        .as_ref()
+        .is_some_and(|slots| slots.grid_view);
     node.truncated
-        || node
-            .child_count
-            .is_some_and(|count| count as usize > node.children.len())
+        || (!grid_view
+            && node
+                .child_count
+                .is_some_and(|count| count as usize > node.children.len()))
         || node.children.iter().any(is_cut_short)
 }
 

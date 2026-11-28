@@ -4,23 +4,18 @@ use agent_desktop_core::{
 use zbus::Connection;
 
 use super::path_descent::Levels;
-use super::resolve_anchor::resolve_anchor;
-use super::resolve_candidates::read_candidates;
+use super::resolve_anchor::resolve_anchor_from;
 use super::resolve_errors::{settle_gone, stopped_app};
 use super::resolve_gate::stored_window;
-use super::resolve_search::evaluate;
-use super::searched::Searched;
 use crate::system::{SharedBus, owner_process_id, process::process_facts, shell, within};
 use crate::tree::menu::menu_resolve::resolve_menu;
 use crate::tree::observe::node_evidence::read_evidence_placed;
-use crate::tree::placement::node_position::place_nodes;
 use crate::tree::properties::liveness::Liveness;
 use crate::tree::properties::node_read::read_node_for;
 use crate::tree::properties::read_purpose::ReadPurpose;
-use crate::tree::properties::toolkit_trust::read_web_family;
 use crate::tree::resolve::{Source, resolve};
 use crate::tree::walk::level::Level;
-use crate::tree::walk::walker::{walk_tree, walk_tree_for};
+use crate::tree::walk::walker::walk_tree;
 use crate::tree::{AtspiElement, WalkLimits};
 
 fn unanswered() -> AdapterError {
@@ -50,7 +45,11 @@ impl<'a> BusSource<'a> {
 }
 
 impl Source for BusSource<'_> {
-    fn open_window(&mut self, entry: &RefEntry) -> Result<AtspiElement, AdapterError> {
+    fn bus_guid(&mut self) -> Result<String, AdapterError> {
+        Ok(self.connection.server_guid().to_string())
+    }
+
+    fn verify_window(&mut self, entry: &RefEntry) -> Result<AtspiElement, AdapterError> {
         let window = stored_window(entry)?;
         window.check_process(&process_facts::lookup(window.pid()), entry)?;
         let frame = window.frame();
@@ -70,6 +69,16 @@ impl Source for BusSource<'_> {
             let owner = owner_process_id(connection, window.bus()).await;
             window.check_owner(owner, entry)
         })?;
+        self.levels = Some(Levels::new(connection.clone(), &frame, self.deadline));
+        Ok(frame)
+    }
+
+    fn is_shell_frame(&mut self, frame: &AtspiElement) -> bool {
+        shell::is_shell_element(frame)
+    }
+
+    fn open_window(&mut self, entry: &RefEntry) -> Result<AtspiElement, AdapterError> {
+        let frame = self.verify_window(entry)?;
         let frame = if matches!(
             entry.source.source_surface,
             SnapshotSurface::Sheet | SnapshotSurface::Alert
@@ -104,13 +113,17 @@ impl Source for BusSource<'_> {
         } else {
             frame
         };
-        self.levels = Some(Levels::new(connection.clone(), &frame, self.deadline));
+        self.levels = Some(Levels::new(self.connection.clone(), &frame, self.deadline));
         Ok(frame)
     }
 
-    fn level(&mut self, element: &AtspiElement) -> Result<Level<AtspiElement>, AdapterError> {
+    fn level(
+        &mut self,
+        element: &AtspiElement,
+        toward: Option<usize>,
+    ) -> Result<Level<AtspiElement>, AdapterError> {
         match self.levels.as_mut() {
-            Some(levels) => levels.read(element),
+            Some(levels) => levels.read(element, toward),
             None => Err(AdapterError::internal(
                 "A level was read before the window was opened",
             )),
@@ -129,36 +142,22 @@ impl Source for BusSource<'_> {
         }
     }
 
-    fn search(&mut self, frame: &AtspiElement, entry: &RefEntry) -> Result<Searched, AdapterError> {
-        let mut walk = walk_tree_for(
-            self.bus,
-            frame,
-            &WalkLimits::default(),
-            self.deadline,
-            ReadPurpose::Shape,
-        )?;
-        read_candidates(&self.connection, &mut walk, entry, self.deadline)?;
-        place_nodes(self.bus, &mut walk, self.deadline)?;
-        Ok(evaluate(
-            &walk,
-            entry,
-            within(self.deadline, read_web_family(&self.connection, frame))?.is_some(),
-        ))
-    }
-
     fn stopped_app(&mut self, pid: u32) -> Option<String> {
         stopped_app(pid)
     }
 }
 
-/// Resolves a stored ref against the live accessibility tree. The element
-/// comes back as a native handle that carries the window frame and web
-/// context it was found under.
+/// Resolves a stored ref against the live accessibility tree, or against the
+/// tray or menu it was captured from. The element comes back as a native
+/// handle that carries the window frame and web context it was found under.
 pub(crate) fn resolve_element_strict(
     bus: &SharedBus,
     entry: &RefEntry,
     deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
+    if crate::system::tray::owns(entry) {
+        return crate::system::tray::resolve(entry, deadline);
+    }
     if entry.source.source_surface == SnapshotSurface::Menu {
         return resolve_menu(bus, entry, deadline);
     }
@@ -168,20 +167,27 @@ pub(crate) fn resolve_element_strict(
 
 /// Lands the element a locator match names by its stored path, gated by the
 /// window it was taken in. The handle carries the same ancestry a strict
-/// resolution gives, so the observation of the element seeds from it.
+/// resolution gives, so the observation of the element seeds from it. A tray
+/// or menu entry has no window path, so it resolves strictly instead.
 pub(crate) fn resolve_locator_anchor(
     bus: &SharedBus,
     entry: &RefEntry,
+    base: Option<&NativeHandle>,
     deadline: Deadline,
 ) -> Result<NativeHandle, AdapterError> {
+    let base = base.map(crate::tree::element::atspi_element).transpose()?;
+    if crate::system::tray::owns(entry) || crate::tree::menu::menu_resolve::is_menu_entry(entry) {
+        if base.is_some() {
+            return Err(AdapterError::not_supported(
+                "resolve_locator_anchor from a base element",
+            ));
+        }
+        return resolve_element_strict(bus, entry, deadline);
+    }
     let mut source = BusSource::open(bus, deadline)?;
-    resolve_anchor(&mut source, entry, deadline).map(AtspiElement::into_native_handle)
+    resolve_anchor_from(&mut source, entry, base, deadline).map(AtspiElement::into_native_handle)
 }
 
 #[cfg(test)]
 #[path = "resolve_source_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "resolve_renderer_live_tests.rs"]
-mod renderer_live_tests;

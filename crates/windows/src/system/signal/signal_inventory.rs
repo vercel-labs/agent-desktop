@@ -8,8 +8,8 @@ use crate::system::app_ops;
 use crate::system::process_identity;
 use crate::system::window::listing_retry::{LISTING_RACE_ATTEMPTS, retry_transient_window_race};
 use crate::system::window::window_enum::{EnumeratedWindow, enumerate_top_level};
-use crate::system::window::window_identity;
 use crate::system::window::window_ops;
+use crate::system::window::{frame_identity, window_identity};
 
 /// One coherent instant's windows and apps, assembled from a single
 /// `EnumWindows` pass plus one `ToolHelp` process snapshot.
@@ -49,9 +49,9 @@ enum PassOutcome {
 /// The single-pass, mutually-coherent windows+apps observation `wait --event`
 /// polls. A mid-walk identity race is absorbed internally by the shared
 /// listing-retry helper, because surfacing it would abort the whole wait:
-/// core retries only `TIMEOUT`, `ELEMENT_NOT_FOUND` and `APP_UNRESPONSIVE`. A
-/// truncated walk is reported rather than retried, since retrying it would
-/// spend the same exhausted budget again.
+/// core's poll loop does not retry `WINDOW_NOT_FOUND`. A truncated walk is
+/// reported rather than retried, since retrying it would spend the same
+/// exhausted budget again.
 pub(crate) fn capture_windows_and_apps(
     deadline: Deadline,
 ) -> Result<SignalWindowInventory, AdapterError> {
@@ -83,6 +83,10 @@ fn mid_walk_race_signal() -> AdapterError {
 fn single_pass(deadline: Deadline) -> Result<PassOutcome, AdapterError> {
     #[cfg(test)]
     enum_windows_calls::record();
+    #[cfg(test)]
+    if let Some(error) = force_failure::take() {
+        return Err(error);
+    }
 
     let mut candidates = Vec::new();
     let mut truncated = false;
@@ -135,7 +139,7 @@ fn walk_phase(
         if index > 0 {
             deadline.ensure_remaining()?;
         }
-        let Some(pid) = window_identity::live_window_owner(window.handle) else {
+        let Some(pid) = frame_identity::application_pid(window.handle) else {
             continue;
         };
         let token = cached_token(&mut cache, pid)?;
@@ -175,7 +179,7 @@ fn assembly_phase(
         if index > 0 {
             deadline.ensure_remaining()?;
         }
-        let Some(current_pid) = window_identity::live_window_owner(entry.window.handle) else {
+        let Some(current_pid) = frame_identity::application_pid(entry.window.handle) else {
             continue;
         };
         if current_pid != entry.pid {
@@ -206,6 +210,7 @@ fn assembly_phase(
         });
         if apps_seen.insert(current_pid) {
             apps.push(AppInfo {
+                aliases: Vec::new(),
                 name: app_name,
                 pid: current_pid,
                 bundle_id: None,
@@ -231,17 +236,9 @@ fn cached_token(
     if let Some(cached) = cache.get(&pid) {
         return Ok(cached.clone());
     }
-    let token = token_for_pid_seamed(pid)?;
+    let token = process_identity::token_for_pid(pid)?;
     cache.insert(pid, token.clone());
     Ok(token)
-}
-
-fn token_for_pid_seamed(pid: ProcessId) -> Result<Option<String>, AdapterError> {
-    #[cfg(test)]
-    if force_token_none::matches(pid) {
-        return Ok(None);
-    }
-    process_identity::token_for_pid(pid)
 }
 
 /// Narrows any native-call failure onto the closed error set. `TIMEOUT`
@@ -274,14 +271,12 @@ fn mid_walk_identity_race_error(attempts: u32) -> AdapterError {
 #[path = "signal_inventory_test_seams.rs"]
 mod test_seams;
 #[cfg(test)]
-use test_seams::{enum_windows_calls, force_token_none};
+use test_seams::enum_windows_calls;
+#[cfg(test)]
+pub(super) use test_seams::force_failure;
 #[cfg(all(test, target_os = "windows"))]
 use test_seams::{force_race, force_truncation};
 
 #[cfg(test)]
 #[path = "signal_inventory_tests.rs"]
 mod tests;
-
-#[cfg(all(test, target_os = "windows"))]
-#[path = "signal_inventory_command_live_tests.rs"]
-mod command_live_tests;

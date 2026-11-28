@@ -2,6 +2,7 @@ pub(crate) mod frame_identity;
 pub(crate) mod listing_retry;
 pub(crate) mod window_activate;
 pub(crate) mod window_enum;
+pub(crate) mod window_front;
 pub(crate) mod window_identity;
 pub(crate) mod window_op;
 pub(crate) mod window_op_readback;

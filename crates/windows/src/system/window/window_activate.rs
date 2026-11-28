@@ -14,17 +14,13 @@ use crate::input::elevation::{
 use super::window_identity::WindowIdentityEvidence;
 use super::window_ops::{is_foreground_window, parse_handle};
 
-/// A21-6: the committed capture recorded 0/5 first-attempt successes, and
-/// the scratch-window foreground transition did not land on the second
-/// attempt either; the repo-controlled scratch host cannot stage the
-/// contention this retry exists to survive, so that case was never
-/// exercised here. A budget still has to be finite regardless of what this
-/// host could measure: an unbounded retry against a target that truly
-/// never becomes foreground would hang the caller instead of failing
-/// closed. Two keeps the one extra attach-and-set-foreground attempt after
-/// a short delay, enough for a retry to observe an attach the first
-/// attempt raced, then exhausts and fails closed rather than asserting a
-/// success rate this capture never showed.
+/// Windows refuses `SetForegroundWindow` from a process that does not own
+/// the foreground: 0 of 5 on the first attempt and 0 of 5 on the second
+/// (A21-6). UI Automation focus on the window's own element took the
+/// foreground from such a process in 60 of 60 trials (A31-9), so the raise
+/// goes through it. The budget stays finite: a target that never becomes
+/// foreground gets one more attempt after a short delay, then the raise
+/// fails closed.
 const FOCUS_STEAL_BUDGET: u32 = 2;
 const INTER_ATTEMPT_DELAY: Duration = Duration::from_millis(25);
 
@@ -46,7 +42,10 @@ const INTER_ATTEMPT_DELAY: Duration = Duration::from_millis(25);
 /// are attempt-and-verify (A21-7); budget exhaustion on a strictly-higher
 /// integrity target is activation-worded `PERM_DENIED`, otherwise
 /// `ACTION_FAILED` with `physical_delivery_started: false`.
-pub(crate) fn focus_window(win: &WindowInfo, lease: &InteractionLease) -> Result<(), AdapterError> {
+pub(crate) fn focus_window(
+    win: &WindowInfo,
+    lease: &InteractionLease,
+) -> Result<DeliverySemantics, AdapterError> {
     lease
         .deadline()
         .ensure_remaining()
@@ -66,9 +65,13 @@ pub(crate) fn focus_window(win: &WindowInfo, lease: &InteractionLease) -> Result
     };
     evidence.verify_stored().map_err(before_activation)?;
     ensure_window_is_pumping(handle).map_err(before_activation)?;
-    restore_if_iconic(handle, &evidence).map_err(before_activation)?;
+    let restored = restore_if_iconic(handle, &evidence).map_err(before_activation)?;
     if is_owned_foreground(handle, &evidence) {
-        return Ok(());
+        return Ok(if restored {
+            DeliverySemantics::delivered_unverified()
+        } else {
+            DeliverySemantics::not_delivered()
+        });
     }
     let strictly_higher = activation_target_is_strictly_higher(win.pid);
     raise_with_budget(handle, &evidence, lease, strictly_higher)
@@ -81,9 +84,9 @@ fn before_activation(error: AdapterError) -> AdapterError {
 /// Refuses activation of a target that is not dispatching messages.
 ///
 /// This conservative liveness check runs after identity verification and
-/// before activation. Restore/show use asynchronous window calls, while
-/// `SetForegroundWindow` can still be refused by Windows; checking after
-/// verification keeps a destroyed or recycled handle classified as stale.
+/// before activation. Restore/show use asynchronous window calls, and the
+/// raise is a call into the target's process; checking after verification
+/// keeps a destroyed or recycled handle classified as stale.
 #[cfg(target_os = "windows")]
 fn ensure_window_is_pumping(handle: super::window_enum::WindowHandle) -> Result<(), AdapterError> {
     if super::window_enum::window_is_responsive(handle) {
@@ -103,10 +106,6 @@ fn ensure_window_is_pumping(_handle: super::window_enum::WindowHandle) -> Result
 }
 
 fn activation_target_is_strictly_higher(pid: agent_desktop_core::ProcessId) -> bool {
-    #[cfg(all(test, target_os = "windows"))]
-    if force_strictly_higher::is_active() {
-        return true;
-    }
     integrity_is_strictly_higher(current_process_integrity_rid(), process_integrity_rid(pid))
 }
 
@@ -125,7 +124,7 @@ fn raise_with_budget(
     evidence: &WindowIdentityEvidence<'_>,
     lease: &InteractionLease,
     strictly_higher: bool,
-) -> Result<(), AdapterError> {
+) -> Result<DeliverySemantics, AdapterError> {
     for attempt in 0..FOCUS_STEAL_BUDGET {
         if attempt == 0 {
             lease
@@ -143,11 +142,9 @@ fn raise_with_budget(
                 .ensure_remaining()
                 .map_err(after_foreground_write_attempted)?;
         }
-        #[cfg(test)]
-        attempt_probe::begin_attempt(attempt);
         bring_to_foreground(handle, evidence)?;
         if is_owned_foreground(handle, evidence) {
-            return Ok(());
+            return Ok(DeliverySemantics::delivered_unverified());
         }
     }
     Err(budget_exhausted(strictly_higher))
@@ -159,7 +156,7 @@ fn raise_with_budget(
 /// window has not been touched, so that timeout is routed through
 /// `before_activation` like every pre-write failure above it. From the
 /// second attempt onward, a prior `bring_to_foreground` call has already
-/// issued `ShowWindow`/`SetForegroundWindow` against the live handle, so the
+/// issued a show and a focus request against the live handle, so the
 /// envelope cannot claim nothing was written even though the error itself is
 /// a plain `Timeout`. That mirrors the split the keyboard and mouse release
 /// guards already use: not-delivered while nothing has gone out,
@@ -197,10 +194,6 @@ pub(crate) fn is_owned_foreground(
     handle: super::window_enum::WindowHandle,
     evidence: &WindowIdentityEvidence<'_>,
 ) -> bool {
-    #[cfg(all(test, target_os = "windows"))]
-    if never_foreground::is_active() {
-        return false;
-    }
     #[cfg(target_os = "windows")]
     {
         is_foreground_window(handle) && evidence.owns_handle_now().unwrap_or(false)
@@ -216,11 +209,11 @@ pub(crate) fn is_owned_foreground(
 fn restore_if_iconic(
     handle: super::window_enum::WindowHandle,
     evidence: &WindowIdentityEvidence<'_>,
-) -> Result<(), AdapterError> {
+) -> Result<bool, AdapterError> {
     use windows_sys::Win32::UI::WindowsAndMessaging::{IsIconic, SW_RESTORE, ShowWindowAsync};
     unsafe {
         if IsIconic(handle) == 0 {
-            return Ok(());
+            return Ok(false);
         }
         if !owned_for_write(evidence)? {
             return Err(recycled_before_foreground());
@@ -230,18 +223,16 @@ fn restore_if_iconic(
                 "ShowWindowAsync failed while restoring target",
             )));
         }
-        #[cfg(test)]
-        restore_probe::record();
     }
-    Ok(())
+    Ok(true)
 }
 
 #[cfg(not(target_os = "windows"))]
 fn restore_if_iconic(
     _handle: super::window_enum::WindowHandle,
     _evidence: &WindowIdentityEvidence<'_>,
-) -> Result<(), AdapterError> {
-    Ok(())
+) -> Result<bool, AdapterError> {
+    Ok(false)
 }
 
 #[cfg(target_os = "windows")]
@@ -249,9 +240,7 @@ fn bring_to_foreground(
     handle: super::window_enum::WindowHandle,
     evidence: &WindowIdentityEvidence<'_>,
 ) -> Result<(), AdapterError> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        IsWindowVisible, SW_SHOW, SetForegroundWindow, ShowWindowAsync,
-    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{IsWindowVisible, SW_SHOW, ShowWindowAsync};
 
     unsafe {
         if !owned_for_write(evidence)? {
@@ -267,9 +256,24 @@ fn bring_to_foreground(
         if !owned_for_write(evidence)? {
             return Err(recycled_before_foreground());
         }
-        let _ = SetForegroundWindow(handle);
     }
+    focus_window_element(handle);
     Ok(())
+}
+
+/// Asks UI Automation to focus the window's own element, which makes the
+/// window the foreground window. A refusal is not an error here: the caller
+/// reads the foreground back and decides.
+#[cfg(target_os = "windows")]
+fn focus_window_element(handle: super::window_enum::WindowHandle) {
+    let Ok(client) = crate::tree::automation::automation_client() else {
+        return;
+    };
+    if let Ok(element) =
+        client.element_from_handle(uiautomation::types::Handle::from(handle as isize))
+    {
+        let _ = element.set_focus();
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -281,10 +285,6 @@ fn bring_to_foreground(
 }
 
 fn owned_for_write(evidence: &WindowIdentityEvidence<'_>) -> Result<bool, AdapterError> {
-    #[cfg(all(test, target_os = "windows"))]
-    if force_unowned_from_attempt::blocks(attempt_probe::current()) {
-        return Ok(false);
-    }
     evidence.owns_handle_now()
 }
 
@@ -311,16 +311,6 @@ fn recycled_before_foreground() -> AdapterError {
     .with_details(serde_json::json!({ "physical_delivery_started": false }))
     .with_disposition(DeliverySemantics::not_delivered())
 }
-
-#[cfg(all(test, target_os = "windows"))]
-#[path = "window_activate_hooks.rs"]
-mod hooks;
-
-#[cfg(all(test, target_os = "windows"))]
-use hooks::{
-    attempt_probe, force_strictly_higher, force_unowned_from_attempt, never_foreground,
-    restore_probe,
-};
 
 #[cfg(test)]
 #[path = "window_activate_policy_tests.rs"]

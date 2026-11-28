@@ -20,6 +20,7 @@ fn bounds(x: i32) -> Extents {
 
 fn window(pid: u32, x: i32) -> ListedWindow {
     ListedWindow {
+        alert: false,
         app: 0,
         info: WindowInfo {
             id: format!("window-{pid}"),
@@ -49,7 +50,7 @@ fn client(id: u32, pid: u32, x: i32) -> X11Client {
     X11Client {
         id,
         pid: Some(pid),
-        title: format!("window {pid}"),
+        title: format!("window {pid}").into(),
         extents: None,
         bounds: Some(bounds(x)),
         hidden: false,

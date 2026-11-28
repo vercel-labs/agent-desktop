@@ -31,12 +31,16 @@ pub unsafe extern "C" fn ad_close_app(
         };
         let adapter = crate::adapter::acquire_adapter!(adapter);
         match agent_desktop_core::commands::close_app::execute(
-            agent_desktop_core::commands::close_app::CloseAppArgs { app: id_str, force },
+            agent_desktop_core::commands::close_app::CloseAppArgs {
+                app: id_str,
+                force,
+                policy: agent_desktop_core::InteractionPolicy::headless(),
+            },
             adapter.inner.as_ref(),
         ) {
             Ok(_) => AdResult::Ok,
             Err(e) => {
-                set_last_error(&crate::commands::app_error_to_adapter(e));
+                set_last_error(&agent_desktop_core::AppError::into_adapter_error(e));
                 crate::error::last_error_code()
             }
         }

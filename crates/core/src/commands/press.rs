@@ -7,6 +7,8 @@ use crate::{
 };
 use serde_json::Value;
 
+const UNTARGETED_PRESS_SUGGESTION: &str = "Name the target with --app <name> or --window-id <id>: the key then goes to the element that holds the keyboard focus inside that application, and the application stays in the background where the platform can deliver it there. Use --headed only if the user explicitly asked for it.";
+
 pub struct PressArgs {
     pub combo: String,
     pub app: Option<String>,
@@ -47,14 +49,24 @@ pub fn execute(
                 )?,
             };
         }
-        if !context.physical_input_policy().is_headed()
-            && let Some(window) = &window
-        {
-            adapter.press_key_for_window(window, &combo, context.physical_input_policy(), &lease)?
-        } else {
-            adapter.press_key_for_app(process, &combo, context.physical_input_policy(), &lease)?
-        }
+        let policy = context.physical_input_policy();
+        let keyed = match &window {
+            Some(window) if !policy.is_headed() => {
+                adapter.press_key_for_window(window, &combo, policy, &lease)
+            }
+            _ => adapter.press_key_for_app(process.clone(), &combo, policy, &lease),
+        };
+        super::escape_route::settle(keyed, &combo, || {
+            adapter.close_transient_surface(&process, window.as_ref(), policy, &lease)
+        })?
     } else {
+        context
+            .physical_input_policy()
+            .require(
+                crate::Effect::FocusSteal,
+                "press without --app or --window-id",
+            )
+            .map_err(|refusal| refusal.with_suggestion(UNTARGETED_PRESS_SUGGESTION))?;
         let lease = adapter.acquire_interaction_lease(deadline)?;
         let handle = crate::adapter::NativeHandle::null();
         adapter.execute_action(

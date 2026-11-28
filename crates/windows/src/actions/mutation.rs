@@ -20,6 +20,28 @@ use crate::system::runtime::hresult::{
 };
 use crate::tree::automation::{ERR_NONE, UiaFailure};
 
+/// The operation name the chain gives a pattern lookup, which happens before
+/// any request is sent.
+pub(crate) const PRE_DISPATCH_OPERATION: &str = "get_pattern";
+
+/// What `UIA_E_ELEMENTNOTAVAILABLE` from the dispatch call of `operation`
+/// proves. A press handler that opens a modal dialog or closes its own window
+/// takes the target away while the call runs, so a press was delivered with no
+/// read-back. Any other write has no such handler: the request was sent and
+/// nothing shows whether it ran, so it is an error that is never a safe retry.
+fn target_vanished_during_dispatch(operation: &str, api: &str) -> Result<bool, AdapterError> {
+    if matches!(operation, "Invoke" | "DoDefaultAction") {
+        return Ok(true);
+    }
+    Err(AdapterError::new(
+        ErrorCode::StaleRef,
+        format!("{operation} lost its UI Automation element while the request was running"),
+    )
+    .with_platform_detail(platform_hresult(api, operation, UIA_E_ELEMENTNOTAVAILABLE))
+    .with_disposition(DeliverySemantics::uncertain())
+    .with_suggestion("Inspect the current UI before any new action; the request may have run."))
+}
+
 /// Maps a successful UIA write onto the delivered mutation outcome.
 pub(crate) fn classify_success() -> Result<bool, AdapterError> {
     Ok(true)
@@ -51,11 +73,21 @@ pub(crate) fn classify_write(
     api: &str,
     error: &uiautomation::Error,
 ) -> Result<bool, AdapterError> {
-    use crate::tree::automation::failure_of;
+    classify_write_failure(operation, api, crate::tree::automation::failure_of(error))
+}
 
-    match failure_of(error) {
+/// [`classify_write`] on an already extracted failure.
+pub(crate) fn classify_write_failure(
+    operation: &str,
+    api: &str,
+    failure: UiaFailure,
+) -> Result<bool, AdapterError> {
+    match failure {
         UiaFailure::Sentinel(ERR_NONE) => Ok(false),
         other if other.is_exhaustion() => Ok(false),
+        UiaFailure::Hresult(UIA_E_ELEMENTNOTAVAILABLE) if operation != PRE_DISPATCH_OPERATION => {
+            target_vanished_during_dispatch(operation, api)
+        }
         failure => classify_mutation(operation, api, &failure),
     }
 }
@@ -169,7 +201,7 @@ fn platform_hresult(api: &str, operation: &str, hresult: i32) -> String {
 /// `value_write_gate_tests.rs` so a 13th action file needs one edit, not
 /// three.
 #[cfg(test)]
-pub(crate) fn action_scan_sources() -> [(&'static str, &'static str); 12] {
+pub(crate) fn action_scan_sources() -> [(&'static str, &'static str); 16] {
     [
         ("actions/mutation.rs", include_str!("mutation.rs")),
         (
@@ -180,10 +212,20 @@ pub(crate) fn action_scan_sources() -> [(&'static str, &'static str); 12] {
         ("actions/dispatch.rs", include_str!("dispatch.rs")),
         ("actions/focus.rs", include_str!("focus.rs")),
         ("actions/chain.rs", include_str!("chain.rs")),
+        ("actions/click.rs", include_str!("click.rs")),
         ("actions/value_write.rs", include_str!("value_write.rs")),
         ("actions/toggle_state.rs", include_str!("toggle_state.rs")),
         ("actions/disclosure.rs", include_str!("disclosure.rs")),
         ("actions/select.rs", include_str!("select.rs")),
+        ("actions/select_combo.rs", include_str!("select_combo.rs")),
+        (
+            "actions/native_message.rs",
+            include_str!("native_message.rs"),
+        ),
+        (
+            "actions/scroll_list_box.rs",
+            include_str!("scroll_list_box.rs"),
+        ),
         ("actions/select_search.rs", include_str!("select_search.rs")),
         ("actions/scroll.rs", include_str!("scroll.rs")),
     ]

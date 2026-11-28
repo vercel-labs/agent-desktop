@@ -187,6 +187,12 @@ mod imp {
     /// present on both build 17763 and the Server 2025 CI image. A client
     /// whose calls cannot be bounded is one this crate should refuse, not one
     /// it should quietly accept.
+    ///
+    /// `AutoSetFocus` is turned off. Left at its default of true, every
+    /// control pattern call first sets focus to its target and so activates
+    /// the target's window (A31-1); with it off, a pattern call moves neither
+    /// focus nor the foreground (A31-2). The product decides focus
+    /// explicitly through its `SetFocus` rung.
     fn create_bounded_client() -> Result<UIAutomation, AdapterError> {
         let client: IUIAutomation2 = unsafe { CoCreateInstance(&CUIAutomation8, None, CLSCTX_ALL) }
             .map_err(|error| unbounded_client_error(error.code().0))?;
@@ -196,6 +202,9 @@ mod imp {
                 .map_err(|error| unbounded_client_error(error.code().0))?;
             client
                 .SetTransactionTimeout(super::TRANSACTION_TIMEOUT_MS)
+                .map_err(|error| unbounded_client_error(error.code().0))?;
+            client
+                .SetAutoSetFocus(false)
                 .map_err(|error| unbounded_client_error(error.code().0))?;
         }
         let automation: IUIAutomation = client.into();

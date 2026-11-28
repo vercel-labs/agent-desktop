@@ -1,53 +1,26 @@
-use std::time::Duration;
-
 use serde_json::json;
 
 use crate::{
-    AdapterError, Deadline, ErrorCode, NativeHandle, PlatformAdapter, RefEntry,
+    AdapterError, Deadline, ErrorCode, NativeHandle,
     refs::resolve_attempt_outcome::ResolveAttemptOutcome,
 };
 
-pub(crate) const POLL_INTERVAL: Duration = Duration::from_millis(100);
-const RESOLVE_ATTEMPT: Duration = Duration::from_millis(4_000);
-
-/// Runs one resolve attempt, bounded to 4 s or the remaining deadline.
+/// Runs one resolve attempt under the command's own deadline.
 ///
-/// A full-tree search costs what a full snapshot costs (a complete search of
-/// Task Manager measured 2.6 s), so a shorter slice cuts every attempt off
-/// mid-search and the verdict never settles. The slice stays under the 5 s
-/// default outer budget so a re-attempt still fits.
-pub(crate) fn resolve_within_deadline(
-    adapter: &dyn PlatformAdapter,
-    entry: &RefEntry,
-    deadline: Deadline,
-    lease: Option<&crate::InteractionLease>,
-) -> ResolveAttemptOutcome {
-    attempt_within_deadline(deadline, |slice| {
-        crate::refs::resolve_saved_ref::resolve_saved_ref(adapter, entry, slice, lease)
-    })
-}
-
-/// Runs one provisional landing attempt under the same slice as
-/// [`resolve_within_deadline`]. Its handle is fit only for a wait that a full
-/// resolution under the interaction lease follows before anything is sent.
-pub(crate) fn land_within_deadline(
-    adapter: &dyn PlatformAdapter,
-    entry: &RefEntry,
-    deadline: Deadline,
-) -> ResolveAttemptOutcome {
-    attempt_within_deadline(deadline, |slice| {
-        crate::refs::resolve_saved_ref::land_saved_ref(adapter, entry, slice)
-    })
-}
-
-fn attempt_within_deadline(
+/// A resolve of a tokenless ref reads the whole window, which on a slow
+/// accessibility tree costs more than any fixed slice. A slice shorter than the
+/// caller's `--timeout-ms` would cut every attempt off mid-read, so the verdict
+/// would never settle however much budget the caller gave. The attempt owns the
+/// whole remaining budget; the poll loop around it spends the rest on retries of
+/// failures that return quickly.
+pub(crate) fn attempt_within_deadline(
     deadline: Deadline,
     attempt: impl FnOnce(Deadline) -> Result<NativeHandle, AdapterError>,
 ) -> ResolveAttemptOutcome {
-    if deadline.remaining_slice(RESOLVE_ATTEMPT).is_err() {
+    if deadline.is_expired() {
         return ResolveAttemptOutcome::DeadlinePassed;
     }
-    match attempt(deadline.capped(RESOLVE_ATTEMPT)) {
+    match attempt(deadline) {
         Ok(_) if deadline.is_expired() => ResolveAttemptOutcome::DeadlinePassed,
         Ok(handle) => ResolveAttemptOutcome::Resolved(handle),
         Err(error) => classify_error(error, deadline),
@@ -85,7 +58,21 @@ fn mark_retryable(mut error: AdapterError) -> AdapterError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Instant;
+    use std::time::Duration;
+
+    #[test]
+    fn an_attempt_gets_the_whole_remaining_command_budget() {
+        let _clock = crate::wait::deadline::VirtualClock::freeze();
+        let deadline = Deadline::after(30_000).unwrap();
+        let mut granted = Duration::ZERO;
+
+        let _ = attempt_within_deadline(deadline, |attempt| {
+            granted = attempt.remaining();
+            Err(AdapterError::timeout("probe"))
+        });
+
+        assert_eq!(granted, Duration::from_millis(30_000));
+    }
 
     #[test]
     fn per_attempt_timeout_is_retryable_while_outer_deadline_remains() {
@@ -93,7 +80,7 @@ mod tests {
             .with_details(json!({ "kind": "deadline" }));
 
         let ResolveAttemptOutcome::Failed(error) =
-            classify_error(error, Deadline::after(1_000).unwrap())
+            attempt_within_deadline(Deadline::after(1_000).unwrap(), |_| Err(error))
         else {
             panic!("per-attempt timeout must remain inside the outer poll loop");
         };
@@ -108,7 +95,7 @@ mod tests {
             .with_details(json!({ "retryable": false }));
 
         let ResolveAttemptOutcome::Failed(error) =
-            classify_error(error, Deadline::after(1_000).unwrap())
+            attempt_within_deadline(Deadline::after(1_000).unwrap(), |_| Err(error))
         else {
             panic!("explicit non-retryable timeout must remain terminal");
         };
@@ -122,7 +109,7 @@ mod tests {
             .with_disposition(crate::DeliverySemantics::uncertain());
 
         let ResolveAttemptOutcome::Failed(error) =
-            classify_error(error, Deadline::after(1_000).unwrap())
+            attempt_within_deadline(Deadline::after(1_000).unwrap(), |_| Err(error))
         else {
             panic!("delivery-uncertain timeout must remain terminal");
         };
@@ -133,11 +120,14 @@ mod tests {
 
     #[test]
     fn outer_deadline_owns_the_terminal_timeout_shape() {
-        let started = Instant::now() - Duration::from_millis(10);
-        let deadline = Deadline::at(started, 1).unwrap();
+        let clock = crate::wait::deadline::VirtualClock::freeze();
+        let deadline = Deadline::after(50).unwrap();
 
         assert!(matches!(
-            classify_error(AdapterError::timeout("attempt expired"), deadline),
+            attempt_within_deadline(deadline, |_| {
+                clock.advance(Duration::from_millis(60));
+                Err(AdapterError::timeout("attempt expired"))
+            }),
             ResolveAttemptOutcome::DeadlinePassed
         ));
     }

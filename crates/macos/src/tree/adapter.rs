@@ -59,12 +59,21 @@ impl ObservationOps for MacOSAdapter {
         crate::tree::resolve::retained::tokens_available()
     }
 
+    fn validate_saved_ref_context(
+        &self,
+        entry: &RefEntry,
+        _observed_token: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        crate::tree::resolve::retained::refuse_untagged_token(entry)
+    }
+
     fn resolve_locator_anchor(
         &self,
         entry: &RefEntry,
+        base: Option<&NativeHandle>,
         deadline: Deadline,
     ) -> Result<NativeHandle, AdapterError> {
-        crate::tree::resolve::resolve_locator_anchor_with_deadline(entry, deadline)
+        crate::tree::resolve::resolve_locator_anchor_with_deadline(entry, base, deadline)
     }
 
     fn list_windows(
@@ -72,38 +81,15 @@ impl ObservationOps for MacOSAdapter {
         filter: &WindowFilter,
         deadline: Deadline,
     ) -> Result<Vec<WindowInfo>, AdapterError> {
-        crate::system::app::app_inventory::list_windows_until(
-            filter,
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
+        crate::system::app::app_inventory::list_windows_until(filter, deadline)
     }
 
-    fn list_apps(&self, deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        crate::system::app::app_inventory::list_apps_complete_until(
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
-    }
-
-    fn list_apps_inventory(
+    fn query_app_inventory(
         &self,
+        query: agent_desktop_core::AppInventoryQuery<'_>,
         deadline: Deadline,
     ) -> Result<agent_desktop_core::AppInventory, AdapterError> {
-        crate::system::app::app_inventory::list_apps_inventory_until(
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
-    }
-
-    fn list_apps_scoped(
-        &self,
-        name: &str,
-        bundle_id: Option<&str>,
-        deadline: Deadline,
-    ) -> Result<Vec<AppInfo>, AdapterError> {
-        crate::system::app::app_inventory::list_apps_scoped_until(
-            name,
-            bundle_id,
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
+        crate::system::app::app_inventory::query_until(query, deadline)
     }
 
     fn resolve_shell_surface(
@@ -111,10 +97,7 @@ impl ObservationOps for MacOSAdapter {
         surface: agent_desktop_core::SnapshotSurface,
         deadline: Deadline,
     ) -> Result<WindowInfo, AdapterError> {
-        crate::tree::shell_surface::resolve_surface(
-            surface,
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
+        crate::tree::shell_surface::resolve_surface(surface, deadline)
     }
 
     fn list_surfaces(
@@ -123,10 +106,38 @@ impl ObservationOps for MacOSAdapter {
         deadline: Deadline,
     ) -> Result<Vec<SurfaceInfo>, AdapterError> {
         let identity = crate::system::process::process_identity::require_core(&process)?;
-        crate::tree::surface_inventory::list_surfaces_for_process(
-            identity,
-            crate::tree::locator_deadline::from_operation(deadline)?,
-        )
+        crate::tree::surface_inventory::list_surfaces_for_process(identity, deadline)
+    }
+
+    fn surfaces_raised_by(
+        &self,
+        process: agent_desktop_core::ProcessIdentity,
+        raised_by: &NativeHandle,
+        deadline: Deadline,
+    ) -> Result<Vec<SurfaceInfo>, AdapterError> {
+        let mut anchored = Vec::new();
+        let mut window = None;
+        #[cfg(target_os = "macos")]
+        if let Ok(anchor) = ax_element(raised_by) {
+            crate::tree::surface_inventory::collect_anchored_surfaces(
+                anchor,
+                deadline,
+                &mut anchored,
+            );
+            window = crate::tree::surface_read::element(anchor, "AXWindow", deadline)
+                .ok()
+                .flatten();
+        }
+        let inventory = match window {
+            Some(window) => crate::system::process::process_identity::require_core(&process)
+                .and_then(|identity| {
+                    crate::tree::surface_inventory::list_surfaces_in_window(
+                        identity, &window, deadline,
+                    )
+                }),
+            None => self.list_surfaces(process, deadline),
+        };
+        crate::tree::surface_inventory::with_anchored(inventory, anchored)
     }
 
     fn hit_test(
@@ -230,6 +241,14 @@ impl ObservationOps for MacOSAdapter {
         crate::tree::properties::text_insertion::focused_insertion_caret(pid, deadline)
     }
 
+    fn read_effect_witness(
+        &self,
+        handle: &NativeHandle,
+        deadline: Deadline,
+    ) -> Result<agent_desktop_core::EffectWitness, AdapterError> {
+        crate::actions::effect_witness::read(ax_element(handle)?, deadline)
+    }
+
     fn get_live_element(
         &self,
         handle: &NativeHandle,
@@ -250,10 +269,7 @@ impl ObservationOps for MacOSAdapter {
     ) -> Result<Option<Rect>, AdapterError> {
         #[cfg(target_os = "macos")]
         {
-            crate::tree::element_bounds::read_bounds_with_deadline(
-                ax_element(handle)?,
-                crate::tree::locator_deadline::from_operation(deadline)?,
-            )
+            crate::tree::element_bounds::read_bounds_with_deadline(ax_element(handle)?, deadline)
         }
         #[cfg(not(target_os = "macos"))]
         {

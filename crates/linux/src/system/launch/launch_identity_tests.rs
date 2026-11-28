@@ -2,7 +2,7 @@ use super::resolve;
 use super::tests::fixture;
 use crate::system::launch::launch_attach::{Decision, decide};
 use crate::system::process::running_app::Running;
-use crate::tree::live::test_support::copy_blocking_program;
+use crate::tree::test_support::helpers::copy_blocking_program;
 
 fn owner(program: &str, args: &[&str]) -> Running {
     Running {

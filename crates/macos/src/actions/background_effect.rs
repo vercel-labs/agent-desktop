@@ -1,0 +1,186 @@
+//! What a native action does to the user's foreground session. The classifier
+//! names the reason an action takes the foreground, and `require` refuses an
+//! effect the interaction policy does not permit before the application is
+//! touched, so headless delivery never shows the user a menu or a dialog.
+//! Writing `AXFocused` moves focus only inside the target application
+//! (M-W0-14), so it has no effect here and headless `focus` is delivered.
+//!
+//! The reasons are `shows_menu`, `opens_dialog` and `popover_command`. A menu overlay is drawn
+//! over the user's window, takes their focused element, and AppKit orders the
+//! owning window front; no AX path selects a popup item or opens a context
+//! menu without it. A dialog is predicted by an owner-judgment rule: a label
+//! that ends in an ellipsis ("…" U+2026 or "..."), after trailing whitespace
+//! is trimmed, is the convention shared by GTK, Qt and macOS applications for
+//! a control that opens a dialog. It is a predictor, not a proof: no
+//! accessibility property says that a control opens a window. A label that
+//! cannot be read counts as one. A button inside a popover runs a command
+//! that can start a service whose window the platform brings to the front (a
+//! share item opens the AirDrop panel), and nothing in the tree tells which.
+
+use agent_desktop_core::{Action, AdapterError, Deadline, Effect, InteractionPolicy};
+
+use crate::tree::AXElement;
+
+const MENU_OWNER_ROLES: &[&str] = &["AXPopUpButton", "AXMenuButton", "AXComboBox"];
+const ELLIPSES: &[&str] = &["\u{2026}", "..."];
+const SHOWS_MENU: &str = "shows_menu";
+const OPENS_DIALOG: &str = "opens_dialog";
+const POPOVER_COMMAND: &str = "popover_command";
+
+/// Refuses `operation` with `POLICY_DENIED` when `policy` does not permit
+/// `effect`, and reports `kind` as the reason the action takes the foreground.
+pub(crate) fn require(
+    policy: InteractionPolicy,
+    effect: Effect,
+    operation: &str,
+    kind: &'static str,
+) -> Result<(), AdapterError> {
+    policy.require(effect, operation).map_err(|error| {
+        error.with_details(serde_json::json!({ "foreground_effect": true, "kind": kind }))
+    })
+}
+
+/// The foreground effect of an element action: a menu or a dialog takes the
+/// user's focus. Only a press-type action reads the target, and only when the
+/// policy denies focus, because no other policy refuses it.
+pub(crate) fn foreground_effect(
+    element: &AXElement,
+    request: &agent_desktop_core::ActionRequest,
+    deadline: Deadline,
+) -> Option<agent_desktop_core::DeclaredEffect> {
+    if request.policy.allow_focus_steal {
+        return None;
+    }
+    let kind = action_effect(&request.action, || read_target(element, deadline))?;
+    Some(agent_desktop_core::DeclaredEffect {
+        effect: Effect::FocusSteal,
+        kind,
+    })
+}
+
+fn action_effect(
+    action: &Action,
+    read: impl FnOnce() -> Option<PressTarget>,
+) -> Option<&'static str> {
+    match action {
+        Action::RightClick => Some(SHOWS_MENU),
+        Action::Click | Action::Expand | Action::Toggle | Action::Check | Action::Uncheck => {
+            press_effect(action, &read())
+        }
+        _ => None,
+    }
+}
+
+/// Whether a press on `element` shows a menu or opens a dialog. An element
+/// whose role or label cannot be read counts as one that does. The click
+/// fallback skips such a descendant under any policy, and a value write that
+/// presses such a cell declares the foreground.
+pub(crate) fn press_disturbs(element: &AXElement, deadline: Deadline) -> bool {
+    press_effect(&Action::Click, &read_target(element, deadline)).is_some()
+}
+
+/// `None` when the role or a label could not be read.
+#[derive(Debug, Default)]
+struct PressTarget {
+    role: Option<String>,
+    labels: Vec<String>,
+    in_popover: bool,
+}
+
+fn press_effect(action: &Action, target: &Option<PressTarget>) -> Option<&'static str> {
+    let Some(target) = target else {
+        return Some(OPENS_DIALOG);
+    };
+    let menu_owner = target
+        .role
+        .as_deref()
+        .is_some_and(|role| MENU_OWNER_ROLES.contains(&role));
+    if menu_owner && matches!(action, Action::Click | Action::Expand) {
+        return Some(SHOWS_MENU);
+    }
+    if target.in_popover && matches!(action, Action::Click) {
+        return Some(POPOVER_COMMAND);
+    }
+    let opens_dialog = target.labels.iter().any(|label| {
+        let label = label.trim_end();
+        ELLIPSES.iter().any(|ellipsis| label.ends_with(ellipsis))
+    });
+    (!matches!(action, Action::Expand) && opens_dialog).then_some(OPENS_DIALOG)
+}
+
+fn read_target(element: &AXElement, deadline: Deadline) -> Option<PressTarget> {
+    use crate::tree::properties::node_attribute_status::{
+        DESCRIPTION, LABEL, ROLE, TITLE, TITLE_ELEMENT,
+    };
+    let requirements = agent_desktop_core::EvidenceRequirements {
+        role: true,
+        name: true,
+        ..Default::default()
+    };
+    let mut usage = crate::tree::observation_usage::ObservationUsage::with_defaults();
+    let read = crate::tree::properties::element::fetch_node_attrs_with_status_for(
+        element,
+        requirements,
+        deadline,
+        &mut usage,
+    );
+    let status = read.status;
+    if [ROLE, TITLE, LABEL, DESCRIPTION, TITLE_ELEMENT]
+        .iter()
+        .any(|i| status.field_unknown(*i))
+    {
+        return None;
+    }
+    let names = read.attrs.name_evidence;
+    let in_popover = match read.attrs.role.as_deref() {
+        Some("AXButton") => inside_popover(element, deadline)?,
+        _ => false,
+    };
+    Some(PressTarget {
+        in_popover,
+        role: read.attrs.role,
+        labels: [
+            names.native_title,
+            names.explicit_label,
+            names.description,
+            names.labelled_by_text,
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+    })
+}
+
+/// Whether a popover holds `element`, from a walk up its ancestors to its
+/// window or application. None when an ancestor cannot be read, which is also
+/// how the walk ends once the deadline runs out, so an unknown answer is never
+/// read as "no".
+fn inside_popover(element: &AXElement, deadline: Deadline) -> Option<bool> {
+    let mut current = element.clone();
+    loop {
+        let Some(parent) =
+            crate::tree::surface_read::element(&current, "AXParent", deadline).ok()?
+        else {
+            return Some(false);
+        };
+        let role = crate::tree::surface_read::string(&parent, "AXRole", deadline).ok()?;
+        if role.as_deref() == Some("AXPopover") {
+            return Some(true);
+        }
+        if role.as_deref() == Some("AXApplication") {
+            return Some(false);
+        }
+        let subrole = crate::tree::surface_read::string(&parent, "AXSubrole", deadline).ok()?;
+        if subrole.as_deref() == Some("AXPopover") {
+            return Some(true);
+        }
+        if role.as_deref() == Some("AXWindow") {
+            return Some(false);
+        }
+        current = parent;
+    }
+}
+
+#[cfg(test)]
+#[path = "background_effect_tests.rs"]
+mod tests;

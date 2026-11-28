@@ -27,6 +27,7 @@ fn stopped_app_probe_never_outlives_the_command_deadline() {
         probe_budget: Mutex::new(None),
     };
     let app = crate::AppInfo {
+        aliases: Vec::new(),
         name: "Example".into(),
         pid: crate::ProcessId::new(42),
         bundle_id: None,

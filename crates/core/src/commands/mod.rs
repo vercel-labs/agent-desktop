@@ -13,6 +13,7 @@ pub mod dismiss_all_notifications;
 pub mod dismiss_notification;
 pub mod double_click;
 pub mod drag;
+pub(crate) mod escape_route;
 pub mod execute_by_ref;
 pub mod expand;
 pub mod find;
@@ -111,3 +112,9 @@ mod operation_passthrough_tests;
 
 #[cfg(test)]
 mod application_surface_tests;
+
+#[cfg(test)]
+mod application_surface_window_tests;
+
+#[cfg(test)]
+mod tests;

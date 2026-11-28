@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-use agent_desktop_core::{Action, Deadline, DeliverySemantics, ErrorCode};
+use agent_desktop_core::{Action, Deadline, DeliveryObservation, DeliverySemantics, ErrorCode};
 
 use super::*;
 use crate::adapter::LinuxAdapter;
@@ -10,7 +10,10 @@ use crate::tree::vocabulary::role_numbers::PUSH_BUTTON;
 #[test]
 fn a_delivered_write_is_judged_by_the_observed_change() {
     let outcome = deliver(Ok(WriteReply::Done), || Some(false)).expect("delivered");
-    assert_eq!(outcome, DeliveryOutcome::Delivered(Observed::Unchanged));
+    assert_eq!(
+        outcome,
+        DeliveryOutcome::Delivered(DeliveryObservation::Unverified)
+    );
 }
 
 #[test]
@@ -127,4 +130,36 @@ fn a_switch_with_only_a_toggle_verb_is_clicked_through_the_toggle() {
     assert!(!toggles_in_place(Some(PUSH_BUTTON), &toggle_only));
     assert!(!toggles_in_place(None, &toggle_only));
     assert!(!toggles_in_place(Some(CHECK_BOX), &names(&["doDefault"])));
+}
+
+#[test]
+fn a_click_selects_through_the_parent_only_for_a_table_cell_with_no_action_of_its_own() {
+    use crate::tree::vocabulary::role_numbers::{LIST_ITEM, PUSH_BUTTON, TABLE_CELL};
+    assert!(click_selects_through_parent(
+        Some(TABLE_CELL),
+        false,
+        Some(true)
+    ));
+    assert!(!click_selects_through_parent(
+        Some(TABLE_CELL),
+        true,
+        Some(true)
+    ));
+    assert!(!click_selects_through_parent(
+        Some(TABLE_CELL),
+        false,
+        Some(false)
+    ));
+    assert!(!click_selects_through_parent(Some(TABLE_CELL), false, None));
+    assert!(!click_selects_through_parent(
+        Some(PUSH_BUTTON),
+        false,
+        Some(true)
+    ));
+    assert!(!click_selects_through_parent(
+        Some(LIST_ITEM),
+        false,
+        Some(true)
+    ));
+    assert!(!click_selects_through_parent(None, false, Some(true)));
 }

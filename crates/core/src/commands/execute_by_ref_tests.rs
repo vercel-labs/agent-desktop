@@ -32,7 +32,7 @@ fn snapshot_with_ref(role: &str, available_actions: &[&str]) -> String {
             value: None,
             description: None,
             native_id: None,
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
         },
         geometry: crate::RefGeometry {
             bounds_space: None,
@@ -55,6 +55,7 @@ fn snapshot_with_ref(role: &str, available_actions: &[&str]) -> String {
             root_ref: None,
             path_is_absolute: false,
             path: smallvec::SmallVec::new(),
+            chain: Default::default(),
         },
     });
     RefStore::new().unwrap().save_new_snapshot(&refmap).unwrap()
@@ -208,7 +209,7 @@ fn execute_with_timeout_zero_normalizes_to_single_attempt() {
 }
 
 #[test]
-fn explicit_press_key_keeps_its_focus_fallback_policy() {
+fn headless_press_key_gets_no_implicit_focus_permission() {
     let _guard = HomeGuard::new();
     let snapshot_id = snapshot_with_ref("textfield", &["PressKey"]);
     let adapter = PolicyCaptureAdapter::new();
@@ -230,8 +231,7 @@ fn explicit_press_key_keeps_its_focus_fallback_policy() {
 
     let captured = adapter.captured.lock().unwrap();
     let policy = captured.as_ref().unwrap().policy;
-    assert!(policy.allow_focus_steal);
-    assert!(!policy.allow_cursor_move);
+    assert_eq!(policy, InteractionPolicy::headless());
 }
 
 #[test]

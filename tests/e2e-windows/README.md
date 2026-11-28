@@ -26,7 +26,7 @@ own `ok:true`.
 | `ChromiumStage.psm1` | Chromium content staging. |
 | `CursorOverlaySupport.psm1` | Support helpers for the cursor-overlay scenario. |
 | `Run-E2E.ps1` | The one process-terminating call in the whole tree. Scenario files (`scenarios/*.ps1`) return; only this script exits. |
-| `scenarios/*.ps1` | One scenario per file, dot-sourced and run by `Run-E2E.ps1` in this order: Preconditions, Observation, NonInterference, Interaction, Acceptance, Reliability, Surfaces, ShellSurfaces, TracePerformance, Chromium, SplitIntegrity, CursorOverlay. Nothing is auto-discovered: a scenario file that `Run-E2E.ps1` does not dot-source and list in `Invoke-ScenarioSequence` never runs. |
+| `scenarios/*.ps1` | One scenario per file, dot-sourced and run by `Run-E2E.ps1` in this order: Preconditions, Observation, NonInterference, Interaction, Acceptance, Reliability, Surfaces, ShellSurfaces, TracePerformance, Chromium, SplitIntegrity, WindowOps, CursorOverlay. Nothing is auto-discovered: a scenario file that `Run-E2E.ps1` does not dot-source and list in `Invoke-ScenarioSequence` never runs. |
 | `AcceptanceContendedFocus.ps1`, `InteractionHeaded.ps1`, `InteractionPress.ps1`, `InteractionScroll.ps1` | Legs dot-sourced by `scenarios/Acceptance.ps1` and `scenarios/Interaction.ps1`. They sit outside `scenarios/` because the contract gate treats every file there as a top-level scenario entry point. |
 | `selftest/` | Self-tests for the harness itself (see Running). |
 

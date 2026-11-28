@@ -66,6 +66,7 @@ impl Orphan {
 
     pub(in crate::system) fn app(&self, name: &str) -> AppInfo {
         AppInfo {
+            aliases: Vec::new(),
             name: name.to_owned(),
             pid: self.pid.into(),
             bundle_id: None,

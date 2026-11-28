@@ -92,6 +92,7 @@ pub(crate) fn unknown() -> LocatorEvidence {
 
 pub(crate) fn identifiers(
     identifiers: &crate::tree::properties::node_identifiers::NodeIdentifiers,
+    grid_cell: Option<agent_desktop_core::ElementIdentifier>,
     requested: bool,
 ) -> IdentifierEvidence {
     if !requested {
@@ -106,17 +107,19 @@ pub(crate) fn identifiers(
             value: value.clone(),
         });
     }
-    let preferred = if let Some(value) = identifiers.ax_dom_identifier.known() {
-        let index = values.len();
+    let dom = identifiers.ax_dom_identifier.known().map(|value| {
         values.push(agent_desktop_core::ElementIdentifier {
             kind: agent_desktop_core::IdentifierKind::AxDomIdentifier,
             value: value.clone(),
         });
-        Some(index)
-    } else {
-        (!values.is_empty()).then_some(0)
-    };
-    IdentifierEvidence::typed(values, preferred, complete)
+        values.len() - 1
+    });
+    let own = dom.or((!values.is_empty()).then_some(0));
+    let grid = grid_cell.map(|identifier| {
+        values.push(identifier);
+        values.len() - 1
+    });
+    IdentifierEvidence::typed(values, own.or(grid), complete)
 }
 
 #[cfg(test)]
@@ -129,7 +132,7 @@ mod tests {
             LocatorField::Known("native-save".into()),
             LocatorField::Known("dom-save".into()),
         );
-        let evidence = super::identifiers(&identifiers, true);
+        let evidence = super::identifiers(&identifiers, None, true);
 
         assert_eq!(evidence.identifiers().len(), 2);
         assert_eq!(
@@ -142,12 +145,44 @@ mod tests {
     }
 
     #[test]
+    fn a_cell_with_its_own_identifier_keeps_it_preferred_and_lists_its_grid_position() {
+        let identifiers = crate::tree::properties::node_identifiers::NodeIdentifiers::from_fields(
+            LocatorField::Known("native".into()),
+            LocatorField::Known("dom".into()),
+        );
+        let cell = agent_desktop_core::ElementIdentifier::grid_cell(6, 1);
+        let evidence = super::identifiers(&identifiers, Some(cell.clone()), true);
+
+        assert_eq!(evidence.identifiers().len(), 3);
+        assert_eq!(evidence.identifiers().last(), Some(&cell));
+        assert_eq!(
+            evidence.preferred_identifier().map(|i| i.value.as_str()),
+            Some("dom")
+        );
+    }
+
+    #[test]
+    fn a_grid_cell_alone_is_the_preferred_identifier() {
+        let evidence = super::identifiers(
+            &crate::tree::properties::node_identifiers::NodeIdentifiers::default(),
+            Some(agent_desktop_core::ElementIdentifier::grid_cell(0, 0)),
+            true,
+        );
+
+        assert_eq!(evidence.identifiers().len(), 1);
+        assert_eq!(
+            evidence.preferred_identifier().map(|i| i.value.as_str()),
+            Some("A1")
+        );
+    }
+
+    #[test]
     fn equal_strings_remain_distinct_across_identifier_kinds() {
         let identifiers = crate::tree::properties::node_identifiers::NodeIdentifiers::from_fields(
             LocatorField::Known("shared".into()),
             LocatorField::Known("shared".into()),
         );
-        let evidence = super::identifiers(&identifiers, true);
+        let evidence = super::identifiers(&identifiers, None, true);
 
         assert_eq!(evidence.identifiers().len(), 2);
         assert_ne!(

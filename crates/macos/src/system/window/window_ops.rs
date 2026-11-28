@@ -1,5 +1,24 @@
 use agent_desktop_core::{AdapterError, Deadline, ErrorCode, WindowInfo, WindowOp};
 
+/// A window whose accessibility attribute is read-only (an alert with no
+/// minimize button, a fixed-size panel) cannot do the operation. The refusal
+/// comes before any write, so nothing was delivered.
+fn ensure_window_capability(
+    settable: bool,
+    attribute: &str,
+    verb: &str,
+) -> Result<(), AdapterError> {
+    if settable {
+        return Ok(());
+    }
+    Err(AdapterError::new(
+        ErrorCode::ActionNotSupported,
+        format!("This window cannot be {verb}: its {attribute} attribute is read-only"),
+    )
+    .with_suggestion("Run `list-windows` and pick a window that has the control for this operation")
+    .with_disposition(agent_desktop_core::DeliverySemantics::not_delivered()))
+}
+
 #[cfg(target_os = "macos")]
 mod imp {
     use super::*;
@@ -23,24 +42,39 @@ mod imp {
         deadline.ensure_remaining()?;
         let win_el = crate::system::window::window_resolve::window_element_for_info(win, deadline)?;
         match op {
-            WindowOp::Resize { width, height } => set_size(&win_el, width, height, deadline),
+            WindowOp::Resize { width, height } => {
+                require_settable(&win_el, kAXSizeAttribute, "resized", deadline)?;
+                set_size(&win_el, width, height, deadline)
+            }
             WindowOp::Move { x, y } => set_position(&win_el, x, y, deadline),
-            WindowOp::Minimize => set_minimized(&win_el, true, deadline),
+            WindowOp::Minimize => {
+                require_settable(&win_el, "AXMinimized", "minimized", deadline)?;
+                set_minimized(&win_el, true, deadline)
+            }
             WindowOp::Maximize => maximize_to_main_display(&win_el, deadline),
-            WindowOp::Restore => set_minimized(&win_el, false, deadline),
+            WindowOp::Restore => {
+                require_settable(&win_el, "AXMinimized", "restored", deadline)?;
+                set_minimized(&win_el, false, deadline)
+            }
         }
+    }
+
+    fn require_settable(
+        el: &crate::tree::AXElement,
+        attribute: &str,
+        verb: &str,
+        deadline: Deadline,
+    ) -> Result<(), AdapterError> {
+        let settable = crate::actions::ax_helpers::is_attr_settable(el, attribute, deadline)?;
+        super::ensure_window_capability(settable, attribute, verb)
     }
 
     fn maximize_to_main_display(
         el: &crate::tree::AXElement,
         deadline: Deadline,
     ) -> Result<(), AdapterError> {
-        let current = crate::tree::element_bounds::read_bounds_with_deadline(
-            el,
-            std::time::Instant::now()
-                .checked_add(deadline.remaining())
-                .ok_or_else(|| AdapterError::internal("Window deadline is out of range"))?,
-        )?;
+        require_settable(el, kAXSizeAttribute, "maximized", deadline)?;
+        let current = crate::tree::element_bounds::read_bounds_with_deadline(el, deadline)?;
         let work_area = crate::system::display_work_area::for_window(current, deadline)?;
         set_position(el, work_area.x, work_area.y, deadline)?;
         set_size(el, work_area.width, work_area.height, deadline).map_err(|error| {
@@ -323,3 +357,23 @@ mod imp {
 }
 
 pub(crate) use imp::execute;
+
+#[cfg(test)]
+mod capability_tests {
+    use super::*;
+    use agent_desktop_core::DeliverySemantics;
+
+    #[test]
+    fn a_read_only_attribute_refuses_before_delivery() {
+        let error = ensure_window_capability(false, "AXMinimized", "minimized").unwrap_err();
+
+        assert_eq!(error.code, ErrorCode::ActionNotSupported);
+        assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+        assert!(error.message.contains("AXMinimized"));
+    }
+
+    #[test]
+    fn a_settable_attribute_is_allowed() {
+        assert!(ensure_window_capability(true, "AXMinimized", "minimized").is_ok());
+    }
+}

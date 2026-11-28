@@ -48,7 +48,7 @@ fn permission_report_through_the_trait_probes_instead_of_defaulting() {
 #[cfg(target_os = "windows")]
 #[test]
 fn the_activation_path_acquires_a_windows_lease_and_settles() {
-    crate::system::fixture::test_support::with_interaction_lease_test_lock(|| {
+    crate::system::test_support::helpers::with_interaction_lease_test_lock(|| {
         let adapter = WindowsAdapter::new();
         let lease = SystemOps::acquire_interaction_lease(&adapter, Deadline::after(5_000).unwrap())
             .expect("the Windows lease override must not show up as not_supported");
@@ -149,7 +149,7 @@ fn screenshot_window_frame_is_wired_through_system_ops_to_the_exact_window_captu
 /// the "advertised" side of the advertise/resolve/emit equality the live
 /// tests pin.
 #[test]
-fn supported_surfaces_advertises_window_focused_sheet_menu_and_shell_kinds() {
+fn supported_surfaces_advertises_window_focused_sheet_menu_popover_and_shell_kinds() {
     let adapter = WindowsAdapter::new();
     assert_eq!(
         adapter.supported_surfaces(),
@@ -158,6 +158,7 @@ fn supported_surfaces_advertises_window_focused_sheet_menu_and_shell_kinds() {
             SnapshotSurface::Focused,
             SnapshotSurface::Sheet,
             SnapshotSurface::Menu,
+            SnapshotSurface::Popover,
             SnapshotSurface::StartMenu,
             SnapshotSurface::Taskbar,
             SnapshotSurface::SystemTray,

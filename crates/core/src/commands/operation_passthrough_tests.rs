@@ -30,14 +30,19 @@ fn window() -> WindowInfo {
 }
 
 impl ObservationOps for ReportingAdapter {
-    fn list_apps(&self, _deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        Ok(vec![AppInfo {
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(vec![AppInfo {
+            aliases: Vec::new(),
             name: "Notes".into(),
             pid: crate::ProcessId::new(42),
             bundle_id: None,
             process_instance: Some("boot-1".into()),
             presentation: None,
-        }])
+        }]))
     }
 
     fn list_windows(
@@ -81,6 +86,7 @@ impl SystemOps for ReportingAdapter {
         _app: &AppInfo,
         _force: bool,
         _lease: &InteractionLease,
+        _policy: crate::InteractionPolicy,
     ) -> Result<OperationReport, AdapterError> {
         Ok(self.report.clone())
     }
@@ -89,6 +95,7 @@ impl SystemOps for ReportingAdapter {
         &self,
         _win: &WindowInfo,
         _op: WindowOp,
+        _policy: crate::InteractionPolicy,
         _lease: &InteractionLease,
     ) -> Result<OperationReport, AdapterError> {
         Ok(self.report.clone())
@@ -118,6 +125,7 @@ fn close_of_an_already_gone_app_reports_not_delivered_without_a_closed_claim() {
         CloseAppArgs {
             app: "Notes".into(),
             force: false,
+            policy: crate::InteractionPolicy::headless(),
         },
         &adapter,
     )
@@ -152,6 +160,7 @@ fn verified_window_move_reports_the_adapter_target_not_a_success_flag() {
             y: 20.0,
         },
         &adapter,
+        crate::InteractionPolicy::headless(),
     )
     .unwrap();
 
@@ -170,7 +179,7 @@ fn clipboard_clear_reports_the_adapter_disposition() {
         ),
     };
 
-    let value = clipboard_clear::execute(&adapter).unwrap();
+    let value = clipboard_clear::execute(&adapter, crate::InteractionPolicy::headed()).unwrap();
 
     assert_eq!(value["disposition"]["delivery"], "delivered_unverified");
     assert_eq!(value["target"]["kind"], "clipboard");

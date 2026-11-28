@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::clipboard_helper_identity::HelperIdentity;
 use super::clipboard_helper_protocol as protocol;
@@ -18,13 +18,10 @@ pub(crate) fn run(
     deadline: Deadline,
     identity: Option<&HelperIdentity>,
 ) -> Result<Vec<u8>, AdapterError> {
-    let absolute = Instant::now()
-        .checked_add(deadline.remaining())
-        .ok_or_else(|| AdapterError::timeout("Clipboard helper deadline overflowed"))?;
-    let work_deadline = absolute
-        .checked_sub(CLEANUP_RESERVE)
-        .filter(|limit| *limit > Instant::now())
-        .ok_or_else(|| deadline.timeout_error())?;
+    let work_deadline = deadline.reserving(CLEANUP_RESERVE);
+    if work_deadline.is_expired() {
+        return Err(deadline.timeout_error());
+    }
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -40,7 +37,7 @@ pub(crate) fn run(
         return cleanup_bare(
             child,
             process_group,
-            absolute,
+            deadline,
             AdapterError::internal("Clipboard helper stdin is unavailable"),
         );
     };
@@ -49,7 +46,7 @@ pub(crate) fn run(
         return cleanup_bare(
             child,
             process_group,
-            absolute,
+            deadline,
             AdapterError::internal("Clipboard helper output FD is unavailable"),
         );
     };
@@ -58,11 +55,11 @@ pub(crate) fn run(
     if let Some(identity) = identity
         && let Err(error) = identity.revalidate()
     {
-        return cleanup(child, process_group, writer, reader, absolute, error);
+        return cleanup(child, process_group, writer, reader, deadline, error);
     }
     let status = match wait_status(&mut child, work_deadline) {
         Ok(status) => status,
-        Err(error) => return cleanup(child, process_group, writer, reader, absolute, error),
+        Err(error) => return cleanup(child, process_group, writer, reader, deadline, error),
     };
     let write_result = receive(&writer, work_deadline, "writing request");
     let read_result = receive(&reader, work_deadline, "reading response");
@@ -83,7 +80,7 @@ pub(crate) fn run(
             process_group,
             writer,
             reader,
-            absolute,
+            deadline,
             write
                 .err()
                 .or_else(|| read.err())
@@ -101,11 +98,11 @@ fn spawn_error(error: std::io::Error) -> AdapterError {
     .with_disposition(agent_desktop_core::DeliverySemantics::not_delivered())
 }
 
-fn wait_status(child: &mut Child, deadline: Instant) -> Result<ExitStatus, AdapterError> {
+fn wait_status(child: &mut Child, deadline: Deadline) -> Result<ExitStatus, AdapterError> {
     loop {
         match child.try_wait() {
             Ok(Some(status)) => return Ok(status),
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(POLL_INTERVAL),
+            Ok(None) if !deadline.is_expired() => std::thread::sleep(POLL_INTERVAL),
             Ok(None) => return Err(AdapterError::timeout("macOS clipboard helper timed out")),
             Err(error) => {
                 return Err(AdapterError::internal(format!(
@@ -151,10 +148,10 @@ fn spawn_io<T: Send + 'static>(
     (receiver, thread)
 }
 
-fn receive<T>(thread: &IoThread<T>, deadline: Instant, phase: &str) -> Result<T, AdapterError> {
+fn receive<T>(thread: &IoThread<T>, deadline: Deadline, phase: &str) -> Result<T, AdapterError> {
     thread
         .0
-        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .recv_timeout(deadline.remaining())
         .map_err(|_| AdapterError::timeout(format!("Timed out {phase} for clipboard helper")))?
         .map_err(|error| AdapterError::internal(format!("Clipboard helper {phase}: {error}")))
 }
@@ -164,7 +161,7 @@ fn cleanup(
     process_group: i32,
     writer: IoThread<()>,
     reader: IoThread<Vec<u8>>,
-    deadline: Instant,
+    deadline: Deadline,
     error: AdapterError,
 ) -> Result<Vec<u8>, AdapterError> {
     kill_and_reap(&mut child, process_group, deadline);
@@ -176,18 +173,18 @@ fn cleanup(
 fn cleanup_bare(
     mut child: Child,
     process_group: i32,
-    deadline: Instant,
+    deadline: Deadline,
     error: AdapterError,
 ) -> Result<Vec<u8>, AdapterError> {
     kill_and_reap(&mut child, process_group, deadline);
     Err(mark_dispatched(error))
 }
 
-fn kill_and_reap(child: &mut Child, process_group: i32, deadline: Instant) {
+fn kill_and_reap(child: &mut Child, process_group: i32, deadline: Deadline) {
     unsafe {
         libc::kill(-process_group, libc::SIGKILL);
     }
-    while Instant::now() < deadline {
+    while !deadline.is_expired() {
         if child.try_wait().ok().flatten().is_some() {
             return;
         }
@@ -195,12 +192,8 @@ fn kill_and_reap(child: &mut Child, process_group: i32, deadline: Instant) {
     }
 }
 
-fn finish_thread<T>(thread: IoThread<T>, deadline: Instant) {
-    if thread
-        .0
-        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-        .is_ok()
-    {
+fn finish_thread<T>(thread: IoThread<T>, deadline: Deadline) {
+    if thread.0.recv_timeout(deadline.remaining()).is_ok() {
         let _ = thread.1.join();
     }
 }
@@ -241,8 +234,8 @@ mod tests {
             .parse()
             .expect("process group id");
         let _ = std::fs::remove_file(&pgid_file);
-        let give_up = Instant::now() + Duration::from_secs(10);
-        while group_has_live_member(pgid) && Instant::now() < give_up {
+        let give_up = std::time::Instant::now() + Duration::from_secs(10);
+        while group_has_live_member(pgid) && std::time::Instant::now() < give_up {
             std::thread::sleep(POLL_INTERVAL);
         }
         assert!(

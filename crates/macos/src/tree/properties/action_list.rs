@@ -1,5 +1,6 @@
 use super::capabilities::{copy_action_names_with_status, is_attr_settable_with_status};
 use crate::tree::AXElement;
+use agent_desktop_core::Deadline;
 use agent_desktop_core::actions::capability;
 
 #[cfg(target_os = "macos")]
@@ -41,7 +42,7 @@ pub(crate) fn read_platform_available_actions(
     el: &AXElement,
     role: &str,
     attrs: &crate::tree::NodeAttrs,
-    deadline: std::time::Instant,
+    deadline: Deadline,
     usage: &mut crate::tree::observation_usage::ObservationUsage,
 ) -> (AvailableActionsRead, bool) {
     let mut read = AvailableActionsRead::default();
@@ -95,7 +96,11 @@ pub(crate) fn read_platform_available_actions(
     let value_settable = value_settable(role, attrs.states.control.readonly, || {
         read_settable(el, kAXValueAttribute, deadline, &mut read)
     });
-    if has("AXIncrement") || has("AXDecrement") || value_settable {
+    if has("AXIncrement")
+        || has("AXDecrement")
+        || value_settable
+        || cell_opens_editor(role, has("AXPress"))
+    {
         push_unique(&mut read.actions, capability::SET_VALUE);
     }
     if (role == "combobox" && value_settable) || role_supports_collection_select(role) {
@@ -114,6 +119,8 @@ pub(crate) fn read_platform_available_actions(
     if (role_may_expand(role)
         && read_settable(el, "AXExpanded", deadline, &mut read).unwrap_or(false))
         || (has("AXPress") && agent_desktop_core::tree::roles::is_expandable_role(role))
+        || (role == "treeitem"
+            && read_settable(el, "AXDisclosing", deadline, &mut read).unwrap_or(false))
     {
         push_unique(&mut read.actions, capability::EXPAND);
         push_unique(&mut read.actions, capability::COLLAPSE);
@@ -126,7 +133,7 @@ pub(crate) fn read_platform_available_actions(
 pub(super) fn read_settable(
     element: &AXElement,
     attribute: &str,
-    deadline: std::time::Instant,
+    deadline: Deadline,
     read: &mut AvailableActionsRead,
 ) -> Option<bool> {
     if crate::tree::locator_deadline::remaining(deadline).is_err() {
@@ -188,6 +195,13 @@ fn value_settable(
             .unwrap_or(false)
 }
 
+/// A cell that can be pressed can open an in-place editor: the first press
+/// selects it and the next one starts the edit. Such a cell takes a value
+/// through that editor, though its own value is not settable.
+fn cell_opens_editor(role: &str, pressable: bool) -> bool {
+    role == "cell" && pressable
+}
+
 fn role_may_accept_focus(role: &str) -> bool {
     agent_desktop_core::tree::roles::is_interactive_role(role)
         || matches!(
@@ -206,23 +220,6 @@ fn role_may_expand(role: &str) -> bool {
 
 fn role_may_insert_text(role: &str) -> bool {
     matches!(role, "textfield" | "combobox")
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn read_platform_available_actions(
-    _el: &AXElement,
-    _role: &str,
-    _attrs: &crate::tree::NodeAttrs,
-    _deadline: std::time::Instant,
-    _usage: &mut crate::tree::observation_usage::ObservationUsage,
-) -> (AvailableActionsRead, bool) {
-    (
-        AvailableActionsRead {
-            complete: false,
-            ..AvailableActionsRead::default()
-        },
-        false,
-    )
 }
 
 fn push_unique(actions: &mut Vec<String>, action: &str) {
@@ -249,6 +246,14 @@ fn has_scroll_mechanism(has: &impl Fn(&str) -> bool, has_scrollbars: bool) -> bo
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_a_pressable_cell_takes_a_value_through_its_editor() {
+        assert!(super::cell_opens_editor("cell", true));
+        assert!(!super::cell_opens_editor("cell", false));
+        assert!(!super::cell_opens_editor("row", true));
+        assert!(!super::cell_opens_editor("button", true));
+    }
+
     #[test]
     fn value_capability_reuses_observed_settability_and_probes_only_unknown_controls() {
         for (readonly, expected) in [(Some(true), false), (Some(false), true)] {

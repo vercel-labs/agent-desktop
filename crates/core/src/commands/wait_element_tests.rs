@@ -92,7 +92,7 @@ impl ObservationOps for LateObservationAdapter {
     ) -> Result<NativeHandle, AdapterError> {
         if self.delay_resolution {
             while !deadline.is_expired() {
-                std::thread::sleep(deadline.remaining());
+                crate::wait::deadline::sleep(deadline.remaining());
             }
         }
         Ok(NativeHandle::null())
@@ -105,7 +105,7 @@ impl ObservationOps for LateObservationAdapter {
     ) -> Result<Option<String>, AdapterError> {
         self.reads.fetch_add(1, Ordering::SeqCst);
         while !deadline.is_expired() {
-            std::thread::sleep(deadline.remaining());
+            crate::wait::deadline::sleep(deadline.remaining());
         }
         Ok(Some("ready".into()))
     }
@@ -118,6 +118,7 @@ impl SystemOps for LateObservationAdapter {}
 
 #[test]
 fn element_wait_rejects_late_resolution_and_late_matching_value() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let _guard = HomeGuard::new();
     let snapshot_id = snapshot_with_one_ref();
     for delay_resolution in [true, false] {
@@ -230,6 +231,7 @@ impl SystemOps for DeadlineTimeoutPredicateAdapter {}
 
 #[test]
 fn element_wait_wraps_bare_live_read_timeout_in_the_documented_wait_timeout() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let _guard = HomeGuard::new();
     let snapshot_id = snapshot_with_one_ref();
     let adapter = DeadlineTimeoutPredicateAdapter {

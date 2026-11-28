@@ -4,7 +4,7 @@ Every command returns structured JSON:
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": true,
   "command": "click",
   "data": {
@@ -18,7 +18,7 @@ Errors include machine-readable codes and recovery hints:
 
 ```json
 {
-  "version": "2.6",
+  "version": "2.7",
   "ok": false,
   "command": "click",
   "error": {
@@ -77,10 +77,16 @@ carry it on their result. `delivery` is one of `unknown`, `not_delivered`,
 `delivery_uncertain`, `delivered_unverified` or `delivered_verified`. `retry`
 is one of `unknown`, `safe` or `unsafe`, and it follows from `delivery`:
 `not_delivered` is `safe`, and every other non-`unknown` value is `unsafe`.
+No result pairs `delivered_verified` with `retry: "safe"`: even a batch whose
+verified work sits beside never-dispatched failures re-reads a fresh listing
+on a re-run, so its retry stays `unsafe`.
 
 `unknown` means the command established nothing about delivery. A failure of a
 mutating command that carries no delivery evidence, such as a `TIMEOUT` on an
-operation that may already have landed, keeps it. A read-only command sends
+operation that may already have landed, keeps it. An element action that
+fails with no disposition and a code other than `ACTION_NOT_SUPPORTED` or
+`INVALID_ARGS` is reported as `delivery_uncertain` and `unsafe`, because the
+adapter call may already have written. A read-only command sends
 nothing and invalid arguments never reach the application, so their errors, and
 a lookup failure such as `APP_NOT_FOUND`, carry `not_delivered`. Treat `unknown`
 as not safe to retry automatically: read `error.code` and the message, and
@@ -90,7 +96,7 @@ choose a recovery strategy only when `disposition.retry` is `safe`.
 
 Stateful ref actions (`set-value`, `type`, `clear`, `check`, `uncheck`, `toggle`, `expand`, and `collapse`) now reject observed postcondition contradictions after one delivery attempt. Readback failures preserve the adapter's error code and carry `details.kind: "post_action_verification"`. Missing evidence alone remains a successful `delivered_unverified` result with `details.verification_scope: "unavailable"`; neither that result nor verified element state proves application-level persistence.
 
-macOS mutation errors that do not prove non-delivery stop fallback chains with an unsafe retry disposition. This affects activation, selection, disclosure, scrolling, and window operations; an unchanged or unreadable state is not proof that a mutation was never delivered. Value-writing chains also stop after unverified delivery instead of applying a second mechanism. Failures after preparatory scrolling carry `details.preparatory_scroll`, which records that the view may have changed. Their retry disposition follows the failure: a refusal that sent nothing is `not_delivered` and safe to retry, and any other failure keeps its own disposition.
+macOS mutation errors that do not prove non-delivery stop fallback chains with an unsafe retry disposition. This affects activation, selection, disclosure, scrolling, and window operations; an unchanged or unreadable state is not proof that a mutation was never delivered. Value-writing chains also stop after unverified delivery instead of applying a second mechanism. Failures after preparatory scrolling carry `details.preparatory_scroll`, which records that the view may have changed. A scroll changes the view, so an error after it is never `not_delivered`: a failure with no send evidence is `delivery_uncertain` and unsafe to retry, and a disposition that reports a send keeps its own value. An adapter that can refuse an action by reading alone does so before the scroll, so a refused action leaves the view where it was.
 
 Inspect `disposition.retry` before retrying or choosing an alternative action, regardless of `error.code`. An error may include `post_state` and `postcondition_satisfied` without erasing the original execution failure. The same verification rules apply to FFI ref actions; the C ABI is unchanged. The Rust `ActionResult::from_execution` constructor now takes only action and steps and returns an infallible result; live verification belongs to `execute_verified_action`.
 
@@ -126,7 +132,7 @@ Each of these commands now returns the adapter's own report inside `data`:
 
 Version 2.6 changes which refs resolve on Windows and Linux, and on macOS for an element that yields no address. Such a ref resolves only when one complete read of its window proved it unique when it was captured and exactly one live element matches its role and stable fields now. The only new payload fields are `data.identity_unproven` and, on a ref action whose budget ran out after a refusal, `error.details.refusal`.
 
-- A ref to one of two identical controls, which earlier resolved by position or geometry, now fails `AMBIGUOUS_TARGET` with `details.kind: "identity_not_unique"` before anything is read. So does a ref captured from a window that could not be read whole within the snapshot timeout.
+- A ref to one of two identical controls, which earlier resolved by position or geometry, now fails `AMBIGUOUS_TARGET` with `details.kind: "identity_not_unique"` before anything is read. A ref captured from a window that could not be read whole within the snapshot timeout fails the same way with `details.kind: "identity_unproven"`.
 - A refmap written before 2.6 records no capture proof, so all of its refs on these platforms fail the same way. Take a new snapshot.
 - An identical twin that appears after capture fails `AMBIGUOUS_TARGET` with `details.kind: "saved_ref_ambiguous"`.
 - All of these carry `details.retryable: false` and a `not_delivered` disposition. `disposition.retry` stays `safe` because nothing was sent, but repeating the same ref returns the same refusal.
@@ -135,14 +141,16 @@ Version 2.6 changes which refs resolve on Windows and Linux, and on macOS for an
 - On macOS, `open-system-surface --surface dock` and `--surface menu-bar-extras` now succeed headless. Their `data` has no `window`; check for the field before reading it. Windows and Linux still return `window` and need `--headed`.
 - On macOS, a snapshot of a background app that lists no window (a menu-bar app, the Dock, Control Center), and `--surface dock` or `--surface menu-bar-extras`, now succeed and read the app through its process. Earlier they failed `WINDOW_NOT_FOUND`. `data.window` is omitted from such a snapshot and `data.app` names the process; check for the field before reading `data.window.id`.
 
-A snapshot that needed one complete read of its window to prove its refs, and could not get it, says so with `"identity_unproven": true` in `data`. `complete` still describes the presented tree. On Windows and Linux, and on macOS for an element with no address, every ref of that snapshot fails `AMBIGUOUS_TARGET` with `details.kind: "identity_not_unique"`; retake the snapshot with a larger `--timeout-ms`. The field is omitted otherwise.
+A snapshot that needed one complete read of its window to prove its refs, and could not get it, says so with `"identity_unproven": true` and `"identity_unproven_reason"` in `data`, and `complete` is `false`, because a ref that cannot be acted on is not a complete result. `truncated` stays absent when the presented tree itself was read whole. On Windows and Linux, and on macOS for an element with no address, every ref of that snapshot fails `AMBIGUOUS_TARGET` with `details.kind: "identity_unproven"`; retake the snapshot with a larger `--timeout-ms` and pass the same larger value to the action, which reads the whole window again. The two fields are omitted otherwise.
+
+On Windows, `get --property value` and `get --property text` on a field whose text is longer than the 2048-character read limit fail with `ACTION_FAILED`, `details.kind: "value_exceeds_read_limit"`, `details.value_length`, `details.read_limit` and `details.retryable: false`. The app answered; only the text cannot be carried, and a value is never identity, so `focus`, `click`, `set-value`, `clear` and every other command on that ref still work.
 
 On macOS, application-owned `menu` and `menubar` snapshots omit `data.window`. `data.app` identifies the owner, including for a `--root` drill into a ref from one of these surfaces. Window-owned snapshots retain `data.window`. When `--window-id` is supplied for an application-owned surface, it selects the owning app while the observed surface remains application-owned.
 
 A complete macOS menu lookup with no surface returns `ELEMENT_NOT_FOUND` with `details.kind: "surface_absent"`, `details.surface: "menu"` or `"menubar"`, and `details.complete: true`. That is completed absence evidence. An absent `menubar` can mean the application exposes no menu bar. A `menu` lookup requires an open menu: snapshot `menubar` when it exists, click its owning item without `--headed`, then snapshot `--surface menu`. Missing `complete`, `complete: false`, a timeout, or an incomplete AX read leaves the result unknown, not absent. If a prior action has `delivery_uncertain` and `retry: unsafe`, inspect the current UI before any action; do not repeat the action.
 
 - Focus and preparatory scrolling can change coordinates. Stability is verified against fresh live observations, not by requiring coordinates to remain equal to the original snapshot.
-- On macOS, clicking an item in the native menu bar uses `AXPress`. It works headless, and under `--headed` it does not move the pointer. A headless `right-click` can use `AXShowMenu` when the target provides it.
+- On macOS, clicking an item in the native menu bar uses `AXPress`. It works headless, and under `--headed` it does not move the pointer.
 
 - Focusing an inactive text field can change its selection. A pre-focus range cannot establish the expected insertion into a nonempty field; such a result is explicitly unverified rather than falsely contradicted.
 - A settle-loop pacing budget does not replace the caller's deadline for native reads. Tests assert deadline identity rather than arbitrary remaining-time thresholds.
@@ -174,6 +182,30 @@ When a ref action returns `delivery_uncertain` with a post-action wait selector,
 | `timed_out` | The wait budget expired without observing the expected state, including when transient read errors persisted through the last poll. `last_observation_error` may hold the last error. |
 | `identity_unavailable` | The ref has no usable process generation, so observation was skipped. |
 
+## Version 2.7 migration
+
+- Headed-mode refusal suggestions require an explicit user request for headed operation; agents must not add `--headed` to recover from a headless failure.
+- A key press no longer grants itself focus permission. `press` without `--app` or `--window-id` takes key focus, so the default headless policy refuses it with `POLICY_DENIED` before anything is sent, and `details.effect` is `focus_steal`. Scope the press with `--app` or `--window-id`, or add `--headed` when the user asked for headed operation. In the C library, `ad_execute_by_ref` and `ad_execute_by_ref_timeout` with `AD_ACTION_KIND_PRESS_KEY` and `AD_POLICY_KIND_HEADLESS` return `AD_RESULT_ERR_POLICY_DENIED` when the element does not advertise a native key press; pass `AD_POLICY_KIND_FOCUS_FALLBACK` or `AD_POLICY_KIND_HEADED` to allow the focus fallback.
+- Private-file privacy errors keep their code and add `details.path` and a fix: Unix permissions (`chmod 700` for a directory) or Windows permissions limited to this user, SYSTEM and Administrators, or a new `AGENT_DESKTOP_HOME`.
+- `status` adds `data.state_root_privacy`: `{ "ok": true }` or `{ "ok": false, "error": { ... } }` from the same private-directory check; failed checks leave snapshot rows null.
+- A table or grid node carries `row_count` and `column_count` when the platform's table interface reports them. A spreadsheet can report far more rows than it shows. Under `--skeleton`, a table or grid that reports its size is one node below the snapshot root: its cells stay out, it carries `children_count`, and its ref anchors a `--root` drill.
+- macOS: a table cell that occupies one row and one column carries its position as `native_id`, `{ "kind": "grid_cell", "value": "B7" }`: the column letters, then the row, counted from the first row and column the table reports. A cell that has an identifier of its own keeps that identifier as `native_id`, and its position still finds it. The position describes the cell and does not identify it: the ref is found again by the element's own token. `find --role cell --native-id B7 --root <table ref>` returns that cell.
+- macOS: a table cell that can be pressed lists `SetValue`. `set-value` and `clear` write the cell's value directly when the cell takes one. Any other cell is pressed until its editor opens, its text is replaced with key events sent to the application's process, and Return commits it; the application is not activated. After committing, the cell is read back: the result is `delivered_verified` when the text matches, `delivered_unverified` when it differs or cannot be read, and `ACTION_FAILED` (`delivered_unverified`) when the cell stays empty.
+- Linux: a table cell reports its text as `value`. An editable cell that holds a number through the platform's value interface lists `SetValue` and takes a number; text is refused with `INVALID_ARGS` before anything is sent, because it has no background route. A selectable table cell whose table can select it lists `Click` and `Select`. A cell carries no grid position: a position names another cell once rows move, so it is never part of a ref's identity.
+- Windows: a grid cell whose role already earns it a ref lists `Click` when a selectable row inside a grid or list holds it; the click selects that row and reads the selection back. The action never creates a ref. A ref action reads only the properties that identify an element, so it costs less than a snapshot of the same window. A cell carries no grid position.
+- A click, double click, right click, triple click or select carries `data.effect` when the platform can read an effect witness around it: `observed`, `not_observed` or `indeterminate`, with `details.witness_diff` listing the changes (`target_gone`, `window_closed`, `target_selected`, `surface_opened`, `focus_into_target` are strong; `target_value`, `focus_moved_in_window`, `focused_value`, `window_title`, `window_content`, `window_count` are weak, because the application can change them by itself; a click on a checkbox or radio button changes only its value, so verify a toggle with `check`, `uncheck` or `toggle`, which read the state back). A strong change makes a delivered result `delivered_verified`; weak changes alone change no disposition. After a `delivery_uncertain` error the witness is read once too; a strong change returns success with `delivered_verified`, `data.effect` `observed`, and the platform's error under `details.platform_report`, while any other verdict keeps the error and sets `error.details.effect`. The witness never waits: an effect that lands later is for the caller to wait for. A delivered result never becomes `not_delivered`. `not_observed` beside a delivered disposition is not proof that nothing happened.
+- `press escape` with `--app` or `--window-id`, refused because the target does not hold the keyboard (`details.check` `window_active`, `exact_window_focus` or `process_focus`), closes the open menu, drop-down or popup of the target through the platform's own close action when there is one, and returns that result, or that attempt's own error, which says whether it may have landed; the refusal stands only when no such surface is open or the platform has no close route.
+
+`launch`, `open-system-surface`, `focus-window`, `dismiss-notification` and `dismiss-all-notifications` now carry `data.disposition` on success, and an incomplete-locator `TIMEOUT` names its cause. Every key is additive; every other key keeps its value. A `launch` payload written before the field existed has no `disposition`; readers must treat its absence as `unknown`, not as a delivery claim.
+
+- `launch` reports `not_delivered` (`retry: "safe"`) when it attached to a running application and dispatched nothing — no `--activate`, or an `--activate` whose target was already active and needed no request. With `--activate` it reports `delivered_verified` only when the platform read back the target as the frontmost application afterwards, and `delivered_unverified` (`retry: "unsafe"`) otherwise. A fresh launch reports `delivered_verified` when the adapter read back the process it started, and `delivered_unverified` when it did not — including a spawned process that never appeared on the platform's accessibility bus.
+- A headless command that can open a window runs under the front guard: `launch` without `--activate`, `close-app`, `minimize`, `maximize`, `restore`, and a click, toggle, select or key press. `focus_returned: true` means a window that did not exist before the command took the focus or the top of the window order and the guard restored the user's front, read back from the window system. `false` with a `suggestion` means it could not. The key is absent when nothing intruded or the adapter has no way to read the front. A headless command whose front cannot be read fails with `POLICY_DENIED` and `details.kind: focus_unreadable`, nothing sent. When a click, toggle or similar action makes the application spawn a helper process (an update manager runs its settings dialog as a child) and the watch ends before that helper shows a window, the watch goes on after the interaction lease is released, up to 10 s or the command's deadline, and every give-back takes a short lease of its own. A launch whose application opens a window before the launch returns, and so before its process is known, is given back once the pid the launch returned is known; the watch also follows the processes that process spawned after the capture, so a launcher stub that exits after starting the real program is covered. The watch also runs beside the reads an action owes after the lease is released (the effect witness, the overlay read), and its settle counts from the moment the application acknowledged the action, so an application that activates itself a few hundred milliseconds after a click is still given back. `details.front_watch: "child_window_pending"` says the watch ran out with the helper still running and no window of it seen. Where the platform cannot list a process's descendants the watch ends at dispatch plus the settle. `launch` reports it in `guidance`; the other commands report it in `details`. macOS, Windows, and Linux on X11.
+- `open-system-surface` reports `not_delivered` when the surface was already presented and the adapter raised nothing, and `delivered_verified` when it raised the surface and then observed it presented. On macOS the surfaces are always presented, so the command always reports `not_delivered`.
+- `focus-window` reports `not_delivered` (`retry: "safe"`) when two reads show the window already focused, and then sends nothing. Otherwise it reports `delivered_verified`: it returns `Ok` only after the OS reports the window focused on two consecutive reads.
+- `dismiss-notification` reports `delivered_verified`: the adapter returns `Ok` only after re-reading that the entry is gone from the surface.
+- `dismiss-all-notifications` derives `data.disposition` from each entry's own delivery evidence, not from counts: `not_delivered` (`retry: "safe"`) when nothing was found or every failure happened before anything was sent; `delivered_unverified` (`retry: "unsafe"`) when any entry's dispatch started; and `delivered_verified` (`retry: "unsafe"`) when every captured entry was dismissed or the remaining failures were all never dispatched — the `failures` list then names what a re-run still has to touch, and the retry stays unsafe because a re-run captures a fresh listing. An entry that vanished before its turn counts as dismissed.
+- A `TIMEOUT` from `find` and the other locator commands whose search could not prove its result carries `details.cause`: `deadline` (the search ran out of time; `details.retryable` is `true`), `unreadable_elements` (some native reads failed, so part of the tree is unknown; `details.retryable` is `false` for search kinds and `true` for selected-match hydration unless a traversal limit was hit), or `traversal_limit` (a fixed traversal limit was hit; `details.retryable` is `false`). When retrying cannot help, narrow the query with `--role` or `--name`, or run `snapshot`, which returns the readable part of the tree with `complete: false`.
+
 ## Find result shape
 
 `find` match objects report the element's actual accessibility `name`. Elements
@@ -185,18 +217,20 @@ to `role` or `value`.
 
 ## Ref re-identification details
 
-Every ref is re-identified from its stored entry or refused, and `details.kind` names which. The core resolver refuses a saved ref with one of these four kinds:
+Every ref is re-identified from its stored entry or refused, and `details.kind` names which. The core resolver refuses a saved ref with one of these five kinds:
 
 | `details.kind` | Code | Meaning |
 |------|------|---------|
-| `retained_object_stale` | `STALE_REF` | macOS: the element's recorded address is dead, or its process, role or recorded identifier no longer matches. `details.reason` is `dead`, `pid`, `role` or `native_identifier`. No search runs, so the ref cannot land on a look-alike. Take a fresh snapshot. |
+| `retained_object_stale` | `STALE_REF` | The element's recorded address is dead or no longer names it. macOS: its process, role or recorded identifier no longer matches; `details.reason` is `dead`, `pid`, `role`, `native_identifier`, or `legacy` for a ref saved by an earlier release whose address can no longer be checked. Linux (GTK apps): `details.reason` is `bus` (the accessibility bus restarted), `window` (the ref's window is another one now), `chain` (a parent no longer lists its recorded child; `details.depth` is the link, 0 for the application root, which drops a closed window) or `identity` (the element's role, stable name, description or native id changed). No search runs, so the ref cannot land on a look-alike. Take a fresh snapshot. |
 | `saved_ref_absent` | `STALE_REF` | No live element matches the stored role and stable fields over complete evidence, so the element is gone. Take a fresh snapshot. |
 | `saved_ref_ambiguous` | `AMBIGUOUS_TARGET` | An element identical to the captured one appeared, so two or more live elements match the stored role and stable fields. A fresh snapshot refuses both as twins; act on a control that is unique in the window. |
-| `identity_not_unique` | `AMBIGUOUS_TARGET` | The ref was not proven the only element matching its role and stable fields when it was captured, so nothing is searched. Either an identical twin existed, or the window could not be read whole within the snapshot timeout (retake the snapshot with a larger `--timeout-ms`). It is reached on Windows, on Linux, and on macOS when the element yields no address. A twin is refused by every snapshot; only an explicit coordinate click (`--headed mouse-click --xy`) can pick one, it takes the foreground, and it is unavailable on a Linux Wayland session. |
+| `identity_not_unique` | `AMBIGUOUS_TARGET` | A complete read found the ref's element twinned with another of the same role and stable fields when it was captured, so nothing is searched. It is reached on Windows, on Linux for Qt and other toolkits, and on macOS when the element yields no address. A twin is refused by every snapshot; only an explicit coordinate click (`--headed mouse-click --xy`) can pick one, it takes the foreground, and it is unavailable on a Linux Wayland session. |
+| `identity_unproven` | `AMBIGUOUS_TARGET` | The snapshot did not prove the ref unique, because it ran out of budget before it read the whole window, so nothing is searched. The snapshot carries `data.identity_unproven`. Retake it with a larger `--timeout-ms` and pass the same value to the action, which reads the whole window again. |
+| `element_token_required` | `STALE_REF` | The platform re-identifies this ref only through the element token captured with it, and the ref carries none it can read. Nothing is searched, so this does not say the element is gone. Take a fresh snapshot and use the new ref |
 
-The fifth outcome is `resolution_identity_unknown`, which carries `TIMEOUT`: a live field could not be read, so the identity count stayed unproven. It is retryable. Linux menu and tray refs report the same kind as `STALE_REF`.
+The sixth outcome is `resolution_identity_unknown`, which carries `TIMEOUT`: a live field could not be read, so the identity count stayed unproven. It is retryable. A large window can need more time than the budget allows, so retry the same command with a larger `--timeout-ms`. Linux menu and tray refs report the same kind as `STALE_REF`.
 
-After the core resolver chooses the element, the platform adapter lands it, and a landing failure keeps the adapter's own `details.kind` (for example `resolve_no_candidate` on Linux and Windows, or `resolution_complete_absence` on macOS). The platform skills list those kinds. `saved_ref_absent`, `saved_ref_ambiguous` and `identity_not_unique` carry `details.retryable: false`, because waiting cannot change the answer. Every one of these is `not_delivered`.
+After the core resolver chooses the element, the platform adapter lands it, and a landing failure keeps the adapter's own `details.kind` (for example `resolve_no_candidate` on Linux and Windows, or `resolution_complete_absence` on macOS). The platform skills list those kinds. `saved_ref_absent`, `saved_ref_ambiguous`, `identity_not_unique`, `retained_object_stale` and `element_token_required` carry `details.retryable: false`, because waiting cannot change the answer. Every one of these is `not_delivered`.
 
 ## Error codes
 
@@ -209,17 +243,59 @@ After the core resolver chooses the element, the platform adapter lands it, and 
 | `AMBIGUOUS_TARGET` | Ref recovery matched multiple plausible targets |
 | `SNAPSHOT_NOT_FOUND` | Snapshot ID is missing or expired |
 | `SANDBOX_NOT_FOUND` | No sandbox has that name; run `agent-desktop sandbox list` to see the sandboxes that exist |
-| `POLICY_DENIED` | Physical/headed path blocked by policy |
+| `POLICY_DENIED` | The interaction policy does not permit an effect of the operation; nothing was sent. `details.effect` names it when one effect decided: `focus_steal`, `cursor_move` or `clipboard_write`. A refusal of an effect on the user's foreground also carries `details.check: "foreground"` and `details.foreground_effect: true`. Before dispatch, `details.mechanisms` is the action name and `details.kind` is the reason: `shows_menu`, `opens_dialog`, `opens_popup`, `popover_command` (macOS: a button inside a popover, whose command can start a service that takes the front) or `focus`. When a delivery route is held back, `details.mechanisms` names the withheld route labels. A ref action whose remaining routes all deliver nothing, while one was held back, is `POLICY_DENIED`, not `ACTION_FAILED`, on every platform. Rerun with `--headed` to permit them. A key combo the platform blocks for safety is also `POLICY_DENIED`: headed mode does not lift the block, and `--force` overrides it only when the user authorized the combo's effect |
 | `ACTION_FAILED` | Action rejected, or its observed result contradicted the request |
 | `ACTION_NOT_SUPPORTED` | The target does not expose the requested action |
 | `APP_UNRESPONSIVE` | The matching application stopped responding |
 | `PLATFORM_NOT_SUPPORTED` | Adapter method not implemented on this platform |
-| `TIMEOUT` | Wait condition expired, or a live identity read stayed incomplete until the deadline |
+| `TIMEOUT` | Wait condition expired, or a live identity read stayed incomplete until the deadline. Incomplete locator errors carry a `details.cause`; see below |
 | `INVALID_ARGS` | Invalid argument values |
 | `WINDOW_NOT_FOUND` | The requested window does not exist, including a `screenshot --window-id` that matches no window; the disposition is `not_delivered` |
 | `NOTIFICATION_NOT_FOUND` | The notification ID was not found |
 | `INTERNAL` | Unexpected error or caught panic |
 
+### Locator incomplete
+
+`find` and the other locator commands return `TIMEOUT` when the search could not prove its result. These `details.kind` values carry `details.cause`: `locator_incomplete`, `locator_budget_limit`, `locator_transient_incomplete`, `locator_selected_query_incomplete`, `locator_selected_query_budget_limit`, and `locator_selected_evidence_incomplete`. `details.cause` says why:
+
+| `details.cause` | Meaning | `details.retryable` |
+|------|---------|------|
+| `deadline` | The search ran out of time. Retry with a larger `--timeout-ms`. | `true` |
+| `unreadable_elements` | The search finished in time, but some native reads failed, so part of the tree is unknown. | `false` for search kinds (`locator_incomplete`, `locator_budget_limit`); `true` for selected-match hydration (`locator_selected_query_incomplete`, `locator_selected_evidence_incomplete`) unless a traversal limit was hit |
+| `traversal_limit` | A fixed traversal limit (node, edge, child, text or depth) was hit. More time does not help. | `false` |
+
+When `details.retryable` is `false`, narrow the query with `--role` or `--name`, or run `snapshot`, which returns the readable part of the tree with `complete: false`. When `details.cause` is `unreadable_elements` on selected-match hydration without a traversal limit, run the command again. An exhausted operation deadline takes precedence over read failures, which take precedence over traversal limits. An incomplete result with no recorded cause is `unreadable_elements`. `details.query_stats` and the kind's additional fields carry the evidence. The disposition is `not_delivered`. A selector wait that expires preserves the locator's `kind` and `cause` in `details.last_error` under its `wait_timeout` error.
+
 ## Exit codes
 
-`0` success, `1` structured error (JSON on stdout), `2` command-line parse error (the envelope is still printed, with `INVALID_ARGS`).
+`0` success, `1` structured error (JSON on stdout), `2` command-line parse error (the envelope is still printed, with `INVALID_ARGS`). A parse error's `error.suggestion` carries clap's `tip:` lines and the command's `Usage:` line when clap printed them, then, when the command is known, a pointer to `agent-desktop <command> --help`.
+
+## Planned 2.0 vocabulary
+
+The 2.7 envelope keeps every current name. 2.0 is a future breaking release that will use one name per concept.
+
+| concept | names in 2.7 (per command) | one name in 2.0 |
+| --- | --- | --- |
+| Application name | `name` in list-apps and close-app `target`; `app_name` in window and notification records; `app` in launch, snapshot, wait events and details, and the close-app request echo | `app` on app-owned records; `name` on the app record itself |
+| Application metadata | `bundle_id`, `presentation` in list-apps; absent from launch, windows, notifications, and events | No rename specified |
+| Process identity | Flat `pid`, `process_instance` in list-apps, list-windows, and launch; `pid` alone in wait events and list-surfaces; `target.process.{pid,instance}` in close-app and window operations; `process_identity.{pid,process_instance}` in post-action observation; neither in snapshot data | Flat `pid`, `process_instance`; omit an unknown instance |
+| Window identity | `id`, `title` in window records, operation targets, and snapshot; `window_id`, `title` in wait events; `source_window_id` in post-action observation; snapshot includes only `id`, `title` | Record `id`, `title`; reference `window_id`; full window record in snapshot |
+| Window container | `window` in launch, snapshot, wait --window, and open-system-surface; `focused` object in focus-window | `window` |
+| Open surface | `surface` in wait --surface: the `id`, `type` and `title` of the first open surface of the asked kind; its timeout carries `last_observed` | `surface` |
+| Focus state | `is_focused` in window records; `focused` element token; `result` in is focused; `focused` boolean in hover and drag | Window `focused`; element token `focused`; hover and drag `window_focused` |
+| Element state | `states` tokens in snapshot and find; get --property states returns tokens in `value`; ref-action `post_state` has `states` plus `enabled`, `hidden`, `offscreen` booleans | `states` tokens, including `enabled` when evidenced |
+| Predicate answer | `property`, `result`, `applicable` in is; wait --element `observed` uses `exists`, `enabled`, `visible`, `actionable`, or `matched` with value evidence | No common name specified |
+| Element ref | `ref_id` in snapshot and find; `ref` in get, is, wait, and trace events | `ref_id`, qualified |
+| Element name | `name` in snapshot and find; get --property title reads the element name | `name`; keep `title` as an alias for one minor release |
+| Absent value | Find emits null `ref_id`, null `value`, and empty `states`; status emits null `snapshot_id`, `ref_count`, `session_id`; wait --text emits null `ref`, `role`; snapshot omits absent node fields and empty arrays | Omit absent fields and empty arrays |
+| List wrapper | `{apps}` in list-apps; bare arrays in list-windows and list-displays; `{pid,surfaces}` in list-surfaces; `{count,notifications}` in list-notifications; `{sessions}` in session list | Named arrays: `apps`, `windows`, `displays`, `surfaces`, `notifications`, `sessions`; each wrapper has `complete`; surfaces also has `pid`, `process_instance` |
+| Counts | `count` in list-notifications, find --count, wait --text, and mouse-click; `total_matches` in find; `ref_count` in snapshot and status; `dismissed_count`, `failed_count` in dismiss-all-notifications; `event_count`, `total_events`, `returned_events` in trace export | `count` for a sibling array's length; find --count `total_matches`; wait --text `match_count`; mouse-click `click_count`; drop `event_count` |
+| Partial results | Conditional `complete:false`, `skipped` in list-apps; `complete`, conditional `truncated`, `nodes_observed` in snapshot; `truncated` in find and trace; no flag in list-windows | Always `complete`; `truncated` when cut |
+| Timing | `elapsed_ms` in conditional waits, snapshot --wait-for, and batch; requested `waited_ms` in wait MS; `lease_hold_ms` in ref-action details; `created_at`, `ended_at` in session output | Measured `elapsed_ms` for every wait; session output `created_at_ms`, `ended_at_ms`; stored timestamps keep their names |
+| Wait success | `found` in menu, window, text, element, and event waits; `matched`, `condition` in notification waits; `matched_selector`, `gone`, `target_absent` for selector absence; snapshot fields for selector presence and --wait-for | `found` plus `condition`; keep `matched_selector` |
+| Event spelling | Input focus-changed emits `focus_changed_window`; other wait event kinds use underscores; event surfaces use `action_center`, while open-system-surface uses `action-center` | `focus_changed`; kebab-case surface names |
+| Kind key | `type` in list-surfaces, ref-action surface records, and clipboard-get; `kind` in operation targets, events, and details; `surface` in surface events and open-system-surface | `kind` for records and clipboard; `surface` for surface identity |
+| Delivery disposition | `data.disposition` in ref actions, press, pointer, drag, clipboard writes, app and window mutations, and notification mutations, including launch, focus-window, open-system-surface, and both dismiss commands; under `data.after_action` after --wait-for | `disposition` with `delivery`, `retry`; no rename |
+| Display and image scale | `scale` in list-displays; `scale_factor`, `format` in screenshot; clipboard-get image has neither | `scale_factor`; clipboard image also has `format` |
+| OS, version, architecture | `os` in version; `platform` in status; crate `data.version` in both versus envelope `version: "2.7"`; architecture `target` in version versus operation-report `target` object | `os`; architecture `arch`; version and operation-target names stay distinct by scope |
+| Tracing state | `tracing` boolean in status; `trace` as `on` or `off` in session start and list | No rename: writer attachment and session setting are different concepts |

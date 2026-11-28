@@ -10,6 +10,7 @@ use crate::{
     refs::ref_root_read::{RootRead, read_saved_root},
     refs::refs_store::RefStore,
     snapshot::SnapshotResult,
+    snapshot::drill_retry::{DrillAttempt, IncompleteCause, IncompleteRead, drill_until_complete},
 };
 
 /// What one drill-down presents: the window it reports, the subtree that
@@ -149,7 +150,9 @@ fn resolve_result_owner(
     window: &WindowInfo,
     adapter: &dyn PlatformAdapter,
 ) -> Result<SnapshotOwner, AppError> {
-    if adapter.is_application_surface(entry.source.source_surface) {
+    if adapter.is_application_surface(entry.source.source_surface)
+        && entry.source.source_window_id.is_none()
+    {
         let app = super::surface_target::application_from_ref(entry)?;
         crate::system::app_lookup::process_identity(&app)?;
         Ok(SnapshotOwner::Application(app))
@@ -165,18 +168,32 @@ fn drill_capture(
     deadline: crate::Deadline,
 ) -> Result<DrillCapture, AppError> {
     ObservationRequest::snapshot(opts, deadline).validate()?;
+    drill_until_complete(deadline, || {
+        drill_capture_once(adapter, opts, entry, deadline)
+    })
+}
+
+fn drill_capture_once(
+    adapter: &dyn PlatformAdapter,
+    opts: &TreeOptions,
+    entry: &crate::refs::RefEntry,
+    deadline: crate::Deadline,
+) -> Result<DrillAttempt<DrillCapture>, AppError> {
     let (window, mut observed, index) = match read_saved_root(
         adapter,
         entry,
         deadline,
         |window, handle| read_token_subtree(adapter, opts, entry, window, handle, deadline),
-        |subtree| !ref_alloc::selects_tokenless_entry(&subtree.tree),
+        |attempt| match attempt {
+            DrillAttempt::Complete(subtree) => !ref_alloc::selects_tokenless_entry(&subtree.tree),
+            DrillAttempt::Incomplete(_) => true,
+        },
     )? {
-        RootRead::Subtree(subtree) => return Ok(subtree),
+        RootRead::Subtree(attempt) => return Ok(attempt),
         RootRead::Window(window_read) => *window_read,
     };
     if !observed.is_exhaustive() {
-        return Err(drill_incomplete(observed.nodes.len()));
+        return Ok(DrillAttempt::Incomplete(incomplete_read(&observed)));
     }
     let path_prefix = observed
         .nodes
@@ -189,13 +206,47 @@ fn drill_capture(
         })?;
     let nodes_observed = observed.nodes.len();
     let tree = observed.project_subtree(index, ObservationRequest::snapshot_logical_depth(opts))?;
-    Ok(DrillCapture {
+    Ok(DrillAttempt::Complete(DrillCapture {
         window,
         tree,
         nodes_observed,
         path_prefix,
         observed,
-    })
+    }))
+}
+
+fn is_deterministically_bounded(observed: &crate::locator::live_locator::ObservedTree) -> bool {
+    let limits = &observed.stats.traversal.limits;
+    let hit_budget = limits.node_hits > 0
+        || limits.edge_hits > 0
+        || limits.child_hits > 0
+        || limits.text_hits > 0
+        || limits.depth_hits > 0;
+    let omits_view = observed.nodes.iter().any(|node| {
+        node.children_count
+            .is_some_and(|count| count as usize > node.children.len())
+    });
+    hit_budget || omits_view
+}
+
+fn incomplete_read(observed: &crate::locator::live_locator::ObservedTree) -> IncompleteRead {
+    let health = &observed.stats.reads.health;
+    let limits = &observed.stats.traversal.limits;
+    let cause = if health.deadline_exhausted > 0 {
+        IncompleteCause::Deadline
+    } else if limits.child_count_changes > 0
+        || health.cannot_complete > 0
+        || health.native_read_failures > 0
+        || !is_deterministically_bounded(observed)
+    {
+        IncompleteCause::LiveChurn
+    } else {
+        IncompleteCause::Bounded
+    };
+    IncompleteRead {
+        nodes_observed: observed.nodes.len(),
+        cause,
+    }
 }
 
 /// A token root's subtree read alone, through the adapter that owns the
@@ -208,7 +259,7 @@ fn read_token_subtree(
     window: &WindowInfo,
     handle: &crate::adapter::NativeHandle,
     deadline: crate::Deadline,
-) -> Result<DrillCapture, AppError> {
+) -> Result<DrillAttempt<DrillCapture>, AppError> {
     let options = opts.with_ref_identity_bounds();
     let mut observed = crate::tree::renderer_accessibility::observe_tree(
         adapter,
@@ -220,31 +271,18 @@ fn read_token_subtree(
         &ObservationRequest::snapshot(&options, deadline).validate()?,
         None,
     )?;
+    let incomplete = incomplete_read(&observed);
     let (tree, complete, nodes_observed) = observed.project_partial()?;
     if !complete {
-        return Err(drill_incomplete(nodes_observed));
+        return Ok(DrillAttempt::Incomplete(incomplete));
     }
-    Ok(DrillCapture {
+    Ok(DrillAttempt::Complete(DrillCapture {
         window: window.clone(),
         tree,
         nodes_observed,
         path_prefix: entry.scope.path.clone(),
         observed,
-    })
-}
-
-fn drill_incomplete(nodes_observed: usize) -> AppError {
-    AppError::Adapter(
-        crate::AdapterError::new(
-            crate::ErrorCode::Timeout,
-            "The drill-down observation was incomplete, so no refs were replaced",
-        )
-        .with_suggestion("Retry with a larger --timeout-ms, or drill a narrower subtree")
-        .with_details(serde_json::json!({
-            "kind": "observation_incomplete",
-            "nodes_observed": nodes_observed,
-        })),
-    )
+    }))
 }
 
 #[cfg(test)]

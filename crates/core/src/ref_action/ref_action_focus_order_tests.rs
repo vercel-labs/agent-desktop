@@ -141,29 +141,29 @@ impl ObservationOps for FocusAdapter {
 }
 
 impl ActionOps for FocusAdapter {
-    fn headed_requirement_for_ref(
+    fn headed_focus_for_ref(
         &self,
         _: &RefEntry,
         request: &ActionRequest,
         deadline: Deadline,
-    ) -> Result<crate::HeadedRequirement, AdapterError> {
-        self.headed_requirement(&NativeHandle::null(), request, deadline)
+    ) -> Result<Option<crate::HeadedFocus>, AdapterError> {
+        self.headed_focus(&NativeHandle::null(), request, deadline)
     }
 
-    fn headed_requirement(
+    fn headed_focus(
         &self,
         _: &NativeHandle,
         request: &ActionRequest,
         _: Deadline,
-    ) -> Result<crate::HeadedRequirement, AdapterError> {
+    ) -> Result<Option<crate::HeadedFocus>, AdapterError> {
         Ok(if self.application_menu && request.policy.is_headed() {
-            if self.pointer_menu.is_some() {
-                crate::HeadedRequirement::FocusedApplicationAndCursor
+            Some(if self.pointer_menu.is_some() {
+                crate::HeadedFocus::ApplicationAndCursor
             } else {
-                crate::HeadedRequirement::FocusedApplication
-            }
+                crate::HeadedFocus::Application
+            })
         } else {
-            request.headed_requirement()
+            request.headed_focus()
         })
     }
 
@@ -178,7 +178,11 @@ impl ActionOps for FocusAdapter {
             assert_eq!(request.verified_point().map(|point| point.x), Some(110.0));
         }
         if self.application_menu && self.pointer_menu.is_none() {
-            assert_eq!(request.policy, crate::InteractionPolicy::headless());
+            assert!(!request.policy.allow_cursor_move);
+            assert_eq!(
+                request.policy.allow_focus_steal,
+                self.focused.load(Ordering::SeqCst)
+            );
             assert!(request.verified_point().is_none());
         }
         self.dispatched.fetch_add(1, Ordering::SeqCst);
@@ -207,13 +211,17 @@ impl SystemOps for FocusAdapter {
         Ok(())
     }
 
-    fn focus_window(&self, _: &WindowInfo, _: &InteractionLease) -> Result<(), AdapterError> {
+    fn focus_window(
+        &self,
+        _: &WindowInfo,
+        _: &InteractionLease,
+    ) -> Result<crate::DeliverySemantics, AdapterError> {
         assert!(
             !self.application_menu,
             "application menus have no document window"
         );
         self.focused.store(true, Ordering::SeqCst);
-        Ok(())
+        Ok(crate::DeliverySemantics::delivered_unverified())
     }
 }
 
@@ -239,7 +247,7 @@ fn execute_action_within(
     let mut entry: RefEntry = serde_json::from_value(serde_json::json!({
         "pid": 1, "process_instance": "test-instance", "role": "button", "name": "Run",
         "source_window_id": "w-1", "source_surface": "window", "path": [0],
-        "unique_at_capture": true,
+        "proof": "unique",
         "bounds": bounds(), "bounds_hash": bounds().bounds_hash(), "available_actions": ["Click"], "states": []
     })).unwrap();
     if adapter.application_menu {
@@ -330,6 +338,10 @@ fn headed_click_does_not_resolve_before_window_focus_and_dispatch() {
             entry: &RefEntry,
             deadline: Deadline,
         ) -> Result<NativeHandle, AdapterError> {
+            assert!(
+                self.0.focused.load(Ordering::SeqCst),
+                "the element was resolved before its window was focused"
+            );
             self.0.resolve_element_strict(entry, deadline)
         }
     }
@@ -345,21 +357,22 @@ fn headed_click_does_not_resolve_before_window_focus_and_dispatch() {
             &self,
             window: &WindowInfo,
             lease: &InteractionLease,
-        ) -> Result<(), AdapterError> {
+        ) -> Result<crate::DeliverySemantics, AdapterError> {
             self.0.focus_window(window, lease)
         }
     }
     let adapter = DefaultRequirementAdapter(adapter(false, true));
-    let entry: RefEntry = serde_json::from_value(serde_json::json!({
+    let mut entry: RefEntry = serde_json::from_value(serde_json::json!({
         "pid": 1, "process_instance": "test-instance", "role": "button", "name": "Run",
         "source_window_id": "w-test", "source_surface": "window", "path": [0],
         "bounds": bounds(), "available_actions": ["Click"], "states": []
     }))
     .unwrap();
+    entry.identity.retained_object = Some("token:axtok1:run".into());
     let context = crate::CommandContext::default();
     let deadline = Deadline::standard().unwrap();
     let lease = InteractionLease::guarded(deadline, ()).unwrap();
-    crate::ref_action::ref_action_single::execute_single_shot(
+    let _ = crate::ref_action::ref_action_single::execute_single_shot(
         crate::ref_action::ref_action_wait_context::RefActionWaitContext {
             adapter: &adapter,
             entry: &entry,
@@ -369,13 +382,10 @@ fn headed_click_does_not_resolve_before_window_focus_and_dispatch() {
         ActionRequest::headed(Action::Click),
         deadline,
         &lease,
-        |_, _, _| {
-            assert!(adapter.0.focused.load(Ordering::SeqCst));
-            assert_eq!(adapter.0.resolved.load(Ordering::SeqCst), 0);
-            Ok(ActionResult::delivered_unverified("click"))
-        },
-    )
-    .unwrap();
+        None,
+    );
+    assert!(adapter.0.focused.load(Ordering::SeqCst));
+    assert_eq!(adapter.0.resolved.load(Ordering::SeqCst), 1);
 }
 
 #[path = "ref_action_menu_pointer_tests.rs"]

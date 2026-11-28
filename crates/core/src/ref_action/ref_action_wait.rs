@@ -1,6 +1,7 @@
 use crate::{
-    ActionRequest, ActionResult, AdapterError, AppError, Deadline,
-    ref_action::ref_action_context::RefActionContext,
+    ActionRequest, ActionResult, AdapterError, Deadline,
+    ref_action::ref_action_context::RefActionContext, ref_action::ref_action_dispatched,
+    ref_action::ref_action_landing::RefActionLanding,
     ref_action::ref_action_poll::execute_poll_loop,
     ref_action::ref_action_poll_state::RefActionPollState,
     ref_action::ref_action_single::execute_single_shot,
@@ -16,39 +17,28 @@ type RefActionWaitCtx<'a> = RefActionWaitContext<'a>;
 pub(crate) fn execute_with_auto_wait(
     context: RefActionWaitContext<'_>,
     request: ActionRequest,
-    dispatch: impl Fn(
-        RefActionContext<'_>,
-        ActionRequest,
-        &crate::InteractionLease,
-    ) -> Result<ActionResult, AppError>,
 ) -> Result<ActionResult, AdapterError> {
-    let (result, lease, pre, deadline, _lease_started) =
-        execute_with_auto_wait_and_lease(context, request, dispatch)?;
-    drop(lease);
-    crate::ref_action::finish_artifacts(RefActionContext::new(context, deadline), &pre);
+    let landing = execute_with_auto_wait_and_lease(context, request)?;
+    drop(landing.lease);
+    let result = landing.after_release.settle(
+        context.adapter,
+        &landing.handle,
+        landing.deadline,
+        landing.result,
+    );
+    crate::ref_action::finish_artifacts(
+        RefActionContext::new(context, landing.deadline),
+        &landing.pre,
+    );
     Ok(result)
 }
 
 pub(crate) fn execute_with_auto_wait_and_lease(
     context: RefActionWaitContext<'_>,
     request: ActionRequest,
-    dispatch: impl Fn(
-        RefActionContext<'_>,
-        ActionRequest,
-        &crate::InteractionLease,
-    ) -> Result<ActionResult, AppError>,
-) -> Result<
-    (
-        ActionResult,
-        crate::InteractionLease,
-        crate::trace::trace_artifacts::ArtifactOutcome,
-        Deadline,
-        std::time::Instant,
-    ),
-    AdapterError,
-> {
+) -> Result<RefActionLanding, AdapterError> {
     let deadline = operation_deadline(&request)?;
-    let result = execute_with_deadline(context, request, deadline, dispatch);
+    let result = execute_with_deadline(context, request, deadline);
     result.map_err(|error| {
         if deadline.is_expired() {
             error
@@ -62,30 +52,36 @@ fn execute_with_deadline(
     context: RefActionWaitContext<'_>,
     mut request: ActionRequest,
     deadline: Deadline,
-    dispatch: impl Fn(
-        RefActionContext<'_>,
-        ActionRequest,
-        &crate::InteractionLease,
-    ) -> Result<ActionResult, AppError>,
-) -> Result<
-    (
-        ActionResult,
-        crate::InteractionLease,
-        crate::trace::trace_artifacts::ArtifactOutcome,
-        Deadline,
-        std::time::Instant,
-    ),
-    AdapterError,
-> {
+) -> Result<RefActionLanding, AdapterError> {
     let polls = request.timeout_ms.is_some_and(|timeout_ms| timeout_ms > 0);
     let mut saw_ambiguity = false;
     let mut refusal: Option<AdapterError> = None;
     loop {
-        let mut state = if polls {
+        let (mut state, resolved) = if polls {
             execute_poll_loop(context, &request, deadline)
                 .map_err(|error| with_refusal(error, refusal.as_ref()))?
         } else {
-            RefActionPollState::default()
+            let handle = request
+                .headed_focus()
+                .is_none()
+                .then(|| {
+                    crate::refs::resolve_saved_ref::resolve_saved_ref(
+                        context.adapter,
+                        context.entry,
+                        deadline,
+                        None,
+                    )
+                    .map_err(crate::ref_action::mark_pre_dispatch_resolution_failure)
+                    .inspect_err(|error| {
+                        crate::ref_action::ref_action_wait_support::trace_resolve_error(
+                            context.context,
+                            context.ref_id,
+                            error,
+                        )
+                    })
+                })
+                .transpose()?;
+            (RefActionPollState::default(), handle)
         };
         state.saw_ambiguity |= saw_ambiguity;
         let pre = crate::ref_action::capture_pre_artifact(
@@ -108,15 +104,28 @@ fn execute_with_deadline(
             request.timeout_ms = Some(deadline.remaining_ms());
         }
         let lease_started = std::time::Instant::now();
-        match execute_single_shot(context, request.clone(), deadline, &lease, &dispatch) {
-            Ok(mut result) => {
+        match execute_single_shot(context, request.clone(), deadline, &lease, resolved) {
+            Ok(dispatched) => {
+                let ref_action_dispatched::DispatchedAction {
+                    mut result,
+                    handle,
+                    after_release,
+                } = dispatched;
                 state.attach_transient_ambiguity(&mut result);
                 state.attach_wait_metrics(
                     &mut result,
                     &lease,
                     u64::try_from(lease_started.elapsed().as_millis()).unwrap_or(u64::MAX),
                 );
-                return Ok((result, lease, pre, deadline, lease_started));
+                return Ok(RefActionLanding {
+                    result,
+                    handle,
+                    lease,
+                    pre,
+                    deadline,
+                    lease_started,
+                    after_release,
+                });
             }
             Err(error) => {
                 drop(lease);
@@ -126,9 +135,7 @@ fn execute_with_deadline(
                 }
                 saw_ambiguity |= error.code == crate::ErrorCode::AmbiguousTarget;
                 refusal = Some(error);
-                crate::wait::deadline::sleep(
-                    crate::refs::ref_resolve_deadline::POLL_INTERVAL.min(deadline.remaining()),
-                );
+                deadline.pause(crate::wait::deadline::POLL_INTERVAL);
             }
         }
     }

@@ -9,7 +9,12 @@ pub struct FocusWindowArgs {
     pub title: Option<String>,
 }
 
-pub fn execute(args: FocusWindowArgs, adapter: &dyn PlatformAdapter) -> Result<Value, AppError> {
+pub fn execute(
+    args: FocusWindowArgs,
+    adapter: &dyn PlatformAdapter,
+    policy: crate::InteractionPolicy,
+) -> Result<Value, AppError> {
+    policy.require(crate::Effect::FocusSteal, "focus-window")?;
     let deadline = crate::Deadline::standard()?;
     let filter = WindowFilter {
         focused_only: false,
@@ -41,11 +46,22 @@ pub fn execute(args: FocusWindowArgs, adapter: &dyn PlatformAdapter) -> Result<V
         "More than one window matches the focus target",
     )?;
 
+    if let Some(focused) = crate::system::window_focus::already_focused(adapter, &window, deadline)
+    {
+        return Ok(json!({
+            "disposition": crate::DeliverySemantics::not_delivered(),
+            "focused": focused,
+        }));
+    }
     let window_id = window.id.clone();
     let lease = adapter.acquire_interaction_lease(deadline)?;
-    let focused = crate::system::window_focus::focus_and_confirm(adapter, &window, &lease)?;
+    let (focused, disposition) =
+        crate::system::window_focus::focus_and_confirm(adapter, &window, &lease)?;
     debug_assert_eq!(focused.id, window_id);
-    Ok(json!({ "focused": focused }))
+    Ok(json!({
+        "disposition": disposition,
+        "focused": focused,
+    }))
 }
 
 #[cfg(test)]

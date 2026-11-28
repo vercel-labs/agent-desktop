@@ -49,6 +49,7 @@ fn return_and_escape_map_to_default_and_cancel_actions() {
         simple_key_action(&key("escape", Vec::new())),
         Some("AXCancel")
     );
+    assert_eq!(simple_key_action(&key("esc", Vec::new())), Some("AXCancel"));
     assert_eq!(
         simple_key_action(&key("return", vec![Modifier::Meta])),
         None
@@ -86,6 +87,16 @@ fn a_missing_focused_element_names_both_recovery_routes() {
 }
 
 #[test]
+fn a_missing_focused_element_is_a_refusal_core_can_route_to_a_surface_close() {
+    let error = super::no_focused_element_error(agent_desktop_core::InteractionPolicy::headless());
+
+    assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+    let details = error.details.expect("refusal details");
+    assert_eq!(details["check"], "process_focus");
+    assert_eq!(details["physical_delivery_started"], false);
+}
+
+#[test]
 fn a_headed_missing_focused_element_does_not_suggest_enabling_headed() {
     let error = super::no_focused_element_error(agent_desktop_core::InteractionPolicy::headed());
     let hint = error.suggestion.expect("recovery suggestion");
@@ -113,4 +124,94 @@ fn an_unresolvable_key_fails_before_any_focus_change() {
         "{}",
         error.message
     );
+}
+
+#[test]
+fn escape_reaches_the_focus_holder_first_then_the_open_surface() {
+    use super::{SemanticKeyTarget, choose_key_target};
+
+    assert_eq!(
+        choose_key_target(Some(1), "AXCancel", || panic!("surface read")).unwrap(),
+        Some(SemanticKeyTarget::FocusHolder(1))
+    );
+    assert_eq!(
+        choose_key_target(None, "AXCancel", || Ok(Some(2))).unwrap(),
+        Some(SemanticKeyTarget::OpenSurface(2))
+    );
+    assert_eq!(
+        choose_key_target::<u8>(None, "AXCancel", || Ok(None)).unwrap(),
+        None
+    );
+    assert_eq!(
+        choose_key_target::<u8>(None, "AXConfirm", || panic!("surface read")).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn a_failed_surface_read_is_not_turned_into_an_absent_surface() {
+    use super::choose_key_target;
+
+    let error = choose_key_target::<u8>(None, "AXCancel", || {
+        Err(AdapterError::stale_ref_because(
+            "Application process instance changed during observation",
+        ))
+    })
+    .expect_err("a failed surface read must not read as no surface");
+
+    assert_eq!(error.code, ErrorCode::StaleRef);
+    assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+}
+
+#[test]
+fn a_surface_probe_timeout_falls_back_only_while_the_caller_deadline_remains() {
+    use super::classify_surface_probe;
+
+    let live = Deadline::after(5_000).unwrap();
+    assert_eq!(
+        classify_surface_probe::<u8>(Err(AdapterError::timeout("probe slice")), live).unwrap(),
+        None
+    );
+
+    let expired = Deadline::after(0).unwrap();
+    let error = classify_surface_probe::<u8>(Err(AdapterError::timeout("caller done")), expired)
+        .expect_err("an expired caller deadline must propagate");
+    assert_eq!(error.code, ErrorCode::Timeout);
+
+    let stale = classify_surface_probe::<u8>(
+        Err(AdapterError::stale_ref_because("generation changed")),
+        live,
+    )
+    .expect_err("process generation failure must propagate");
+    assert_eq!(stale.code, ErrorCode::StaleRef);
+}
+
+#[test]
+fn a_command_chord_to_a_background_app_is_refused_before_sending() {
+    let headless = agent_desktop_core::InteractionPolicy::headless();
+    let chord = key("s", vec![Modifier::Meta]);
+    assert!(chord_needs_frontmost(&chord, headless));
+    let refusal = background_chord_refusal(&chord, false).expect("refused");
+    assert_eq!(refusal.code, ErrorCode::ActionFailed);
+    assert_eq!(refusal.disposition, DeliverySemantics::not_delivered());
+    assert_eq!(refusal.details.as_ref().unwrap()["check"], "process_focus");
+}
+
+#[test]
+fn the_same_chord_to_the_front_app_is_sent() {
+    assert!(background_chord_refusal(&key("s", vec![Modifier::Meta]), true).is_none());
+}
+
+#[test]
+fn plain_and_shift_keys_and_headed_delivery_do_not_need_the_front_app() {
+    let headless = agent_desktop_core::InteractionPolicy::headless();
+    assert!(!chord_needs_frontmost(&key("q", Vec::new()), headless));
+    assert!(!chord_needs_frontmost(
+        &key("left", vec![Modifier::Shift]),
+        headless
+    ));
+    assert!(!chord_needs_frontmost(
+        &key("s", vec![Modifier::Meta]),
+        agent_desktop_core::InteractionPolicy::headed()
+    ));
 }

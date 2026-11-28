@@ -1,246 +1,91 @@
 ---
 name: agent-desktop-linux
-tags: linux-automation, accessibility, at-spi, x11, wayland, ai-agent, gui-automation, cli
+tags: linux-automation, accessibility, at-spi, ai-agent, gui-automation, cli
 requirements:
   - agent-desktop
 description: >
-  Linux platform guide for the agent-desktop CLI. Lists per command group
-  what works on X11 and on Wayland, how to check the AT-SPI accessibility bus,
-  the first-contact gotchas (app names, Chromium and Electron flags, headed
-  focus, blocked key combos), and where to find lifecycle, screenshot,
-  clipboard, tray, notification and troubleshooting details.
-  Triggers on: "linux desktop automation", "AT-SPI tree", "automate GNOME app",
-  "agent-desktop on Linux", "accessibility bus not available", "empty
-  supported_surfaces", "wayland screenshot consent", or any Linux GUI
-  interaction task.
+  Linux setup and troubleshooting for agent-desktop: the AT-SPI bus, toolkit
+  identity, X11 versus Wayland, capture consent, and headless refusals.
 ---
 
-# agent-desktop-linux
+# agent-desktop on Linux
 
-This file covers only what differs on Linux. The observe-act loop, refs, JSON
-envelope, sessions and tracing are the same on every platform.
+Use the core skill's headless observe, act, verify workflow. A platform capability
+never authorizes `--headed`; only the user's explicit request does.
 
-Needs Ubuntu 24.04+ (x86_64 or aarch64), a graphical session of the signed-in
-user and a running AT-SPI bus. Other distributions need the at-spi2-core bridge
-fix dc0dc33; Ubuntu 22.04's bridge aborts on `Action.GetActions`. The archive
-loader floor is glibc 2.35. Run the CLI inside the target apps' desktop session:
-the session bus, display and runtime directory come from its environment. A TTY
-login, an SSH shell without session variables, a container without a bus or
-another user's session sees no apps. GNOME is the measured desktop; X11 and
-Wayland sessions both work and differ in input, capture and window control.
-Observation and semantic actions need no helper tool.
+## Setup and permissions
 
-## Capability Table
+Use an `at-spi2-core` bridge with fix `dc0dc33` before observing applications.
+Ubuntu 22.04's older bridge can abort the target on `Action.GetActions`; a reachable bus does not prove it is safe.
 
-| Group | Commands | Status on Linux |
-|-------|----------|-----------------|
-| Observation | `snapshot`, `find`, `get`, `is` | Works on X11 and Wayland through AT-SPI. Supports `window`, `sheet`, `alert` and `menu`; GNOME adds shell surfaces. Virtual tray getters have limits; see the shell reference and check `status` |
-| Surfaces | `list-surfaces` | Lists an app's windows, sheets and open menus; shell reads use `snapshot --surface` |
-| Ref interaction | `click`, `right-click`, `type`, `set-value`, `clear`, `select`, `toggle`, `check`, `uncheck`, `expand`, `collapse`, `scroll-to` | Need a readable live identity and the required AT-SPI capability. See the shell reference for menu-ref resolution limits; X11 headed fallback also needs usable geometry and does not bypass identity checks |
-| Wheel scrolling | `scroll`, `mouse-wheel` | Physical wheel input; X11 and `--headed` only |
-| Pointer gestures | `double-click`, `triple-click`, `hover`, `drag` | `--headed`, X11 only. On Wayland the pointer cannot be aimed and these refuse with `ACTION_NOT_SUPPORTED` |
-| Focus | `focus` | Needs `--headed` for the focus permission. Calls AT-SPI `Component.GrabFocus` on a focusable node that is not yet `focused`, not the pointer, and verifies the state; a GTK4 app rejects the call, so `focus` ends `ACTION_FAILED` `grab_focus_rejected` there and `focus-window` is the way to focus its window |
-| Keyboard and mouse | `press`, `mouse-click`, `mouse-move`, `mouse-wheel` | `press` and text keys work on X11 and capability-detected Mutter Wayland sessions; pointer commands are X11 and `--headed`. See `references/display-servers-and-input.md` |
-| Held input | `key-down`, `key-up`, `mouse-down`, `mouse-up` | Fail closed on every platform: on Linux, `key-down` and `key-up` with `ACTION_NOT_SUPPORTED`; `mouse-down` and `mouse-up` with `POLICY_DENIED` headless and `ACTION_NOT_SUPPORTED` with `--headed` |
-| App and window | `launch`, `close-app`, `list-windows`, `list-apps`, `focus-window`, `move-window`, `resize-window`, `minimize`, `maximize`, `restore` | Launch and listing work on X11 and Wayland; `focus-window` requires X11. Other window control and graceful close need an X11 client. See `references/windows-and-lifecycle.md` |
-| Displays | `list-displays` | Works |
-| Capture | `screenshot` | X11: a window without permission; a display only under a non-compositing manager. Wayland: portal consent, with display cropping. No selector returns the primary display. See `references/capture-and-clipboard.md` |
-| Clipboard | `clipboard-get`, `clipboard-set`, `clipboard-clear` | Works; text, images and file lists. Wayland needs `wl-clipboard` |
-| Wait | `wait` | Works for ms, `--element`, `--window`, `--text`, `--menu`, `--menu-closed`, `--event`. Menu waits share the menu-surface detector; `--notification` waits for a new notification on GNOME |
-| Notifications | `list-notifications`, `dismiss-notification`, `dismiss-all-notifications`, `notification-action` | GNOME Shell only; list headless, mutations `--headed` on X11, and `dismiss-notification` and `notification-action` also need `--expected-app` or `--expected-title`. Fields are read from the shell's widget layout, verified on GNOME Shell 46.0 only, and each mutation is proven by its effect. Wayland refuses the shell pointer before input. A notification owner that is not the shell or its own helper returns `PLATFORM_NOT_SUPPORTED`. See the shell reference |
-| Shell surfaces | `open-system-surface` | Only `system-tray` and `action-center` can work. `system-tray` needs a StatusNotifierWatcher (else it refuses with `watcher: absent`); `action-center` needs proven role ancestry. `quick-settings` refuses with `shell_container_unproven`, `taskbar` always refuses, and `start-menu` and `system-tray-overflow` are not supported, though `--help` lists them. See the shell reference |
-| Cursor overlay | `cursor-overlay` | Requires an active session; see Cursor overlay below. X11 enable returns `data.rendered: true`; Wayland saves the setting with `data.rendered: false` |
-| System | `status`, `permissions`, `version`, `batch`, `skills`, `session`, `trace` | Works |
+Run `agent-desktop status` as the target's user in the same desktop session.
+It probes the AT-SPI registry through the session's accessibility bus:
+`permissions.accessibility` is `granted` when the registry answers, even if
+`list-apps` is empty. `denied` with no `supported_surfaces` means the bus is
+unavailable, not an empty desktop. Follow the reported setup suggestion.
+`automation` is `not_required`. `screen_recording` is `not_required` when the
+X11 capture probe answers and `unknown` on Wayland or an unproven display.
 
-## First Contact
+There is no accessibility permission dialog. The target must share the bus,
+including through a sandbox. Restart an app that predates the bus only after
+preserving its work. Never restart another user's or a shared host's live bus;
+use a private session and runtime directory for isolated work.
 
-- **Run `agent-desktop status` first.** An empty `supported_surfaces` means the
-  accessibility bus did not answer, not an empty desktop. Read
-  `references/bus-and-permissions.md`; do not restart a bus you did not start.
-- **`--app` takes the name `list-apps` prints** (`gnome-calculator`,
-  `nautilus`) or a desktop-entry name or id backed by verified executable and
-  argument identity, never a window title or an arbitrary registry label. A
-  desktop-entry name such as `Files` is accepted once the entry exists.
-  `list-windows --app` is exact (aliases included); `list-apps --app` combines a
-  substring of the listed name with exact adapter aliases, ignoring case.
-- **Window ids are opaque addresses** of 34 to 70 characters, valid for the
-  life of the window's process; run `list-windows` again after a restart.
-  `list-apps` rows carry `bundle_id` (desktop id when known) and
-  `process_instance`.
-- **GTK4 apps nest deeply.** `--max-depth` and `--skeleton` count semantic
-  levels, so empty layout wrappers add output levels. `-i --compact` still
-  shows nested nameless `group` nodes: read past them.
-- **An empty file view does not prove an empty folder.** If an icon view
-  exposes no file items, try an available list or detailed view, then take a
-  fresh snapshot and verify which items the application exposes.
-- **A window appears before its content.** Run
-  `wait --window "Text Editor" --app gnome-text-editor` first, then
-  `wait --text`, which matches a node's own name, value or description. For a
-  web-engine app (detected from its AT-SPI toolkit metadata), a window
-  observation waits for three equal full reads and a web-document role, or a
-  requested depth cut. A shell with no document yet stays incomplete when the
-  budget ends. A `--timeout` shorter than the first read returns `TIMEOUT`,
-  never a partial tree.
-- **A ref must have been unique.** Linux stores no element address, so a ref
-  resolves only when it was the only element in the window its snapshot
-  captured with its role, native id, name and description, and exactly one live
-  element still matches. Uniqueness is counted over the whole window, not over
-  the shallow tree a `--skeleton` or `--max-depth` snapshot presents, so a twin
-  the shallow tree never showed still refuses the ref.
-  Position, size and value never count as identity, so a layout change does not
-  by itself stale a ref, but a twin does: identical buttons, or views that share
-  a role and carry no other field, refuse with `AMBIGUOUS_TARGET`,
-  `details.kind: identity_not_unique`, before anything reaches the app, and an
-  element that is gone is `STALE_REF`, `saved_ref_absent`. Take a
-  fresh snapshot after a list changes. To pick one of two identical controls on
-  X11, use `--headed mouse-click --xy`; a Wayland session refuses headed pointer
-  input, so there the twin has neither a ref nor a pointer path. A ref belongs
-  to the window it was taken in, so two windows with the same title each
-  resolve their own refs.
-- **Chromium and Qt apps need a launch flag or variable** to appear on the bus;
-  Electron apps need none, only `--no-sandbox` where `chrome-sandbox` is not
-  setuid. See `references/troubleshooting.md`.
-- **Headed ref actions need a window that can take focus.** A window the
-  window manager never activated ends `activation_not_granted`. See
-  `references/windows-and-lifecycle.md`.
-- **A GTK4 secret field can show its text.** Only a password role is withheld.
-  Treat a GTK4 entry with hidden characters as readable by every observation
-  command.
-- **Blocked key combos refuse without `--force`.** See
-  `references/display-servers-and-input.md`.
-- **After opening a menu-role popup, inspect `data.surfaces`.** A `menu` entry
-  leads to `snapshot --surface menu --app <name> -i`. If absent, use
-  `wait --menu` and `list-surfaces` before assuming the opener failed. A
-  list-backed dropdown is part of the window, not a menu surface; see the shell
-  reference.
-- **Shell pointer input requires receiver proof.** On X11 a headed shell click
-  is proven from the shell's own tree: the receiver must be the target and stand
-  still, or the click refuses before any pointer event. Wayland shell clicks
-  refuse. Notifications need the GNOME notification service; tray snapshots also
-  need a StatusNotifierWatcher.
-- **The state root must be private.** A group-writable or world-accessible
-  `AGENT_DESKTOP_HOME` or `~/.agent-desktop` makes `snapshot` fail with
-  `INTERNAL`; run `chmod 700` on it or let the tool create it.
+## Platform behavior
 
-## Wait for a window
-
-Wait for an app window to appear (`--window` requires a title or title substring):
-
-```bash
-agent-desktop wait --window "Text Editor" --app gnome-text-editor --timeout 10000
-```
-
-To wait for a close that you cause, batch it so the baseline is taken before the
-close (Calculator has no unsaved-document prompt to interrupt it):
-
-```bash
-agent-desktop batch '[{"command":"close-app","args":{"app":"gnome-calculator"}},{"command":"wait","args":{"event":"window-closed","app":"gnome-calculator","timeout":10000}}]' --stop-on-error
-```
-
-To watch someone else close a window, start
-`agent-desktop wait --event window-closed --app gnome-text-editor --timeout 10000`
-before they close the window. There is no `--window-closed` flag.
-
-## Cursor overlay
-
-Start a session and pass its returned ID to every overlay command:
-
-```bash
-session_id=$(agent-desktop session start --name docs-example | jq -r '.data.session_id')
-agent-desktop cursor-overlay enable --session "$session_id"
-agent-desktop cursor-overlay disable --session "$session_id"
-agent-desktop session end "$session_id"
-```
-
-Without a session, `cursor-overlay enable` and `disable` return `INVALID_ARGS`.
-On X11, enable returns `data.rendered: true`; on Wayland it saves the setting
-and returns `data.rendered: false` without drawing an overlay.
-
-`session start --cursor --multi-agent` returns `data.rendered: false`, because
-nothing is drawn until an agent acts. On X11 each agent id then gets its own
-cursor; on Wayland none is drawn.
-
-## What differs on Linux
-
+- Semantic AT-SPI observation and actions work on X11 and Wayland. A reachable
+  accessibility bus does not establish pointer, window-control, capture, shell,
+  notification, or tray capability.
+- GTK refs can retain native element addresses and ancestry.
+  Chromium, Qt, and unknown-toolkit refs must be unique in the window or inside
+  their nearest unique ancestor. Take fresh refs after list changes; a narrower
+  drill does not disambiguate identical twins.
+- A table reports `row_count` and `column_count`, and a large sheet is read by its cells
+  in view. While a window shows a sheet read this way, a ref that carries no native element
+  address is refused: a twin could sit among the cells that were not read. A cell's text is
+  its `value`. Where a spreadsheet names a cell by its
+  address, get it with `find --role cell --name B7 --root '<table ref>'`. `set-value` on an editable
+  cell takes a number; text has no background route and is refused. `click` and `select`
+  on a table cell select it where the table supports that; a GTK3 tree view does not.
+- GTK4 list-backed dropdowns stay in the window tree. Use `wait --text` and
+  `snapshot --root` to read their contents, not a menu-surface wait.
+  Menu-role popups use the menu surface instead.
+- Popup and dialog openers can take the foreground and refuse headless.
+  Qt combo selection may need pointer input to commit rather than highlight a row.
+  Stop on a headed-only refusal instead of changing mode. Headless `restore` of a minimized window and headless `minimize` of the focused window refuse with `POLICY_DENIED`; the system raises or moves focus.
+- A headless graceful `close-app` of a native Wayland client returns `ACTION_NOT_SUPPORTED` (`details.cause: wayland_session`). `--force` discards unsaved work.
+  When it cannot read the focused window it fails with `POLICY_DENIED` (`details.kind: focus_unreadable`) before any close request is sent.
+- `press --app` works headless only when the target's window is active. Otherwise it sends nothing and returns `ACTION_FAILED`
+  (`details.check: window_active`), or `STALE_REF` when the window has no process identity.
+- A GTK4 list or grid view has no row nodes, so `select` and `click` cannot pick a row.
+- A window can precede its content. Wait for the application's observable result; an accepted AT-SPI call or a changed
+  selected value does not prove that handlers ran. Wait for each effect before another click.
+- Wayland refuses headed pointer input; window operations can use a mapped
+  Xwayland client, but native Wayland windows lack that route.
+- Authorized physical `type` sends a newline as `Return` on X11 too and refuses a tab and other control characters.
+  On Wayland it sends a newline as `Return` and a tab as `Tab`, which can submit a form or move focus instead of inserting literal text.
+- Wayland per-window screenshots are unsupported; display capture uses a portal that can ask for consent.
+  Ask the user before a visible consent flow, and do not retry a pending request in a loop.
+- X11 capture depends on compositing: a covered noncomposited window may have no readable pixels, and a
+  composited desktop may not support whole-screen capture. Neither failure authorizes focusing the target.
+- Shell notifications need the supported GNOME service; tray reads need a StatusNotifierWatcher. A missing service is an error.
+- Password-role values are withheld, but a field that only masks its text can be readable. Treat observation output as sensitive.
+- `launch` accepts a program on PATH, an absolute path, an installed desktop id, or an unambiguous desktop entry name. A script launch attaches only to the interpreter process that runs that script, never to another script of the same interpreter. `--no-attach` refuses any running process of the same program (the same executable, or the interpreter running the same script) whatever its arguments. Use process and window identity from observations rather than guessing from a window title. Without `--activate`, a launch on X11 gives the focus and window order back and reports `focus_returned: true`, or `false` with a suggestion; a headless click that opens a dialog is guarded the same way.
+- `press escape --app <app> --window-id <id>` on a background window with a showing native popup closes it only via a dismissal action (or GTK3 combo box `Press`) and reports `delivered_verified` once gone. Web content and buttons without a dismissal action keep the focus refusal; it never collapses a tree row.
 - Sandboxes are not available on Linux yet. To run agent-desktop in a container you manage yourself, see `agent-browser.dev/desktop/guides/docker-container`.
 
-- Firefox/Gecko `select` can change the selected value without firing `change`
-  or `input` events, so dependent page handlers do not run. The result stays
-  `delivered_unverified` even when value readback matches. Check the dependent
-  application effect before continuing: value readback alone is no commit proof.
-- Two `click` calls on one GTK4 button less than about 250 ms apart act once.
-  Both answer `ok: true` with `delivered_unverified`. To click one button
-  several times, wait for the effect between the clicks: use
-  `wait --element <ref> --predicate value --value <expected>` on the element
-  that shows the result, or `wait 300`.
-- Ref actions are semantic AT-SPI calls that never move the pointer or change
-  the active window. Under `--headed`, ref `click`, `right-click` and `type` try
-  physical input first and fall back to the semantic action only after a
-  `not_delivered` refusal (Windows works the other way round). On Wayland, headed
-  pointer commands and a headed `select` refuse at once with
-  `ACTION_NOT_SUPPORTED`, cause `wayland_session`; a headed `type` needs the
-  Mutter RemoteDesktop capability. `references/display-servers-and-input.md`
-  has the full rules.
-- `select` tries the semantic route first and the pointer second; the pointer
-  route needs an explicit `--headed` request on X11. A Qt combo's semantic
-  selection only highlights its popup row, so headless selection refuses with
-  `POLICY_DENIED`, kind `pointer_required`, before changing that highlight.
-  Headed, on a list whose toolkit index cannot be mapped to the
-  row (a GTK4 list) it clicks the row and checks its `selected` state; on a
-  combo with no semantic opener (a libadwaita combo row) it clicks the combo
-  open, selects the choice through the popup's own list and checks the value the
-  combo shows. Headless, a list refuses with `selection_index_unproven`, and a
-  combo with no semantic opener with `POLICY_DENIED`, kind `pointer_required`,
-  unless the combo already shows the choice. A GTK4 drop-down that opens through
-  its own toggle takes `select` without `--headed` and checks the value it
-  shows.
-- A ref can expose no safe semantic mutation route. Headless requests then
-  return an unsupported-action error without inventing `hidden` or `disabled`
-  state and without switching to physical input. GTK4 entry and password
-  `Activate` actions are one such case: use `type` to edit the field, or request
-  `--headed` explicitly when a pointer click is intended.
-- Opening a native Wayland Qt combo returns `ACTION_NOT_SUPPORTED`, kind
-  `native_popup_requires_input`, before invoking its action. Qt needs a user
-  input serial to show that popup. An already open combo may be collapsed;
-  Qt windows proven to use Xwayland retain their semantic opener.
-- Headless `type` writes through `EditableText`. A terminal's text node is a
-  `textfield` named `Terminal` whose only action is `RightClick`; headless
-  `type` on it is `POLICY_DENIED` with check `supported_action`, and its value is
-  null. It receives keys only under `--headed`.
-- In key combos `cmd` and `meta` are the Super key. Key names are the macOS and
-  Windows names plus X keysym names. `press` takes mapped keys only; `type`
-  handles characters the layout cannot produce.
-- Window ops act on X11 clients; `focus-window` and headed scoped `press` require
-  an X11 session. Headless scoped `press` requires live target focus on either
-  display server. Focusing a window on another workspace can switch the user's
-  current desktop.
-- The exact FFI ref calls (`ad_resolve_element_exact` and
-  `ad_execute_ref_action_exact_with_policy`) fail with `ACTION_NOT_SUPPORTED` on every
-  platform; their bounds rule applies first: bounds must be window-relative.
-- A ref re-identifies a unique element, not a widget instance. A toolkit that
-  destroys and recreates its rows (GTK4, Qt6) resolves a ref with a unique name
-  onto the replacement, so the action lands on the new element. Identical
-  controls are refused as `AMBIGUOUS_TARGET` instead.
-- A toolkit that keeps a removed widget listed (GTK4 unparented, Qt6
-  `setParent(None)`) lets a ref resolve onto a control the user can no longer
-  see. GTK4 then answers `ok` with `delivered_unverified` and no effect. No
-  identity rule reaches this; check the application's own effect.
+## Troubleshooting
 
-## References
+Read the disposition before applying a fix. Match both the code and message.
 
-- `references/bus-and-permissions.md`: bus bootstrap, the three bus states,
-  `status` and `permissions` output, state-root rules.
-- `references/display-servers-and-input.md`: X11 versus Wayland table,
-  `press`, `type`, pointer, wheel, drag, blocked combos, key names.
-- `references/windows-and-lifecycle.md`: `launch`, `close-app`, window ops,
-  focus, workspaces, stopped apps, background `press`.
-- `references/capture-and-clipboard.md`: `screenshot` on X11 and Wayland,
-  the Wayland consent dialog, clipboard owner and helper.
-- `references/shell-tray-and-notifications.md`: menus and GTK4 popovers, GNOME
-  Overview/top bar, shell reads and input, notification identity guards, SNI
-  and AppIndicator requirements and refusals, sandbox guidance.
-- `references/troubleshooting.md`: symptom-to-cause map, Chromium, Electron
-  and Qt flags, toolkit limits, error codes with `platform_detail`.
-
-Read any file from the binary:
-`agent-desktop skills get agent-desktop-linux references/troubleshooting.md`.
+| Code and message pattern | Cause and fix |
+| --- | --- |
+| `PLATFORM_NOT_SUPPORTED`: session bus or accessibility bus unavailable | Run in the target's desktop session. Install `at-spi2-core` if missing and share the accessibility bus with sandboxed targets; do not restart a shared live bus. |
+| `APP_NOT_FOUND`: running but not on the accessibility bus | The process has not registered or its toolkit is inaccessible. Preserve work before restarting; Chromium may need `--force-renderer-accessibility`, and Qt needs `QT_ACCESSIBILITY=1` at launch. |
+| `STALE_REF`: `Stored ref does not match any live element` (`resolve_no_candidate`) | The adapter could not land the ref. Take a fresh snapshot in the same session; do not infer delivery from the missing target. |
+| `POLICY_DENIED`: foreground, popup, dialog, or pointer required | The operation cannot run headless. Stop and tell the user which operation needs headed mode; do not add `--headed`. |
+| `ACTION_NOT_SUPPORTED`: Wayland pointer input, window operation, or native popup requires input | The display server or toolkit cannot provide the route. Use an exposed semantic operation when available, or report the capability limit. |
+| `PERM_DENIED` or `TIMEOUT`: screenshot portal consent | The portal denied capture or is waiting for the user. Ask the user to handle consent; do not loop or attempt to automate the inaccessible prompt. |
+| `PLATFORM_NOT_SUPPORTED`: missing clipboard owner helper or `wl-clipboard` | X11 needs the shipped owner helper beside the binary; Wayland needs `wl-copy` and `wl-paste`. Repair the installation instead of treating the clipboard as empty. |
+| `PERM_DENIED`: `private file parent is accessible by group or other users` | The state root is not private. Run `chmod 700 "${AGENT_DESKTOP_HOME:-$HOME/.agent-desktop}"`, or use a new state root and let the tool create it. |
+| `PERM_DENIED`: `private file parent is not owned by the effective user` | The directory belongs to another user. Point `AGENT_DESKTOP_HOME` at a new directory under your home and let the tool create it; do not take over someone else's state. |

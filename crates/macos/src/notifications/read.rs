@@ -89,7 +89,7 @@ pub(super) fn bounds(
     element: &AXElement,
     deadline: Deadline,
 ) -> Result<Option<Rect>, AdapterError> {
-    let read_deadline = crate::tree::locator_deadline::from_operation(deadline)?;
+    let read_deadline = deadline;
     crate::tree::element_bounds::read_bounds_with_deadline(element, read_deadline)
 }
 

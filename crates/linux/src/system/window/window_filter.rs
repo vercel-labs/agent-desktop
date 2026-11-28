@@ -229,9 +229,5 @@ mod display_tests;
 mod helper_tests;
 
 #[cfg(test)]
-#[path = "window_filter_live_tests.rs"]
-mod live_tests;
-
-#[cfg(test)]
 #[path = "window_filter_deadline_tests.rs"]
 mod deadline_tests;

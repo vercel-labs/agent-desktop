@@ -1,17 +1,19 @@
 #[cfg(any(target_os = "macos", test))]
-use crate::actions::chain::chain_delivery::DeliveryOutcome;
-#[cfg(any(target_os = "macos", test))]
-use agent_desktop_core::AdapterError;
+use agent_desktop_core::{AdapterError, DeliveryOutcome};
 
 #[cfg(any(target_os = "macos", test))]
 fn activate_candidates<T>(
     children: &[T],
+    mut disturbs: impl FnMut(&T) -> bool,
     mut perform: impl FnMut(&T, &str) -> Result<DeliveryOutcome, AdapterError>,
 ) -> Result<DeliveryOutcome, AdapterError> {
     for child in children {
+        if disturbs(child) {
+            continue;
+        }
         for action in crate::tree::properties::action_list::PRIMARY_ACTIVATION_ACTIONS {
             let outcome = perform(child, action)?;
-            if outcome.terminates_chain() {
+            if outcome != DeliveryOutcome::NotDelivered {
                 return Ok(outcome);
             }
         }
@@ -21,9 +23,8 @@ fn activate_candidates<T>(
 
 #[cfg(target_os = "macos")]
 mod imp {
-    use agent_desktop_core::{AdapterError, Deadline};
+    use agent_desktop_core::{AdapterError, Deadline, DeliveryOutcome};
 
-    use crate::actions::chain::chain_delivery::DeliveryOutcome;
     use crate::tree::AXElement;
 
     const MAX_CANDIDATES: usize = 4;
@@ -43,7 +44,7 @@ mod imp {
         element: &AXElement,
         deadline: Deadline,
     ) -> Result<DeliveryOutcome, AdapterError> {
-        let instant = crate::tree::locator_deadline::from_operation(deadline)?;
+        let instant = deadline;
         if crate::actions::select::container_select::element_activates_by_selection(
             element, deadline,
         ) && crate::tree::properties::selection_owner::selects_only_through_container(
@@ -61,24 +62,13 @@ mod imp {
         .flatten()
         .unwrap_or_default();
 
-        super::activate_candidates(&children, |child, action| {
-            crate::actions::ax_helpers::perform_observed_action(child, action, deadline)
-        })
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use agent_desktop_core::{AdapterError, Deadline};
-
-    use crate::actions::chain::chain_delivery::DeliveryOutcome;
-    use crate::tree::AXElement;
-
-    pub(crate) fn activate_descendant(
-        _element: &AXElement,
-        _deadline: Deadline,
-    ) -> Result<DeliveryOutcome, AdapterError> {
-        Ok(DeliveryOutcome::NotDelivered)
+        super::activate_candidates(
+            &children,
+            |child| crate::actions::background_effect::press_disturbs(child, deadline),
+            |child, action| {
+                crate::actions::ax_helpers::perform_observed_action(child, action, deadline)
+            },
+        )
     }
 }
 
@@ -87,36 +77,70 @@ pub(crate) use imp::activate_descendant;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agent_desktop_core::DeliveryObservation;
 
     #[test]
     fn unverified_descendant_delivery_stops_before_another_action_or_sibling() {
         let mut attempts = Vec::new();
-        let outcome = activate_candidates(&[1, 2], |child, action| {
-            attempts.push((*child, action.to_owned()));
-            Ok(if attempts.len() == 1 {
-                DeliveryOutcome::NotDelivered
-            } else {
-                DeliveryOutcome::DeliveredUnverified
-            })
-        })
+        let outcome = activate_candidates(
+            &[1, 2],
+            |_| false,
+            |child, action| {
+                attempts.push((*child, action.to_owned()));
+                Ok(if attempts.len() == 1 {
+                    DeliveryOutcome::NotDelivered
+                } else {
+                    DeliveryOutcome::Delivered(DeliveryObservation::Unverified)
+                })
+            },
+        )
         .unwrap();
-        assert_eq!(outcome, DeliveryOutcome::DeliveredUnverified);
+        assert_eq!(
+            outcome,
+            DeliveryOutcome::Delivered(DeliveryObservation::Unverified)
+        );
         assert_eq!(attempts, [(1, "AXPress".into()), (1, "AXOpen".into())]);
+    }
+
+    #[test]
+    fn a_child_whose_press_would_show_a_menu_or_open_a_dialog_is_never_pressed() {
+        let mut pressed = Vec::new();
+        let outcome = activate_candidates(
+            &[1, 2],
+            |child| *child == 1,
+            |child, _| {
+                pressed.push(*child);
+                Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified))
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            outcome,
+            DeliveryOutcome::Delivered(DeliveryObservation::Verified)
+        );
+        assert_eq!(pressed, [2]);
     }
 
     #[test]
     fn unsupported_descendant_actions_can_reach_a_verified_sibling() {
         let mut attempts = 0;
-        let outcome = activate_candidates(&[1, 2, 3], |child, _| {
-            attempts += 1;
-            Ok(if *child == 2 {
-                DeliveryOutcome::DeliveredVerified
-            } else {
-                DeliveryOutcome::NotDelivered
-            })
-        })
+        let outcome = activate_candidates(
+            &[1, 2, 3],
+            |_| false,
+            |child, _| {
+                attempts += 1;
+                Ok(if *child == 2 {
+                    DeliveryOutcome::Delivered(DeliveryObservation::Verified)
+                } else {
+                    DeliveryOutcome::NotDelivered
+                })
+            },
+        )
         .unwrap();
-        assert_eq!(outcome, DeliveryOutcome::DeliveredVerified);
+        assert_eq!(
+            outcome,
+            DeliveryOutcome::Delivered(DeliveryObservation::Verified)
+        );
         assert_eq!(attempts, 4);
     }
 }

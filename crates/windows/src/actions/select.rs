@@ -1,309 +1,305 @@
-//! SelectionItemPattern select with bounded descendant search (A19-7).
+//! Select.
 //!
-//! Self-match uses SelectionItem on the target; otherwise a walker DFS
-//! finds a named SelectionItem. Collapsed ExpandCollapse containers expand
-//! first and best-effort collapse after failure. Descendant search always
-//! scroll-to-realizes (A18-1), re-searching after every scroll step and
-//! retaining the first match so an intermediate or below-fold duplicate still
-//! surfaces as AMBIGUOUS_TARGET. Container Value verification routes through
-//! the IsPassword-gated value helpers.
+//! A native combo box that stores item names selects by name through its own
+//! window messages (`select_combo`), and a name its search misses is not
+//! found; an owner-drawn one falls through to the route below. A tab item of a native tab
+//! control selects through `TCM_SETCURFOCUS` (`select_tab`), because the
+//! accessibility select route changes the index without the notification
+//! that swaps the page. Any other target selects a named item, itself or one of
+//! its realized descendants: LegacyIAccessible `Select(SELFLAG_TAKESELECTION)`
+//! has no foreground effect on SysTreeView32, WinForms, WPF and DirectUI items
+//! (C8), SelectionItemPattern takes none either (A31-5), and the item's
+//! IsSelected verifies either one. A target that is itself the named item selects
+//! itself before anything else, so a collapsed tree item never expands. A collapsed container that is not a native combo box
+//! (a WPF or Ribbon combo) shows its items only after it expands, and every
+//! route there puts the popup over the user's window (C5, C6): the expand runs
+//! through the core chain, so a policy that does not allow focus steal is
+//! refused there, and a policy that does expands it first and collapses it
+//! again on failure; the error reports the collapse as the state read proved
+//! it, and an unproven collapse marks the delivered expand unsafe to retry.
 
-use agent_desktop_core::{ActionStep, AdapterError, Deadline, ErrorCode};
-use std::cell::{Cell, RefCell};
-use std::time::{Duration, Instant};
+use agent_desktop_core::{
+    ActionStep, AdapterError, Deadline, DeliveryOutcome, ErrorCode, InteractionPolicy,
+};
+use std::time::Duration;
 
-use crate::actions::chain::{DeliveryOutcome, build_step};
+use crate::actions::chain::{after_delivery, offered, poll_until, rung};
+use crate::actions::disclosure::{EXPAND_LABEL, ExpandKind};
 use crate::tree::element::UIAElement;
 
-pub(crate) const SELECT_LABEL: &str = "SelectionItemPattern.Select";
+pub(crate) const SELECT_LABEL: &str = crate::actions::chain::SELECTION_ITEM_LABEL;
 
 const VERIFY_TIMEOUT: Duration = Duration::from_millis(600);
-const POLL_SLICE: Duration = Duration::from_millis(25);
 
-/// Pure verification precedence: container Value outranks `is_selected` when
-/// the gate produced a comparison; withheld / absent Value falls back.
-pub(crate) fn resolve_select_verification(
-    container_value: Option<Option<bool>>,
-    is_selected: Option<bool>,
+const SELECT_SUGGESTION: &str = "Use find or snapshot to inspect the available selection items.";
+
+fn run_expand(
+    expand: &mut dyn FnMut() -> Result<DeliveryOutcome, AdapterError>,
+    policy: InteractionPolicy,
+    deadline: Deadline,
+) -> Result<(), AdapterError> {
+    agent_desktop_core::execute_chain(
+        &mut offered([rung(EXPAND_LABEL, true, true, expand)]),
+        policy,
+        deadline,
+        SELECT_SUGGESTION,
+    )
+    .map(|_| ())
+}
+
+/// Applies what the container's collapse read proved to the select error.
+/// `container_collapsed` is `true` only when the read reported `Collapsed`,
+/// `false` when it reported any other state, and `null` when no read
+/// answered. Unless the read proved the container collapsed again, the
+/// expand that already ran is a delivered mutation, so the error carries
+/// `delivered_unverified` and an unsafe retry whatever the select itself
+/// reported.
+fn annotate_container(error: AdapterError, collapsed: Option<bool>) -> AdapterError {
+    let error = match collapsed {
+        Some(true) => error,
+        _ => after_delivery(error),
+    };
+    error.with_details(serde_json::json!({
+        "container_expanded": true,
+        "container_collapsed": collapsed,
+    }))
+}
+
+/// Runs the best-effort `collapse` write, then polls `read` — the
+/// container's `ExpandCollapseState` — until it reports `Collapsed` or the
+/// verify budget capped by `deadline` ends. The write's acknowledgement is
+/// not the report: only the read decides, so an acked collapse that left the
+/// container open reports `Some(false)`, and a read that never answers
+/// reports `None`.
+fn collapse_container(
+    collapse: &mut dyn FnMut() -> bool,
+    read: &mut dyn FnMut() -> Option<ExpandKind>,
+    deadline: Deadline,
 ) -> Option<bool> {
-    match container_value {
-        Some(Some(matched)) => Some(matched),
-        Some(None) | None => is_selected,
-    }
-}
-
-/// Injected select plan flags — unit-test seam and live path.
-pub(crate) struct SelectPlan {
-    pub(crate) self_match: bool,
-    pub(crate) needs_expand: bool,
-    pub(crate) value_chars: usize,
-}
-
-/// Test-only call-order recorder shared by `select_tests.rs` and
-/// `select_flow_tests.rs`: appends `label` to the `Cell`-held order vec
-/// without each call site repeating the take/push/set dance.
-#[cfg(test)]
-pub(crate) fn push_order(order: &Cell<Vec<&'static str>>, label: &'static str) {
-    let mut recorded = order.take();
-    recorded.push(label);
-    order.set(recorded);
-}
-
-/// Injected select operations — unit-test seam and live path.
-pub(crate) struct SelectOps<'a> {
-    pub(crate) expand: &'a mut dyn FnMut() -> Result<(), AdapterError>,
-    pub(crate) collapse: &'a mut dyn FnMut(),
-    pub(crate) find: &'a mut dyn FnMut() -> Result<bool, AdapterError>,
-    pub(crate) realize: &'a mut dyn FnMut() -> Result<(), AdapterError>,
-    pub(crate) select_item: &'a mut dyn FnMut() -> Result<DeliveryOutcome, AdapterError>,
+    let _ = collapse();
+    let mut last = None;
+    let _ = poll_until(deadline, VERIFY_TIMEOUT, || {
+        last = read();
+        matches!(last, Some(ExpandKind::Collapsed))
+    });
+    last.map(|state| state == ExpandKind::Collapsed)
 }
 
 #[cfg(target_os = "windows")]
 mod imp {
     use super::{
-        ActionStep, AdapterError, Cell, Deadline, DeliveryOutcome, ErrorCode, Instant, POLL_SLICE,
-        RefCell, SELECT_LABEL, SelectOps, SelectPlan, UIAElement, VERIFY_TIMEOUT, build_step,
-        resolve_select_verification,
+        ActionStep, AdapterError, Deadline, DeliveryOutcome, EXPAND_LABEL, ErrorCode,
+        InteractionPolicy, SELECT_LABEL, SELECT_SUGGESTION, UIAElement, VERIFY_TIMEOUT,
+        annotate_container, collapse_container, offered, run_expand, rung,
     };
-    use crate::actions::chain::{after_delivery, capped_verification_end};
-    use crate::actions::disclosure::{EXPAND_LABEL, ExpandKind};
+    use crate::actions::chain::{after_delivery, legacy_select, poll_until, selection_item_select};
+    use crate::actions::click::SELECT_ITEM_LABEL;
+    use crate::actions::disclosure::ExpandKind;
     use crate::actions::mutation::{classify_success, classify_write};
+    use crate::actions::scroll::vertical_scroll;
+    use crate::actions::select_combo::{COMBO_SELECT_LABEL, native_combo, select_native_combo};
+    use crate::actions::select_container::{Realization, realize_named_item};
+    use crate::actions::select_locate::{ItemSource, Located, RealizeScrollStep, locate};
     use crate::actions::select_search::{
-        find_named_selection_item, name_matches, scroll_to_realize, selection_item_available,
+        find_named_selection_item, name_matches, realize_scroll_step, scroll_to_position,
+        selection_item_available,
     };
-    use crate::actions::value_write::gated_pattern_value_equals;
+    use crate::actions::select_tab::{TAB_SELECT_LABEL, select_native_tab};
     use crate::tree::properties::property_ids::TreeProperty;
     use crate::tree::properties::read_one;
     use agent_desktop_core::DeliverySemantics;
-    use uiautomation::patterns::{UIExpandCollapsePattern, UISelectionItemPattern};
+    use uiautomation::patterns::{UIExpandCollapsePattern, UIScrollPattern};
 
     pub(crate) fn select_steps(
         element: &UIAElement,
         value: &str,
+        policy: InteractionPolicy,
         deadline: Deadline,
     ) -> Result<Vec<ActionStep>, AdapterError> {
-        let self_match = selection_item_available(element) && name_matches(element, value);
-        let needs_expand = is_collapsed_container(element);
-        let expanded = Cell::new(false);
-        let mut expand = || {
-            deadline.ensure_remaining()?;
-            expand_container(element)?;
-            expanded.set(true);
-            Ok(())
-        };
-        let mut collapse = || {
-            if expanded.get() {
-                let _ = collapse_container(element);
+        deadline.ensure_remaining()?;
+        if let Some(combo) = native_combo(element) {
+            if let Some(outcome) = select_native_combo(combo, value, deadline)? {
+                return Ok(vec![outcome.step(COMBO_SELECT_LABEL)]);
             }
-        };
-        let found_holder = RefCell::new(self_match.then(|| element.clone()));
-        let mut find = || {
-            let prior = found_holder.borrow().clone();
-            match find_named_selection_item(element, value, deadline, prior.as_ref())? {
-                Some(found) => {
-                    *found_holder.borrow_mut() = Some(found);
-                    Ok(true)
-                }
+        }
+        if name_matches(element, value)
+            && let Some(outcome) = select_native_tab(element, deadline)?
+        {
+            return Ok(vec![outcome.step(TAB_SELECT_LABEL)]);
+        }
+        if selection_item_available(element) && name_matches(element, value) {
+            return select_item(element, policy, deadline);
+        }
+        let collapsed = is_collapsed_container(element);
+        if collapsed {
+            let mut expand = || expand_container(element);
+            run_expand(&mut expand, policy, deadline)?;
+        }
+        let selected = find_item(element, value, deadline).and_then(|(item, realized)| {
+            select_item(&item, policy, deadline).map_err(|error| match realized {
+                true => after_delivery(error),
+                false => error,
+            })
+        });
+        match selected {
+            Err(error) if collapsed => {
+                let mut collapse = || collapse_pattern(element);
+                let mut read = || read_expand_state(element);
+                Err(annotate_container(
+                    error,
+                    collapse_container(&mut collapse, &mut read, deadline),
+                ))
+            }
+            other => other,
+        }
+    }
+
+    /// The selection items of one container, read through UI Automation.
+    struct ContainerItems<'a> {
+        element: &'a UIAElement,
+        value: &'a str,
+        deadline: Deadline,
+        scroll: Option<UIScrollPattern>,
+    }
+
+    impl<'a> ContainerItems<'a> {
+        fn new(element: &'a UIAElement, value: &'a str, deadline: Deadline) -> Self {
+            Self {
+                element,
+                value,
+                deadline,
+                scroll: vertical_scroll(element),
+            }
+        }
+    }
+
+    impl ItemSource for ContainerItems<'_> {
+        type Item = UIAElement;
+
+        fn scan(&mut self, prior: Option<&UIAElement>) -> Result<Option<UIAElement>, AdapterError> {
+            find_named_selection_item(self.element, self.value, self.deadline, prior)
+        }
+
+        fn position(&self) -> Option<f64> {
+            self.scroll
+                .as_ref()
+                .and_then(|pattern| pattern.get_vertical_scroll_percent().ok())
+        }
+
+        fn scroll_step(&mut self) -> Result<RealizeScrollStep, AdapterError> {
+            match &self.scroll {
+                Some(pattern) => realize_scroll_step(pattern, self.deadline),
+                None => Ok(RealizeScrollStep::Stop),
+            }
+        }
+
+        fn scroll_to(&mut self, position: f64) -> Result<bool, AdapterError> {
+            match &self.scroll {
+                Some(pattern) => scroll_to_position(pattern, position, self.deadline),
                 None => Ok(false),
             }
+        }
+
+        fn realize(&mut self) -> Result<Option<(UIAElement, Realization)>, AdapterError> {
+            realize_named_item(self.element, self.value, self.deadline)
+        }
+    }
+
+    /// Locates the named selection item inside `element`, scrolling to
+    /// realize it when the container hides items.
+    fn find_item(
+        element: &UIAElement,
+        value: &str,
+        deadline: Deadline,
+    ) -> Result<(UIAElement, bool), AdapterError> {
+        let mut items = ContainerItems::new(element, value, deadline);
+        match locate(&mut items)? {
+            Located::Found { item, realized } => Ok((item, realized)),
+            Located::Absent => Err(AdapterError::new(
+                ErrorCode::ElementNotFound,
+                format!(
+                    "No selection item matched the requested value ({} chars)",
+                    value.chars().count()
+                ),
+            )
+            .with_disposition(DeliverySemantics::not_delivered())
+            .with_suggestion(SELECT_SUGGESTION)),
+        }
+    }
+
+    fn select_item(
+        item: &UIAElement,
+        policy: InteractionPolicy,
+        deadline: Deadline,
+    ) -> Result<Vec<ActionStep>, AdapterError> {
+        let observe = |delivered: bool| -> Result<DeliveryOutcome, AdapterError> {
+            if !delivered {
+                return Ok(DeliveryOutcome::NotDelivered);
+            }
+            let selected = poll_until(deadline, VERIFY_TIMEOUT, || {
+                read_one(item, TreeProperty::SelectionItemIsSelected).flag() == Some(true)
+            });
+            Ok(DeliveryOutcome::from_delivery(true, selected))
         };
-        let mut realize = || {
-            deadline.ensure_remaining()?;
-            scroll_to_realize(element, deadline, || {
-                let prior = found_holder.borrow().clone();
-                if let Some(found) =
-                    find_named_selection_item(element, value, deadline, prior.as_ref())?
-                {
-                    *found_holder.borrow_mut() = Some(found);
-                }
-                Ok(())
-            })
-        };
-        let mut select_item = || {
-            let borrowed = found_holder.borrow();
-            let target = borrowed
-                .as_ref()
-                .ok_or_else(|| not_found_chars(value.chars().count()))?;
-            delivered_select(element, target, value, deadline)
-        };
-        select_judged_for(
+        let mut legacy = || observe(legacy_select(item)?);
+        let mut pattern = || observe(selection_item_select(item)?);
+        agent_desktop_core::execute_chain(
+            &mut offered([
+                rung(
+                    SELECT_LABEL,
+                    selection_item_available(item),
+                    false,
+                    &mut pattern,
+                ),
+                rung(SELECT_ITEM_LABEL, true, false, &mut legacy),
+            ]),
+            policy,
             deadline,
-            SelectPlan {
-                self_match,
-                needs_expand,
-                value_chars: value.chars().count(),
-            },
-            SelectOps {
-                expand: &mut expand,
-                collapse: &mut collapse,
-                find: &mut find,
-                realize: &mut realize,
-                select_item: &mut select_item,
-            },
+            SELECT_SUGGESTION,
         )
     }
 
-    pub(crate) fn select_judged_for(
-        deadline: Deadline,
-        plan: SelectPlan,
-        ops: SelectOps<'_>,
-    ) -> Result<Vec<ActionStep>, AdapterError> {
-        deadline.ensure_remaining()?;
-        if plan.self_match {
-            return match (ops.select_item)() {
-                Ok(outcome) => Ok(vec![build_step(SELECT_LABEL, outcome)]),
-                Err(error) => {
-                    (ops.collapse)();
-                    Err(error)
-                }
-            };
-        }
-        if plan.needs_expand {
-            (ops.expand)()?;
-        }
-        let _ = (ops.find)().inspect_err(|_| (ops.collapse)())?;
-        (ops.realize)().inspect_err(|_| (ops.collapse)())?;
-        let found = (ops.find)().inspect_err(|_| (ops.collapse)())?;
-        if !found {
-            (ops.collapse)();
-            return Err(not_found_chars(plan.value_chars));
-        }
-        match (ops.select_item)() {
-            Ok(outcome) => Ok(vec![build_step(SELECT_LABEL, outcome)]),
-            Err(error) => {
-                (ops.collapse)();
-                Err(error)
-            }
-        }
-    }
-
-    fn delivered_select(
-        container: &UIAElement,
-        target: &UIAElement,
-        value: &str,
-        deadline: Deadline,
-    ) -> Result<DeliveryOutcome, AdapterError> {
-        let delivered = match target.0.get_pattern::<UISelectionItemPattern>() {
-            Ok(pattern) => match pattern.select() {
-                Ok(()) => classify_success()?,
-                Err(error) => classify_write("Select", SELECT_LABEL, &error)?,
-            },
-            Err(error) => classify_write("get_pattern", SELECT_LABEL, &error)?,
-        };
-        if !delivered {
-            return Ok(DeliveryOutcome::NotDelivered);
-        }
-        let verified = poll_verified(container, target, value, deadline).map_err(after_delivery)?;
-        Ok(DeliveryOutcome::from_observation(verified))
-    }
-
-    /// Reads container `ValueAvailable` once before the loop rather than on
-    /// every tick: it cannot legitimately flip mid-verification, so
-    /// re-checking it every 25ms bought nothing.
-    fn poll_verified(
-        container: &UIAElement,
-        target: &UIAElement,
-        value: &str,
-        deadline: Deadline,
-    ) -> Result<Option<bool>, AdapterError> {
-        deadline.ensure_remaining()?;
-        let end = capped_verification_end(deadline, VERIFY_TIMEOUT)?;
-        let container_value_available = value_available(container);
-        loop {
-            let verified = verify_once(container, target, value, container_value_available)?;
-            if verified == Some(true) {
-                return Ok(Some(true));
-            }
-            if Instant::now() >= end {
-                return Ok(verified);
-            }
-            std::thread::sleep(deadline.remaining_slice(POLL_SLICE)?);
-        }
-    }
-
-    fn verify_once(
-        container: &UIAElement,
-        target: &UIAElement,
-        value: &str,
-        container_value_available: bool,
-    ) -> Result<Option<bool>, AdapterError> {
-        let container_value = if container_value_available {
-            Some(gated_pattern_value_equals(container, value)?)
-        } else {
-            None
-        };
-        let selected = read_one(target, TreeProperty::SelectionItemIsSelected).flag();
-        Ok(resolve_select_verification(container_value, selected))
-    }
-
-    fn expand_container(element: &UIAElement) -> Result<(), AdapterError> {
-        match element.0.get_pattern::<UIExpandCollapsePattern>() {
+    fn expand_container(element: &UIAElement) -> Result<DeliveryOutcome, AdapterError> {
+        let delivered = match element.0.get_pattern::<UIExpandCollapsePattern>() {
             Ok(pattern) => match pattern.expand() {
-                Ok(()) => Ok(()),
-                Err(error) => {
-                    let _ = classify_write("Expand", EXPAND_LABEL, &error)?;
-                    Ok(())
-                }
+                Ok(()) => classify_success()?,
+                Err(error) => classify_write("Expand", EXPAND_LABEL, &error)?,
             },
-            Err(error) => {
-                let _ = classify_write("get_pattern", EXPAND_LABEL, &error)?;
-                Ok(())
-            }
-        }
+            Err(error) => classify_write("get_pattern", EXPAND_LABEL, &error)?,
+        };
+        Ok(DeliveryOutcome::from_delivery(delivered, false))
     }
 
-    fn collapse_container(element: &UIAElement) -> Result<(), AdapterError> {
-        match element.0.get_pattern::<UIExpandCollapsePattern>() {
-            Ok(pattern) => {
-                let _ = pattern.collapse();
-                Ok(())
-            }
-            Err(_) => Ok(()),
+    fn collapse_pattern(element: &UIAElement) -> bool {
+        element
+            .0
+            .get_pattern::<UIExpandCollapsePattern>()
+            .is_ok_and(|pattern| pattern.collapse().is_ok())
+    }
+
+    fn read_expand_state(element: &UIAElement) -> Option<ExpandKind> {
+        if read_one(element, TreeProperty::ExpandCollapseAvailable).flag() != Some(true) {
+            return None;
         }
+        read_one(element, TreeProperty::ExpandCollapseState)
+            .number()
+            .and_then(ExpandKind::from_i32)
     }
 
     fn is_collapsed_container(element: &UIAElement) -> bool {
-        if read_one(element, TreeProperty::ExpandCollapseAvailable).flag() != Some(true) {
-            return false;
-        }
-        matches!(
-            read_one(element, TreeProperty::ExpandCollapseState)
-                .number()
-                .and_then(ExpandKind::from_i32),
-            Some(ExpandKind::Collapsed)
-        )
-    }
-
-    fn value_available(element: &UIAElement) -> bool {
-        read_one(element, TreeProperty::ValueAvailable).flag() == Some(true)
-    }
-
-    fn not_found_chars(chars: usize) -> AdapterError {
-        AdapterError::new(
-            ErrorCode::ElementNotFound,
-            format!("No selection item matched the requested value ({chars} chars)"),
-        )
-        .with_disposition(DeliverySemantics::not_delivered())
-        .with_suggestion("Use find or snapshot to inspect the available selection items.")
+        read_expand_state(element) == Some(ExpandKind::Collapsed)
     }
 }
 
 #[cfg(not(target_os = "windows"))]
 mod imp {
-    use super::{ActionStep, AdapterError, Deadline, SelectOps, SelectPlan, UIAElement};
+    use super::{ActionStep, AdapterError, Deadline, InteractionPolicy, UIAElement};
 
     pub(crate) fn select_steps(
         _element: &UIAElement,
         _value: &str,
+        _policy: InteractionPolicy,
         _deadline: Deadline,
-    ) -> Result<Vec<ActionStep>, AdapterError> {
-        Err(AdapterError::not_supported("Select"))
-    }
-
-    pub(crate) fn select_judged_for(
-        _deadline: Deadline,
-        _plan: SelectPlan,
-        _ops: SelectOps<'_>,
     ) -> Result<Vec<ActionStep>, AdapterError> {
         Err(AdapterError::not_supported("Select"))
     }
@@ -311,13 +307,6 @@ mod imp {
 
 pub(crate) use imp::select_steps;
 
-#[cfg(all(test, target_os = "windows"))]
-pub(crate) use imp::select_judged_for;
-
-#[cfg(all(test, target_os = "windows"))]
+#[cfg(test)]
 #[path = "select_tests.rs"]
 mod tests;
-
-#[cfg(all(test, target_os = "windows"))]
-#[path = "select_flow_tests.rs"]
-mod flow_tests;

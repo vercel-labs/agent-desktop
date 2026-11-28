@@ -9,6 +9,7 @@ use crate::system::x11::{FrameExtents, FrameFacts, X11Client, X11State};
 
 fn window(title: &str, active: bool, modal: bool) -> ListedWindow {
     ListedWindow {
+        alert: false,
         app: 0,
         info: WindowInfo {
             id: format!("w-1.1-{title}"),
@@ -39,7 +40,7 @@ fn client(id: u32, title: &str) -> X11Client {
         shadow: (0, 0, 0, 0),
         id,
         pid: Some(7),
-        title: title.to_owned(),
+        title: title.into(),
         extents: None::<FrameExtents>,
         bounds: None,
         hidden: false,

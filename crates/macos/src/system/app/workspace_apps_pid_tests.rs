@@ -1,7 +1,8 @@
 use super::*;
+use agent_desktop_core::Deadline;
 
-fn deadline() -> Instant {
-    Instant::now() + std::time::Duration::from_secs(1)
+fn deadline() -> Deadline {
+    Deadline::after(1000).unwrap()
 }
 
 fn snapshot_with(application_pid: i32, frontmost_pid: i32) -> String {

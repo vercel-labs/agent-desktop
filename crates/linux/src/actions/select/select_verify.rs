@@ -44,11 +44,7 @@ pub(in crate::actions) fn combo_evidence(
         return Some(name_matches(shown, wanted));
     }
     let name = name.filter(|name| says_something(name))?;
-    match (name_matches(name, wanted), name_is_value) {
-        (true, _) => Some(true),
-        (false, true) => Some(false),
-        (false, false) => None,
-    }
+    name_is_value.then(|| name_matches(name, wanted))
 }
 
 fn combo_value_matches(view: &NodeView, wanted: &str, name_is_value: bool) -> Option<bool> {

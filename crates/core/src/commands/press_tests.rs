@@ -80,14 +80,19 @@ impl ObservationOps for CapturingAdapter {
         Ok(saved_tree())
     }
 
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<crate::AppInfo>, AdapterError> {
-        Ok(vec![crate::AppInfo {
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(vec![crate::AppInfo {
+            aliases: Vec::new(),
             name: "Editor".into(),
             pid: crate::ProcessId::new(42),
             bundle_id: Some("com.example.Editor".into()),
             process_instance: Some("generation-1".into()),
             presentation: None,
-        }])
+        }]))
     }
 
     fn list_windows(
@@ -167,6 +172,48 @@ fn adapter_blocked_combo_is_refused_when_not_forced() {
         err.to_string().contains("--force"),
         "the refusal must tell the caller how to override, got: {err}"
     );
+    let suggestion = err.suggestion().unwrap_or_default();
+    assert!(
+        suggestion.contains("--force") && !suggestion.contains("--headed"),
+        "the suggestion must name --force and never headed mode, got: {suggestion}"
+    );
+}
+
+/// Headed mode does not lift a safety block, so a refusal that names it sends
+/// the caller into a retry that fails the same way. Every part of the envelope
+/// the caller reads must point at `--force` instead.
+#[test]
+fn blocked_combo_refusal_points_at_force_and_never_at_headed_mode() {
+    let error = execute(
+        args("alt+f4", false),
+        &BlockingAdapter,
+        &CommandContext::default(),
+    )
+    .unwrap_err();
+    let payload = crate::response::output::ErrorPayload::from_app_error(&error);
+    let suggestion = payload
+        .suggestion
+        .as_deref()
+        .expect("a blocked combo must say how to override it");
+    assert!(suggestion.contains("--force"), "got: {suggestion}");
+    assert!(!suggestion.contains("--headed"), "got: {suggestion}");
+
+    let recovery = payload
+        .recovery
+        .as_ref()
+        .expect("a refused press sent nothing, so a retry is safe");
+    assert!(
+        !recovery.strategy.contains("headed"),
+        "the recovery strategy must not route through headed mode: {recovery:?}"
+    );
+
+    let envelope = serde_json::to_string(&crate::response::output::Response::err("press", payload))
+        .expect("the envelope serializes");
+    assert!(envelope.contains("--force"), "got: {envelope}");
+    assert!(
+        !envelope.contains("--headed"),
+        "headed mode leaves the combo blocked, so no envelope field may recommend it: {envelope}"
+    );
 }
 
 #[test]
@@ -174,7 +221,7 @@ fn force_bypasses_the_adapter_block() {
     execute(
         args("cmd+q", true),
         &BlockingAdapter,
-        &CommandContext::default(),
+        &CommandContext::default().with_headed(true),
     )
     .expect("--force must let the agent send a blocked combo");
 }
@@ -184,7 +231,7 @@ fn core_blocks_nothing_by_default() {
     execute(
         args("cmd+q", false),
         &AllowingAdapter,
-        &CommandContext::default(),
+        &CommandContext::default().with_headed(true),
     )
     .expect("core must not hardcode any block; the default adapter allows everything");
 }
@@ -193,10 +240,27 @@ fn core_blocks_nothing_by_default() {
 fn global_press_uses_only_caller_authorized_policy() {
     let adapter = CapturingAdapter::default();
 
-    execute(args("a", false), &adapter, &CommandContext::default()).unwrap();
+    let error = execute(args("a", false), &adapter, &CommandContext::default()).unwrap_err();
+    let crate::AppError::Adapter(error) = error else {
+        panic!("a policy refusal is an adapter error");
+    };
+    assert_eq!(error.code, crate::ErrorCode::PolicyDenied);
+    assert_eq!(*adapter.global_policy.lock().unwrap(), None);
+    let suggestion = error.suggestion.as_deref().unwrap_or_default();
+    assert!(
+        suggestion.starts_with("Name the target with --app"),
+        "the refusal must name the background route first, got: {suggestion}"
+    );
+
+    execute(
+        args("a", false),
+        &adapter,
+        &CommandContext::default().with_headed(true),
+    )
+    .unwrap();
     assert_eq!(
         *adapter.global_policy.lock().unwrap(),
-        Some(crate::InteractionPolicy::focus_fallback())
+        Some(crate::InteractionPolicy::headed())
     );
 
     execute(

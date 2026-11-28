@@ -49,8 +49,7 @@ impl ObservationOps for ContractAdapter {
             identity: LiveIdentity {
                 name: LocatorField::Known("OK".into()),
                 description: LocatorField::Absent,
-                identifiers: IdentifierEvidence::absent()
-                    .with_retained_object("axtok1:contract-node".into()),
+                identifiers: IdentifierEvidence::absent().with_element_token("contract-node"),
             },
             state: ElementState {
                 role: "button".into(),
@@ -169,13 +168,15 @@ fn entry(bounds: Rect) -> RefEntry {
             process_instance: Some("contract-process".into()),
         },
         identity: RefEntryIdentity {
-            retained_object: Some("axtok1:contract-node".into()),
+            retained_object: Some(
+                agent_desktop_core::refs::ref_identity::tagged_element_token("contract-node"),
+            ),
             role: "button".into(),
             name: Some("OK".into()),
             value: None,
             description: None,
             native_id: None,
-            unique_at_capture: false,
+            proof: agent_desktop_core::IdentityProof::Unproven,
         },
         geometry: RefGeometry {
             bounds_space: None,
@@ -198,6 +199,7 @@ fn entry(bounds: Rect) -> RefEntry {
             root_ref: None,
             path_is_absolute: true,
             path: Default::default(),
+            chain: Default::default(),
         },
     }
 }
@@ -217,7 +219,7 @@ fn platform_adapter_exposes_all_capability_methods() {
             .expect_err("an adapter without window listing reports it unsupported");
         assert_eq!(windows.code, ErrorCode::PlatformNotSupported);
         let apps = adapter
-            .list_apps(deadline)
+            .query_app_inventory(agent_desktop_core::AppInventoryQuery::All, deadline)
             .expect_err("an adapter without app listing reports it unsupported");
         assert_eq!(apps.code, ErrorCode::PlatformNotSupported);
         let permissions = adapter

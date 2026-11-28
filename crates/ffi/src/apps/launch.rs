@@ -74,7 +74,7 @@ pub unsafe extern "C" fn ad_launch_app_exact(
         };
         match adapter
             .inner
-            .launch_app(&id, &options, &lease)
+            .launch_app(&id, &options, lease)
             .and_then(launched_window)
         {
             Ok(window) => match validate_exact_window_info(&window) {
@@ -114,7 +114,8 @@ mod tests {
     use agent_desktop_core::system::launch_options::LaunchOptions;
     use agent_desktop_core::{ActionOps, InputOps, ObservationOps, SystemOps};
     use agent_desktop_core::{
-        AdapterError, Deadline, InteractionLease, ProcessId, WindowInfo, WindowState,
+        AdapterError, Deadline, InteractionLease, LaunchFacts, LaunchGuidance, ProcessId,
+        WindowInfo, WindowState,
     };
 
     use super::*;
@@ -144,7 +145,7 @@ mod tests {
             &self,
             _id: &str,
             options: &LaunchOptions,
-            _lease: &InteractionLease,
+            _lease: InteractionLease,
         ) -> Result<LaunchResult, AdapterError> {
             self.probe.calls.fetch_add(1, Ordering::SeqCst);
             self.probe
@@ -163,9 +164,13 @@ mod tests {
                     bounds: None,
                     state: WindowState::default(),
                 }),
-                cdp: None,
-                renderer: None,
-                suggestion: None,
+                guidance: LaunchGuidance::default(),
+                disposition: LaunchFacts {
+                    attached: false,
+                    activation_dispatched: false,
+                    postcondition_observed: true,
+                }
+                .disposition(),
             })
         }
     }

@@ -3,6 +3,7 @@ use agent_desktop_core::{
 };
 
 use super::automation::root_from_hwnd;
+use super::popover_inventory::is_popover_window;
 use super::properties::property_ids::TreeProperty;
 use super::properties::property_outcome::PropertyOutcome;
 use super::properties::read_one;
@@ -37,7 +38,7 @@ pub(crate) fn list_surfaces_for_process(
 ) -> Result<Vec<SurfaceInfo>, AdapterError> {
     deadline.ensure_remaining()?;
     require_live_process(&process)?;
-    let windows = windows_of(process.pid, deadline)?;
+    let (windows, popovers) = windows_of(process.pid, deadline)?;
     let observed: Vec<ObservedWindow> = windows
         .iter()
         .map(|window| ObservedWindow {
@@ -52,6 +53,13 @@ pub(crate) fn list_surfaces_for_process(
     let (mut surfaces, menu) = inventory_with_menu(observed, process.pid, located)?;
     if let Some(menu) = menu {
         surfaces.push(menu_surface(&menu)?);
+    }
+    for popover in popovers {
+        surfaces.push(surface(
+            SnapshotSurface::Popover,
+            popover.handle,
+            live_window_title(popover.handle),
+        ));
     }
     Ok(surfaces)
 }
@@ -69,12 +77,13 @@ fn require_live_process(process: &ProcessIdentity) -> Result<(), AdapterError> {
     ))
 }
 
-/// The pid's agent-facing top-level windows, from the one enumeration pass
-/// every window inventory on this platform shares - the same walk
-/// `list_windows` and the menu detector draw from, filtered by the same
-/// census predicate.
-fn windows_of(pid: ProcessId, deadline: Deadline) -> Result<Vec<EnumeratedWindow>, AdapterError> {
+/// The process's census windows and its popovers (tool windows the census drops).
+pub(super) fn windows_of(
+    pid: ProcessId,
+    deadline: Deadline,
+) -> Result<(Vec<EnumeratedWindow>, Vec<EnumeratedWindow>), AdapterError> {
     let mut windows = Vec::new();
+    let mut popovers = Vec::new();
     let failure = std::cell::RefCell::new(None);
     let mut seen = 0usize;
     enumerate_top_level(|window| {
@@ -85,20 +94,24 @@ fn windows_of(pid: ProcessId, deadline: Deadline) -> Result<Vec<EnumeratedWindow
             }
         }
         seen += 1;
-        if live_window_owner(window.handle) == Some(pid) && passes_filter(&window) {
-            windows.push(window);
+        if live_window_owner(window.handle) == Some(pid) {
+            if passes_filter(&window) {
+                windows.push(window);
+            } else if is_popover_window(&window, pid) {
+                popovers.push(window);
+            }
         }
         true
     })?;
     if let Some(error) = failure.into_inner() {
         return Err(error);
     }
-    Ok(windows)
+    Ok((windows, popovers))
 }
 
 fn surface(kind: SnapshotSurface, handle: WindowHandle, title: Option<String>) -> SurfaceInfo {
     SurfaceInfo {
-        id: format!("w-{}", handle as usize),
+        id: super::popover_choice::handle_id(handle),
         kind: kind.as_str().to_string(),
         title,
         item_count: None,
@@ -164,9 +177,8 @@ pub(crate) fn surfaces_of(observed: Vec<ObservedWindow>) -> Vec<SurfaceInfo> {
 /// A budget exhaustion and a process that has died are not that: neither is
 /// evidence that no menu is open, and answering "no menu" for a probe that
 /// never finished would relocate the very defect this fold exists to prevent.
-/// Those two keep their own codes. Every UIA fault on this path is already
-/// narrowed to `APP_UNRESPONSIVE` by the read-path narrowing the menu
-/// detector applies, so the two propagating codes cannot swallow one.
+/// Those two keep their own codes. Every other code, a UIA fault included,
+/// degrades the same way.
 pub(crate) fn inventory_with_menu<T>(
     observed: Vec<ObservedWindow>,
     pid: ProcessId,

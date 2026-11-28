@@ -31,9 +31,9 @@ after_includes = """
  *  4. Act via ad_execute_by_ref(a, "@s8f3k2p9:e5", &action, policy, &out).
  *     Build an AdAction by zero-initialising it and setting its kind field to
  *     an AD_ACTION_KIND_* constant plus any kind-specific fields (e.g. .text
- *     for AD_ACTION_KIND_TYPE_TEXT).  policy=0 (Headless) keeps each action's
- *     built-in base behaviour; pass 2 (Headed) to additionally allow
- *     cursor/focus fallbacks.  ref_id must be non-null (null returns
+ *     for AD_ACTION_KIND_TYPE_TEXT).  policy=0 (Headless) permits neither
+ *     focus nor cursor movement; pass 2 (Headed) to allow cursor/focus
+ *     fallbacks.  ref_id must be non-null (null returns
  *     ErrInvalidArgs immediately).
  *
  *  5. Ownership: every non-null *out string must be freed with ad_free_string().

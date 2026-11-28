@@ -99,6 +99,7 @@ fn a_refused_create_that_drops_its_record_reports_nothing_delivered() {
 
 #[test]
 fn a_command_does_not_change_a_sandbox_another_command_is_changing() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let home = HomeGuard::new();
     publish(&home);
     let _held = sandbox_store::hold(&sandboxes_root(&home), "dev-1").expect("first holder");

@@ -27,6 +27,10 @@ pub(crate) enum WaitMode {
         app: Option<String>,
         text: Option<String>,
     },
+    Surface {
+        app: Option<String>,
+        kind: Option<crate::SnapshotSurface>,
+    },
     Event {
         event: String,
         app: Option<String>,
@@ -52,6 +56,12 @@ impl WaitMode {
                 return Ok(Self::Menu {
                     app: args.app,
                     open: false,
+                });
+            }
+            Some(SurfaceWait::Open(kind)) => {
+                return Ok(Self::Surface {
+                    app: args.app,
+                    kind,
                 });
             }
             Some(SurfaceWait::Notification) => {

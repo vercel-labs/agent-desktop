@@ -1,18 +1,14 @@
 use std::time::Duration;
 
 use agent_desktop_core::{
-    Action, ActionResult, AdapterError, Deadline, DeliverySemantics, ErrorCode,
+    Action, ActionResult, AdapterError, ChainRung, Deadline, DeliveryObservation, DeliveryOutcome,
+    DeliverySemantics, ErrorCode, StepMechanism,
 };
 use serde_json::json;
 use zbus::zvariant::{OwnedValue, Structure, Value};
 
 use super::action_call::resolve_verb;
-use super::chain::chain_def::ChainDef;
-use super::chain::chain_delivery_outcome::DeliveryOutcome;
-use super::chain::chain_observed::Observed;
-use super::chain::chain_rung::Rung;
-use super::chain::execute_chain;
-use super::click::{POLL_STEP, invoke_verb, names_of, observed_of, poll_until, refusal};
+use super::click::{POLL_STEP, invoke_verb, names_of, refusal};
 use super::context::Target;
 use super::select::select_exclusive::{SELECTION_INTERFACE, selected_count};
 use super::select::select_pointer::{Pointer, after_unproven_index};
@@ -22,6 +18,7 @@ use super::select::select_row::click_row;
 use super::select::select_search::{Container, Hit, Inspected, ItemReader, Search, search};
 use super::select::select_verify::{commit_unobserved, read_verification};
 use super::write::mutation::WriteReply;
+use crate::actions::chain::run_semantic_chain;
 use crate::system::{ACCESSIBLE_INTERFACE, PROPERTIES_INTERFACE, SharedBus, within};
 use crate::tree::capabilities::action_names::{click_verbs, selection_verbs};
 use crate::tree::capabilities::action_read::{NodeView, read_node_view};
@@ -29,7 +26,7 @@ use crate::tree::live_read::live_offscreen::toolkit_of;
 use crate::tree::properties::toolkit_trust::is_gecko;
 use crate::tree::vocabulary::role_numbers::COMBO_BOX;
 use crate::tree::vocabulary::state_bits::{CHECKABLE, SELECTABLE, SELECTED};
-use crate::tree::{AtspiElement, atspi_element, element::ancestry, list_children};
+use crate::tree::{AtspiElement, atspi_element, element::ancestry};
 
 pub(super) const SELECT_SETTLE: Duration = Duration::from_millis(1000);
 const SELECT_CHILD_LABEL: &str = "Selection.SelectChild";
@@ -61,7 +58,7 @@ impl ItemReader for BusReader<'_> {
         })
     }
 
-    fn children(&mut self, node: &AtspiElement) -> Result<Vec<AtspiElement>, AdapterError> {
+    fn children(&mut self, node: &AtspiElement) -> Result<(Vec<AtspiElement>, bool), AdapterError> {
         children_of(self.bus, node, self.inspected_role, self.deadline)
     }
 }
@@ -85,19 +82,20 @@ pub(super) fn children_of(
     node: &AtspiElement,
     role: Option<u32>,
     deadline: Deadline,
-) -> Result<Vec<AtspiElement>, AdapterError> {
+) -> Result<(Vec<AtspiElement>, bool), AdapterError> {
     let connection = bus.get(deadline)?;
-    let children = within(deadline, async {
-        list_children(connection.inner(), node).await
+    let (children, whole) = within(deadline, async {
+        crate::tree::presented_children(connection.inner(), node).await
     })?;
-    Ok(children
+    let children = children
         .into_iter()
         .map(|(name, path)| {
             let mut child = AtspiElement::new(name, path, node.pid());
             child.set_ancestry(ancestry::child(node, role));
             child
         })
-        .collect())
+        .collect();
+    Ok((children, whole))
 }
 
 pub(super) fn parent_of(
@@ -132,23 +130,6 @@ pub(super) fn parent_of(
         });
         Ok(parent)
     })
-}
-
-fn selection_parent(
-    reader: &mut BusReader<'_>,
-    node: &AtspiElement,
-) -> Result<Option<Container<AtspiElement>>, AdapterError> {
-    let Some(parent) = parent_of(reader.bus, node, reader.deadline)? else {
-        return Ok(None);
-    };
-    if !reader.inspect(&parent)?.selection {
-        return Ok(None);
-    }
-    let siblings = reader.children(&parent)?;
-    let present = siblings
-        .iter()
-        .any(|sibling| sibling.bus_name() == node.bus_name() && sibling.path() == node.path());
-    Ok(present.then_some(Container { node: parent }))
 }
 
 pub(super) fn container_target<'a>(
@@ -192,8 +173,7 @@ fn select_through(
     let application_fires_no_change =
         is_gecko(&toolkit_of(target.bus, target.element, target.deadline));
     let observe = || -> Result<Option<bool>, AdapterError> {
-        let verified = poll_until(
-            target.deadline,
+        let verified = target.deadline.poll_until(
             SELECT_SETTLE,
             POLL_STEP,
             || {
@@ -211,16 +191,16 @@ fn select_through(
     };
     let finish = |outcome| {
         let outcome = match (&holder, outcome) {
-            (Some(holder), DeliveryOutcome::Delivered(Observed::Matched)) => {
+            (Some(holder), DeliveryOutcome::Delivered(DeliveryObservation::Verified)) => {
                 let verified =
                     select_verb::keep_only_the_item(target, holder, &verified_node, display_value)?;
-                DeliveryOutcome::Delivered(observed_of(verified))
+                DeliveryOutcome::observed(verified)
             }
             (_, other) => other,
         };
         Ok(match outcome {
-            DeliveryOutcome::Delivered(Observed::Matched) => DeliveryOutcome::Delivered(
-                observed_of(commit_unobserved(application_fires_no_change, Some(true))),
+            DeliveryOutcome::Delivered(DeliveryObservation::Verified) => DeliveryOutcome::observed(
+                commit_unobserved(application_fires_no_change, Some(true)),
             ),
             other => other,
         })
@@ -228,7 +208,7 @@ fn select_through(
     let deliver = |reply: Result<WriteReply, AdapterError>| {
         Ok(match reply? {
             WriteReply::Absent => DeliveryOutcome::NotDelivered,
-            WriteReply::Done => DeliveryOutcome::Delivered(observed_of(observe()?)),
+            WriteReply::Done => DeliveryOutcome::observed(observe()?),
         })
         .and_then(finish)
     };
@@ -236,8 +216,10 @@ fn select_through(
     if let Some(holder) = &holder {
         let verified_node = &verified_node;
         let deliver = &deliver;
-        rungs.push(Rung {
+        rungs.push(ChainRung {
             label: SELECT_CHILD_LABEL,
+            effects: &[],
+            mechanism: StepMechanism::SemanticApi,
             run: Box::new(move || {
                 let reply = super::select::select_index::write(holder, verified_node);
                 deliver(reply).and_then(unchanged_is_ignored)
@@ -247,8 +229,10 @@ fn select_through(
     if own_verb {
         rungs.insert(
             0,
-            Rung {
+            ChainRung {
                 label: SELECT_VERB_LABEL,
+                effects: &[],
+                mechanism: StepMechanism::SemanticApi,
                 run: Box::new(|| {
                     select_verb::deliver(
                         resolve_verb(names, verbs).is_some_and(|index| {
@@ -268,18 +252,14 @@ fn select_through(
     if rungs.is_empty() {
         return Err(no_route());
     }
-    let def = ChainDef {
-        action: action.name(),
-        suggestion: SELECT_SUGGESTION,
-    };
-    execute_chain(&def, &mut rungs, target.deadline)
+    run_semantic_chain(&action, &mut rungs, target.deadline, SELECT_SUGGESTION)
 }
 
 pub(super) fn unchanged_is_ignored(
     outcome: DeliveryOutcome,
 ) -> Result<DeliveryOutcome, AdapterError> {
     match outcome {
-        DeliveryOutcome::Delivered(Observed::Unchanged) => Err(AdapterError::new(
+        DeliveryOutcome::Delivered(DeliveryObservation::Unverified) => Err(AdapterError::new(
             ErrorCode::ActionFailed,
             "The selection write was accepted but the requested choice was not observed",
         )
@@ -322,10 +302,11 @@ pub(crate) fn select(
     target: &Target<'_>,
     display_value: &str,
     pointer: Option<&dyn Pointer>,
+    may_take_focus: bool,
 ) -> Result<ActionResult, AdapterError> {
     let view = target.view()?;
     if is_popup_dropdown(target, &view)? {
-        return select_in_popup(target, display_value);
+        return select_in_popup(target, display_value, may_take_focus);
     }
     if is_pointer_combo(&view) {
         return select_in_pointer_combo(target, display_value, pointer);
@@ -342,7 +323,7 @@ pub(crate) fn select(
                 if own_names_verb {
                     None
                 } else {
-                    selection_parent(&mut reader, target.element)?
+                    select_parent::selection_parent(&mut reader, target.element)?
                 }
             } else {
                 let combo = view.role() == Some(COMBO_BOX) && advertises_selection(&view);
@@ -384,9 +365,11 @@ pub(crate) fn select(
 pub(crate) mod select_exclusive;
 pub(super) mod select_identity;
 pub(super) mod select_index;
+pub(crate) mod select_parent;
 pub(crate) mod select_pointer;
 pub(super) mod select_pointer_combo;
 pub(crate) mod select_popup;
+pub(super) mod select_route;
 pub(super) mod select_row;
 pub(crate) mod select_search;
 mod select_verb;

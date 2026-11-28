@@ -2,8 +2,7 @@
 //! the process that presents them.
 
 use super::{AXElement, properties::element::element_for_pid, surface_read};
-use agent_desktop_core::{AdapterError, ErrorCode, SnapshotSurface, WindowInfo};
-use std::time::Instant;
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode, SnapshotSurface, WindowInfo};
 
 /// MenuBarAgent hosts the system status items on current macOS; Control Center
 /// and SystemUIServer hosted them on earlier releases.
@@ -16,15 +15,38 @@ const MENU_BAR_EXTRAS_HOSTS: [&str; 3] = [
 /// The system menu bar extras root in `pid`, or `None` when it presents none.
 pub(crate) fn extras_menu_bar(
     pid: i32,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Option<AXElement>, AdapterError> {
     surface_read::element(&element_for_pid(pid), "AXExtrasMenuBar", deadline)
+}
+
+/// The extras menu bar of every running menu-bar-extras host that presents
+/// one, in host order.
+pub(crate) fn extras_menu_bars(deadline: Deadline) -> Result<Vec<AXElement>, AdapterError> {
+    let inventory = crate::system::app::workspace_apps::list_apps_inventory_until(deadline)?;
+    let mut bars = Vec::new();
+    for host in MENU_BAR_EXTRAS_HOSTS {
+        for app in inventory
+            .apps
+            .iter()
+            .filter(|app| app.bundle_id.as_deref() == Some(host))
+        {
+            let pid = crate::system::process::process_identity::to_pid_t(app.pid)?;
+            if let Some(bar) = extras_menu_bar(pid, deadline)? {
+                bars.push(bar);
+            }
+        }
+    }
+    if bars.is_empty() {
+        crate::system::app::workspace_apps::require_complete(&inventory.skipped)?;
+    }
+    Ok(bars)
 }
 
 /// Whether `element` is a status item: a child of its app's extras menu bar,
 /// which has no window and takes a click wherever the app is. A failed read
 /// answers false.
-pub(crate) fn is_status_item(element: &AXElement, deadline: Instant) -> bool {
+pub(crate) fn is_status_item(element: &AXElement, deadline: Deadline) -> bool {
     use super::properties::attributes::copy_element_attr_result;
     let parent = copy_element_attr_result(element, "AXParent", deadline);
     let pid = super::properties::ax_ipc::pid(element, deadline);
@@ -39,7 +61,7 @@ pub(crate) fn is_status_item(element: &AXElement, deadline: Instant) -> bool {
 
 pub(crate) fn resolve_surface(
     surface: SnapshotSurface,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<WindowInfo, AdapterError> {
     let hosts: &[&str] = match surface {
         SnapshotSurface::Dock => &["com.apple.dock"],

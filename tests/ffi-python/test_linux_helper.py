@@ -79,8 +79,8 @@ class InstalledHelperTests(unittest.TestCase):
         def read():
             return "agent-desktop-installed-owner" if len(calls) == 1 else None
         verify_cli("/entry", "/empty", read, run)
-        self.assertEqual(calls, [["/entry", "clipboard-set", "agent-desktop-installed-owner"],
-                                 ["/entry", "clipboard-clear"]])
+        self.assertEqual(calls, [["/entry", "--headed", "clipboard-set", "agent-desktop-installed-owner"],
+                                 ["/entry", "--headed", "clipboard-clear"]])
 
     def test_installed_success_requires_foreign_payload(self):
         run = Mock(return_value=subprocess.CompletedProcess([], 0, '{"ok":true}', ""))

@@ -1,4 +1,4 @@
-use agent_desktop_core::{AppInfo, DeliverySemantics, ErrorCode, ProcessId};
+use agent_desktop_core::{AppInfo, DeliverySemantics, ErrorCode, InteractionPolicy, ProcessId};
 
 use super::fake::{Fake, facts};
 use super::{Request, run};
@@ -6,6 +6,7 @@ use crate::system::process::liveness::Liveness;
 
 fn app() -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: "Calculator".to_owned(),
         pid: ProcessId::new(42),
         bundle_id: None,
@@ -20,6 +21,7 @@ fn request(force: bool) -> Request<'static> {
         pid: 42,
         instance: Some("t"),
         force,
+        policy: InteractionPolicy::headless(),
     }
 }
 
@@ -96,7 +98,8 @@ fn a_process_gone_before_any_close_request_is_reported_as_already_gone() {
     let mut world = Fake::new(Liveness::Alive);
     world.state_after_toplevels = Some(Liveness::Gone);
 
-    let report = super::run_report(&world, &app(), false).expect("benign race");
+    let report = super::run_report(&world, &app(), false, InteractionPolicy::headless())
+        .expect("benign race");
 
     assert_eq!(report.disposition(), DeliverySemantics::not_delivered());
     assert!(report.result.steps.is_empty());
@@ -112,7 +115,8 @@ fn a_force_signal_that_finds_a_gone_or_replaced_process_reports_no_delivery() {
         let world = Fake::new(Liveness::Alive);
         world.signal_outcomes.borrow_mut().push(Ok(outcome));
 
-        let report = super::run_report(&world, &app(), true).expect("benign race");
+        let report = super::run_report(&world, &app(), true, InteractionPolicy::headless())
+            .expect("benign race");
 
         assert_eq!(report.disposition(), DeliverySemantics::not_delivered());
         assert!(report.result.steps.is_empty());
@@ -126,7 +130,8 @@ fn a_close_request_that_exits_the_process_is_reported_as_verified() {
     let mut world = Fake::new(Liveness::Alive);
     world.exits_on_close = true;
 
-    let report = super::run_report(&world, &app(), false).expect("closed");
+    let report =
+        super::run_report(&world, &app(), false, InteractionPolicy::headless()).expect("closed");
 
     assert_eq!(
         report.disposition(),
@@ -140,7 +145,8 @@ fn an_error_after_a_close_request_keeps_target_and_unverified_step_evidence() {
     let mut world = Fake::new(Liveness::Alive);
     world.dialog_after = Some(std::time::Duration::from_millis(100));
 
-    let error = super::run_report(&world, &app(), false).expect_err("dialog blocks exit");
+    let error = super::run_report(&world, &app(), false, InteractionPolicy::headless())
+        .expect_err("dialog blocks exit");
 
     assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
     let details = error.details.expect("dispatch evidence");
@@ -156,7 +162,8 @@ fn failed_close_sends_name_the_target_without_claiming_a_completed_step() {
         crate::system::x11::control::control_error::ControlError::SendFailed,
     )];
 
-    let error = super::run_report(&world, &app(), false).expect_err("request failed");
+    let error = super::run_report(&world, &app(), false, InteractionPolicy::headless())
+        .expect_err("request failed");
 
     assert_eq!(error.disposition, DeliverySemantics::uncertain());
     let details = error.details.expect("target evidence");
@@ -172,7 +179,8 @@ fn a_term_sent_before_the_process_is_replaced_remains_a_delivered_close() {
         Ok(crate::system::signal::signal_sent::Sent::Replaced),
     ];
 
-    let report = super::run_report(&world, &app(), true).expect("term was delivered");
+    let report = super::run_report(&world, &app(), true, InteractionPolicy::headless())
+        .expect("term was delivered");
 
     assert_eq!(
         report.disposition(),

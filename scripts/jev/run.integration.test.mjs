@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -8,7 +8,6 @@ import { execute } from "./desktop.mjs";
 
 const directory = mkdtempSync(join(tmpdir(), "jev-loop-test-"));
 const entry = join(dirname(fileURLToPath(import.meta.url)), "run.mjs");
-const log = join(directory, "commands.jsonl");
 const preload = join(directory, "fetch.mjs");
 
 const fake = `
@@ -112,60 +111,166 @@ globalThis.fetch=async (_url,options)=>{
 };
 `);
 
-const act = (mode, extra = []) => {
-  writeFileSync(log, "");
-  const result = spawnSync(process.execPath, ["--import", pathToFileURL(actPreload).href, actEntry,
-    "--app", "試験アプリ", "--bin", process.execPath, ...extra, "試験ボタンを押す"], {
-    cwd: directory,
-    encoding: "utf8",
-    timeout: 10000,
-    env: { ...process.env, TYPESAFE_API_KEY: "fixture", JEV_TEST_MODE: mode, JEV_TEST_LOG: log, JEV_ACT_TEST: "1" },
+const runProcess = (args, env) =>
+  new Promise((resolve) => {
+    const child = spawn(process.execPath, args, { cwd: directory, env });
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, 10000);
+    const settle = (error, status) => {
+      clearTimeout(timer);
+      resolve({ error, status, stdout, stderr });
+    };
+    child.on("error", (error) => settle(error, null));
+    child.on("close", (status) => settle(timedOut ? new Error("timed out") : null, status));
   });
-  assert.ifError(result.error);
-  const commands = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
-  return { ...result, commands, out: result.stdout.trim() ? JSON.parse(result.stdout) : null };
+
+let seq = 0;
+let active = 0;
+const queue = [];
+const launched = [];
+
+const withSlot = async (task) => {
+  if (active >= 8) await new Promise((resolve) => queue.push(resolve));
+  active += 1;
+  try {
+    return await task();
+  } finally {
+    active -= 1;
+    queue.shift()?.();
+  }
+};
+
+const enqueue = (task) => {
+  const promise = withSlot(task);
+  launched.push(promise);
+  promise.catch(() => {});
+  return promise;
+};
+
+const act = (mode, extra = []) => {
+  const log = join(directory, `act-${++seq}.jsonl`);
+  return enqueue(async () => {
+    writeFileSync(log, "");
+    const result = await runProcess(["--import", pathToFileURL(actPreload).href, actEntry,
+      "--app", "試験アプリ", "--bin", process.execPath, ...extra, "試験ボタンを押す"], {
+      ...process.env, TYPESAFE_API_KEY: "fixture", JEV_TEST_MODE: mode, JEV_TEST_LOG: log, JEV_ACT_TEST: "1",
+    });
+    assert.ifError(result.error);
+    const commands = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
+    return { ...result, commands, out: result.stdout.trim() ? JSON.parse(result.stdout) : null };
+  });
 };
 
 const run = (mode, extra = [], input = "試験") => {
   const inputs = Array.isArray(input) ? input : [input];
-  writeFileSync(log, "");
-  const result = spawnSync(process.execPath, ["--import", pathToFileURL(preload).href, entry,
-    "--app", "試験アプリ", ...inputs.flatMap(value => ["--text", value]), ...extra, "試験を完了する"], {
-    cwd: directory,
-    encoding: "utf8",
-    timeout: 10000,
-    env: { ...process.env, JEV_VERIFY_MS: "600", TYPESAFE_API_KEY: "fixture", AGENT_DESKTOP_BIN: process.execPath,
-      JEV_TEST_MODE: mode, JEV_TEST_LOG: log, JEV_TEST_INPUT: inputs[0], JEV_TEST_INPUTS: JSON.stringify(inputs) },
+  const log = join(directory, `run-${++seq}.jsonl`);
+  return enqueue(async () => {
+    writeFileSync(log, "");
+    const result = await runProcess(["--import", pathToFileURL(preload).href, entry,
+      "--app", "試験アプリ", ...inputs.flatMap(value => ["--text", value]), ...extra, "試験を完了する"], {
+      ...process.env, JEV_VERIFY_MS: mode === "paste_wrong" ? "600" : "5000", TYPESAFE_API_KEY: "fixture", AGENT_DESKTOP_BIN: process.execPath,
+      JEV_TEST_MODE: mode, JEV_TEST_LOG: log, JEV_TEST_INPUT: inputs[0], JEV_TEST_INPUTS: JSON.stringify(inputs),
+    });
+    assert.ifError(result.error);
+    assert.equal(result.stderr, "");
+    const events = result.stdout.trim().split("\n").map(JSON.parse);
+    const commands = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
+    return { ...result, events, commands, stop: events.at(-1) };
   });
-  assert.ifError(result.error);
-  assert.equal(result.stderr, "");
-  const events = result.stdout.trim().split("\n").map(JSON.parse);
-  const commands = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
-  return { ...result, events, commands, stop: events.at(-1) };
+};
+
+const badVerify = (bad) => {
+  const log = join(directory, `verify-${++seq}.jsonl`);
+  return enqueue(async () => {
+    writeFileSync(log, "");
+    const result = await runProcess(["--import", pathToFileURL(preload).href, entry,
+      "--app", "試験アプリ", "--text", "試験", "試験を完了する"], {
+      ...process.env, JEV_VERIFY_MS: bad, TYPESAFE_API_KEY: "fixture", AGENT_DESKTOP_BIN: process.execPath,
+      JEV_TEST_MODE: "paste_wrong", JEV_TEST_LOG: log,
+    });
+    return { ...result, log };
+  });
+};
+
+const usageCheck = (extra) => {
+  const log = join(directory, `usage-${++seq}.jsonl`);
+  return enqueue(async () => {
+    writeFileSync(log, "");
+    const result = await runProcess([entry, "--app", "試験アプリ", "試験", ...extra],
+      { ...process.env, TYPESAFE_API_KEY: "fixture", JEV_TEST_LOG: log });
+    return { ...result, log };
+  });
 };
 
 try {
-  const confirmed = run("destructive", ["--confirm-destructive"]);
+  const supplied = "PRIVATE-RUN-INPUT-7391";
+  const secondSupplied = "PRIVATE-RUN-INPUT-7392";
+
+  const confirmedTask = run("destructive", ["--confirm-destructive"]);
+  const defaultRiskTask = run("destructive");
+  const safeRiskTask = run("risk_safe", ["--confirm-destructive"]);
+  const actConfirmedTask = act("destructive", ["--execute", "--confirm-destructive"]);
+  const allowedTasks = [["destructive", []], ["risk_safe", ["--confirm-destructive"]]].map(([mode, extra]) => act(mode, ["--execute", ...extra]));
+  const waitedTask = run("wait");
+  const failedTask = run("click_error");
+  const unsafeTask = run("unsafe_type");
+  const copyFailedTask = run("clipboard_error");
+  const wrongTextTask = run("paste_wrong");
+  const lateTask = run("paste_late", [], supplied);
+  const directTask = run("direct_type", [], supplied);
+  const sequenceTask = run("sequence", [], [supplied, secondSupplied]);
+  const actNoValuesTask = act("done", ["--no-values"]);
+  const actDefaultTask = act("done");
+  const oldTask = run("old_binary");
+  const focusFailedTask = run("focus_error");
+  const pressFailedTask = run("press_error");
+  const readFailedTask = run("get_error");
+  const windowedTask = run("done", ["--window-id", "w-42"]);
+  const defaultDoneTask = run("done");
+  const windowPasteTask = run("paste_correct", ["--window-id", "w-42"]);
+  const closedTask = run("window_closed", ["--window-id", "w-42"]);
+  const surfacedTask = run("surface_ok", ["--window-id", "w-42"]);
+  const outsideTasks = ["surface_other", "surface_noid"].map((mode) => ({ mode, task: run(mode, ["--window-id", "w-42"]) }));
+  const rootOutsideTask = run("root_other", ["--window-id", "w-42", "--root", "@s1:e1"]);
+  const rootInsideTask = run("done", ["--window-id", "w-42", "--root", "@s1:e1"]);
+  const closedTopTask = run("closed_top", ["--window-id", "w-42"]);
+  const badVerifyTasks = ["abc", "Infinity", "-1"].map((bad) => ({ bad, task: badVerify(bad) }));
+  const usageTasks = [["--window-id"], ["--window-id", "--cursor"]].map((extra) => ({ extra, task: usageCheck(extra) }));
+  const actWindowedTask = act("surface_ok", ["--window-id", "w-42"]);
+  const actOutsideTasks = ["surface_other", "surface_noid"].map((mode) => ({ mode, task: act(mode, ["--window-id", "w-42"]) }));
+  const actRootTask = act("root_other", ["--window-id", "w-42", "--root", "@s1:e1"]);
+  const actUsageTask = act("done", ["--window-id", "--execute"]);
+  const blockedTask = run("blocked");
+  const doneTask = run("done");
+  const pastedTask = run("paste_correct");
+
+  const confirmed = await confirmedTask;
   assert.equal(confirmed.status, 1);
   assert.match(confirmed.stop.stop, /^confirm: hard to undo/);
   assert.equal(confirmed.commands.filter(c => c.command === "risk").length, 1);
   assert.equal(confirmed.commands.some(c => c.command === "click"), false);
   assert.deepEqual(confirmed.commands.find(c => c.command === "goal").args, ["試験を完了する"]);
-  const defaultRisk = run("destructive");
+  const defaultRisk = await defaultRiskTask;
   assert.equal(defaultRisk.status, 0);
   assert.equal(defaultRisk.commands.some(c => c.command === "risk"), false);
   assert.equal(defaultRisk.commands.filter(c => c.command === "click").length, 1);
-  const safeRisk = run("risk_safe", ["--confirm-destructive"]);
+  const safeRisk = await safeRiskTask;
   assert.equal(safeRisk.status, 0);
   assert.equal(safeRisk.commands.filter(c => c.command === "risk").length, 1);
   assert.equal(safeRisk.commands.filter(c => c.command === "click").length, 1);
-  const actConfirmed = act("destructive", ["--execute", "--confirm-destructive"]);
+  const actConfirmed = await actConfirmedTask;
   assert.equal(actConfirmed.status, 1);
   assert.equal(actConfirmed.out.decision, "confirm");
   assert.equal(actConfirmed.out.intent, "試験ボタンを押す");
   assert.equal(actConfirmed.commands.some(c => c.command === "click"), false);
-  for (const [mode, extra] of [["destructive", []], ["risk_safe", ["--confirm-destructive"]]]) {
-    const allowed = act(mode, ["--execute", ...extra]);
+  for (const task of allowedTasks) {
+    const allowed = await task;
     assert.equal(allowed.status, 0);
     assert.equal(allowed.out.decision, "act");
     assert.equal(allowed.commands.filter(c => c.command === "click").length, 1);
@@ -174,36 +279,35 @@ try {
   await execute({ app: "試験アプリ" }, "WAIT", null, null, null);
   assert.ok(performance.now() - started >= 230, "WAIT actually waits");
 
-  const waited = run("wait");
+  const waited = await waitedTask;
   assert.equal(waited.status, 0);
   assert.equal(waited.stop.stop, "done");
   assert.equal(waited.events.filter(event => event.turn).length, 3);
 
-  const failed = run("click_error");
+  const failed = await failedTask;
   assert.equal(failed.status, 1);
   assert.equal(failed.stop.stop, "action_failed");
   assert.equal(failed.stop.error.code, "ACTION_FAILED");
   assert.equal(failed.stop.error.disposition.retry, "unsafe");
   assert.equal(failed.commands.filter(command => command.command === "click").length, 1);
 
-  const unsafe = run("unsafe_type");
+  const unsafe = await unsafeTask;
   assert.equal(unsafe.status, 1);
   assert.equal(unsafe.stop.error.code, "TIMEOUT");
   assert.equal(unsafe.commands.some(command => command.command === "focus" || command.command === "press"), false);
 
-  const copyFailed = run("clipboard_error");
+  const copyFailed = await copyFailedTask;
   assert.equal(copyFailed.status, 1);
   assert.equal(copyFailed.stop.error.code, "COPY_FAILED");
   assert.equal(copyFailed.commands.some(command => command.command === "press"), false);
 
-  const wrongText = run("paste_wrong");
+  const wrongText = await wrongTextTask;
   assert.equal(wrongText.status, 1);
   assert.equal(wrongText.stop.error.code, "TEXT_VERIFICATION_FAILED");
   assert.equal(wrongText.commands.filter(command => command.command === "press").length, 1);
   assert.ok(wrongText.commands.filter(command => command.command === "get").length > 1, "a mismatch is re-read until the deadline");
 
-  const supplied = "PRIVATE-RUN-INPUT-7391";
-  const late = run("paste_late", [], supplied);
+  const late = await lateTask;
   assert.equal(late.status, 0);
   assert.equal(late.events[0].turn.delivery, "delivered_verified");
   assert.ok(late.events.filter(event => event.turn).every(event => !("text" in event.turn)), "stdout turns never retain supplied input");
@@ -211,12 +315,11 @@ try {
   assert.equal(late.commands.filter(command => command.command === "press").length, 1, "the paste is not repeated");
   assert.equal(late.commands.filter(command => command.command === "get").length, 3);
 
-  const direct = run("direct_type", [], supplied);
+  const direct = await directTask;
   assert.equal(direct.status, 0);
   assert.ok(!direct.stdout.includes(supplied), "stdout redacts supplied input echoed by action evidence");
 
-  const secondSupplied = "PRIVATE-RUN-INPUT-7392";
-  const sequence = run("sequence", [], [supplied, secondSupplied]);
+  const sequence = await sequenceTask;
   assert.equal(sequence.status, 0);
   assert.deepEqual(sequence.events.filter(event => event.turn).map(event => event.turn.operation), ["TYPE_TEXT", "CLICK", "TYPE_TEXT", "CLICK"]);
   assert.ok(!sequence.stdout.includes(supplied) && !sequence.stdout.includes(secondSupplied), "later target names and action evidence redact all supplied inputs");
@@ -228,50 +331,50 @@ try {
   }), "later model history never carries supplied strings back");
 
   const privateScreenValue = "PRIVATE-ACT-SCREEN-VALUE-4583";
-  const actNoValues = act("done", ["--no-values"]);
-  const actDefault = act("done");
+  const actNoValues = await actNoValuesTask;
+  const actDefault = await actDefaultTask;
   assert.ok(!JSON.stringify(actNoValues.commands.find(command => command.command === "request").body).includes(privateScreenValue));
   assert.ok(JSON.stringify(actDefault.commands.find(command => command.command === "request").body).includes(privateScreenValue));
 
-  const old = run("old_binary");
+  const old = await oldTask;
   assert.equal(old.status, 1);
   assert.equal(old.stop.error.code, "BINARY_TOO_OLD");
   assert.equal(old.commands.some(command => command.command === "focus"), false);
 
-  const focusFailed = run("focus_error");
+  const focusFailed = await focusFailedTask;
   assert.equal(focusFailed.status, 1);
   assert.equal(focusFailed.stop.stop, "action_failed");
   assert.equal(focusFailed.stop.error.code, "ACTION_FAILED");
   assert.equal(focusFailed.events.filter(event => event.turn).at(-1).turn.ok, false);
   assert.equal(focusFailed.commands.some(command => command.command === "press"), false);
 
-  const pressFailed = run("press_error");
+  const pressFailed = await pressFailedTask;
   assert.equal(pressFailed.status, 1);
   assert.equal(pressFailed.stop.stop, "action_failed");
   assert.equal(pressFailed.stop.error.code, "ACTION_FAILED");
   assert.equal(pressFailed.commands.some(command => command.command === "get"), false);
 
-  const readFailed = run("get_error");
+  const readFailed = await readFailedTask;
   assert.equal(readFailed.status, 1);
   assert.equal(readFailed.stop.stop, "action_failed");
   assert.equal(readFailed.stop.error.code, "TEXT_VERIFICATION_FAILED");
   assert.equal(readFailed.stop.error.details.read_error.code, "ACTION_FAILED");
 
-  const windowed = run("done", ["--window-id", "w-42"]);
+  const windowed = await windowedTask;
   assert.equal(windowed.status, 0);
   const snapshots = windowed.commands.filter(command => command.command === "snapshot");
   assert.ok(snapshots.length > 0);
   for (const { args } of snapshots) assert.deepEqual(args.slice(args.indexOf("--window-id"), args.indexOf("--window-id") + 2), ["--window-id", "w-42"]);
   assert.equal(windowed.stop.screen.window_id, "w-42");
   assert.ok(snapshots.every(({ args }) => args.includes("--window-id")));
-  assert.equal(run("done").commands.some(command => command.args.includes("--window-id")), false);
+  assert.equal((await defaultDoneTask).commands.some(command => command.args.includes("--window-id")), false);
 
-  const windowPaste = run("paste_correct", ["--window-id", "w-42"]);
+  const windowPaste = await windowPasteTask;
   assert.equal(windowPaste.status, 0);
   const press = windowPaste.commands.find(command => command.command === "press");
   assert.deepEqual(press.args.slice(press.args.indexOf("--window-id"), press.args.indexOf("--window-id") + 2), ["--window-id", "w-42"]);
 
-  const closed = run("window_closed", ["--window-id", "w-42"]);
+  const closed = await closedTask;
   assert.equal(closed.status, 1);
   assert.equal(closed.stop.stop, "window_closed");
   assert.equal(closed.events.filter(event => event.turn).length, 1);
@@ -279,52 +382,46 @@ try {
   const afterClick = closed.commands.slice(closed.commands.findIndex(command => command.command === "click") + 1);
   assert.equal(afterClick.filter(command => command.command === "snapshot").length, 1);
 
-  const surfaced = run("surface_ok", ["--window-id", "w-42"]);
+  const surfaced = await surfacedTask;
   assert.equal(surfaced.status, 0);
   const surfaceReads = surfaced.commands.filter(command => command.args.includes("--surface"));
   assert.ok(surfaceReads.length > 0, "the surface path runs");
   for (const { args } of surfaceReads) assert.deepEqual(args.slice(args.indexOf("--window-id"), args.indexOf("--window-id") + 2), ["--window-id", "w-42"]);
   assert.equal(surfaced.stop.screen.surface, "sheet");
 
-  for (const mode of ["surface_other", "surface_noid"]) {
-    const outside = run(mode, ["--window-id", "w-42"]);
+  for (const { mode, task } of outsideTasks) {
+    const outside = await task;
     assert.equal(outside.status, 1, mode);
     assert.equal(outside.stop.stop, "surface_outside_window", mode);
     assert.equal(outside.commands.some(command => ["click", "set-value", "press"].includes(command.command)), false, mode);
   }
 
-  const rootOutside = run("root_other", ["--window-id", "w-42", "--root", "@s1:e1"]);
+  const rootOutside = await rootOutsideTask;
   assert.equal(rootOutside.status, 1);
   assert.equal(rootOutside.stop.stop, "root_outside_window");
-  const rootInside = run("done", ["--window-id", "w-42", "--root", "@s1:e1"]);
+  const rootInside = await rootInsideTask;
   assert.equal(rootInside.status, 0);
 
-  const closedTop = run("closed_top", ["--window-id", "w-42"]);
+  const closedTop = await closedTopTask;
   assert.equal(closedTop.status, 1);
   assert.equal(closedTop.stop.stop, "window_closed");
   assert.equal(closedTop.stop.error, undefined);
   assert.equal(closedTop.stop.screen.window_id, "w-42");
 
-  for (const bad of ["abc", "Infinity", "-1"]) {
-    writeFileSync(log, "");
-    const refused = spawnSync(process.execPath, ["--import", pathToFileURL(preload).href, entry,
-      "--app", "試験アプリ", "--text", "試験", "試験を完了する"], { cwd: directory, encoding: "utf8", timeout: 10000,
-      env: { ...process.env, JEV_VERIFY_MS: bad, TYPESAFE_API_KEY: "fixture", AGENT_DESKTOP_BIN: process.execPath,
-        JEV_TEST_MODE: "paste_wrong", JEV_TEST_LOG: log } });
+  for (const { bad, task } of badVerifyTasks) {
+    const refused = await task;
     assert.notEqual(refused.status, 0, `JEV_VERIFY_MS=${bad} is refused`);
     assert.match(refused.stderr, /JEV_VERIFY_MS must be a number/);
-    assert.equal(readFileSync(log, "utf8"), "", `JEV_VERIFY_MS=${bad} runs no command`);
+    assert.equal(readFileSync(refused.log, "utf8"), "", `JEV_VERIFY_MS=${bad} runs no command`);
   }
 
-  for (const tail of [["--window-id"], ["--window-id", "--cursor"]]) {
-    const extra = tail;
-    const usage = spawnSync(process.execPath, [entry, "--app", "試験アプリ", "試験", ...extra],
-      { encoding: "utf8", env: { ...process.env, TYPESAFE_API_KEY: "fixture" } });
+  for (const { extra, task } of usageTasks) {
+    const usage = await task;
     assert.equal(usage.status, 2, extra.join(" "));
     assert.match(usage.stderr, /needs a value/);
   }
 
-  const actWindowed = act("surface_ok", ["--window-id", "w-42"]);
+  const actWindowed = await actWindowedTask;
   assert.equal(actWindowed.status, 0);
   assert.equal(actWindowed.out.window_id, "w-42");
   assert.equal(actWindowed.out.surface, "sheet");
@@ -332,24 +429,25 @@ try {
   assert.equal(actReads.length, 2);
   for (const { args } of actReads) assert.deepEqual(args.slice(args.indexOf("--window-id"), args.indexOf("--window-id") + 2), ["--window-id", "w-42"]);
 
-  for (const mode of ["surface_other", "surface_noid"]) {
-    const outside = act(mode, ["--window-id", "w-42"]);
+  for (const { mode, task } of actOutsideTasks) {
+    const outside = await task;
     assert.equal(outside.status, 1, mode);
     assert.equal(outside.out.error, "surface_outside_window", mode);
   }
-  const actRoot = act("root_other", ["--window-id", "w-42", "--root", "@s1:e1"]);
+  const actRoot = await actRootTask;
   assert.equal(actRoot.status, 1);
   assert.equal(actRoot.out.error, "root_outside_window");
-  const actUsage = act("done", ["--window-id", "--execute"]);
+  const actUsage = await actUsageTask;
   assert.equal(actUsage.status, 2);
 
-  assert.equal(run("blocked").status, 1);
-  assert.equal(run("done").status, 0);
-  const pasted = run("paste_correct");
+  assert.equal((await blockedTask).status, 1);
+  assert.equal((await doneTask).status, 0);
+  const pasted = await pastedTask;
   assert.equal(pasted.status, 0);
   assert.equal(pasted.commands.filter(command => command.command === "press").length, 1);
   assert.equal(pasted.events[0].turn.delivery, "delivered_verified");
   console.log("ok");
 } finally {
+  await Promise.allSettled(launched);
   rmSync(directory, { recursive: true, force: true });
 }

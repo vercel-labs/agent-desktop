@@ -72,7 +72,7 @@ class RefContractTests(unittest.TestCase):
         node = {"name": "Alpha", "role": "combobox", "available_actions": ["Expand"]}
         error = {"code": "ACTION_NOT_SUPPORTED", "details": {"kind": "native_popup_requires_input"},
                  "disposition": {"delivery": "not_delivered"}}
-        ctx = SimpleNamespace(reads={}, before=Mock(), after=Mock())
+        ctx = SimpleNamespace(reads={}, before=Mock(), after=Mock(), leg=SimpleNamespace(id="ref_contract.zoo_gtk3"))
         with patch("scenarios.ref_contract.zoo", return_value=nullcontext((None, None))), \
                 patch("scenarios.ref_contract.root"), \
                 patch("scenarios.ref_contract.snapshot", return_value={"ref_id": "e1", **node}), \
@@ -91,6 +91,32 @@ class RefContractTests(unittest.TestCase):
         row = report.call_args.args[1][0]
         self.assertEqual(row["expected"], ["land"])
         self.assertEqual(row["verdict"], "fail")
+        self.assertFalse(row["token"])
+
+    def test_gtk_zoo_refs_must_exercise_element_tokens_and_qt_needs_none(self):
+        self.assertIsNone(self.run_passing_click("ref_contract.zoo_gtk3", token=True))
+        self.assertIsNone(self.run_passing_click("ref_contract.zoo_qt", token=False))
+        with self.assertRaisesRegex(AssertionError, "element token"):
+            self.run_passing_click("ref_contract.zoo_gtk4", token=False)
+
+    def run_passing_click(self, leg_id, *, token):
+        node = {"name": "Alpha", "role": "button", "available_actions": ["Click"], "_token": token}
+        ctx = SimpleNamespace(reads={}, before=Mock(), after=Mock(), leg=SimpleNamespace(id=leg_id))
+        ok = SimpleNamespace(ok=True, error=None, exit_code=0)
+        with patch("scenarios.ref_contract.zoo", return_value=nullcontext((None, None))), \
+                patch("scenarios.ref_contract.root"), \
+                patch("scenarios.ref_contract.snapshot", return_value={"ref_id": "e1", **node}), \
+                patch("scenarios.ref_contract.fresh", return_value=node), \
+                patch("scenarios.ref_contract.prepare", return_value=node), \
+                patch("scenarios.ref_contract.raw_state", return_value=()), \
+                patch("scenarios.ref_contract.events", return_value=[]), \
+                patch("scenarios.ref_contract.since_reset", return_value=[]), \
+                patch("scenarios.ref_contract.reset"), \
+                patch("scenarios.ref_contract.effect", return_value=(True, True)), \
+                patch("scenarios.ref_contract.poll", side_effect=lambda read, *a, **kw: read()), \
+                patch("scenarios.ref_contract.act", return_value=ok), \
+                patch("scenarios.ref_contract.print_rows"):
+            return refs(ctx)
 
     def test_close_runs_last_and_restores_a_new_fixture_after_observed_exit(self):
         close = {"name": "Close", "role": "button"}

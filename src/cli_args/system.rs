@@ -27,7 +27,8 @@ pub(crate) struct LaunchArgs {
         long = "arg",
         allow_hyphen_values = true,
         help = "Command-line argument passed to the launched app; repeatable, order preserved. \
-                For values starting with '-', use --arg=<value>"
+                For values starting with '-', use --arg=<value>. Arguments reach an app that \
+                starts; on a running instance the launch forwards them or refuses before sending"
     )]
     #[serde(default)]
     pub args: Vec<String>,
@@ -42,7 +43,7 @@ pub(crate) struct LaunchArgs {
     pub cwd: Option<std::path::PathBuf>,
     #[arg(
         long = "no-attach",
-        help = "Start a fresh instance instead of attaching to a running one (Windows fails if the app is already running)"
+        help = "Require a fresh instance: fails with ACTION_FAILED and sends nothing when the app is already running, on every platform"
     )]
     #[serde(default)]
     pub no_attach: bool,
@@ -231,9 +232,9 @@ pub(crate) struct WaitArgs {
     pub app: Option<String>,
 }
 
-/// The `--event`/`--window-id` pair, grouped out of [`WaitModeArgs`] to keep
-/// it under the repo's field-count limit. `window_id` only ever narrows an
-/// `--event` wait, so the two travel together.
+/// The desktop-wide waits, grouped out of [`WaitModeArgs`] to keep it under
+/// the repo's field-count limit: `--event` with its `--window-id` narrowing,
+/// and `--surface`.
 #[derive(Args, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct WaitEventArgs {
@@ -248,6 +249,12 @@ pub(crate) struct WaitEventArgs {
         help = "Optional: narrow --event window-opened/window-closed/focus-changed to one window ID"
     )]
     pub window_id: Option<String>,
+    #[arg(
+        long,
+        value_name = "KIND",
+        help = "Block until a surface of this kind is open in the app: popover, sheet, alert, menu, or any of them. A surface already open counts, so it also finds one that opened just after a click"
+    )]
+    pub surface: Option<String>,
 }
 
 #[derive(Args, Debug, Deserialize)]

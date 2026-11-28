@@ -93,21 +93,19 @@ pub(crate) fn ensure_budget(deadline: Deadline) -> Result<(), AdapterError> {
 }
 
 pub(crate) fn ensure_keyboard_policy(policy: InteractionPolicy) -> Result<(), AdapterError> {
-    if !policy.allow_focus_steal {
-        return Err(AdapterError::policy_denied_for_policy(
-            "Physical keyboard fallback requires focus permission",
-            policy,
-        ));
-    }
-    Ok(())
+    policy.require(
+        agent_desktop_core::Effect::FocusSteal,
+        "Physical keyboard fallback",
+    )
 }
 
 pub(crate) fn ensure_headed_click_policy(policy: InteractionPolicy) -> Result<(), AdapterError> {
-    if !policy.allow_cursor_move || !policy.allow_focus_steal {
-        return Err(AdapterError::policy_denied_for_policy(
-            "Physical pointer input is disabled by the current interaction policy",
-            policy,
-        ));
-    }
-    Ok(())
+    policy.require(
+        agent_desktop_core::Effect::FocusSteal,
+        "Physical pointer input",
+    )?;
+    policy.require(
+        agent_desktop_core::Effect::CursorMove,
+        "Physical pointer input",
+    )
 }

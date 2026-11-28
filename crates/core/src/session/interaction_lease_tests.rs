@@ -340,3 +340,27 @@ fn runtime_directory_is_private_and_rejects_symlinks() {
     assert!(ensure_unix_runtime_directory(&runtime, uid).is_err());
     std::fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn a_lease_held_by_another_command_fails_as_not_delivered_and_safe_to_retry() {
+    let _test_guard = interaction_lease_test_guard();
+    let root = test_root("not-delivered");
+    let path = interaction_lock_path_at(&root).unwrap();
+    let other_command = FileLock::acquire(&path, Deadline::after(1_000).unwrap(), "other").unwrap();
+
+    let error = match acquire_unix_interaction_lease_at(Deadline::after(30).unwrap(), &root) {
+        Ok(_) => panic!("contended lease unexpectedly acquired"),
+        Err(error) => error,
+    };
+
+    assert_eq!(error.code, ErrorCode::Timeout);
+    assert_eq!(error.details.as_ref().unwrap()["kind"], "lock_timeout");
+    assert!(error.message.contains("Another agent-desktop command held"));
+    assert!(error.suggestion.as_deref().unwrap().contains("Retry"));
+    let payload = crate::ErrorPayload::from_app_error(&crate::AppError::Adapter(error));
+    let disposition = serde_json::to_value(payload.disposition).unwrap();
+    assert_eq!(disposition["delivery"], "not_delivered");
+    assert_eq!(disposition["retry"], "safe");
+    drop(other_command);
+    std::fs::remove_dir_all(root).unwrap();
+}

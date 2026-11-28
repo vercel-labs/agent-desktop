@@ -8,7 +8,7 @@ interaction_suite() {
         stepper="6"
         direction="up"
         natural_mechanism="physical_synthetic"
-        "$bin" focus-window --app "$app" >/dev/null 2>&1
+        "$bin" focus-window --headed --app "$app" >/dev/null 2>&1
     else
         selection="Beta"
         slider="50"
@@ -90,7 +90,7 @@ verify "select Tab One" tab-status 0 semantic_api "$tab_one" click
 
 note "Headed gesture fallback"
 require_target double_target button double-target
-"$bin" focus-window --app "$app" >/dev/null 2>&1
+"$bin" focus-window --headed --app "$app" >/dev/null 2>&1
 require_value double_before double-status
 double_headless="$(act_target "$double_target" double-click 2>/dev/null)"
 sleep 0.3
@@ -100,7 +100,7 @@ assert "headless double-click fails closed without moving the cursor" \
     "$([ "$double_after_headless" = "$double_before" ] && [ "$double_code" = "POLICY_DENIED" ] && echo 1 || echo 0)" \
     "before=$double_before after=$double_after_headless error=$double_code"
 
-"$bin" focus-window --app "$app" >/dev/null 2>&1
+"$bin" focus-window --headed --app "$app" >/dev/null 2>&1
 MODE_FLAG="--headed"
 double_headed="$(act_target "$double_target" double-click 2>/dev/null)"
 MODE_FLAG=""
@@ -122,7 +122,7 @@ assert "headed triple-click delivers a three-tap gesture" \
     "before=$triple_before after=$triple_after"
 
 hover_preposition="$("$bin" --headed mouse-move --xy 20,20 2>/dev/null)"
-"$bin" focus-window --app "$app" >/dev/null 2>&1
+"$bin" focus-window --headed --app "$app" >/dev/null 2>&1
 sleep 0.2
 assert "hover precondition positions the pointer outside the target" \
     "$([ "$(json_field "$hover_preposition" ok)" = "True" ] && echo 1 || echo 0)" \

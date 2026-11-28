@@ -1,5 +1,5 @@
 use super::*;
-use crate::tree::live::live_launch::nonce;
+use crate::tree::test_support::live_launch::nonce;
 
 fn scratch(label: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(nonce(label));

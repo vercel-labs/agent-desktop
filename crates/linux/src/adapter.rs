@@ -1,9 +1,9 @@
 use agent_desktop_core::{
-    AccessibilityNode, ActionOps, ActionRequest, ActionResult, AdapterError, AppInfo, AppInventory,
-    ClipboardContent, ClipboardFormat, Deadline, DragParams, ElementState, HitTestResult, InputOps,
-    InteractionLease, KeyCombo, LiveElement, MouseEvent, NativeHandle, ObservationOps,
-    ObservationRequest, ObservationRoot, ObservedTree, OperationReport, Point, ProcessIdentity,
-    Rect, RefEntry, SnapshotSurface, SurfaceInfo, TreeOptions, WindowFilter, WindowInfo,
+    AccessibilityNode, AdapterError, AppInventory, ClipboardContent, ClipboardFormat, Deadline,
+    DragParams, EffectWitness, ElementState, HitTestResult, InputOps, InteractionLease, KeyCombo,
+    LiveElement, MouseEvent, NativeHandle, ObservationOps, ObservationRequest, ObservationRoot,
+    ObservedTree, OperationReport, Point, ProcessIdentity, Rect, RefEntry, SnapshotSurface,
+    SurfaceInfo, TreeOptions, WindowFilter, WindowInfo,
 };
 
 use crate::system::SharedBus;
@@ -53,9 +53,6 @@ impl ObservationOps for LinuxAdapter {
         entry: &RefEntry,
         deadline: Deadline,
     ) -> Result<NativeHandle, AdapterError> {
-        if crate::system::tray::owns(entry) {
-            return crate::system::tray::resolve(entry, deadline);
-        }
         crate::tree::resolve_element_strict(self.bus(), entry, deadline)
     }
 
@@ -70,15 +67,10 @@ impl ObservationOps for LinuxAdapter {
     fn resolve_locator_anchor(
         &self,
         entry: &RefEntry,
+        base: Option<&NativeHandle>,
         deadline: Deadline,
     ) -> Result<NativeHandle, AdapterError> {
-        if crate::system::tray::owns(entry) {
-            return crate::system::tray::resolve(entry, deadline);
-        }
-        if crate::tree::is_menu_entry(entry) {
-            return crate::tree::resolve_element_strict(self.bus(), entry, deadline);
-        }
-        crate::tree::resolve_locator_anchor(self.bus(), entry, deadline)
+        crate::tree::resolve_locator_anchor(self.bus(), entry, base, deadline)
     }
 
     fn resolve_shell_surface(
@@ -95,6 +87,14 @@ impl ObservationOps for LinuxAdapter {
         deadline: Deadline,
     ) -> Result<Option<String>, AdapterError> {
         crate::tree::get_live_value(self.bus(), handle, deadline)
+    }
+
+    fn read_effect_witness(
+        &self,
+        handle: &NativeHandle,
+        deadline: Deadline,
+    ) -> Result<EffectWitness, AdapterError> {
+        crate::tree::read_effect_witness(self.bus(), handle, deadline)
     }
 
     fn get_live_state(
@@ -213,29 +213,12 @@ impl ObservationOps for LinuxAdapter {
         crate::system::list_windows(self.bus(), filter, deadline)
     }
 
-    fn list_apps(&self, deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        Ok(self.list_apps_inventory(deadline)?.apps)
-    }
-
-    fn list_apps_inventory(&self, deadline: Deadline) -> Result<AppInventory, AdapterError> {
-        crate::system::app_inventory(self.bus(), deadline)
-    }
-
     fn query_app_inventory(
         &self,
         query: agent_desktop_core::AppInventoryQuery<'_>,
         deadline: Deadline,
     ) -> Result<AppInventory, AdapterError> {
         crate::system::context::inventory::query(self.bus(), query, deadline)
-    }
-
-    fn list_apps_scoped(
-        &self,
-        name: &str,
-        bundle_id: Option<&str>,
-        deadline: Deadline,
-    ) -> Result<Vec<AppInfo>, AdapterError> {
-        crate::system::apps_scoped(self.bus(), name, bundle_id, deadline)
     }
 
     fn list_surfaces(
@@ -260,63 +243,6 @@ impl ObservationOps for LinuxAdapter {
     }
 }
 
-impl LinuxAdapter {
-    fn deliver(
-        &self,
-        handle: &NativeHandle,
-        request: ActionRequest,
-        lease: &InteractionLease,
-    ) -> Result<ActionResult, AdapterError> {
-        let target = crate::tree::atspi_element(handle)
-            .ok()
-            .map(|element| element.pid());
-        let result = match crate::system::tray::target_of(handle) {
-            Some(target) => crate::system::tray::execute(target, request, lease),
-            None => {
-                let outcome = crate::tree::atspi_element(handle)
-                    .ok()
-                    .filter(|element| crate::system::shell::is_shell_element(element))
-                    .and_then(|element| {
-                        crate::system::shell::deliver::deliver(self.bus(), element, &request, lease)
-                    });
-                match outcome {
-                    Some(result) => result,
-                    None => crate::actions::execute_action(self.bus(), handle, request, lease),
-                }
-            }
-        };
-        crate::system::interaction::action_clock::mark_outcome(target, &result);
-        result
-    }
-}
-
-impl ActionOps for LinuxAdapter {
-    fn scroll_ref_into_view(
-        &self,
-        entry: &agent_desktop_core::RefEntry,
-        handle: &NativeHandle,
-        lease: &InteractionLease,
-    ) -> Result<Option<NativeHandle>, AdapterError> {
-        crate::actions::scroll::scroll_ref::scroll(self.bus(), entry, handle, lease)
-    }
-
-    fn execute_action(
-        &self,
-        handle: &NativeHandle,
-        request: ActionRequest,
-        lease: &InteractionLease,
-    ) -> Result<ActionResult, AdapterError> {
-        self.deliver(handle, request, lease)
-    }
-
-    fn scroll_into_view(
-        &self,
-        handle: &NativeHandle,
-        lease: &InteractionLease,
-    ) -> Result<(), AdapterError> {
-        crate::actions::before_pointer(crate::actions::scroll_into_view(self.bus(), handle, lease))
-    }
-}
 impl InputOps for LinuxAdapter {
     fn physical_pointer_refusal(&self) -> Option<AdapterError> {
         match crate::input::backend::backend() {
@@ -350,12 +276,7 @@ impl InputOps for LinuxAdapter {
         crate::input::deliver::drag(&params, lease)
     }
 
-    fn key_event(
-        &self,
-        _combo: &KeyCombo,
-        _down: bool,
-        _lease: &InteractionLease,
-    ) -> Result<(), AdapterError> {
+    fn key_event(&self, _: &KeyCombo, _: bool, _: &InteractionLease) -> Result<(), AdapterError> {
         Err(crate::input::standalone::reject_standalone(
             "key-down/key-up",
         ))

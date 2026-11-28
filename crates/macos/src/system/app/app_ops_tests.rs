@@ -56,6 +56,7 @@ fn adapter_close_without_a_process_instance_keeps_the_invalid_args_contract() {
     use agent_desktop_core::{InteractionLease, SystemOps};
 
     let app = AppInfo {
+        aliases: Vec::new(),
         name: "TextEdit".into(),
         pid: agent_desktop_core::ProcessId::new(42),
         bundle_id: None,
@@ -66,7 +67,12 @@ fn adapter_close_without_a_process_instance_keeps_the_invalid_args_contract() {
     let lease = InteractionLease::guarded(deadline, ()).expect("lease");
 
     let error = crate::adapter::MacOSAdapter::new()
-        .close_app(&app, false, &lease)
+        .close_app(
+            &app,
+            false,
+            &lease,
+            agent_desktop_core::InteractionPolicy::headless(),
+        )
         .unwrap_err();
 
     assert_eq!(error.code, agent_desktop_core::ErrorCode::InvalidArgs);

@@ -1,5 +1,10 @@
-use agent_desktop_core::{AdapterError, Deadline, ErrorCode, InteractionPolicy, KeyCombo};
-use std::time::{Duration, Instant};
+//! Keyboard input that takes the foreground first: the application is
+//! activated and the element focused before any key is sent, so every entry
+//! point needs a policy that permits a focus change. Delivery that leaves the
+//! application where it is lives in `background_keyboard`.
+
+use agent_desktop_core::{AdapterError, Deadline, Effect, ErrorCode, InteractionPolicy, KeyCombo};
+use std::time::Duration;
 
 use crate::tree::AXElement;
 
@@ -49,18 +54,10 @@ pub(crate) fn type_text(
     .map_err(|error| delivery.annotate(error))
 }
 
-fn prepare_target(
+pub(super) fn owning_process(
     element: &AXElement,
-    policy: InteractionPolicy,
     deadline: Deadline,
-    delivery: &mut crate::actions::DeliveryTracker,
 ) -> Result<crate::system::process::process_identity::ProcessIdentity, AdapterError> {
-    if !policy.allow_focus_steal {
-        return Err(AdapterError::policy_denied_for_policy(
-            "Physical keyboard fallback requires focus permission",
-            policy,
-        ));
-    }
     let pid = crate::system::app::app_ops::pid_from_element(element, deadline)
         .filter(|pid| *pid > 0)
         .ok_or_else(|| {
@@ -68,14 +65,31 @@ fn prepare_target(
                 ErrorCode::StaleRef,
                 "Keyboard target no longer has a valid owning process",
             )
+            .with_disposition(agent_desktop_core::DeliverySemantics::not_delivered())
         })?;
-    let identity = crate::system::process::process_identity::ProcessIdentity::capture(pid)?
-        .ok_or_else(|| {
-            AdapterError::new(
-                ErrorCode::StaleRef,
-                "Keyboard target process exited before physical input preparation",
-            )
-        })?;
+    crate::system::process::process_identity::ProcessIdentity::capture(pid)?.ok_or_else(|| {
+        AdapterError::new(
+            ErrorCode::StaleRef,
+            "Keyboard target process exited before physical input preparation",
+        )
+        .with_disposition(agent_desktop_core::DeliverySemantics::not_delivered())
+    })
+}
+
+fn prepare_target(
+    element: &AXElement,
+    policy: InteractionPolicy,
+    deadline: Deadline,
+    delivery: &mut crate::actions::DeliveryTracker,
+) -> Result<crate::system::process::process_identity::ProcessIdentity, AdapterError> {
+    crate::actions::background_effect::require(
+        policy,
+        Effect::FocusSteal,
+        "keyboard input",
+        "takes_key_focus",
+    )?;
+    let identity = owning_process(element, deadline)?;
+    let pid = identity.pid();
     if let Some(window) = target_window(element, deadline)? {
         crate::system::focus::verify_window_main(&window, deadline)?;
     }
@@ -100,14 +114,29 @@ fn verify_delivery_target(
     identity: crate::system::process::process_identity::ProcessIdentity,
     deadline: Deadline,
 ) -> Result<(), AdapterError> {
-    if !identity.still_matches()? {
-        return Err(AdapterError::new(
-            ErrorCode::StaleRef,
-            "Keyboard target process instance changed before physical input delivery",
-        )
-        .with_disposition(agent_desktop_core::DeliverySemantics::not_delivered()));
-    }
+    require_same_process(identity)?;
     verify_focused_element(expected, identity.pid(), deadline)
+}
+
+pub(super) fn require_same_process(
+    identity: crate::system::process::process_identity::ProcessIdentity,
+) -> Result<(), AdapterError> {
+    if identity.still_matches()? {
+        return Ok(());
+    }
+    Err(AdapterError::new(
+        ErrorCode::StaleRef,
+        "Keyboard target process instance changed before physical input delivery",
+    )
+    .with_disposition(agent_desktop_core::DeliverySemantics::not_delivered()))
+}
+
+pub(super) fn lost_focus() -> AdapterError {
+    AdapterError::new(
+        ErrorCode::ActionFailed,
+        "Target element lost focus before PID-targeted keyboard delivery",
+    )
+    .with_disposition(agent_desktop_core::DeliverySemantics::not_delivered())
 }
 
 fn target_window(
@@ -127,21 +156,21 @@ fn wait_for_focused_element(
     pid: i32,
     deadline: Deadline,
 ) -> Result<(), AdapterError> {
-    let local_deadline = Instant::now() + Duration::from_millis(500);
-    loop {
-        if focused_element_matches(expected, pid, deadline)? {
-            return Ok(());
-        }
-        deadline.ensure_remaining()?;
-        if Instant::now() >= local_deadline {
-            return Err(AdapterError::timeout(
-                "Target element did not become focused before keyboard delivery",
-            )
-            .with_disposition(agent_desktop_core::DeliverySemantics::not_delivered()));
-        }
-        let pause = deadline.remaining_slice(Duration::from_millis(5))?;
-        std::thread::sleep(pause.min(Duration::from_millis(5)));
+    let read = || focused_element_matches(expected, pid, deadline);
+    let focused = deadline.poll_until(
+        Duration::from_millis(500),
+        Duration::from_millis(5),
+        read,
+        |read| !matches!(read, Ok(false)),
+    )?;
+    if focused {
+        return Ok(());
     }
+    deadline.ensure_remaining()?;
+    Err(
+        AdapterError::timeout("Target element did not become focused before keyboard delivery")
+            .with_disposition(agent_desktop_core::DeliverySemantics::not_delivered()),
+    )
 }
 
 fn verify_focused_element(
@@ -153,14 +182,10 @@ fn verify_focused_element(
     if focused_element_matches(expected, pid, deadline)? {
         return Ok(());
     }
-    Err(AdapterError::new(
-        ErrorCode::ActionFailed,
-        "Target element lost focus before PID-targeted keyboard delivery",
-    )
-    .with_disposition(agent_desktop_core::DeliverySemantics::not_delivered()))
+    Err(lost_focus())
 }
 
-fn focused_element_matches(
+pub(super) fn focused_element_matches(
     expected: &AXElement,
     pid: i32,
     deadline: Deadline,

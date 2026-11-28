@@ -1,3 +1,5 @@
+use agent_desktop_core::{Deadline, DeliverySemantics};
+
 use super::*;
 use crate::tree::Extents;
 
@@ -22,10 +24,14 @@ fn recovery_requires_the_retained_bus_and_object_identity() {
         name: Some("GTK".to_owned()),
         version: Some("4.14.5".to_owned()),
     };
-    let mut entry = crate::tree::live::test_support::ref_entry("incrementor");
-    entry.identity.retained_object = Some(format!(":1.2{path}"));
+    let mut entry = crate::tree::test_support::helpers::ref_entry("incrementor");
+    entry.identity.retained_object =
+        Some(format!("token:atspi1:g|40|:1.2|0000000000000000||{path}"));
     assert!(eligible(&entry, &element, &toolkit));
-    for other in [path.to_owned(), format!(":1.3{path}")] {
+    for other in [
+        format!(":1.2{path}"),
+        format!("token:atspi1:g|40|:1.3|0000000000000000||{path}"),
+    ] {
         entry.identity.retained_object = Some(other);
         assert!(!eligible(&entry, &element, &toolkit));
     }
@@ -76,7 +82,7 @@ fn witness(y: i32, value: f64) -> Witness {
 
 #[test]
 fn viewport_motion_only_translates_the_ref_when_independent_scroll_evidence_agrees() {
-    let mut entry = crate::tree::live::test_support::ref_entry("incrementor");
+    let mut entry = crate::tree::test_support::helpers::ref_entry("incrementor");
     entry.geometry.bounds = Some(Rect::from(bounds(781)));
     entry.geometry.bounds_space = Some(BoundsSpace::Window);
     let before = witness(781, 0.0);
@@ -132,4 +138,20 @@ fn only_a_gtk_random_uuid_context_path_can_supply_the_lifecycle_witness() {
     ] {
         assert!(!uuid_context(path), "{path}");
     }
+}
+
+#[test]
+fn a_row_gone_stale_after_a_delivered_scroll_lets_the_caller_resolve_the_ref_again() {
+    let bus = SharedBus::default();
+    let handle = AtspiElement::new(":1.2", "/org/a11y/atspi/accessible/1", 40).into_native_handle();
+    let lease = InteractionLease::guarded(Deadline::after(2_000).unwrap(), ()).unwrap();
+    let entry = crate::tree::test_support::helpers::ref_entry("incrementor");
+    let stale =
+        |_: &SharedBus, _: &NativeHandle, _: &InteractionLease| -> Result<bool, AdapterError> {
+            Err(AdapterError::stale_ref_because("the row was recycled")
+                .with_disposition(DeliverySemantics::uncertain()))
+        };
+    let recovered = recover(&bus, &entry, &handle, &lease, stale)
+        .expect("a stale row after a delivered scroll is left for re-resolution");
+    assert!(recovered.is_none());
 }

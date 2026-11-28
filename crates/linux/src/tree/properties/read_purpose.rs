@@ -7,7 +7,6 @@ pub(crate) enum ReadPurpose {
     /// and children, without extents or actions.
     Count,
     Identity,
-    Resolve,
     Element,
     State,
     Bounds,
@@ -23,12 +22,7 @@ impl ReadPurpose {
     pub(in crate::tree) fn identity(self) -> bool {
         matches!(
             self,
-            Self::Snapshot
-                | Self::Sampling
-                | Self::Count
-                | Self::Identity
-                | Self::Resolve
-                | Self::Element
+            Self::Snapshot | Self::Sampling | Self::Count | Self::Identity | Self::Element
         )
     }
 
@@ -55,13 +49,7 @@ impl ReadPurpose {
     pub(in crate::tree) fn children(self) -> bool {
         matches!(
             self,
-            Self::Snapshot
-                | Self::Sampling
-                | Self::Count
-                | Self::Structure
-                | Self::Shape
-                | Self::Gate
-                | Self::Resolve
+            Self::Snapshot | Self::Sampling | Self::Count | Self::Structure | Self::Gate
         )
     }
 }

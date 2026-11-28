@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use super::*;
 use super::{directory, identity};
-use crate::system::fixture::test_support::with_interaction_lease_test_lock;
+use crate::system::test_support::helpers::with_interaction_lease_test_lock;
 
 /// Canonicalized before returning: `validate_final_path` compares a lease
 /// directory's resolved final path against the literal root it was joined
@@ -113,6 +113,11 @@ fn cross_process_contention_times_out_with_lock_timeout_kind() {
         let details = error.details.as_ref().unwrap();
         assert_eq!(details["kind"], "lock_timeout");
         assert!(details["contention_count"].as_u64().unwrap() >= 1);
+        assert_eq!(
+            error.disposition,
+            agent_desktop_core::DeliverySemantics::not_delivered()
+        );
+        assert!(error.message.contains("Another agent-desktop command held"));
 
         let _ = child.kill();
         reap_child(&mut child, Duration::from_secs(60));

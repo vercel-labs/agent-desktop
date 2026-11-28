@@ -12,7 +12,7 @@ press_suite() {
     local field
     MODE_FLAG="--headed"
     note "[headed] press delivers real key combos to the focused field"
-    "$bin" focus-window --app "$app" >/dev/null 2>&1
+    "$bin" focus-window --headed --app "$app" >/dev/null 2>&1
     require_target field textfield text-input
     act_target "$field" clear >/dev/null 2>&1
     require_target field textfield text-input

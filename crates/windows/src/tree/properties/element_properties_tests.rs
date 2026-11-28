@@ -94,3 +94,163 @@ fn a_rich_edit_value_drops_only_its_final_paragraph_mark() {
         LocatorField::Known("hi".into())
     );
 }
+
+fn read_through_the_bound(class: &str, raw: String) -> LocatorField<String> {
+    ElementProperties::from_reads(vec![
+        (
+            TreeProperty::ClassName,
+            PropertyOutcome::Known(PropertyValue::Text(class.into())),
+        ),
+        (
+            TreeProperty::Value,
+            crate::tree::properties::bounded_property_text(TreeProperty::Value, raw),
+        ),
+    ])
+    .locator_evidence(ResolvedVocabulary::unknown())
+    .value
+}
+
+/// A RichEdit field of exactly the evidence bound reads back the bound plus its
+/// paragraph mark; counting the mark made `get`, `clear` and `set-value` fail
+/// on it with incomplete evidence.
+#[test]
+fn a_rich_edit_value_is_bounded_by_its_content_not_its_paragraph_mark() {
+    for length in [2047, 2048] {
+        let text = "x".repeat(length);
+        assert_eq!(
+            read_through_the_bound("RICHEDIT50W", format!("{text}\r")),
+            LocatorField::Known(text),
+            "{length} characters of content"
+        );
+    }
+    assert_eq!(
+        read_through_the_bound("RICHEDIT50W", format!("{}\r", "x".repeat(2049))),
+        LocatorField::Unknown
+    );
+}
+
+#[test]
+fn a_value_past_the_bound_is_unread_never_cut_to_a_prefix() {
+    assert_eq!(
+        read_through_the_bound("Edit", "x".repeat(2049)),
+        LocatorField::Unknown
+    );
+    assert_eq!(
+        read_through_the_bound("RICHEDIT50W", "x".repeat(2050)),
+        LocatorField::Unknown
+    );
+    assert_eq!(
+        read_through_the_bound("Edit", "x".repeat(2048)),
+        LocatorField::Known("x".repeat(2048))
+    );
+}
+
+fn range_read(
+    value: PropertyOutcome,
+    available: PropertyOutcome,
+    range: PropertyOutcome,
+) -> LocatorField<String> {
+    ElementProperties::from_reads(vec![
+        (TreeProperty::Value, value),
+        (TreeProperty::RangeValueAvailable, available),
+        (TreeProperty::RangeValue, range),
+    ])
+    .locator_evidence(ResolvedVocabulary::unknown())
+    .value
+}
+
+fn flag(value: bool) -> PropertyOutcome {
+    PropertyOutcome::Known(PropertyValue::Flag(value))
+}
+
+fn real(value: f64) -> PropertyOutcome {
+    PropertyOutcome::Known(PropertyValue::Real(value))
+}
+
+/// A slider that offers RangeValue and no Value pattern answers `Value` as
+/// not supported, so its value was empty. It reads as the number, in the
+/// text the other platforms report for a slider.
+#[test]
+fn a_range_control_without_a_value_pattern_reports_its_number_as_the_value() {
+    assert_eq!(
+        range_read(PropertyOutcome::Absent, flag(true), real(50.0)),
+        LocatorField::Known("50".into())
+    );
+    assert_eq!(
+        range_read(PropertyOutcome::Absent, flag(true), real(0.25)),
+        LocatorField::Known("0.25".into())
+    );
+}
+
+#[test]
+fn a_range_number_is_not_a_value_without_its_gate_or_when_it_is_not_finite() {
+    assert_eq!(
+        range_read(PropertyOutcome::Absent, flag(false), real(50.0)),
+        LocatorField::Absent
+    );
+    assert_eq!(
+        range_read(
+            PropertyOutcome::Absent,
+            PropertyOutcome::Unknown,
+            real(50.0)
+        ),
+        LocatorField::Absent
+    );
+    assert_eq!(
+        range_read(PropertyOutcome::Absent, flag(true), real(f64::NAN)),
+        LocatorField::Absent
+    );
+}
+
+#[test]
+fn a_text_value_wins_over_a_range_number() {
+    assert_eq!(
+        range_read(
+            PropertyOutcome::Known(PropertyValue::Text("high".into())),
+            flag(true),
+            real(50.0)
+        ),
+        LocatorField::Known("high".into())
+    );
+}
+
+/// A secure element withholds `RangeValue` alongside text values so the numeric
+/// fallback never republishes protected content when `IsPassword` is true or
+/// unreadable.
+#[test]
+fn a_secure_range_control_withholds_its_numeric_value() {
+    for is_password in [flag(true), PropertyOutcome::Unknown] {
+        let properties = ElementProperties::from_reads(vec![
+            (TreeProperty::IsPassword, is_password),
+            (
+                TreeProperty::Value,
+                PropertyOutcome::Known(PropertyValue::Text("secret".into())),
+            ),
+            (TreeProperty::RangeValueAvailable, flag(true)),
+            (TreeProperty::RangeValue, real(42.0)),
+        ]);
+        assert!(properties.is_secure());
+        assert_eq!(
+            properties.get(TreeProperty::RangeValue),
+            PropertyOutcome::Absent
+        );
+        assert_eq!(
+            properties
+                .locator_evidence(ResolvedVocabulary::unknown())
+                .value,
+            LocatorField::Absent
+        );
+    }
+
+    let public = ElementProperties::from_reads(vec![
+        (TreeProperty::IsPassword, flag(false)),
+        (TreeProperty::Value, PropertyOutcome::Absent),
+        (TreeProperty::RangeValueAvailable, flag(true)),
+        (TreeProperty::RangeValue, real(42.0)),
+    ]);
+    assert!(!public.is_secure());
+    assert_eq!(
+        public.locator_evidence(ResolvedVocabulary::unknown()).value,
+        LocatorField::Known("42".into())
+    );
+}

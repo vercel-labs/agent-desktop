@@ -1,5 +1,5 @@
 use agent_desktop_core::{
-    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionPolicy, MouseButton,
+    AdapterError, Deadline, DeliverySemantics, Effect, ErrorCode, InteractionPolicy, MouseButton,
     MouseEvent, MouseEventKind, Point,
 };
 
@@ -17,15 +17,17 @@ pub(crate) fn click_via_bounds(
     policy: InteractionPolicy,
     deadline: Deadline,
 ) -> Result<(), AdapterError> {
-    if !policy.allow_cursor_move || !policy.allow_focus_steal {
-        return Err(AdapterError::policy_denied_for_policy(
-            "Physical click fallback is disabled by the current interaction policy",
+    for effect in [Effect::FocusSteal, Effect::CursorMove] {
+        crate::actions::background_effect::require(
             policy,
-        ));
+            effect,
+            "physical pointer input",
+            "physical_input",
+        )?;
     }
     let prepared =
         crate::actions::physical_target::PreparedPhysicalTarget::prepare(element, deadline)?;
-    let read_deadline = crate::tree::locator_deadline::from_operation(deadline)?;
+    let read_deadline = deadline;
     let bounds = crate::tree::element_bounds::read_bounds_with_deadline(element, read_deadline)?
         .ok_or_else(|| {
             AdapterError::new(ErrorCode::ActionFailed, "Element has no readable bounds")

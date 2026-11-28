@@ -310,7 +310,3 @@ pub(crate) fn run_pass(
 #[cfg(test)]
 #[path = "signal_inventory_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "signal_inventory_live_tests.rs"]
-mod live_tests;

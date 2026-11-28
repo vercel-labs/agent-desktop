@@ -1,6 +1,5 @@
-use agent_desktop_core::{AdapterError, ErrorCode, WindowInfo};
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode, WindowInfo};
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::time::Instant;
 
 type AxWindowIdentity = (Option<String>, Option<i64>);
 
@@ -11,7 +10,7 @@ pub(crate) struct WindowAxState {
     pub(crate) accessible_window_ids: FxHashSet<i64>,
 }
 
-pub(crate) fn read_until(pid: i32, deadline: Instant) -> Result<WindowAxState, AdapterError> {
+pub(crate) fn read_until(pid: i32, deadline: Deadline) -> Result<WindowAxState, AdapterError> {
     let app = crate::tree::element_for_pid(pid);
     let focused = focused_identity(&app, pid, deadline)?;
     let mut minimized_by_id = FxHashMap::default();
@@ -34,7 +33,7 @@ pub(crate) fn read_until(pid: i32, deadline: Instant) -> Result<WindowAxState, A
 
 pub(crate) fn read_frontmost_until(
     pid: i32,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<WindowAxState, AdapterError> {
     let app = crate::tree::element_for_pid(pid);
     Ok(WindowAxState {
@@ -46,7 +45,7 @@ pub(crate) fn read_frontmost_until(
 
 pub(crate) fn accessible_window_ids_until(
     pid: i32,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<FxHashSet<i64>, AdapterError> {
     let mut ids = FxHashSet::default();
     for_each_window(pid, deadline, |_, id| {
@@ -58,7 +57,7 @@ pub(crate) fn accessible_window_ids_until(
 
 fn for_each_window(
     pid: i32,
-    deadline: Instant,
+    deadline: Deadline,
     mut visit: impl FnMut(&crate::tree::AXElement, i64) -> Result<(), AdapterError>,
 ) -> Result<(), AdapterError> {
     let app = crate::tree::element_for_pid(pid);
@@ -99,7 +98,7 @@ pub(crate) fn label_accessibility(
 /// application answering "unknown" is not a reason to fail the command that
 /// asked. Permission and API failures still propagate, because those describe
 /// the caller's access rather than the application's state.
-fn is_frontmost(app: &crate::tree::AXElement, deadline: Instant) -> Result<bool, AdapterError> {
+fn is_frontmost(app: &crate::tree::AXElement, deadline: Deadline) -> Result<bool, AdapterError> {
     match crate::tree::surface_read::boolean(app, "AXFrontmost", deadline) {
         Ok(frontmost) => Ok(frontmost == Some(true)),
         Err(error) if error.code == ErrorCode::PermDenied => Err(error),
@@ -110,7 +109,7 @@ fn is_frontmost(app: &crate::tree::AXElement, deadline: Instant) -> Result<bool,
 fn focused_identity(
     app: &crate::tree::AXElement,
     pid: i32,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Option<AxWindowIdentity>, AdapterError> {
     if !is_frontmost(app, deadline)? {
         return Ok(None);

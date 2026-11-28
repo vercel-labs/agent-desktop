@@ -67,3 +67,37 @@ fn an_unsupported_answer_is_action_not_supported_and_not_delivered() {
     assert_eq!(error.code, ErrorCode::ActionNotSupported);
     assert_eq!(error.disposition, DeliverySemantics::not_delivered());
 }
+
+#[test]
+fn a_table_cell_with_the_value_interface_takes_the_cell_route() {
+    let interfaces = names(&["Text", "Value"]);
+    assert_eq!(route(Some(TABLE_CELL), Some(&interfaces)), Route::Cell);
+    let without = names(&["Text"]);
+    assert_eq!(route(Some(TABLE_CELL), Some(&without)), Route::Unsupported);
+}
+
+#[test]
+fn text_for_a_cell_is_refused_before_anything_is_sent() {
+    let error = cell_takes_a_number();
+    assert_eq!(error.code, ErrorCode::InvalidArgs);
+    assert!(error.message.contains("takes a number"));
+    assert!(error.message.contains("no background route"));
+}
+
+#[test]
+fn text_for_a_cell_that_also_has_editable_text_takes_the_text_route() {
+    let both = names(&["Text", "Value", "EditableText"]);
+    assert_eq!(
+        set_value_route(Some(TABLE_CELL), Some(&both), "abc"),
+        Route::Text
+    );
+    assert_eq!(
+        set_value_route(Some(TABLE_CELL), Some(&both), "42"),
+        Route::Cell
+    );
+    let value_only = names(&["Text", "Value"]);
+    assert_eq!(
+        set_value_route(Some(TABLE_CELL), Some(&value_only), "abc"),
+        Route::Cell
+    );
+}

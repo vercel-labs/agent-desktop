@@ -1,5 +1,6 @@
 pub(crate) mod actions;
 pub(crate) mod adapter_session;
+pub(crate) mod focused_window_key;
 pub mod hit_test;
 pub(crate) mod input;
 pub mod live_element;
@@ -8,6 +9,7 @@ pub mod native_handle;
 pub(crate) mod observation;
 #[cfg(test)]
 mod saved_ref_test_support;
+pub(crate) mod surface_opening;
 pub(crate) mod system;
 #[cfg(test)]
 mod test_support;

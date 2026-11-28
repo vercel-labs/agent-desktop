@@ -126,25 +126,13 @@ impl ObservationRequest {
 
     pub(crate) fn selected_hydration(
         query: &LocatorQuery,
-        request: &LocatorResolveRequest,
         root: super::ObservationRoot<'_>,
         deadline: Deadline,
     ) -> Self {
-        let subtree_query = query.has_text.is_some()
-            || query.containment.has.is_some()
-            || query.containment.has_not.is_some();
         Self {
             deadline,
-            max_raw_depth: if subtree_query {
-                request.max_raw_depth
-            } else {
-                1
-            },
-            max_logical_depth: if subtree_query {
-                request.max_raw_depth
-            } else {
-                0
-            },
+            max_raw_depth: 1,
+            max_logical_depth: 0,
             surface: root.surface(),
             evidence_plan: EvidencePlan::rooted(
                 EvidenceRequirements::snapshot(),

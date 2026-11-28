@@ -55,7 +55,13 @@ pub(crate) fn observe_tree(
     let budget = WalkBudget::new(request.max_logical_depth, request.deadline)
         .with_max_raw_depth(request.max_raw_depth.min(DEFAULT_MAX_RAW_DEPTH));
     let walk_started = Instant::now();
-    let outcome = walk_uia_subtree(&element, &root, budget)?;
+    let outcome = walk_uia_subtree(
+        &element,
+        &root,
+        request.surface,
+        budget,
+        request.observation_mode.identity_only,
+    )?;
     finish_observation(
         root,
         request,
@@ -169,8 +175,8 @@ fn still_thin_after_settle() -> AdapterError {
 /// Rechecks stored ownership and generation evidence after the UIA read.
 fn re_verify_root(root: ObservationRoot<'_>) -> Result<(), AdapterError> {
     match root {
-        ObservationRoot::Application { .. } => {
-            Err(AdapterError::not_supported("application observation root"))
+        ObservationRoot::Application { app, .. } => {
+            verify_process_identity(app.pid, app.process_instance.as_deref())
         }
         ObservationRoot::Window(window) => {
             let handle = hwnd_of(&window.id)?;

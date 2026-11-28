@@ -3,7 +3,9 @@ use accessibility_sys::{
     kAXErrorCannotComplete, kAXErrorFailure, kAXErrorIllegalArgument, kAXErrorInvalidUIElement,
     kAXErrorNoValue, kAXErrorNotImplemented, kAXErrorSuccess,
 };
-use agent_desktop_core::{AdapterError, DeliverySemantics, ErrorCode};
+use agent_desktop_core::{
+    AdapterError, DeliveryObservation, DeliveryOutcome, DeliverySemantics, ErrorCode,
+};
 
 pub(crate) const PERFORM_API: &str = "AXUIElementPerformAction";
 
@@ -19,8 +21,8 @@ pub(crate) fn classify_result(
 fn classify(operation: &str, api: &str, error: i32) -> Result<bool, AdapterError> {
     let signal = signal_or_error(operation, api, error)?;
     if signal == PerformSignal::Uninformative && api == PERFORM_API {
-        return settle_uninformative_perform(operation, error, false)
-            .map(|outcome| outcome.was_delivered());
+        return settle_uninformative_perform(operation, error, None)
+            .map(|outcome| matches!(outcome, DeliveryOutcome::Delivered(_)));
     }
     Ok(signal == PerformSignal::ReportedDelivered)
 }
@@ -120,10 +122,10 @@ pub(crate) fn classify_perform(operation: &str, error: i32) -> Result<PerformSig
 pub(crate) fn settle_uninformative_perform(
     operation: &str,
     error: i32,
-    observed_effect: bool,
-) -> Result<crate::actions::chain::chain_delivery::DeliveryOutcome, AdapterError> {
-    if observed_effect {
-        return Ok(crate::actions::chain::chain_delivery::DeliveryOutcome::DeliveredVerified);
+    reaction: Option<DeliveryObservation>,
+) -> Result<DeliveryOutcome, AdapterError> {
+    if let Some(observation) = reaction {
+        return Ok(DeliveryOutcome::Delivered(observation));
     }
     Err(AdapterError::new(
         ErrorCode::ActionFailed,
@@ -142,7 +144,9 @@ mod tests {
         kAXErrorAPIDisabled, kAXErrorActionUnsupported, kAXErrorAttributeUnsupported,
         kAXErrorCannotComplete, kAXErrorFailure, kAXErrorInvalidUIElement, kAXErrorSuccess,
     };
-    use agent_desktop_core::{DeliveryDisposition, ErrorCode, RetryDisposition};
+    use agent_desktop_core::{
+        DeliveryDisposition, DeliveryObservation, DeliveryOutcome, ErrorCode, RetryDisposition,
+    };
 
     use super::classify;
 
@@ -155,7 +159,7 @@ mod tests {
     #[test]
     fn uninformative_perform_without_observed_effect_stops_fallback() {
         let error =
-            super::settle_uninformative_perform("AXOpen", kAXErrorAttributeUnsupported, false)
+            super::settle_uninformative_perform("AXOpen", kAXErrorAttributeUnsupported, None)
                 .expect_err("missing or unchanged observations do not prove non-delivery");
         assert_eq!(
             error.disposition.delivery(),
@@ -163,9 +167,13 @@ mod tests {
         );
         assert_eq!(error.disposition.retry(), RetryDisposition::Unsafe);
         assert_eq!(
-            super::settle_uninformative_perform("AXOpen", kAXErrorAttributeUnsupported, true)
-                .unwrap(),
-            crate::actions::chain::chain_delivery::DeliveryOutcome::DeliveredVerified,
+            super::settle_uninformative_perform(
+                "AXOpen",
+                kAXErrorAttributeUnsupported,
+                Some(DeliveryObservation::Unverified)
+            )
+            .unwrap(),
+            DeliveryOutcome::Delivered(DeliveryObservation::Unverified),
         );
     }
 

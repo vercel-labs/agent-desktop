@@ -1,4 +1,5 @@
 use super::*;
+use agent_desktop_core::Deadline;
 
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -56,7 +57,7 @@ fn injected_group_kill_failure_is_reported_without_blocking_wait() {
     configure_process_group(&mut command);
     let mut child = command.spawn().unwrap();
     let process_group = i32::try_from(child.id()).expect("child pid fits macOS pid_t");
-    let deadline = Instant::now() + Duration::from_millis(30);
+    let deadline = Deadline::after(30).unwrap();
     let failures = terminate_process_group_with(&mut child, process_group, deadline, |_, _| {
         Err(std::io::Error::new(
             std::io::ErrorKind::PermissionDenied,
@@ -80,7 +81,7 @@ fn zombie_only_group_does_not_turn_sigkill_eperm_into_cleanup_failure() {
     let process_group = i32::try_from(child.id()).expect("child pid fits macOS pid_t");
     std::thread::sleep(Duration::from_millis(25));
     let mut signals = Vec::new();
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Deadline::after(5000).unwrap();
     let failures =
         terminate_process_group_with(&mut child, process_group, deadline, |group, signal| {
             signals.push(signal);

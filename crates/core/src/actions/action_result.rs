@@ -18,6 +18,10 @@ pub struct ActionResult {
     pub surfaces: Vec<crate::SurfaceInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
+    /// What the effect witness saw around the action; absent when the action
+    /// has no witness or the platform could not read one.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub effect: Option<crate::actions::observed_effect::ObservedEffect>,
     #[serde(deserialize_with = "deserialize_action_disposition")]
     disposition: DeliverySemantics,
 }
@@ -49,6 +53,7 @@ impl ActionResult {
             steps: Vec::new(),
             surfaces: Vec::new(),
             details: None,
+            effect: None,
             disposition: DeliverySemantics::not_delivered(),
         }
     }
@@ -60,8 +65,14 @@ impl ActionResult {
             steps: Vec::new(),
             surfaces: Vec::new(),
             details: None,
+            effect: None,
             disposition: default_action_disposition(),
         }
+    }
+
+    pub fn with_effect(mut self, effect: crate::actions::observed_effect::ObservedEffect) -> Self {
+        self.effect = Some(effect);
+        self
     }
 
     pub fn with_state(mut self, state: ElementState) -> Self {
@@ -74,9 +85,28 @@ impl ActionResult {
         self
     }
 
+    /// Adds `details`, merging two objects; a key in `details` wins.
     pub fn with_details(mut self, details: serde_json::Value) -> Self {
-        self.details = Some(details);
+        self.details = Some(crate::response::details::merged(
+            self.details.take(),
+            details,
+        ));
         self
+    }
+
+    /// Records the overlays read once the action settled. A read that failed
+    /// is not "no overlay": it is reported as `details.surfaces: "not_read"`.
+    pub(crate) fn with_surfaces_read(
+        mut self,
+        read: Result<Vec<crate::SurfaceInfo>, crate::AdapterError>,
+    ) -> Self {
+        match read {
+            Ok(surfaces) => {
+                self.surfaces = surfaces;
+                self
+            }
+            Err(_) => self.with_details(serde_json::json!({ "surfaces": "not_read" })),
+        }
     }
 
     pub fn with_verified_delivery(mut self) -> Self {

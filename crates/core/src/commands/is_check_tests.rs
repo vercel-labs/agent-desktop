@@ -101,7 +101,7 @@ fn entry(states: Vec<String>, value: Option<&str>, actions: Vec<&str>) -> RefEnt
             value: value.map(str::to_string),
             description: None,
             native_id: None,
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
         },
         geometry: crate::RefGeometry {
             bounds_space: None,
@@ -122,7 +122,7 @@ fn entry(states: Vec<String>, value: Option<&str>, actions: Vec<&str>) -> RefEnt
         scope: crate::RefScope {
             root_ref: None,
             path_is_absolute: false,
-            path: smallvec::SmallVec::new(),
+            ..Default::default()
         },
     }
 }

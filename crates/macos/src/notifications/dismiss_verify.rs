@@ -44,15 +44,19 @@ pub(super) fn verified_after_strategy(
 }
 
 fn wait_with(
-    mut is_present: impl FnMut() -> Result<bool, AdapterError>,
+    is_present: impl FnMut() -> Result<bool, AdapterError>,
     deadline: Deadline,
 ) -> Result<bool, AdapterError> {
-    loop {
-        if !is_present()? {
-            return Ok(true);
-        }
-        std::thread::sleep(deadline.remaining_slice(REOBSERVATION_INTERVAL)?);
+    let present = deadline.poll_until(
+        deadline.remaining(),
+        REOBSERVATION_INTERVAL,
+        is_present,
+        |read| !matches!(read, Ok(true)),
+    )?;
+    if present {
+        return Err(deadline.timeout_error());
     }
+    Ok(true)
 }
 
 pub(super) fn matching_count(entries: &[NotificationEntry], original: &NotificationEntry) -> usize {

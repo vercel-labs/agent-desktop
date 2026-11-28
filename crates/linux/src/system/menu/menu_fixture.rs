@@ -1,5 +1,5 @@
 use super::menu_popup::Node;
-use crate::tree::live::test_support::{read_of, words};
+use crate::tree::test_support::helpers::{read_of, words};
 use crate::tree::vocabulary::state_bits::{EXPANDED, PRESSED};
 use crate::tree::{Field, WalkedNode};
 

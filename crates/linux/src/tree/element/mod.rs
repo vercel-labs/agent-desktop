@@ -1,7 +1,10 @@
 pub(crate) mod ancestry;
 pub(super) mod bounded;
 pub(super) mod child_list;
+pub(super) mod child_view;
+pub(crate) mod element_token;
 pub(super) mod raw_node;
+pub(super) mod table_view;
 
 use agent_desktop_core::{AdapterError, ErrorCode, NativeHandle};
 

@@ -1,16 +1,27 @@
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
+
+use smallvec::SmallVec;
+
+#[path = "ref_tree_index.rs"]
+mod ref_tree_index;
+
+use ref_tree_index::TreeIndex;
 
 use crate::{
-    ElementIdentifier, IdentityMatch, RefEntry,
-    locator::live_locator::{LocatorEvidence, LocatorField, ObservationSource, ObservedTree},
+    ElementIdentifier, IdentityMatch, IdentityProof, RefEntry, RefEntryIdentity, ScopeChain,
+    locator::LocatorQuery,
+    locator::live_locator::{
+        LocatorEvidence, LocatorField, ObservationSource, ObservedTree, materialize_ref_entry,
+    },
     refs::ref_full_predicate::{DESCRIPTION, FullPredicate, NAME, NATIVE_ID},
     refs::ref_identity::stable_name,
     refs::ref_live_predicate::LivePredicate,
+    refs::scope_chain::{MAX_SCOPE_CHAIN_DEPTH, ScopeInterner},
     tree::accname::non_blank,
 };
-
 const ROLE: u8 = DESCRIPTION << 1;
+type Bucket<'a> = HashMap<LiveKey<'a>, SmallVec<[u32; 1]>>;
 const MASKS: usize = (NATIVE_ID | NAME | DESCRIPTION) as usize + 1;
 
 /// One whole-window observation, counted once into the field subsets its
@@ -24,9 +35,11 @@ const MASKS: usize = (NATIVE_ID | NAME | DESCRIPTION) as usize + 1;
 pub(crate) struct CaptureProof<'a> {
     observed: &'a ObservedTree,
     start: Option<usize>,
-    buckets: [OnceLock<HashMap<LiveKey<'a>, usize>>; MASKS],
+    buckets: [OnceLock<Bucket<'a>>; MASKS],
     unread: Vec<(u8, LivePredicate<'a>)>,
     whole_window: bool,
+    tree: OnceLock<TreeIndex>,
+    scoped: Mutex<ScopeInterner>,
 }
 
 impl<'a> CaptureProof<'a> {
@@ -40,6 +53,8 @@ impl<'a> CaptureProof<'a> {
             whole_window,
             start: observed.roots.first().map(|root| *root as usize),
             buckets: std::array::from_fn(|_| OnceLock::new()),
+            tree: OnceLock::new(),
+            scoped: Mutex::new(ScopeInterner::default()),
             unread: observed
                 .nodes
                 .iter()
@@ -68,74 +83,218 @@ impl<'a> CaptureProof<'a> {
     /// the projection, which skips no child the observation kept even when the
     /// native indices have gaps.
     pub(crate) fn proves(&self, entry: &RefEntry, path: &[usize]) -> bool {
-        let Some(mut index) = self.start else {
-            return false;
-        };
-        let Some(prefix) = self
-            .observed
-            .nodes
-            .get(index)
-            .map(|node| node.path.as_slice())
-        else {
-            return false;
-        };
-        let Some(steps) = path.strip_prefix(prefix) else {
-            return false;
-        };
-        for step in steps {
-            match self
-                .observed
-                .nodes
-                .get(index)
-                .and_then(|node| node.children.get(*step))
-            {
-                Some(child) => index = *child as usize,
-                None => return false,
-            }
-        }
-        self.proves_node(entry, index)
+        self.index_at(path).is_some_and(|index| {
+            let mut candidate = entry.clone();
+            self.prove_node(&mut candidate, index);
+            candidate.identity.proof.is_unique()
+        })
     }
 
-    /// Whether `entry` was proven unique at the node it was built from: the
-    /// observation must be a complete whole-window read, exactly one of its nodes
-    /// must match the entry's full predicate, no node may leave a recorded field
-    /// unread, and that one node must be this one.
-    pub(crate) fn proves_node(&self, entry: &RefEntry, index: usize) -> bool {
+    /// Whether the node allocated at `path` left its value unread, so a name
+    /// it reports cannot be told apart from that value.
+    pub(crate) fn value_unread_at(&self, path: &[usize]) -> bool {
+        self.index_at(path)
+            .and_then(|index| self.observed.nodes.get(index))
+            .is_some_and(|node| node.evidence.value.is_unknown())
+    }
+
+    /// Builds `entry`, allocated at `path`, under the capture rule.
+    pub(crate) fn prove_at(&self, entry: &mut RefEntry, path: &[usize]) {
+        if let Some(index) = self.index_at(path) {
+            self.prove_node(entry, index);
+        }
+    }
+
+    fn index_at(&self, path: &[usize]) -> Option<usize> {
+        let mut index = self.start?;
+        let prefix = self.observed.nodes.get(index)?.path.as_slice();
+        for step in path.strip_prefix(prefix)? {
+            index = *self.observed.nodes.get(index)?.children.get(*step)? as usize;
+        }
+        Some(index)
+    }
+
+    fn chain_of(&self, predicate: &FullPredicate<'_>, index: usize) -> Option<ScopeChain> {
         if !self.whole_window {
-            return false;
+            return None;
         }
-        let predicate = FullPredicate::of_entry(entry);
+        let mut ancestor = self.parent_of(index);
+        while let Some(scope) = ancestor {
+            if let Some(outer) = self.identified(scope) {
+                if !self.proves_in(Some(scope), predicate, index) {
+                    return None;
+                }
+                return self.chain_for_scope(scope, &outer);
+            }
+            ancestor = self.parent_of(scope);
+        }
+        None
+    }
+
+    fn chain_for_scope(&self, scope: usize, outer: &ScopeChain) -> Option<ScopeChain> {
+        if let Some(known) = self.scoped.lock().ok()?.scope_chains.get(&scope) {
+            return known.clone();
+        }
+        let next_len = outer.len().saturating_add(1);
+        if next_len > MAX_SCOPE_CHAIN_DEPTH {
+            let _ = self
+                .scoped
+                .lock()
+                .map(|mut state| state.scope_chains.insert(scope, None));
+            return None;
+        }
+        let head = self.identity_of(scope)?;
+        let mut items = Vec::with_capacity(next_len);
+        items.push(head);
+        items.extend(outer.iter().cloned());
+        self.scoped.lock().ok()?.intern_scope_chain(scope, items)
+    }
+
+    fn identified(&self, index: usize) -> Option<ScopeChain> {
+        if let Some(known) = self.scoped.lock().ok()?.identified.get(&index) {
+            return known.clone();
+        }
+        let identity = self.identity_of(index)?;
+        let predicate = FullPredicate::of_identity(&identity);
+        let chain = if self.proves_in(None, &predicate, index) {
+            Some(ScopeChain::default())
+        } else {
+            self.chain_of(&predicate, index)
+        };
+        self.scoped
+            .lock()
+            .ok()?
+            .identified
+            .insert(index, chain.clone());
+        chain
+    }
+
+    /// What a chain records of one ancestor: the identity its own ref would
+    /// publish, with the name reduced to the stable one a resolution compares,
+    /// interned once per node within the aggregate scope memory budget.
+    fn identity_of(&self, index: usize) -> Option<Arc<RefEntryIdentity>> {
+        if let Some(known) = self.scoped.lock().ok()?.identities.get(&index) {
+            return known.clone();
+        }
+        let node = &self.observed.nodes[index];
+        let role = non_blank(node.evidence.role.known().map(String::as_str))?;
+        let own =
+            materialize_ref_entry(node, &self.observed.source, &LocatorQuery::default()).identity;
+        let built = RefEntryIdentity {
+            name: stable_name(role, own.name.as_deref(), own.value.as_deref()).map(str::to_string),
+            retained_object: None,
+            value: None,
+            ..own
+        };
+        self.scoped.lock().ok()?.intern_identity(index, built)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn scope_memory_bytes(&self) -> usize {
+        self.scoped
+            .lock()
+            .map(|state| state.used_bytes)
+            .unwrap_or(0)
+    }
+
+    fn tree_index(&self) -> &TreeIndex {
+        self.tree.get_or_init(|| TreeIndex::build(self.observed))
+    }
+
+    fn parent_of(&self, index: usize) -> Option<usize> {
+        self.tree_index().parents.get(index).copied().flatten()
+    }
+
+    /// Whether `entry` was proven unique in the whole window at the node it was
+    /// built from: the observation must be a complete whole-window read, exactly
+    /// one of its nodes must match the entry's full predicate, no node may leave
+    /// a recorded field unread, and that one node must be this one.
+    #[cfg(test)]
+    pub(crate) fn proves_node(&self, entry: &RefEntry, index: usize) -> bool {
+        self.proof_of_node(entry, index).is_unique()
+    }
+
+    /// What the whole-window count establishes about `entry` at the node it was
+    /// built from: `Unique` for a complete read in which exactly one node
+    /// matches and no node leaves a recorded field unread, `Twins` when two or
+    /// more nodes matched, and `Unproven` for any other outcome.
+    pub(crate) fn proof_of_node(&self, entry: &RefEntry, index: usize) -> IdentityProof {
+        self.proof_in(None, &FullPredicate::of_entry(entry), index)
+    }
+
+    /// The one capture rule every ref entry is built under: records on `entry`,
+    /// built from node `index`, whether it is proven and the scope chain that
+    /// proves it when its own proof is not unique in the window.
+    pub(crate) fn prove_node(&self, entry: &mut RefEntry, index: usize) {
+        entry.identity.proof = self.proof_of_node(entry, index);
+        if entry.identity.proof.is_unique() {
+            return;
+        }
+        if let Some(chain) = self.chain_of(&FullPredicate::of_entry(entry), index) {
+            entry.identity.proof = IdentityProof::Unique;
+            entry.scope.chain = chain;
+        }
+    }
+
+    fn proves_in(&self, scope: Option<usize>, predicate: &FullPredicate<'_>, index: usize) -> bool {
+        self.proof_in(scope, predicate, index).is_unique()
+    }
+
+    fn proof_in(
+        &self,
+        scope: Option<usize>,
+        predicate: &FullPredicate<'_>,
+        index: usize,
+    ) -> IdentityProof {
+        if !self.whole_window {
+            return IdentityProof::Unproven;
+        }
         let fields = predicate.mask();
-        if self.buckets[fields as usize]
-            .get_or_init(|| count_nodes(self.observed, fields))
-            .get(&key_of(&predicate))
-            != Some(&index)
-        {
-            return false;
+        let key = key_of(predicate);
+        let tree = self.tree_index();
+        let bucket =
+            self.buckets[fields as usize].get_or_init(|| count_nodes(self.observed, fields, tree));
+        let Some(positions) = bucket.get(&key) else {
+            return IdentityProof::Unproven;
+        };
+        let target = tree.tin[index];
+        let matched = match scope {
+            None => positions.as_slice(),
+            Some(scope) => {
+                let lo = positions.partition_point(|&pos| pos <= tree.tin[scope]);
+                let hi = positions.partition_point(|&pos| pos <= tree.tout[scope]);
+                &positions[lo..hi]
+            }
+        };
+        match matched {
+            [only] if *only == target => {}
+            slice if slice.len() > 1 => return IdentityProof::Twins,
+            _ => return IdentityProof::Unproven,
         }
-        !self.unread.iter().any(|(bits, live)| {
+        let unread = self.unread.iter().any(|(bits, live)| {
             bits & (fields | ROLE) != 0 && predicate.compare(live) == IdentityMatch::Unknown
-        })
+        });
+        if unread {
+            IdentityProof::Unproven
+        } else {
+            IdentityProof::Unique
+        }
     }
 }
 
-/// The node indices each full predicate of this field subset matched, as a
-/// single index per predicate. A predicate two nodes match is stored with the
-/// last of them, so it never equals the node an entry was built from.
-fn count_nodes(observed: &ObservedTree, fields: u8) -> HashMap<LiveKey<'_>, usize> {
-    let mut counted: HashMap<LiveKey<'_>, (usize, usize)> = HashMap::new();
-    for (index, node) in observed.nodes.iter().enumerate() {
-        for key in keys_of(&node.evidence, fields) {
-            let entry = counted.entry(key).or_insert((0, index));
-            entry.0 += 1;
-            entry.1 = index;
+/// The sorted DFS positions matching each full predicate of this field subset.
+fn count_nodes<'a>(observed: &'a ObservedTree, fields: u8, tree: &TreeIndex) -> Bucket<'a> {
+    let mut counted: Bucket<'a> = HashMap::new();
+    for &index in &tree.order {
+        let pos = tree.tin[index];
+        for key in keys_of(&observed.nodes[index].evidence, fields) {
+            let list = counted.entry(key).or_default();
+            if list.last().copied() != Some(pos) {
+                list.push(pos);
+            }
         }
     }
     counted
-        .into_iter()
-        .filter(|(_, (count, _))| *count == 1)
-        .map(|(key, (_, index))| (key, index))
-        .collect()
 }
 
 fn keys_of<'a>(evidence: &'a LocatorEvidence, fields: u8) -> Vec<LiveKey<'a>> {

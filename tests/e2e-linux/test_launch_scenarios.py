@@ -10,6 +10,32 @@ from scenarios import launch
 
 
 class LaunchScenarioTests(unittest.TestCase):
+    def test_launch_teardowns_force_the_close_because_headless_refuses_a_graceful_one(self):
+        for leg_id, name, leg in (
+            ("launch.launch_calculator_attributed", "Calculator", launch.launch_calculator_attributed),
+            ("launch.launch_terminal_owner", "Terminal", launch.launch_terminal_owner),
+        ):
+            with self.subTest(leg=leg_id):
+                tier = SimpleNamespace(runtime_dir=Path("/private/test"))
+                ctx = LegContext(tier, "headless", legs.leg_by_id(leg_id),
+                                 member_reader=lambda _: frozenset())
+                state, closed = {"members": []}, []
+                def product(tier, argv, **kw):
+                    if argv[0] == "launch":
+                        state["members"] = [(123, 1, "gnome-terminal-server")]
+                        return Envelope(True, {"pid": 123}, None, "{}", 0, argv)
+                    if argv[0] == "close-app":
+                        closed.append(argv)
+                        state["members"] = []
+                        return Envelope(True, {}, None, "{}", 0, argv)
+                    return Envelope(True, [{"id": "w-1"}], None, "{}", 0, argv)
+                with patch.object(launch, "members", side_effect=lambda _: state["members"]), \
+                     patch.object(launch, "app_root", return_value=SimpleNamespace(name=name)), \
+                     patch.object(launch, "changed", side_effect=lambda read, *a, **kw: read()), \
+                     patch("runner.verdict.run_product", side_effect=product):
+                    leg(ctx)
+                self.assertEqual(closed, [["close-app", name, "--force"]])
+
     def test_alias_queries_require_the_independently_launched_calculator(self):
         calculator = {"name": "gnome-calculator", "pid": 123}
         for bad in (None, [], [{"name": "gnome-text-editor", "pid": 456}],

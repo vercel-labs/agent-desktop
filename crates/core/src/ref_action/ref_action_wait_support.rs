@@ -58,7 +58,9 @@ fn process_identity_matches(
     let Some(process) = entry.process.identity() else {
         return false;
     };
-    let Ok(apps) = adapter.list_apps(deadline) else {
+    let Ok(crate::AppInventory { apps, .. }) =
+        adapter.query_app_inventory(crate::AppInventoryQuery::All, deadline)
+    else {
         return false;
     };
     let mut same_pid = apps.iter().filter(|app| app.pid == process.pid);
@@ -127,18 +129,54 @@ pub(crate) fn trace_resolve_error(context: &CommandContext, ref_id: &str, err: &
     });
 }
 
-/// The preparatory scroll moves the view, never the requested action, so a
-/// refusal after it writes nothing: the disposition says so, and the
-/// `preparatory_scroll` detail records that the view may have changed.
-pub(crate) fn after_scroll(mut error: AdapterError) -> AdapterError {
-    if error.disposition == crate::DeliverySemantics::Unknown {
-        error.disposition = crate::DeliverySemantics::not_delivered();
+/// A command that ends `not_delivered` has changed nothing, and the
+/// preparatory scroll changes the view. An error after the scroll therefore
+/// names the scroll in `preparatory_scroll` and cannot claim `not_delivered`:
+/// it is `delivery_uncertain`, unsafe to retry blindly. A disposition that
+/// already reports a send keeps its value.
+pub(crate) fn note_preparatory_scroll(mut error: AdapterError) -> AdapterError {
+    if matches!(
+        error.disposition,
+        crate::DeliverySemantics::Unknown | crate::DeliverySemantics::NotDelivered
+    ) {
+        error.disposition = crate::DeliverySemantics::uncertain();
     }
     let details = error.details.get_or_insert_with(|| json!({}));
     if let Some(details) = details.as_object_mut() {
         details.insert("preparatory_scroll".into(), "may_have_changed_view".into());
     }
     error
+}
+
+/// Whether a failed scroll call may already have moved the view. A scroll the
+/// adapter does not implement, refused by policy, or reported as not
+/// delivered moved nothing. The exception is a ref that no longer resolves:
+/// the adapter looks it up again after the scroll, so a stale, ambiguous or
+/// missing element is evidence the view moved even though it says
+/// `not_delivered`.
+pub(crate) fn scroll_was_sent(error: &AdapterError) -> bool {
+    let after_the_scroll = matches!(
+        error.code,
+        ErrorCode::StaleRef | ErrorCode::AmbiguousTarget | ErrorCode::ElementNotFound
+    );
+    if after_the_scroll {
+        return true;
+    }
+    !(error.disposition == crate::DeliverySemantics::not_delivered()
+        || matches!(
+            error.code,
+            ErrorCode::ActionNotSupported
+                | ErrorCode::PlatformNotSupported
+                | ErrorCode::PolicyDenied
+        ))
+}
+
+pub(crate) fn note_scroll_if(scrolled: bool, error: AdapterError) -> AdapterError {
+    if scrolled {
+        note_preparatory_scroll(error)
+    } else {
+        error
+    }
 }
 
 pub(crate) fn trace_scroll_error(
@@ -153,4 +191,17 @@ pub(crate) fn trace_scroll_error(
 
 pub(crate) fn trace_resolve_ok(context: &CommandContext, ref_id: &str) {
     let _ = context.trace_lazy("ref.resolve.ok", || json!({ "ref": ref_id }));
+}
+
+/// Asks the adapter for a final refusal before the preparatory scroll runs, so
+/// a refused action leaves the view where it was.
+pub(crate) fn require_route_before_scroll(
+    adapter: &dyn PlatformAdapter,
+    handle: &crate::NativeHandle,
+    request: &crate::ActionRequest,
+    lease: &crate::InteractionLease,
+) -> Result<(), AdapterError> {
+    adapter
+        .refuse_before_scroll(handle, request, lease)
+        .map_err(crate::ref_action::mark_pre_dispatch_resolution_failure)
 }

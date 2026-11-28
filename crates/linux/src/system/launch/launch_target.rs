@@ -8,13 +8,19 @@ use super::desktop_entry::{DesktopEntry, parse};
 use super::desktop_exec::{ExecContext, expand, program_word};
 use super::desktop_lookup::{find, is_trusted};
 use crate::system::app::app_alias::AliasIndex;
+use crate::system::app::app_name::aliases_of_identity;
 use crate::system::process::executable_identity::ExecutableIdentity;
 
 /// The program to run, its arguments and the facts attach decisions read.
+/// `aliases` are the desktop entry names and ids that name the resolved
+/// launch, the same evidence a resident application carries.
 pub(crate) struct Plan {
     pub(crate) argv: Vec<String>,
     pub(crate) cwd: Option<PathBuf>,
     pub(crate) identity: Option<ExecutableIdentity>,
+    pub(crate) launcher: Option<ExecutableIdentity>,
+    pub(crate) takes_documents: bool,
+    pub(crate) aliases: Vec<String>,
 }
 
 fn refuse(code: ErrorCode, message: String) -> AdapterError {
@@ -91,9 +97,14 @@ fn resolve_program(program: &str, path_dirs: &[PathBuf]) -> Result<String, Adapt
         })
 }
 
-fn entry_plan(id: &str, arguments: &[String], search: &Search) -> Result<Plan, AdapterError> {
+fn entry_plan(
+    id: &str,
+    arguments: &[String],
+    search: &Search,
+    index: &AliasIndex,
+) -> Result<Plan, AdapterError> {
     let file = find(id, &search.data_dirs).ok_or_else(|| not_found(id))?;
-    plan_file(&file, id, arguments, search)
+    plan_file(&file, id, arguments, search, index)
 }
 
 fn plan_file(
@@ -101,6 +112,7 @@ fn plan_file(
     id: &str,
     arguments: &[String],
     search: &Search,
+    index: &AliasIndex,
 ) -> Result<Plan, AdapterError> {
     let text = std::fs::read_to_string(file).map_err(|_| not_found(id))?;
     let entry = parse(id, &text).ok_or_else(|| {
@@ -130,23 +142,75 @@ fn plan_file(
     let at = argv.iter().position(|word| *word == program).unwrap_or(0);
     argv[at] = resolve_program(&program, &search.path_dirs)?;
     argv[0] = resolve_program(&argv[0], &search.path_dirs)?;
+    let mut base = expand(
+        exec,
+        &ExecContext {
+            arguments: &[],
+            icon: entry.icon.as_deref(),
+            name: &entry.name,
+            file: Some(&file_text),
+        },
+    );
+    let at_base = base.iter().position(|word| *word == program).unwrap_or(0);
+    base[at_base] = argv[at].clone();
+    base[0] = argv[0].clone();
+    let launcher = ExecutableIdentity::requested(&launcher_words(&base), &search.path_dirs);
     let identity = ExecutableIdentity::requested(&argv, &search.path_dirs);
+    let aliases = aliases_of_identity(index, identity.as_ref());
     Ok(Plan {
         argv,
         cwd: entry.path.map(PathBuf::from),
         identity,
+        launcher,
+        takes_documents: takes_documents(exec),
+        aliases,
     })
 }
 
-fn direct_plan(program: String, arguments: &[String]) -> Plan {
+/// Whether the entry's command declares that it opens files or URLs (`%f`,
+/// `%F`, `%u`, `%U`), so a running instance may carry documents the launch
+/// does not.
+fn takes_documents(exec: &str) -> bool {
+    ["%f", "%F", "%u", "%U"]
+        .iter()
+        .any(|code| exec.contains(code))
+}
+
+/// The words of a desktop entry's command, without the caller's arguments,
+/// that say which application it is. A single-letter option of the entry is a
+/// switch of the launcher, such as a block mode, that the running process may
+/// not carry; every other word stays, so an interpreter entry still names its
+/// script and a long option still names its mode. This names the application
+/// a running process is an instance of; it never replaces the full identity,
+/// which a launch with arguments is compared by.
+pub(crate) fn launcher_words(words: &[String]) -> Vec<String> {
+    words
+        .iter()
+        .enumerate()
+        .filter(|(index, word)| *index == 0 || !is_launcher_switch(word))
+        .map(|(_, word)| word.clone())
+        .collect()
+}
+
+fn is_launcher_switch(word: &str) -> bool {
+    let mut chars = word.chars();
+    chars.next() == Some('-') && chars.next().is_some_and(|c| c != '-') && chars.next().is_none()
+}
+
+fn direct_plan(program: String, arguments: &[String], index: &AliasIndex) -> Plan {
+    let launcher = ExecutableIdentity::requested(std::slice::from_ref(&program), &[]);
     let argv: Vec<String> = std::iter::once(program)
         .chain(arguments.iter().cloned())
         .collect();
     let identity = ExecutableIdentity::requested(&argv, &[]);
+    let aliases = aliases_of_identity(index, identity.as_ref());
     Plan {
         argv,
         cwd: None,
         identity,
+        launcher,
+        takes_documents: false,
+        aliases,
     }
 }
 
@@ -176,10 +240,10 @@ pub(crate) fn resolve(
                     "'{identifier}' is a desktop file outside the XDG data directories and is not launched"
                 )));
             }
-            return plan_file(&file, id, arguments, search);
+            return plan_file(&file, id, arguments, search, index);
         }
         if file.is_file() {
-            return Ok(direct_plan(identifier.to_owned(), arguments));
+            return Ok(direct_plan(identifier.to_owned(), arguments, index));
         }
         return Err(not_found(identifier));
     }
@@ -190,16 +254,16 @@ pub(crate) fn resolve(
     }
     if let Some(file) = find(identifier, &search.data_dirs) {
         let id = file.file_stem().and_then(|stem| stem.to_str());
-        return entry_plan(id.unwrap_or(identifier), arguments, search);
+        return entry_plan(id.unwrap_or(identifier), arguments, search, index);
     }
     if find_on_path(identifier, &search.path_dirs).is_some() {
         let program = resolve_program(identifier, &search.path_dirs)?;
-        return Ok(direct_plan(program, arguments));
+        return Ok(direct_plan(program, arguments, index));
     }
     let mut ids = index.ids_named(identifier);
     match ids.len() {
         0 => Err(not_found(identifier)),
-        1 => entry_plan(&ids.remove(0), arguments, search),
+        1 => entry_plan(&ids.remove(0), arguments, search, index),
         _ => Err(AdapterError::ambiguous_target(format!(
             "'{identifier}' is the name of several desktop entries: {}",
             ids.join(", ")
@@ -215,3 +279,11 @@ mod tests;
 #[cfg(test)]
 #[path = "launch_identity_tests.rs"]
 mod identity_tests;
+
+#[cfg(test)]
+#[path = "launch_launcher_tests.rs"]
+mod launcher_tests;
+
+#[cfg(test)]
+#[path = "launch_no_attach_tests.rs"]
+mod no_attach_tests;

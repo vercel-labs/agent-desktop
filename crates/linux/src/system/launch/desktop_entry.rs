@@ -83,6 +83,9 @@ pub(crate) fn parse(id: &str, text: &str) -> Option<DesktopEntry> {
             terminal: flag("Terminal"),
             hidden: flag("Hidden"),
             wm_class: get("StartupWMClass"),
+            no_display: flag("NoDisplay"),
+            only_show_in: get("OnlyShowIn"),
+            not_show_in: get("NotShowIn"),
         },
     })
 }

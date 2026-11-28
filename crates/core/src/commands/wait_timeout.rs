@@ -28,6 +28,46 @@ pub(crate) fn menu(mut error: AdapterError, timeout_ms: u64) -> AppError {
     AppError::Adapter(error)
 }
 
+pub(crate) fn surface(
+    kind: Option<crate::SnapshotSurface>,
+    timeout_ms: u64,
+    observed: Option<&[crate::SurfaceInfo]>,
+    last_error: Option<Value>,
+) -> Result<Value, AppError> {
+    let name = kind.map_or("any", |kind| kind.as_str());
+    let what = if name == "any" {
+        "surface".to_owned()
+    } else {
+        format!("{name} surface")
+    };
+    let mut details = json!({ "predicate": "surface", "surface": name, "timeout_ms": timeout_ms });
+    let Some(observed) = observed else {
+        let message = format!("The surfaces could not be read within {timeout_ms}ms");
+        return timeout_err(message, with_last_error(details, last_error));
+    };
+    details["last_observed"] = json!(observed);
+    if crate::commands::wait_surface::unread(observed, kind) {
+        details["unread"] = json!(true);
+        return timeout_err(
+            format!("The {what} could not be read within {timeout_ms}ms"),
+            with_last_error(details, last_error),
+        )
+        .map_err(|error| match error {
+            AppError::Adapter(error) => AppError::Adapter(error.with_suggestion(
+                "The inventory reports this kind as unread, so the application may still present it: details.last_observed names the window whose read was cut. list-surfaces shows what was read; raise --timeout only if the surface opens later.",
+            )),
+            other => other,
+        });
+    }
+    let message = format!("No {what} was open within {timeout_ms}ms");
+    timeout_err(message, with_last_error(details, last_error)).map_err(|error| match error {
+        AppError::Adapter(error) => AppError::Adapter(error.with_suggestion(
+            "The application answered and showed no such surface: details.last_observed lists what was open. Raise --timeout only if the surface opens later.",
+        )),
+        other => other,
+    })
+}
+
 /// Builds the wait-loop TIMEOUT error. Every payload carries
 /// `kind: "wait_timeout"` so agents can discriminate it from the chain
 /// deadline TIMEOUT schema (`kind: "chain_deadline"`) without sniffing

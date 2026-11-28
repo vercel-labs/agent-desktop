@@ -2,7 +2,7 @@ use super::*;
 use crate::system::process::process_facts::ProcessFacts;
 use crate::system::process::toolkit_id::ToolkitId;
 use crate::system::registry::registry_app::assemble;
-use crate::tree::live::test_support::{attributes, read_of, words};
+use crate::tree::test_support::helpers::{attributes, read_of, words};
 use crate::tree::{AtspiElement, Extents, Field};
 
 fn app(toolkit: Option<(&str, &str)>) -> RegistryApp {

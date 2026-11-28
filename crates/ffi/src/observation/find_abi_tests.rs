@@ -59,6 +59,7 @@ impl ObservationOps for CardinalityAdapter {
     fn resolve_locator_anchor(
         &self,
         _entry: &agent_desktop_core::RefEntry,
+        _base: Option<&agent_desktop_core::NativeHandle>,
         _deadline: agent_desktop_core::Deadline,
     ) -> Result<agent_desktop_core::NativeHandle, agent_desktop_core::AdapterError> {
         Ok(agent_desktop_core::NativeHandle::null())

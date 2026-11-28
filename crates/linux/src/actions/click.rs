@@ -1,25 +1,22 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use agent_desktop_core::{
-    Action, ActionResult, AdapterError, Deadline, DeliverySemantics, ErrorCode, NativeHandle,
+    Action, ActionResult, AdapterError, ChainRung, Deadline, DeliveryOutcome, DeliverySemantics,
+    ErrorCode, NativeHandle, StepMechanism,
 };
 use serde_json::json;
 
 use super::action_call::{do_action, resolve_verb};
-use super::chain::chain_def::ChainDef;
-use super::chain::chain_delivery_outcome::DeliveryOutcome;
-use super::chain::chain_observed::Observed;
-use super::chain::chain_rung::Rung;
-use super::chain::execute_chain;
 use super::context::Target;
 use super::toggle_state::toggle_reporting;
 use super::write::mutation::WriteReply;
+use crate::actions::chain::run_semantic_chain;
 use crate::system::within;
 use crate::tree::capabilities::action_names::{click_verbs, toggle_verbs, verbs_for};
 use crate::tree::capabilities::action_read::{NodeView, read_node_view};
 use crate::tree::capabilities::capability_rules::carries_checked;
-use crate::tree::vocabulary::role_numbers::TOGGLE_BUTTON;
-use crate::tree::vocabulary::state_bits::HAS_POPUP;
+use crate::tree::vocabulary::role_numbers::{TABLE_CELL, TOGGLE_BUTTON};
+use crate::tree::vocabulary::state_bits::{HAS_POPUP, SELECTABLE};
 use crate::tree::{AtspiElement, atspi_element, element::ancestry, list_children};
 
 pub(super) const POLL_STEP: Duration = Duration::from_millis(50);
@@ -30,32 +27,6 @@ const INNER_TOGGLE_SCAN: usize = 4;
 const CLICK_LABEL: &str = "Action.DoAction";
 const SUGGESTION: &str =
     "Refresh the snapshot and inspect the element before deciding whether to retry.";
-
-pub(super) fn poll_until<T>(
-    deadline: Deadline,
-    budget: Duration,
-    step: Duration,
-    mut read: impl FnMut() -> T,
-    done: impl Fn(&T) -> bool,
-) -> T {
-    let end = Instant::now() + budget.min(deadline.remaining());
-    loop {
-        let value = read();
-        let now = Instant::now();
-        if done(&value) || now >= end {
-            return value;
-        }
-        std::thread::sleep(step.min(end - now));
-    }
-}
-
-pub(super) fn observed_of(change: Option<bool>) -> Observed {
-    match change {
-        Some(true) => Observed::Matched,
-        Some(false) => Observed::Unchanged,
-        None => Observed::Unread,
-    }
-}
 
 pub(super) fn refusal(
     code: ErrorCode,
@@ -107,24 +78,22 @@ pub(super) fn deliver(
 ) -> Result<DeliveryOutcome, AdapterError> {
     match reply? {
         WriteReply::Absent => Ok(DeliveryOutcome::NotDelivered),
-        WriteReply::Done => Ok(DeliveryOutcome::Delivered(observed_of(observe()))),
+        WriteReply::Done => Ok(DeliveryOutcome::observed(observe())),
     }
 }
 
 pub(super) fn run_single_rung(
-    action: &'static str,
+    action: &Action,
     deadline: Deadline,
     run: impl FnMut() -> Result<DeliveryOutcome, AdapterError>,
 ) -> Result<ActionResult, AdapterError> {
-    let def = ChainDef {
-        action,
-        suggestion: SUGGESTION,
-    };
-    let mut rungs = [Rung {
+    let mut rungs = [ChainRung {
         label: CLICK_LABEL,
+        effects: &[],
+        mechanism: StepMechanism::SemanticApi,
         run: Box::new(run),
     }];
-    execute_chain(&def, &mut rungs, deadline)
+    run_semantic_chain(action, &mut rungs, deadline, SUGGESTION)
 }
 
 pub(super) struct Inner {
@@ -180,6 +149,18 @@ fn toggles_in_place(role: Option<u32>, names: &[String]) -> bool {
     role.is_some_and(carries_checked) && resolve_verb(names, toggle_verbs(None)).is_some()
 }
 
+/// Whether a click on a node ends as a selection by its parent: the last
+/// rung, offered only to a selectable table cell that names no action of its
+/// own. A node with an action of its own keeps every rung it had, in its
+/// order, and a node that is not a table cell keeps exactly the rungs it had.
+fn click_selects_through_parent(
+    role: Option<u32>,
+    own_verb: bool,
+    selectable: Option<bool>,
+) -> bool {
+    role == Some(TABLE_CELL) && selectable == Some(true) && !own_verb
+}
+
 fn activate(target: &Target<'_>, action: &Action) -> Result<ActionResult, AdapterError> {
     let view = target.view()?;
     if matches!(action, Action::Click)
@@ -192,11 +173,13 @@ fn activate(target: &Target<'_>, action: &Action) -> Result<ActionResult, Adapte
         && crate::tree::capabilities::action_names::unsupported_entry_activation(
             view.role(),
             names,
-            &crate::tree::live_read::live_offscreen::toolkit_of(
-                target.bus,
-                target.element,
-                target.deadline,
-            ),
+            || {
+                crate::tree::live_read::live_offscreen::toolkit_of(
+                    target.bus,
+                    target.element,
+                    target.deadline,
+                )
+            },
         )
     {
         return Err(no_semantic_verb(action));
@@ -215,6 +198,12 @@ fn activate(target: &Target<'_>, action: &Action) -> Result<ActionResult, Adapte
     if matches!(action, Action::Click) && !own_verb && toggles_in_place(view.role(), names) {
         return toggle_reporting(target, None, true);
     }
+    if matches!(action, Action::Click)
+        && click_selects_through_parent(view.role(), own_verb, view.state(SELECTABLE))
+        && let Some(result) = super::select::select_parent::select_by_parent(target, &view)?
+    {
+        return Ok(result);
+    }
     let inner = if own_verb || !opens_popup(&view) {
         None
     } else {
@@ -232,8 +221,7 @@ fn activate(target: &Target<'_>, action: &Action) -> Result<ActionResult, Adapte
         };
         deliver(reply, || {
             before.as_ref().and_then(|before| {
-                poll_until(
-                    target.deadline,
+                target.deadline.poll_until(
                     budget,
                     step,
                     || {
@@ -249,10 +237,10 @@ fn activate(target: &Target<'_>, action: &Action) -> Result<ActionResult, Adapte
     };
     if matches!(action, Action::Click) {
         super::popup_verify::run(target, &view, None, || {
-            run_single_rung(action.name(), target.deadline, run)
+            run_single_rung(action, target.deadline, run)
         })
     } else {
-        run_single_rung(action.name(), target.deadline, run)
+        run_single_rung(action, target.deadline, run)
     }
 }
 

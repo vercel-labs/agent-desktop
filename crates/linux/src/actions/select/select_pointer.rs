@@ -1,13 +1,10 @@
 use agent_desktop_core::{
-    ActionResult, ActionStep, AdapterError, DeliverySemantics, InteractionLease, InteractionPolicy,
-    KeyCombo, StepMechanism,
+    ActionResult, ActionStep, AdapterError, DeliveryObservation, DeliveryOutcome,
+    DeliverySemantics, InteractionLease, InteractionPolicy, KeyCombo, StepMechanism,
 };
 use serde_json::json;
 
 use super::select_index::UNPROVEN_INDEX_KIND;
-use crate::actions::chain::chain_delivery_outcome::DeliveryOutcome;
-use crate::actions::chain::chain_observed::Observed;
-use crate::actions::chain::chain_step::verified_of;
 use crate::actions::select::unchanged_is_ignored;
 use crate::input::physical::target_keyboard::press_key_global_steps;
 use crate::input::physical::target_pointer::{ClickSpec, click_steps};
@@ -113,10 +110,10 @@ pub(in crate::actions) fn after_unproven_index(
 /// shows the old choice is the same failure a semantic write gets.
 pub(in crate::actions) fn by_pointer_result(
     mut steps: Vec<ActionStep>,
-    observed: Observed,
+    observed: DeliveryObservation,
 ) -> Result<ActionResult, AdapterError> {
     unchanged_is_ignored(DeliveryOutcome::Delivered(observed))?;
-    let verified = verified_of(observed);
+    let verified = observed.verified();
     if let Some(last) = steps.last_mut() {
         last.verified = verified;
     }
@@ -132,9 +129,10 @@ pub(in crate::actions) fn pointer_required() -> AdapterError {
         "Selecting this dropdown choice takes the pointer, which the interaction policy does not allow",
         InteractionPolicy::headless(),
     )
-    .with_suggestion(
-        "Run select again with --headed on X11: the pointer opens the dropdown and the choice is checked against the value it shows. A headless request and a Wayland session cannot open it.",
-    )
+    .with_suggestion(format!(
+        "{} The choice is checked against the value it shows. A headless request and a Wayland session cannot open it.",
+        agent_desktop_core::headed_mode_suggestion("moves the pointer to open the dropdown on X11")
+    ))
     .with_details(json!({
         "kind": "pointer_required",
         "physical_delivery_started": false,

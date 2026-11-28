@@ -6,6 +6,7 @@ mod evidence_plan;
 mod evidence_requirements;
 mod hydrate;
 mod identifier_evidence;
+mod incomplete_error;
 mod locator_activation_stats;
 mod locator_cardinality;
 mod locator_evaluation_stats;
@@ -51,6 +52,7 @@ pub use cardinality::{classify_query_result, require_unique};
 pub use evaluate::evaluate_locator_tree;
 pub use evidence_requirements::EvidenceRequirements;
 pub use identifier_evidence::IdentifierEvidence;
+pub use incomplete_error::incomplete_locator_error;
 pub use locator_activation_stats::LocatorActivationStats;
 pub use locator_cardinality::LocatorCardinality;
 pub use locator_evaluation_stats::LocatorEvaluationStats;
@@ -112,6 +114,8 @@ mod scrollarea_name_tests;
 mod selected_hydration_churn_tests;
 #[cfg(test)]
 mod selected_hydration_contract_tests;
+#[cfg(test)]
+mod selected_hydration_retry_tests;
 #[cfg(test)]
 mod selected_hydration_subtree_tests;
 #[cfg(test)]

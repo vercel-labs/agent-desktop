@@ -6,7 +6,7 @@ import type {
 export const navbarBrand: GeistdocsNavbarBrand = "labs";
 
 export const Logo = () => (
-  <span className="font-semibold text-gray-1000 text-lg leading-none tracking-[-3%]">
+  <span className="-translate-y-[0.5px] font-sans font-semibold text-[24.4px] leading-none tracking-[-0.05em] text-black dark:text-white">
     agent-desktop
   </span>
 );

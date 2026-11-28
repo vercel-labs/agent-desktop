@@ -40,10 +40,10 @@ impl crate::SystemOps for RefWindowAdapter {
         &self,
         window: &WindowInfo,
         _: &crate::InteractionLease,
-    ) -> Result<(), AdapterError> {
+    ) -> Result<crate::DeliverySemantics, AdapterError> {
         self.events.lock().unwrap().push("focus");
         assert_eq!(window.id, "exact-live-owner");
-        Ok(())
+        Ok(crate::DeliverySemantics::delivered_unverified())
     }
 }
 

@@ -4,15 +4,17 @@ use std::time::Duration;
 use agent_desktop_core::system::launch_options::LaunchOptions;
 use agent_desktop_core::system::launch_result::LaunchResult;
 use agent_desktop_core::{
-    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionLease, ProcessId,
-    RendererKind, WindowInfo,
+    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionLease, LaunchArrival,
+    LaunchGuidance, ProcessId, RendererKind, WindowInfo,
 };
 
-use self::launch_attach::{Decision, decide};
+use self::launch_attach::{Decision, decide_plan};
+use self::launch_conclude::{FocusAnswer, conclude};
 use self::launch_observe::{POLL_INTERVAL, Spawned, find_owner, pids_of, running_of};
 use self::launch_search::Search;
 use self::launch_spawn::{before_spawn, spawn, validate};
 use self::launch_target::{Plan, resolve};
+use self::launch_unreadable::{ATTACH_READ_GRACE, is_window_unreadable};
 use super::SharedBus;
 use crate::system::app::app_alias::current_index;
 use crate::system::focus::focus_window::focus_window;
@@ -21,7 +23,6 @@ use crate::system::process::process_facts;
 use crate::system::process::running_app::Running;
 use crate::system::process::web_family::WebFamily;
 use crate::system::registry::registry_frames::RootRead;
-use crate::system::window::native_group::is_unproven;
 use crate::system::window::window_ops::{require_complete_frames, windows_of_process};
 
 #[path = "launch_baseline.rs"]
@@ -61,47 +62,6 @@ fn same_window(
             && window.pid == expected.pid
             && window.process_instance == expected.process_instance
     })
-}
-
-/// The result for an owner and its window. A window is brought forward once,
-/// only when asked, and a refusal is reported in the suggestion because the
-/// launch itself succeeded. A successful `focus` returns the window read after
-/// the request, or `None` when no such read is available, and that window
-/// replaces the one read before it.
-fn conclude(
-    owner: &Running,
-    window: Option<WindowInfo>,
-    options: &LaunchOptions,
-    created: bool,
-    focus: impl FnOnce(&WindowInfo) -> Result<Option<WindowInfo>, AdapterError>,
-) -> LaunchResult {
-    let mut notes = Vec::new();
-    let mut window = window;
-    if !created && (!options.env.is_empty() || options.cwd.is_some()) {
-        notes.push(
-            "A running instance was used, so the environment and working directory of this launch were not applied.".to_owned(),
-        );
-    }
-    if options.activate
-        && let Some(target) = &window
-    {
-        match focus(target) {
-            Ok(reread) => window = reread.or(window),
-            Err(error) => notes.push(format!(
-                "The window could not be brought forward: {}",
-                error.message
-            )),
-        }
-    }
-    LaunchResult {
-        app: owner.name.clone(),
-        pid: ProcessId::new(owner.pid),
-        process_instance: Some(owner.instance.clone()),
-        window,
-        cdp: None,
-        renderer: None,
-        suggestion: (!notes.is_empty()).then(|| notes.join(" ")),
-    }
 }
 
 /// The refusal for an application that was on the registry and left before it
@@ -151,11 +111,15 @@ const WINDOW_GRACE: Duration = Duration::from_millis(2_000);
 /// was already running and forwarded the request.
 const NEW_WINDOW_WAIT: Duration = Duration::from_millis(5_000);
 
+const UNLISTED_RUNNING: &str = "The process started but is not on the accessibility bus yet. Its pid is the spawned process's and may be a wrapper of the application. Run 'list-apps' to see whether it appears.";
+
+const UNLISTED_EXITED: &str = "The launcher exited cleanly and no owner of the launch was proven: it handed its work to another process, for example a running instance it forwarded the arguments to. Its pid is the launcher's. Run 'list-windows' to see where the work arrived.";
+
 struct Launch<'a> {
     bus: &'a SharedBus,
     id: &'a str,
     options: &'a LaunchOptions,
-    lease: &'a InteractionLease,
+    lease: Option<InteractionLease>,
     deadline: Deadline,
 }
 
@@ -184,6 +148,11 @@ impl Launch<'_> {
         mut read: impl FnMut() -> Result<(Vec<WindowInfo>, RootRead), AdapterError>,
     ) -> Result<Option<WindowInfo>, AdapterError> {
         let limit = self.wait_limit(known);
+        let unreadable_end = if waits {
+            self.deadline
+        } else {
+            self.deadline.capped(ATTACH_READ_GRACE)
+        };
         loop {
             let observed = read().and_then(|(windows, status)| {
                 let own: Vec<WindowInfo> = windows
@@ -202,18 +171,7 @@ impl Launch<'_> {
             let unproven = match observed {
                 Ok(Some(window)) => return Ok(Some(window)),
                 Ok(None) => None,
-                Err(error)
-                    if is_unproven(&error)
-                        || matches!(
-                            error.code,
-                            ErrorCode::Timeout
-                                | ErrorCode::AppUnresponsive
-                                | ErrorCode::AppNotFound
-                                | ErrorCode::WindowNotFound
-                        ) =>
-                {
-                    Some(error)
-                }
+                Err(error) if is_window_unreadable(&error) => Some(error),
                 Err(error) => {
                     return Err(error.with_disposition(DeliverySemantics::delivered_unverified()));
                 }
@@ -222,7 +180,7 @@ impl Launch<'_> {
                 exited_early(owner, liveness(owner.pid, &owner.instance))?;
             }
             let until = if unproven.is_some() {
-                self.deadline
+                unreadable_end
             } else {
                 limit
             };
@@ -249,18 +207,24 @@ impl Launch<'_> {
         &self,
         owner: &Running,
         window: Option<WindowInfo>,
-        created: bool,
+        arrival: LaunchArrival,
     ) -> LaunchResult {
-        LaunchResult {
-            renderer: chromium_renderer(self.bus, owner.pid, self.deadline),
-            ..conclude(owner, window, self.options, created, |window| {
-                focus_window(self.bus, window, self.lease)?;
-                Ok(same_window(
+        let renderer = chromium_renderer(self.bus, owner.pid, self.deadline);
+        let mut result = conclude(owner, window, self.options, arrival, |window| {
+            let lease = self.lease.as_ref().ok_or_else(|| {
+                AdapterError::new(ErrorCode::Internal, "The launch lease was released early")
+            })?;
+            let activation = focus_window(self.bus, window, lease)?;
+            Ok(FocusAnswer {
+                window: same_window(
                     windows_of_process(self.bus, owner.pid, self.deadline),
                     window,
-                ))
+                ),
+                dispatched: activation.dispatched(),
             })
-        }
+        });
+        result.guidance.renderer = renderer;
+        result
     }
 
     /// A running application is reported with its window. One that shows no
@@ -268,20 +232,51 @@ impl Launch<'_> {
     /// window closed, is started again so that its launcher forwards to it
     /// and a window opens.
     fn attach(
-        &self,
+        &mut self,
         owner: &Running,
         plan: &Plan,
-        identity: &Option<crate::system::process::executable_identity::ExecutableIdentity>,
         running: &[Running],
     ) -> Result<LaunchResult, AdapterError> {
-        match self.window_of(owner, false, &HashSet::new())? {
-            Some(window) => Ok(self.conclude_with(owner, Some(window), false)),
-            None => self.start(plan, identity, running),
+        match self.window_of(owner, false, &HashSet::new()) {
+            Ok(Some(window)) => {
+                Ok(self.conclude_with(owner, Some(window), LaunchArrival::Attached))
+            }
+            Ok(None) => self.start(plan, running),
+            Err(error) if is_window_unreadable(&error) => Ok(self.attached_unread(owner, &error)),
+            Err(error) => Err(error),
         }
+    }
+
+    /// An attach to an application that does not answer for its windows:
+    /// nothing was sent and nothing is known about its windows, so the result
+    /// names the application, carries no window, and says why. Starting the
+    /// application again would send a request to an application that cannot
+    /// be read.
+    fn attached_unread(&self, owner: &Running, error: &AdapterError) -> LaunchResult {
+        let mut result = conclude(owner, None, self.options, LaunchArrival::Attached, |_| {
+            Ok(FocusAnswer {
+                window: None,
+                dispatched: false,
+            })
+        });
+        let note = format!(
+            "Attached to the running application, but its windows could not be read: {}. Run 'list-windows' to see whether they can be read now.",
+            error.message
+        );
+        result.guidance.suggestion = Some(match result.guidance.suggestion.take() {
+            Some(earlier) => format!("{earlier} {note}"),
+            None => note,
+        });
+        result
     }
 
     fn report_unlisted(&self, spawned: &Spawned) -> LaunchResult {
         let facts = process_facts::read(spawned.pid);
+        let suggestion = if facts.is_some() {
+            UNLISTED_RUNNING
+        } else {
+            UNLISTED_EXITED
+        };
         LaunchResult {
             app: facts
                 .as_ref()
@@ -289,38 +284,48 @@ impl Launch<'_> {
             pid: ProcessId::new(spawned.pid),
             process_instance: facts.map(|facts| facts.instance),
             window: None,
-            cdp: None,
-            renderer: None,
-            suggestion: Some(
-                "The process started but is not on the accessibility bus yet. Its pid is the spawned process's and may be a wrapper of the application. Run 'list-apps' to see whether it appears.".to_owned(),
-            ),
+            guidance: LaunchGuidance {
+                suggestion: Some(suggestion.to_owned()),
+                ..LaunchGuidance::default()
+            },
+            disposition: LaunchArrival::Unobserved.facts().disposition(),
         }
     }
 
-    fn start(
-        &self,
-        plan: &Plan,
-        identity: &Option<crate::system::process::executable_identity::ExecutableIdentity>,
-        running: &[Running],
-    ) -> Result<LaunchResult, AdapterError> {
-        let before = baseline::prepare(self.bus, identity, running, self.deadline);
+    fn start(&mut self, plan: &Plan, running: &[Running]) -> Result<LaunchResult, AdapterError> {
+        let before = baseline::prepare(self.bus, &plan.identity, running, self.deadline);
         self.deadline.ensure_remaining().map_err(before_spawn)?;
         let mut spawned = spawn(self.id, plan, self.options)?;
-        match find_owner(self.bus, &mut spawned, identity, &before, self.deadline)? {
-            Some(owner) => {
-                let known = before
-                    .residents
-                    .iter()
-                    .find(|(resident, _)| resident.identity() == owner.identity());
-                let window = match known {
-                    Some((_, windows)) => self.window_of(&owner, true, windows)?,
-                    None if before.processes.contains(&owner.identity()) => None,
-                    None => self.window_of(&owner, true, &HashSet::new())?,
-                };
-                Ok(self.conclude_with(&owner, window, owner.pid == spawned.pid))
-            }
-            None => Ok(self.report_unlisted(&spawned)),
-        }
+        self.ready(&mut spawned, plan, &before)
+    }
+
+    fn ready(
+        &self,
+        spawned: &mut Spawned,
+        plan: &Plan,
+        before: &baseline::Baseline,
+    ) -> Result<LaunchResult, AdapterError> {
+        Ok(
+            match find_owner(self.bus, spawned, plan, before, self.deadline)? {
+                Some(owner) => {
+                    let known = before
+                        .residents
+                        .iter()
+                        .find(|resident| resident.owner.identity() == owner.identity());
+                    let window = match known {
+                        Some(resident) => self.window_of(&owner, true, &resident.windows)?,
+                        None if before.processes.contains(&owner.identity()) => None,
+                        None => self.window_of(&owner, true, &HashSet::new())?,
+                    };
+                    let arrival = LaunchArrival::started(
+                        owner.pid == spawned.pid,
+                        !before.processes.contains(&owner.identity()),
+                    );
+                    self.conclude_with(&owner, window, arrival)
+                }
+                None => self.report_unlisted(spawned),
+            },
+        )
     }
 }
 
@@ -332,7 +337,7 @@ pub(crate) fn launch_app(
     bus: &SharedBus,
     id: &str,
     options: &LaunchOptions,
-    lease: &InteractionLease,
+    lease: InteractionLease,
 ) -> Result<LaunchResult, AdapterError> {
     validate(options)?;
     let deadline = bounded(lease.deadline(), options.timeout_ms);
@@ -340,32 +345,29 @@ pub(crate) fn launch_app(
     let plan = resolve(id, &options.args, &search, &current_index())?;
     let registry = crate::system::registry::read_processes(bus, deadline).map_err(before_spawn)?;
     let running = running_of(&registry).map_err(before_spawn)?;
-    let launch = Launch {
+    let mut launch = Launch {
         bus,
         id,
         options,
-        lease,
+        lease: Some(lease),
         deadline,
     };
-    match decide(
-        &plan.identity,
+    match decide_plan(
+        &plan,
         &running,
         options.attach_if_running,
         !options.args.is_empty(),
     ) {
-        Decision::Refuse(pids) => Err(before_spawn(
-            AdapterError::new(
-                ErrorCode::ActionFailed,
-                format!("'{id}' is already running (pids {pids:?}) and a new launch was required"),
-            )
-            .with_suggestion("Allow attaching to use the running instance, or close it first."),
+        Decision::Refuse(pids) => Err(agent_desktop_core::launch_already_running(
+            id,
+            &pids_of(&pids),
         )),
         Decision::Ambiguous(pids) => Err(AdapterError::ambiguous_process_target(
             format!("'{id}' matches several running applications"),
             &pids_of(&pids),
         )),
-        Decision::Attach(owner) => launch.attach(&owner, &plan, &plan.identity, &running),
-        Decision::Forward | Decision::Spawn => launch.start(&plan, &plan.identity, &running),
+        Decision::Attach(owner) => launch.attach(&owner, &plan, &running),
+        Decision::Forward | Decision::Spawn => launch.start(&plan, &running),
     }
 }
 
@@ -383,12 +385,12 @@ pub(super) mod desktop_lookup;
 pub(super) mod desktop_stamp;
 pub(super) mod indexed_entry;
 pub(super) mod launch_attach;
+mod launch_conclude;
 mod launch_handoff;
-#[cfg(test)]
-pub(super) mod launch_live_tests;
 pub(super) mod launch_observe;
 pub(crate) mod launch_sample;
 pub(crate) mod launch_search;
 mod launch_spawn;
 pub(crate) mod launch_step;
 pub(super) mod launch_target;
+mod launch_unreadable;

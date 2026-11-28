@@ -1,5 +1,4 @@
 use crate::AdAdapter;
-use crate::commands::app_error_to_adapter;
 use crate::commands::envelope_out::write_command_envelope;
 use crate::convert::string::optional_adapter_string;
 use crate::error::{self, AdResult};
@@ -66,7 +65,7 @@ pub unsafe extern "C" fn ad_wait(
         let ctx = match adapter_ref.command_context() {
             Ok(c) => c,
             Err(app_err) => {
-                let adapter_err = app_error_to_adapter(app_err);
+                let adapter_err = agent_desktop_core::AppError::into_adapter_error(app_err);
                 error::set_last_error(&adapter_err);
                 return error::last_error_code();
             }
@@ -78,6 +77,7 @@ pub unsafe extern "C" fn ad_wait(
             ffi_args.mode.surfaces.menu,
             ffi_args.mode.surfaces.menu_closed,
             ffi_args.mode.surfaces.notification,
+            None,
         )
         .and_then(|surface| {
             wait_args.mode.surface = surface;

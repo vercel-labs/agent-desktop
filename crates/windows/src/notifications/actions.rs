@@ -10,7 +10,6 @@ use super::read::ListEntry;
 use super::session::{ActionCenterSession, close_session};
 use super::verify::{
     action_changed_state, dismiss_survived_error, entry_gone, read_settling_without, same_identity,
-    survivor_failures,
 };
 
 #[cfg(test)]
@@ -51,10 +50,10 @@ pub fn dismiss_all(
     app_filter: Option<&str>,
     policy: InteractionPolicy,
     deadline: Deadline,
-) -> Result<(Vec<NotificationInfo>, Vec<String>), AdapterError> {
+) -> Result<(Vec<NotificationInfo>, Vec<AdapterError>), AdapterError> {
     require_foreground_policy(policy)?;
     let session = ActionCenterSession::open(policy, deadline)?;
-    let result = dismiss_all_impl(app_filter, session.hwnd(), deadline);
+    let result = super::dismiss_all::dismiss_all_impl(app_filter, session.hwnd(), deadline);
     close_session(session, result)
 }
 
@@ -151,109 +150,6 @@ fn is_sole_target(target: &NotificationInfo, current: &[NotificationInfo]) -> bo
     matches!(current, [only] if same_identity(target, only))
 }
 
-fn dismiss_all_impl(
-    app_filter: Option<&str>,
-    hwnd: isize,
-    deadline: Deadline,
-) -> Result<(Vec<NotificationInfo>, Vec<String>), AdapterError> {
-    let filter = build_filter(app_filter);
-    let entries = list_entries(&filter, hwnd, deadline)?;
-    if entries.is_empty() {
-        return Ok((Vec::new(), Vec::new()));
-    }
-    let captured: Vec<NotificationInfo> = entries.into_iter().map(|entry| entry.info).collect();
-    let mut invoke_errors: Vec<(usize, String)> = Vec::new();
-    if app_filter.is_some() {
-        dismiss_each_by_freshly_read_identity(
-            &captured,
-            &filter,
-            hwnd,
-            deadline,
-            &mut invoke_errors,
-        )?;
-    } else {
-        let root = crate::tree::automation::root_from_hwnd(hwnd, deadline)?;
-        let clear = super::read::find_clear_all_button(&root)?
-            .ok_or_else(super::read::missing_clear_all_error)?;
-        invoke_element(&clear)?;
-    }
-    let current = read_settling_without(&captured, hwnd, &filter, deadline)?;
-    let failures = dismiss_all_failures(&captured, &current, &invoke_errors);
-    let dismissed = captured
-        .iter()
-        .filter(|member| entry_gone(member, &current))
-        .cloned()
-        .collect();
-    Ok((dismissed, failures))
-}
-
-/// Dismisses each captured target through a freshly re-read live element,
-/// never through the handle or index the outer capture took.
-///
-/// A filtered dismissal only ever narrows which entries are targeted; it must
-/// never fall back to the Action-Center-wide clear-all, because that control
-/// has no notion of "this app's entries" and would destroy every other
-/// application's notifications along with the ones the caller asked to
-/// remove. Removing one entry can renumber and recycle the elements after it
-/// in the center's virtualized list, so every iteration re-reads the live
-/// surface with the same filter and matches its target by identity - never by
-/// the index or element handle the outer capture took, which may already be
-/// stale by the time this entry's turn comes. An invoke's own error is
-/// recorded against the target's captured index rather than discarded, so the
-/// caller's survivor comparison can report the real reason a filtered entry
-/// refused to leave, not just that it remained.
-fn dismiss_each_by_freshly_read_identity(
-    captured: &[NotificationInfo],
-    filter: &NotificationFilter,
-    hwnd: isize,
-    deadline: Deadline,
-    invoke_errors: &mut Vec<(usize, String)>,
-) -> Result<(), AdapterError> {
-    for target in captured {
-        let live = list_entries(filter, hwnd, deadline)?;
-        let Some(current) = live.iter().find(|entry| same_identity(target, &entry.info)) else {
-            continue;
-        };
-        if let Err(error) = invoke_dismiss(&current.element, current.info.index) {
-            invoke_errors.push((target.index, error.to_string()));
-        }
-    }
-    Ok(())
-}
-
-/// One failure line per captured member still present after the clear,
-/// carrying the specific invoke error a filtered dismissal recorded for it
-/// when one exists, the generic survivor message otherwise - never both, and
-/// never for a member the settle read proved gone. A member that vanished
-/// during the clear is reported as dismissed even if its own invoke errored,
-/// because the settle read is the proof the caller's envelope trusts, not the
-/// invoke's own return value.
-fn dismiss_all_failures(
-    captured: &[NotificationInfo],
-    current: &[NotificationInfo],
-    invoke_errors: &[(usize, String)],
-) -> Vec<String> {
-    if invoke_errors.is_empty() {
-        return survivor_failures(captured, current);
-    }
-    captured
-        .iter()
-        .filter(|member| !entry_gone(member, current))
-        .map(|member| {
-            match invoke_errors
-                .iter()
-                .find(|(index, _)| *index == member.index)
-            {
-                Some((_, message)) => format!("#{}: {}", member.index, message),
-                None => format!(
-                    "#{}: notification from the captured set is still present",
-                    member.index
-                ),
-            }
-        })
-        .collect()
-}
-
 fn action_impl(
     index: usize,
     identity: Option<&NotificationIdentity>,
@@ -273,9 +169,21 @@ fn action_impl(
     Ok(result)
 }
 
-fn invoke_dismiss(entry: &UIAElement, index: usize) -> Result<(), AdapterError> {
-    let button =
-        super::read::find_dismiss_button(entry)?.ok_or_else(|| missing_dismiss_error(index))?;
+/// Reads the control an invoke targets. A failed read happens before anything
+/// is invoked, so it is marked not-delivered unless it already carries
+/// stronger evidence.
+pub(super) fn read_control<E>(
+    read: impl FnOnce() -> Result<Option<E>, AdapterError>,
+    missing: impl FnOnce() -> AdapterError,
+) -> Result<E, AdapterError> {
+    read().map_err(AdapterError::unsent)?.ok_or_else(missing)
+}
+
+pub(super) fn invoke_dismiss(entry: &UIAElement, index: usize) -> Result<(), AdapterError> {
+    let button = read_control(
+        || super::read::find_dismiss_button(entry),
+        || missing_dismiss_error(index),
+    )?;
     invoke_element(&button)
 }
 
@@ -285,8 +193,12 @@ fn invoke_notification_action(
     index: usize,
 ) -> Result<(), AdapterError> {
     let wanted = action_name.to_lowercase();
-    for verb in super::read::find_verb_buttons(entry)? {
-        if super::read::name_of(&verb)?.to_lowercase() == wanted {
+    for verb in super::read::find_verb_buttons(entry).map_err(AdapterError::unsent)? {
+        if super::read::name_of(&verb)
+            .map_err(AdapterError::unsent)?
+            .to_lowercase()
+            == wanted
+        {
             return invoke_element(&verb);
         }
     }
@@ -294,20 +206,31 @@ fn invoke_notification_action(
 }
 
 #[cfg(target_os = "windows")]
-fn invoke_element(element: &UIAElement) -> Result<(), AdapterError> {
+pub(super) fn invoke_element(element: &UIAElement) -> Result<(), AdapterError> {
     use uiautomation::patterns::UIInvokePattern;
 
-    let pattern: UIInvokePattern = element
-        .0
-        .get_pattern()
-        .map_err(|error| crate::tree::automation::uia_error(&error, "read the Invoke pattern"))?;
+    invoke_pattern(element.0.get_pattern::<UIInvokePattern>())
+}
+
+/// Invokes an already-claimed Invoke pattern, or reports why claiming it failed.
+///
+/// Acquiring the pattern is a read: nothing reached the application, so its
+/// failure is stamped not-delivered and never counts as a dispatch. Only the
+/// `invoke()` failure itself stays uncertain.
+#[cfg(target_os = "windows")]
+pub(super) fn invoke_pattern(
+    pattern: Result<uiautomation::patterns::UIInvokePattern, uiautomation::Error>,
+) -> Result<(), AdapterError> {
+    let pattern = pattern.map_err(|error| {
+        crate::tree::automation::uia_error(&error, "read the Invoke pattern").unsent()
+    })?;
     pattern.invoke().map_err(|error| {
         crate::tree::automation::uia_error(&error, "invoke a notification control")
     })
 }
 
 #[cfg(not(target_os = "windows"))]
-fn invoke_element(_element: &UIAElement) -> Result<(), AdapterError> {
+pub(super) fn invoke_element(_element: &UIAElement) -> Result<(), AdapterError> {
     Err(AdapterError::not_supported("invoke a notification control"))
 }
 
@@ -347,14 +270,14 @@ fn locate_and_verify(
     Ok(entry)
 }
 
-fn build_filter(app_filter: Option<&str>) -> NotificationFilter {
+pub(super) fn build_filter(app_filter: Option<&str>) -> NotificationFilter {
     NotificationFilter {
         app: app_filter.map(String::from),
         ..Default::default()
     }
 }
 
-fn missing_dismiss_error(index: usize) -> AdapterError {
+pub(super) fn missing_dismiss_error(index: usize) -> AdapterError {
     AdapterError::new(
         ErrorCode::ActionFailed,
         format!("The notification at index {index} exposes no 'DismissButton' control to invoke"),

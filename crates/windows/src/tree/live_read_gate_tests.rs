@@ -1,16 +1,12 @@
 //! The essential-completeness gate is a pure predicate over the evidence, so
-//! it is pinned here without a UI Automation client and on every target,
-//! rather than beside the fixture-driven tests: any essential slot reading
-//! `Unknown` - the completeness rule - rejects the bundle, and the rejection
-//! error is the retryable `AppUnresponsive` the loop retries instead of a
-//! partial answer claiming completeness.
-//!
-//! What these tests deliberately cannot see is whether the shared read still
-//! consults the predicate at all. That wiring is pinned against a real
-//! element in `live_read_seam_tests.rs`, because it is only observable
-//! through a read that reaches the gate.
+//! it is pinned here without a UI Automation client and on every target: any
+//! essential slot reading `Unknown` - the completeness rule - rejects the
+//! bundle, and the rejection error is the retryable `AppUnresponsive` the loop
+//! retries instead of a partial answer claiming completeness.
 
-use super::{essential_live_evidence_complete, incomplete_live_evidence, stale_reader_error};
+use super::{gate_live_evidence, incomplete_live_evidence, stale_reader_error};
+use crate::tree::properties::{ElementProperties, PropertyOutcome, property_ids::TreeProperty};
+use agent_desktop_core::adapter::live_element::essential_live_evidence_complete;
 use agent_desktop_core::{
     DeliverySemantics, ElementIdentifier, ErrorCode, IdentifierEvidence, IdentifierKind,
     LocatorEvidence, LocatorField, LocatorRefEvidence, NodeDescriptor, Rect,
@@ -133,4 +129,63 @@ fn an_unknown_value_states_bounds_or_actions_fail_the_gate() {
     ] {
         assert!(!essential_live_evidence_complete(&field));
     }
+}
+
+fn value_read(outcome: PropertyOutcome) -> ElementProperties {
+    ElementProperties::from_reads(vec![(TreeProperty::Value, outcome)])
+}
+
+fn unread_value_evidence() -> LocatorEvidence {
+    LocatorEvidence {
+        value: LocatorField::Unknown,
+        ..complete_evidence()
+    }
+}
+
+/// The app answered with text past the read limit. That is an observation, so
+/// the gate passes and reports the length; a command that never reads the
+/// value (resolve, focus, set-value, clear, click) must not fail on it.
+#[test]
+fn an_oversize_value_passes_the_gate_and_reports_its_length() {
+    let properties = value_read(PropertyOutcome::Oversize(5000));
+
+    assert_eq!(
+        gate_live_evidence(&properties, &unread_value_evidence()).unwrap(),
+        Some(5000)
+    );
+}
+
+/// A value read that failed is still missing evidence and still retryable.
+#[test]
+fn a_failed_value_read_still_fails_the_gate_retryable() {
+    let properties = value_read(PropertyOutcome::Unknown);
+
+    let error = gate_live_evidence(&properties, &unread_value_evidence()).unwrap_err();
+
+    assert_eq!(error.code, ErrorCode::AppUnresponsive);
+    assert!(error.is_explicitly_retryable());
+}
+
+/// An oversize value excuses only the value slot.
+#[test]
+fn an_oversize_value_does_not_excuse_an_unread_role() {
+    let properties = value_read(PropertyOutcome::Oversize(5000));
+    let evidence = LocatorEvidence {
+        role: LocatorField::Unknown,
+        ..unread_value_evidence()
+    };
+
+    assert!(gate_live_evidence(&properties, &evidence).is_err());
+}
+
+#[test]
+fn a_read_value_reports_no_oversize() {
+    let properties = value_read(PropertyOutcome::Known(
+        crate::tree::properties::PropertyValue::Text("short".into()),
+    ));
+
+    assert_eq!(
+        gate_live_evidence(&properties, &complete_evidence()).unwrap(),
+        None
+    );
 }

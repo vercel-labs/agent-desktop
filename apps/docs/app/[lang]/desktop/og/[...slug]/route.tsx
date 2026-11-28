@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { source } from "@/lib/geistdocs/source";
-import { renderOgImage } from "../og-image";
+import { renderLabsOg } from "../labs-og";
 
 export const GET = async (
   _request: NextRequest,
@@ -14,11 +14,12 @@ export const GET = async (
     return new Response("Not found", { status: 404 });
   }
 
-  return renderOgImage(
-    page.slugs.length
+  return renderLabsOg({
+    product: "agent-desktop",
+    title: page.slugs.length
       ? (page.data.title ?? "agent-desktop")
-      : "Desktop\nAutomation for AI"
-  );
+      : "Desktop automation for AI",
+  });
 };
 
 export const generateStaticParams = async ({

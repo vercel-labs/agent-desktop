@@ -1,18 +1,69 @@
 use super::*;
 use crate::adapter::{ActionOps, InputOps, ObservationOps, SystemOps};
 use crate::system::launch_options::LaunchOptions;
-use crate::{AdapterError, AppInfo, InteractionLease, ProcessId, WindowInfo, WindowState};
+use crate::{
+    AdapterError, InteractionLease, LaunchFacts, LaunchGuidance, ProcessId, WindowInfo, WindowState,
+};
+use serde_json::json;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 struct LaunchAdapter {
     lease_timeout_ms: AtomicU64,
     list_apps_calls: AtomicUsize,
+    facts: LaunchFacts,
+}
+
+const FRESH: LaunchFacts = LaunchFacts {
+    attached: false,
+    activation_dispatched: false,
+    postcondition_observed: true,
+};
+
+fn adapter_with(facts: LaunchFacts) -> LaunchAdapter {
+    LaunchAdapter {
+        lease_timeout_ms: AtomicU64::new(0),
+        list_apps_calls: AtomicUsize::new(0),
+        facts,
+    }
+}
+
+fn fixture_window() -> WindowInfo {
+    WindowInfo {
+        id: "w-1".into(),
+        title: "Fixture".into(),
+        app: "Fixture".into(),
+        pid: ProcessId::new(42),
+        process_instance: Some("42:1".into()),
+        bounds: None,
+        state: WindowState::default(),
+    }
+}
+
+fn launch(adapter: &LaunchAdapter, activate: bool) -> serde_json::Value {
+    execute(
+        LaunchArgs {
+            app: "Fixture".into(),
+            options: LaunchOptions {
+                activate,
+                ..LaunchOptions::default()
+            },
+        },
+        adapter,
+        crate::InteractionPolicy::headed(),
+    )
+    .unwrap()
 }
 
 impl ObservationOps for LaunchAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        self.list_apps_calls.fetch_add(1, Ordering::SeqCst);
-        Ok(Vec::new())
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer({
+            self.list_apps_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(Vec::new())
+        }?))
     }
 }
 impl ActionOps for LaunchAdapter {}
@@ -32,34 +83,22 @@ impl SystemOps for LaunchAdapter {
         &self,
         _id: &str,
         _options: &LaunchOptions,
-        _lease: &InteractionLease,
+        _lease: InteractionLease,
     ) -> Result<crate::system::launch_result::LaunchResult, AdapterError> {
         Ok(crate::system::launch_result::LaunchResult {
             app: "Fixture".into(),
             pid: ProcessId::new(42),
             process_instance: Some("42:1".into()),
-            window: Some(WindowInfo {
-                id: "w-1".into(),
-                title: "Fixture".into(),
-                app: "Fixture".into(),
-                pid: ProcessId::new(42),
-                process_instance: Some("42:1".into()),
-                bounds: None,
-                state: WindowState::default(),
-            }),
-            cdp: None,
-            renderer: None,
-            suggestion: None,
+            window: Some(fixture_window()),
+            guidance: LaunchGuidance::default(),
+            disposition: self.facts.disposition(),
         })
     }
 }
 
 #[test]
 fn launch_lease_uses_the_requested_timeout() {
-    let adapter = LaunchAdapter {
-        lease_timeout_ms: AtomicU64::new(0),
-        list_apps_calls: AtomicUsize::new(0),
-    };
+    let adapter = adapter_with(FRESH);
     let options = LaunchOptions {
         timeout_ms: 30_000,
         ..Default::default()
@@ -71,6 +110,7 @@ fn launch_lease_uses_the_requested_timeout() {
             options,
         },
         &adapter,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
 
@@ -79,10 +119,7 @@ fn launch_lease_uses_the_requested_timeout() {
 
 #[test]
 fn zero_launch_timeout_keeps_a_bounded_lease_for_the_single_attempt() {
-    let adapter = LaunchAdapter {
-        lease_timeout_ms: AtomicU64::new(0),
-        list_apps_calls: AtomicUsize::new(0),
-    };
+    let adapter = adapter_with(FRESH);
 
     execute(
         LaunchArgs {
@@ -93,6 +130,7 @@ fn zero_launch_timeout_keeps_a_bounded_lease_for_the_single_attempt() {
             },
         },
         &adapter,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
 
@@ -107,10 +145,7 @@ fn zero_launch_timeout_keeps_a_bounded_lease_for_the_single_attempt() {
 /// cdp precheck accidentally running unconditionally.
 #[test]
 fn plain_launch_without_cdp_never_calls_list_apps() {
-    let adapter = LaunchAdapter {
-        lease_timeout_ms: AtomicU64::new(0),
-        list_apps_calls: AtomicUsize::new(0),
-    };
+    let adapter = adapter_with(FRESH);
 
     execute(
         LaunchArgs {
@@ -118,8 +153,93 @@ fn plain_launch_without_cdp_never_calls_list_apps() {
             options: LaunchOptions::default(),
         },
         &adapter,
+        crate::InteractionPolicy::headed(),
     )
     .unwrap();
 
     assert_eq!(adapter.list_apps_calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn headless_launch_with_activate_is_refused_before_anything_is_launched() {
+    let adapter = adapter_with(FRESH);
+    let options = LaunchOptions {
+        activate: true,
+        ..LaunchOptions::default()
+    };
+    let error = execute(
+        LaunchArgs {
+            app: "Fixture".into(),
+            options,
+        },
+        &adapter,
+        crate::InteractionPolicy::headless(),
+    )
+    .unwrap_err();
+    let crate::AppError::Adapter(error) = error else {
+        panic!("a policy refusal is an adapter error");
+    };
+    assert_eq!(error.code, ErrorCode::PolicyDenied);
+    assert_eq!(error.details.unwrap()["effect"], "focus_steal");
+    assert_eq!(adapter.lease_timeout_ms.load(Ordering::SeqCst), 0);
+}
+
+fn expected_data(delivery: &str, retry: &str) -> serde_json::Value {
+    json!({
+        "app": "Fixture",
+        "pid": 42,
+        "process_instance": "42:1",
+        "window": serde_json::to_value(fixture_window()).unwrap(),
+        "disposition": { "delivery": delivery, "retry": retry },
+    })
+}
+
+#[test]
+fn a_fresh_launch_whose_instance_was_read_back_reports_delivered_verified() {
+    let adapter = adapter_with(FRESH);
+
+    assert_eq!(
+        launch(&adapter, false),
+        expected_data("delivered_verified", "unsafe")
+    );
+}
+
+struct PartialInventoryAdapter;
+
+impl ObservationOps for PartialInventoryAdapter {
+    fn query_app_inventory(
+        &self,
+        _query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(crate::AppInventory {
+            apps: Vec::new(),
+            skipped: vec![serde_json::json!({ "pid": 11, "field": "application_name" })],
+        })
+    }
+}
+impl ActionOps for PartialInventoryAdapter {}
+impl InputOps for PartialInventoryAdapter {}
+impl SystemOps for PartialInventoryAdapter {}
+
+#[test]
+fn cdp_launch_refuses_when_a_skipped_record_may_be_the_running_app() {
+    let error = execute(
+        LaunchArgs {
+            app: "Fixture".into(),
+            options: LaunchOptions {
+                cdp_port: Some(0),
+                ..LaunchOptions::default()
+            },
+        },
+        &PartialInventoryAdapter,
+        crate::InteractionPolicy::headless(),
+    )
+    .unwrap_err();
+    let crate::AppError::Adapter(error) = error else {
+        panic!("an incomplete inventory is an adapter error");
+    };
+    assert_eq!(error.code, ErrorCode::AppUnresponsive);
+    assert_eq!(error.details.unwrap()["kind"], "app_inventory_incomplete");
+    assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());
 }

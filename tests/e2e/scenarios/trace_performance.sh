@@ -98,7 +98,7 @@ record_timing() {
         "exit=$RUN_EXIT elapsed_ms=$RUN_MS error=$(json_field "$RUN_JSON" error.code)"
 }
 
-"$bin" focus-window --app "$app" >/dev/null 2>&1
+"$bin" focus-window --headed --app "$app" >/dev/null 2>&1
 require_target perf_primary button primary-button
 require_target perf_text textfield text-input
 record_timing "snapshot full depth 30" "$bin" snapshot --app "$app" --max-depth 30

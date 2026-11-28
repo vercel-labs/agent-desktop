@@ -8,8 +8,7 @@ use super::numeric_write::{self, NumericPort, VALUE_INTERFACE};
 use super::secure_write::is_secure;
 use super::text_write::{self, EDITABLE_TEXT, TextPort, read_only_field, writable};
 use super::write_call::{Call, invoke};
-use crate::actions::chain::chain_def::ChainDef;
-use crate::actions::chain::execute_chain;
+use crate::actions::chain::run_semantic_chain;
 use crate::actions::context::Target;
 use crate::system::{PROPERTIES_INTERFACE, within};
 use crate::tree::capabilities::action_read::NodeView;
@@ -17,12 +16,13 @@ use crate::tree::capabilities::text_selection::{CaretAndSelection, read_caret_an
 use crate::tree::capabilities::text_units::LengthUnit;
 use crate::tree::live_read::live_offscreen::toolkit_of;
 use crate::tree::properties::toolkit_trust::{insert_length_unit, is_gecko};
-use crate::tree::vocabulary::role_numbers::{DIAL, SCROLL_BAR, SLIDER, SPIN_BUTTON};
+use crate::tree::vocabulary::role_numbers::{DIAL, SCROLL_BAR, SLIDER, SPIN_BUTTON, TABLE_CELL};
 use crate::tree::vocabulary::state_bits::{EDITABLE, READ_ONLY};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Route {
     Numeric { spin_button: bool },
+    Cell,
     Text,
     Unsupported,
 }
@@ -42,11 +42,31 @@ pub(crate) fn route(role: Option<u32>, interfaces: Option<&[String]>) -> Route {
             spin_button: role == Some(SPIN_BUTTON),
         };
     }
+    if role == Some(TABLE_CELL) && advertises(interfaces, VALUE_INTERFACE) == Some(true) {
+        return Route::Cell;
+    }
     if text_advertised(interfaces) {
         Route::Text
     } else {
         Route::Unsupported
     }
+}
+
+/// The route a write of `text` takes: a cell that advertises editable text as
+/// well as a value takes text that is not a number through its text.
+pub(crate) fn set_value_route(
+    role: Option<u32>,
+    interfaces: Option<&[String]>,
+    text: &str,
+) -> Route {
+    let route = route(role, interfaces);
+    if route == Route::Cell
+        && advertises(interfaces, EDITABLE_TEXT) == Some(true)
+        && numeric_write::plan(text, false, None).is_err()
+    {
+        return Route::Text;
+    }
+    route
 }
 
 struct LiveText<'a> {
@@ -166,6 +186,15 @@ fn unsupported(action: &str) -> AdapterError {
     .with_disposition(DeliverySemantics::not_delivered())
 }
 
+fn cell_takes_a_number() -> AdapterError {
+    AdapterError::new(
+        ErrorCode::InvalidArgs,
+        "The cell takes a number through its value interface; text has no background route on this cell",
+    )
+    .with_suggestion("Give a number. Text in this cell needs headed mode, which only the user can request")
+    .with_disposition(DeliverySemantics::not_delivered())
+}
+
 fn ensure_writable(view: &NodeView) -> Result<(), AdapterError> {
     if writable(view.state(READ_ONLY), view.state(EDITABLE)) {
         Ok(())
@@ -189,18 +218,12 @@ fn secure_view(view: &NodeView) -> bool {
     is_secure(view.role(), view.tokens(), view.secure())
 }
 
-const SET_VALUE: ChainDef = ChainDef {
-    action: "set-value",
-    suggestion: "Click the field and use type, or check that the field is editable",
-};
-const CLEAR: ChainDef = ChainDef {
-    action: "clear",
-    suggestion: "Click the field and select its text, or check that the field is editable",
-};
-const TYPE: ChainDef = ChainDef {
-    action: "type",
-    suggestion: "Focus the field and retry, or use set-value to replace the whole text",
-};
+const SET_VALUE_SUGGESTION: &str =
+    "Click the field and use type, or check that the field is editable";
+const CLEAR_SUGGESTION: &str =
+    "Click the field and select its text, or check that the field is editable";
+const TYPE_SUGGESTION: &str =
+    "Focus the field and retry, or use set-value to replace the whole text";
 
 pub(crate) fn set_value(
     target: &Target<'_>,
@@ -208,7 +231,8 @@ pub(crate) fn set_value(
     policy: InteractionPolicy,
 ) -> Result<ActionResult, AdapterError> {
     let view = target.view()?;
-    match route(view.role(), view.interfaces()) {
+    let action = Action::SetValue(text.to_owned());
+    match set_value_route(view.role(), view.interfaces(), text) {
         Route::Unsupported => Err(unsupported("set a value")),
         Route::Numeric { spin_button } => {
             if view.state(READ_ONLY) == Some(true) {
@@ -218,14 +242,23 @@ pub(crate) fn set_value(
             let plan = numeric_write::plan(text, spin_button, increment)?;
             let port = LiveNumeric { target };
             let mut rungs = numeric_write::write_rungs(&port, plan);
-            execute_chain(&SET_VALUE, &mut rungs, target.deadline)
+            run_semantic_chain(&action, &mut rungs, target.deadline, SET_VALUE_SUGGESTION)
+        }
+        Route::Cell => {
+            if view.state(EDITABLE) != Some(true) || view.state(READ_ONLY) == Some(true) {
+                return Err(unsupported("set a value"));
+            }
+            let plan = numeric_write::plan(text, false, None).map_err(|_| cell_takes_a_number())?;
+            let port = LiveNumeric { target };
+            let mut rungs = numeric_write::write_rungs(&port, plan);
+            run_semantic_chain(&action, &mut rungs, target.deadline, SET_VALUE_SUGGESTION)
         }
         Route::Text => {
             ensure_writable(&view)?;
-            ensure_toolkit_applies_writes(target, policy, SET_VALUE.action)?;
+            ensure_toolkit_applies_writes(target, policy, action.name())?;
             let port = LiveText { target };
             let mut rungs = text_write::replace_rungs(&port, text, secure_view(&view));
-            execute_chain(&SET_VALUE, &mut rungs, target.deadline)
+            run_semantic_chain(&action, &mut rungs, target.deadline, SET_VALUE_SUGGESTION)
         }
     }
 }
@@ -239,10 +272,15 @@ pub(crate) fn clear(
         return Err(unsupported("clear"));
     }
     ensure_writable(&view)?;
-    ensure_toolkit_applies_writes(target, policy, CLEAR.action)?;
+    ensure_toolkit_applies_writes(target, policy, Action::Clear.name())?;
     let port = LiveText { target };
     let mut rungs = text_write::replace_rungs(&port, "", secure_view(&view));
-    execute_chain(&CLEAR, &mut rungs, target.deadline)
+    run_semantic_chain(
+        &Action::Clear,
+        &mut rungs,
+        target.deadline,
+        CLEAR_SUGGESTION,
+    )
 }
 
 pub(crate) fn type_text(
@@ -257,10 +295,11 @@ pub(crate) fn type_text(
         )));
     }
     ensure_writable(&view)?;
-    ensure_toolkit_applies_writes(target, policy, TYPE.action)?;
+    let action = Action::TypeText(text.to_owned());
+    ensure_toolkit_applies_writes(target, policy, action.name())?;
     let port = LiveText { target };
     let mut rungs = text_write::insert_rungs(&port, text, secure_view(&view));
-    execute_chain(&TYPE, &mut rungs, target.deadline)
+    run_semantic_chain(&action, &mut rungs, target.deadline, TYPE_SUGGESTION)
 }
 
 #[cfg(test)]

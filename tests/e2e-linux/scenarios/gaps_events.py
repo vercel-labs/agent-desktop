@@ -72,7 +72,7 @@ def launch_transition(ctx, token, scoped):
         ctx.after("proc.calculator_count", changed(lambda: calculator_processes(ctx), 1))
     finally:
         if inventory(ctx):
-            ctx.product(["close-app", "Calculator"])
+            ctx.product(["close-app", "Calculator", "--force"])
         ctx.restored("atspi.inventory", changed(lambda: inventory(ctx), before, seconds=6))
         ctx.restored("proc.calculator_count", changed(lambda: calculator_processes(ctx), 0, seconds=6))
 
@@ -83,7 +83,8 @@ def close_transition(ctx, token, scoped):
         require(before, "Calculator must have a frame")
         ctx.before("atspi.inventory", before)
         ctx.before("proc.calculator_count", calculator_processes(ctx))
-        event = batch_wait(ctx, token, scoped, {"command": "close-app", "args": {"app": "Calculator"}})
+        event = batch_wait(ctx, token, scoped,
+                           {"command": "close-app", "args": {"app": "Calculator", "force": True}})
         require(event.get("pid") == app.pid, "termination event named another process")
         ctx.after("atspi.inventory", changed(lambda: inventory(ctx), [], seconds=6))
         ctx.after("proc.calculator_count", changed(lambda: calculator_processes(ctx), 0, seconds=6))

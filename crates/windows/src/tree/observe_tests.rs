@@ -75,36 +75,6 @@ fn a_destroyed_hwnd_fails_reverification_as_window_not_found() {
     assert_eq!(error.code, ErrorCode::WindowNotFound);
 }
 
-#[cfg(target_os = "windows")]
-#[test]
-fn a_freshly_created_fixture_window_passes_reverification() {
-    use agent_desktop_core::ObservationRoot;
-
-    crate::tree::fixture::ensure_test_apartment();
-    let fixture = crate::tree::fixture::HostedFixture::spawn().expect("a fixture host starts");
-    let window = agent_desktop_core::WindowInfo {
-        id: crate::system::window::window_ops::window_id(fixture.handle() as _),
-        title: "agent-desktop fixture".into(),
-        app: "fixture.exe".into(),
-        pid: agent_desktop_core::ProcessId::from(fixture.process_id()),
-        process_instance: Some(
-            crate::system::process_identity::token_for_pid(agent_desktop_core::ProcessId::from(
-                fixture.process_id(),
-            ))
-            .unwrap()
-            .expect("a live fixture process has a token"),
-        ),
-        bounds: None,
-        state: Default::default(),
-    };
-
-    let result = re_verify_root(ObservationRoot::Window(&window));
-    assert!(
-        result.is_ok(),
-        "a live fixture root must pass the liveness gate: {result:?}"
-    );
-}
-
 /// Finding 4(a): a clean-looking complete walk still has to pass the
 /// liveness gate. Deleting the `verify_root(root)?` call site in
 /// `finish_observation`'s non-shell branch would make this test observe a

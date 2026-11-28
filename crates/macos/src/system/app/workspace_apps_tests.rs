@@ -1,7 +1,8 @@
 use super::*;
+use agent_desktop_core::Deadline;
 
-fn deadline() -> Instant {
-    Instant::now() + std::time::Duration::from_secs(1)
+fn deadline() -> Deadline {
+    Deadline::after(1000).unwrap()
 }
 
 #[test]
@@ -245,7 +246,7 @@ fn app_inventory_labels_menu_bar_apps_and_drops_headless_services() {
 
 #[test]
 fn expired_workspace_deadline_is_rejected_before_native_reads() {
-    let error = list_apps_inventory_until(Instant::now()).unwrap_err();
+    let error = list_apps_inventory_until(Deadline::after(0).unwrap()).unwrap_err();
 
     assert_eq!(error.code.as_str(), "TIMEOUT");
 }

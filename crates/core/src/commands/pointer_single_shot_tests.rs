@@ -104,6 +104,7 @@ impl ActionOps for SingleShotScrollAdapter {
     fn scroll_into_view(
         &self,
         handle: &NativeHandle,
+        _policy: crate::InteractionPolicy,
         _lease: &InteractionLease,
     ) -> Result<(), AdapterError> {
         assert_eq!(*handle.downcast_ref::<u32>().unwrap(), 1);
@@ -162,8 +163,8 @@ impl SystemOps for SingleShotScrollAdapter {
         &self,
         _window: &crate::WindowInfo,
         _lease: &InteractionLease,
-    ) -> Result<(), AdapterError> {
-        Ok(())
+    ) -> Result<crate::DeliverySemantics, AdapterError> {
+        Ok(crate::DeliverySemantics::delivered_unverified())
     }
 }
 
@@ -180,7 +181,7 @@ fn ref_entry(pid: u32) -> RefEntry {
             value: None,
             description: None,
             native_id: None,
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
         },
         geometry: crate::RefGeometry {
             bounds_space: None,
@@ -203,6 +204,7 @@ fn ref_entry(pid: u32) -> RefEntry {
             root_ref: None,
             path_is_absolute: false,
             path: smallvec::SmallVec::new(),
+            chain: Default::default(),
         },
     }
 }

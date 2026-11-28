@@ -31,3 +31,20 @@ fn syntax_validation_accepts_only_the_qualified_form() {
     assert!(validate_ref_token("@sabc:e").is_err());
     assert!(validate_ref_token("sabc:e1").is_err());
 }
+
+#[test]
+fn a_ref_prefixed_twice_is_named_as_a_ref_with_the_same_suggestion() {
+    let error = resolve_ref_target("@sabc:@sabc:e7").unwrap_err();
+
+    assert_eq!(error.code(), "INVALID_ARGS");
+    assert!(
+        error
+            .to_string()
+            .contains("Invalid ref_id '@sabc:@sabc:e7'")
+    );
+    assert!(
+        error
+            .suggestion()
+            .is_some_and(|s| s.contains("already holds"))
+    );
+}

@@ -2,16 +2,21 @@
 //!
 //! Gates `ScrollAvailable` on the element, maps direction to
 //! SmallIncrement/SmallDecrement on one axis, invokes `amount` times under the
-//! deadline, and verifies by scroll-percent delta or bounds change.
+//! deadline, and verifies by scroll-percent delta or bounds change. The rung
+//! takes no foreground, because the client sets `AutoSetFocus` to false
+//! (A31-1, A31-2), so every policy runs it.
 
 use agent_desktop_core::{ActionStep, AdapterError, Deadline, Direction, ErrorCode, Rect};
 
-use crate::actions::chain::{DeliveryOutcome, build_step};
 use crate::tree::element::UIAElement;
+use agent_desktop_core::DeliveryOutcome;
 
 pub(crate) const SCROLL_LABEL: &str = "ScrollPattern.Scroll";
 
 const MAX_SCROLL_AMOUNT: u32 = 1_000;
+
+const SCROLL_SUGGESTION: &str =
+    "Scroll along the axis the control exposes, or target a different container.";
 
 #[cfg(target_os = "windows")]
 pub(crate) fn scroll_amounts(
@@ -45,15 +50,27 @@ pub(crate) fn axis_name(direction: &Direction) -> &'static str {
     }
 }
 
-/// Percent-delta wins when both samples exist; otherwise bounds change.
+/// A readable percent decides alone: it must move the way the direction asks.
+/// UI Automation counts scroll percent from the top and the left edge, so
+/// down and right raise it and up and left lower it. Only an unreadable
+/// percent falls back to a change of the bounds.
 pub(crate) fn scroll_effect_verified(
+    direction: &Direction,
     before_percent: Option<f64>,
     after_percent: Option<f64>,
     before_bounds: Option<Rect>,
     after_bounds: Option<Rect>,
 ) -> bool {
     match (before_percent, after_percent) {
-        (Some(before), Some(after)) if (after - before).abs() > f64::EPSILON => true,
+        (Some(before), Some(after)) => {
+            let toward_end = matches!(direction, Direction::Down | Direction::Right);
+            let moved = if toward_end {
+                after - before
+            } else {
+                before - after
+            };
+            moved > f64::EPSILON
+        }
         _ => match (before_bounds, after_bounds) {
             (Some(before), Some(after)) => before.bounds_hash() != after.bounds_hash(),
             _ => false,
@@ -65,19 +82,33 @@ pub(crate) fn scroll_effect_verified(
 mod imp {
     use super::{
         ActionStep, AdapterError, Deadline, DeliveryOutcome, Direction, ErrorCode,
-        MAX_SCROLL_AMOUNT, SCROLL_LABEL, ScrollPlan, UIAElement, axis_name, build_step,
+        MAX_SCROLL_AMOUNT, SCROLL_LABEL, SCROLL_SUGGESTION, ScrollPlan, UIAElement, axis_name,
         scroll_amounts, scroll_effect_verified,
     };
+    use crate::actions::chain::{offered, rung};
     use crate::actions::mutation::{classify_success, classify_write};
     use crate::tree::properties::property_ids::TreeProperty;
     use crate::tree::properties::read_one;
-    use agent_desktop_core::{DeliverySemantics, LocatorField, Rect};
+    use agent_desktop_core::{DeliverySemantics, InteractionPolicy, LocatorField, Rect};
     use uiautomation::patterns::UIScrollPattern;
+
+    /// The ScrollPattern of `element` when it scrolls vertically.
+    pub(crate) fn vertical_scroll(element: &UIAElement) -> Option<UIScrollPattern> {
+        if read_one(element, TreeProperty::ScrollAvailable).flag() != Some(true) {
+            return None;
+        }
+        element
+            .0
+            .get_pattern::<UIScrollPattern>()
+            .ok()
+            .filter(|pattern| pattern.is_vertically_scrollable().unwrap_or(false))
+    }
 
     pub(crate) fn scroll_steps(
         element: &UIAElement,
         direction: &Direction,
         amount: u32,
+        policy: InteractionPolicy,
         deadline: Deadline,
     ) -> Result<Vec<ActionStep>, AdapterError> {
         validate_amount(amount)?;
@@ -117,7 +148,13 @@ mod imp {
                 .as_ref()
                 .and_then(|pattern| read_percent(pattern, direction));
             let after_bounds = known_bounds(element);
-            scroll_effect_verified(before_percent, after_percent, before_bounds, after_bounds)
+            scroll_effect_verified(
+                direction,
+                before_percent,
+                after_percent,
+                before_bounds,
+                after_bounds,
+            )
         };
         scroll_judged_for(
             deadline,
@@ -127,6 +164,7 @@ mod imp {
                 axis_name: axis,
                 amount,
             },
+            policy,
             &mut scroll_once,
             &mut observe,
         )
@@ -135,6 +173,7 @@ mod imp {
     pub(crate) fn scroll_judged_for(
         deadline: Deadline,
         plan: ScrollPlan,
+        policy: InteractionPolicy,
         scroll_once: &mut dyn FnMut() -> Result<(), AdapterError>,
         observe_effect: &mut dyn FnMut() -> bool,
     ) -> Result<Vec<ActionStep>, AdapterError> {
@@ -146,27 +185,26 @@ mod imp {
         if !plan.axis_scrollable {
             return Err(axis_not_scrollable(plan.axis_name));
         }
-        for completed in 0..plan.amount {
-            deadline.ensure_remaining().map_err(|error| {
-                if completed == 0 {
-                    error
-                } else {
-                    partial_scroll_error(error, completed, plan.amount)
-                }
-            })?;
-            scroll_once().map_err(|error| {
-                if completed == 0 {
-                    error
-                } else {
-                    partial_scroll_error(error, completed, plan.amount)
-                }
-            })?;
-        }
-        let verified = observe_effect();
-        Ok(vec![build_step(
-            SCROLL_LABEL,
-            DeliveryOutcome::from_delivery(true, verified),
-        )])
+        let mut deliver = || {
+            for completed in 0..plan.amount {
+                let reframe = |error| {
+                    if completed == 0 {
+                        error
+                    } else {
+                        partial_scroll_error(error, completed, plan.amount)
+                    }
+                };
+                deadline.ensure_remaining().map_err(reframe)?;
+                scroll_once().map_err(reframe)?;
+            }
+            Ok(DeliveryOutcome::from_delivery(true, observe_effect()))
+        };
+        agent_desktop_core::execute_chain(
+            &mut offered([rung(SCROLL_LABEL, true, false, &mut deliver)]),
+            policy,
+            deadline,
+            SCROLL_SUGGESTION,
+        )
     }
 
     fn axis_is_scrollable(pattern: &UIScrollPattern, direction: &Direction) -> bool {
@@ -225,9 +263,7 @@ mod imp {
             "kind": "axis_not_scrollable",
             "axis": axis,
         }))
-        .with_suggestion(
-            "Scroll along the axis the control exposes, or target a different container.",
-        )
+        .with_suggestion(SCROLL_SUGGESTION)
     }
 
     /// Re-frames a mid-run failure as a partial scroll without replacing what
@@ -258,11 +294,13 @@ mod imp {
 #[cfg(not(target_os = "windows"))]
 mod imp {
     use super::{ActionStep, AdapterError, Deadline, Direction, ScrollPlan, UIAElement};
+    use agent_desktop_core::InteractionPolicy;
 
     pub(crate) fn scroll_steps(
         _element: &UIAElement,
         _direction: &Direction,
         _amount: u32,
+        _policy: InteractionPolicy,
         _deadline: Deadline,
     ) -> Result<Vec<ActionStep>, AdapterError> {
         Err(AdapterError::not_supported("Scroll"))
@@ -271,6 +309,7 @@ mod imp {
     pub(crate) fn scroll_judged_for(
         _deadline: Deadline,
         _plan: ScrollPlan,
+        _policy: InteractionPolicy,
         _scroll_once: &mut dyn FnMut() -> Result<(), AdapterError>,
         _observe_effect: &mut dyn FnMut() -> bool,
     ) -> Result<Vec<ActionStep>, AdapterError> {
@@ -281,7 +320,7 @@ mod imp {
 pub(crate) use imp::scroll_steps;
 
 #[cfg(target_os = "windows")]
-pub(crate) use imp::known_bounds;
+pub(crate) use imp::{known_bounds, vertical_scroll};
 
 #[cfg(all(test, target_os = "windows"))]
 pub(crate) use imp::scroll_judged_for;

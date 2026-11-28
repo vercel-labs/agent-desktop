@@ -4,7 +4,9 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 fn fixture() -> (PathBuf, PathBuf, AliasCache) {
-    let dir = std::env::temp_dir().join(crate::tree::live::live_launch::nonce("alias-cache-test"));
+    let dir = std::env::temp_dir().join(crate::tree::test_support::live_launch::nonce(
+        "alias-cache-test",
+    ));
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("entry.desktop");
     std::fs::write(&file, "[Desktop Entry]\nName=One\n").unwrap();

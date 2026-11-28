@@ -1,6 +1,5 @@
 use agent_desktop_core::{AppInventory, Deadline, ErrorCode, ObservationOps};
 use std::cell::RefCell;
-use std::time::{Duration, Instant};
 
 thread_local! {
     static WORKSPACE_INVENTORY: RefCell<Option<AppInventory>> = const { RefCell::new(None) };
@@ -32,14 +31,17 @@ fn adapter_rejects_silently_partial_apps_but_inventory_reports_skipped() {
     let (skipped, _fixture) = install_partial_inventory();
     let adapter = crate::MacOSAdapter::new();
     let inventory = adapter
-        .list_apps_inventory(Deadline::after(1000).unwrap())
+        .query_app_inventory(
+            agent_desktop_core::AppInventoryQuery::All,
+            Deadline::after(1000).unwrap(),
+        )
         .unwrap();
     assert!(inventory.apps.is_empty());
     assert_eq!(inventory.skipped, vec![skipped]);
 
-    let error = adapter
-        .list_apps(Deadline::after(1000).unwrap())
-        .expect_err("a skipped record must not become a successful complete app list");
+    let error =
+        crate::system::app::app_inventory::list_apps_complete_until(Deadline::after(1000).unwrap())
+            .expect_err("a skipped record must not become a successful complete app list");
     assert_eq!(error.code, ErrorCode::Timeout);
 }
 
@@ -47,7 +49,7 @@ fn adapter_rejects_silently_partial_apps_but_inventory_reports_skipped() {
 fn complete_capture_refuses_skipped_records_as_a_retryable_failure_carrying_them() {
     let (skipped, _fixture) = install_partial_inventory();
 
-    let error = super::capture_complete_apps(Instant::now() + Duration::from_secs(5))
+    let error = super::capture_complete_apps(Deadline::after(5000).unwrap())
         .expect_err("a skipped record must not become a complete capture");
 
     assert_eq!(error.code, ErrorCode::AppUnresponsive);

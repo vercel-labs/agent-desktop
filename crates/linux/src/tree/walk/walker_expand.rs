@@ -10,11 +10,12 @@ use crate::tree::capabilities::value_read::read_value;
 use crate::tree::element::ancestry;
 use crate::tree::element::bounded::collect_bounded;
 use crate::tree::properties::liveness::Liveness;
-use crate::tree::properties::node_read::read_node_for;
+use crate::tree::properties::node_read::read_node_limited;
 use crate::tree::properties::read_purpose::ReadPurpose;
 use crate::tree::vocabulary::label_read::read_label_if_needed;
 use crate::tree::{AtspiElement, Expansion, ObservedRead, RawNode, WalkLimits};
 
+const SELECTION_INTERFACE: &str = "org.a11y.atspi.Selection";
 const NODES_IN_FLIGHT: usize = 32;
 const PID_LOOKUPS_IN_FLIGHT: usize = 64;
 
@@ -66,7 +67,13 @@ pub(in crate::tree) fn child_elements(
     node: &RawNode,
     pids: &HashMap<String, u32>,
 ) -> Vec<AtspiElement> {
-    let ancestry = ancestry::child(&node.element, node.traits.role.present().copied());
+    let selecting = node
+        .traits
+        .interfaces
+        .present()
+        .is_some_and(|names| names.iter().any(|name| name == SELECTION_INTERFACE));
+    let ancestry = ancestry::child(&node.element, node.traits.role.present().copied())
+        .with_selecting_parent(selecting);
     node.children
         .present()
         .into_iter()
@@ -86,6 +93,7 @@ pub(in crate::tree) struct LevelReader<'a> {
     connection: &'a Connection,
     pids: HashMap<String, u32>,
     max_field_bytes: usize,
+    max_children: usize,
     deadline: Deadline,
     at_root: bool,
     purpose: ReadPurpose,
@@ -102,6 +110,7 @@ impl<'a> LevelReader<'a> {
             connection,
             pids: HashMap::from([(root.bus_name().to_owned(), root.pid())]),
             max_field_bytes: limits.max_field_bytes,
+            max_children: limits.max_children,
             deadline,
             at_root: true,
             purpose: ReadPurpose::Snapshot,
@@ -123,6 +132,7 @@ impl<'a> LevelReader<'a> {
     ) -> Result<Vec<Expansion<ObservedRead, AtspiElement>>, AdapterError> {
         let at_root = std::mem::replace(&mut self.at_root, false);
         let (connection, max_bytes) = (self.connection, self.max_field_bytes);
+        let child_limit = self.max_children;
         let pids = &mut self.pids;
         let purpose = self.purpose;
         within(self.deadline, async {
@@ -131,7 +141,7 @@ impl<'a> LevelReader<'a> {
                     if !at_root && element.pid() == UNKNOWN_PID {
                         Err(AdapterError::new(ErrorCode::ElementNotFound, UNIDENTIFIED))
                     } else {
-                        read_observed(connection, element, max_bytes, purpose)
+                        read_observed(connection, element, max_bytes, purpose, child_limit)
                             .await
                             .map(|(read, _)| read)
                     }
@@ -165,6 +175,7 @@ impl<'a> LevelReader<'a> {
                     let children = child_elements(&read.node, pids);
                     Expansion {
                         children_unread: read.node.children.is_failed(),
+                        slots: read.node.properties.grid.slots.clone(),
                         payload: read,
                         children,
                         gone,
@@ -181,8 +192,9 @@ pub(in crate::tree) async fn read_observed(
     element: &AtspiElement,
     max_field_bytes: usize,
     purpose: ReadPurpose,
+    child_limit: usize,
 ) -> Result<(ObservedRead, Liveness), AdapterError> {
-    let (node, liveness) = read_node_for(connection, element, purpose).await?;
+    let (node, liveness) = read_node_limited(connection, element, purpose, child_limit).await?;
     let (label, value) = join(
         async {
             if purpose.identity() {

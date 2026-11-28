@@ -5,14 +5,19 @@ use crate::{AdapterError, ErrorCode};
 struct ProtectiveAdapter;
 
 impl ObservationOps for ProtectiveAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<crate::AppInfo>, AdapterError> {
-        Ok(vec![crate::AppInfo {
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(vec![crate::AppInfo {
+            aliases: Vec::new(),
             name: "TextEdit".into(),
             pid: crate::ProcessId::new(42),
             bundle_id: Some("com.apple.TextEdit".into()),
             process_instance: Some("textedit-instance".into()),
             presentation: None,
-        }])
+        }]))
     }
 }
 
@@ -32,6 +37,7 @@ impl SystemOps for ProtectiveAdapter {
         _app: &crate::AppInfo,
         _force: bool,
         _lease: &crate::InteractionLease,
+        _policy: crate::InteractionPolicy,
     ) -> Result<crate::OperationReport, crate::AdapterError> {
         Ok(crate::adapter::test_report())
     }
@@ -40,14 +46,19 @@ impl SystemOps for ProtectiveAdapter {
 struct FailingAdapter;
 
 impl ObservationOps for FailingAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<crate::AppInfo>, AdapterError> {
-        Ok(vec![crate::AppInfo {
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(vec![crate::AppInfo {
+            aliases: Vec::new(),
             name: "Ghost".into(),
             pid: crate::ProcessId::new(77),
             bundle_id: None,
             process_instance: Some("ghost-instance".into()),
             presentation: None,
-        }])
+        }]))
     }
 }
 
@@ -63,6 +74,7 @@ impl SystemOps for FailingAdapter {
         _app: &crate::AppInfo,
         _force: bool,
         _lease: &crate::InteractionLease,
+        _policy: crate::InteractionPolicy,
     ) -> Result<crate::OperationReport, AdapterError> {
         Err(AdapterError::new(ErrorCode::AppNotFound, "no such app"))
     }
@@ -74,6 +86,7 @@ fn close_app_blocks_adapter_protected_process() {
         CloseAppArgs {
             app: "CriticalThing".into(),
             force: false,
+            policy: crate::InteractionPolicy::headless(),
         },
         &ProtectiveAdapter,
     )
@@ -102,6 +115,7 @@ fn graceful_close_reports_method_graceful_with_unverified_delivery() {
         CloseAppArgs {
             app: "TextEdit".into(),
             force: false,
+            policy: crate::InteractionPolicy::headless(),
         },
         &ProtectiveAdapter,
     )
@@ -120,6 +134,7 @@ fn close_app_propagates_adapter_errors() {
         CloseAppArgs {
             app: "Ghost".into(),
             force: false,
+            policy: crate::InteractionPolicy::headless(),
         },
         &FailingAdapter,
     )
@@ -134,6 +149,7 @@ fn forced_close_reports_method_force_with_unverified_delivery() {
         CloseAppArgs {
             app: "TextEdit".into(),
             force: true,
+            policy: crate::InteractionPolicy::headless(),
         },
         &ProtectiveAdapter,
     )
@@ -144,4 +160,19 @@ fn forced_close_reports_method_force_with_unverified_delivery() {
     assert_eq!(value["disposition"]["delivery"], "delivered_unverified");
     assert!(value.get("requested").is_none());
     assert!(value.get("closed").is_none());
+}
+
+#[test]
+fn a_headless_graceful_close_reaches_the_adapter() {
+    let value = execute(
+        CloseAppArgs {
+            app: "TextEdit".into(),
+            force: false,
+            policy: crate::InteractionPolicy::headless(),
+        },
+        &ProtectiveAdapter,
+    )
+    .unwrap();
+
+    assert_eq!(value["method"], "graceful");
 }

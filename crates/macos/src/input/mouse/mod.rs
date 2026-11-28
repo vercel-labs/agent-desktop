@@ -1,5 +1,3 @@
-#[cfg(not(target_os = "macos"))]
-use agent_desktop_core::DragParams;
 use agent_desktop_core::{
     AdapterError, Deadline, ErrorCode, Modifier, MouseButton, MouseEvent, MouseEventKind, Point,
 };
@@ -89,6 +87,7 @@ mod imp {
         .with_suggestion(
             "Use atomic 'mouse-click' or 'drag'; spanning holds require a daemon-owned session that can release buttons after disconnect",
         )
+        .unsent()
     }
 
     pub(crate) fn validate_point(point: &Point) -> Result<(), AdapterError> {
@@ -286,34 +285,10 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use super::*;
-
-    pub fn synthesize_mouse(_event: MouseEvent, _deadline: Deadline) -> Result<(), AdapterError> {
-        Err(AdapterError::not_supported("mouse_event"))
-    }
-
-    pub(crate) fn synthesize_mouse_after(
-        _event: MouseEvent,
-        _deadline: Deadline,
-        _verify_target: &mut dyn FnMut() -> Result<(), AdapterError>,
-    ) -> Result<(), AdapterError> {
-        Err(AdapterError::not_supported("mouse_event"))
-    }
-
-    pub fn synthesize_drag(_params: DragParams, _deadline: Deadline) -> Result<(), AdapterError> {
-        Err(AdapterError::not_supported("drag"))
-    }
-}
-
 pub(crate) use imp::{synthesize_mouse, synthesize_mouse_after};
 
 #[cfg(target_os = "macos")]
 pub(crate) use crate::input::mouse::mouse_drag::synthesize_drag;
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) use imp::synthesize_drag;
 
 #[cfg(target_os = "macos")]
 pub(crate) use imp::{

@@ -9,8 +9,6 @@ use crate::input::keyboard::keymap::Keymap;
 use crate::input::plan::Plan;
 use crate::input::step::Step;
 
-const SETTLE: Duration = Duration::from_secs(30);
-
 pub(crate) const GTK3: &str = r#"
 import gi, os
 gi.require_version("Gtk", "3.0")
@@ -25,31 +23,6 @@ w.connect("destroy", Gtk.main_quit)
 w.show_all()
 Gtk.main()
 "#;
-
-pub(crate) fn window_center(name: &str) -> (i32, i32) {
-    let started = Instant::now();
-    while started.elapsed() < SETTLE {
-        let output = Command::new("xwininfo").args(["-name", name]).output();
-        if let Ok(output) = output {
-            let text = String::from_utf8_lossy(&output.stdout);
-            let field = |label: &str| {
-                text.lines()
-                    .find_map(|line| line.trim().strip_prefix(label))
-                    .and_then(|rest| rest.trim().parse::<i32>().ok())
-            };
-            if let (Some(x), Some(y), Some(w), Some(h)) = (
-                field("Absolute upper-left X:"),
-                field("Absolute upper-left Y:"),
-                field("Width:"),
-                field("Height:"),
-            ) {
-                return (x + w / 2, y + h / 2);
-            }
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
-    panic!("window {name} never appeared");
-}
 
 pub(crate) fn deadline(ms: u64) -> Deadline {
     Deadline::detached_after(ms).expect("deadline")

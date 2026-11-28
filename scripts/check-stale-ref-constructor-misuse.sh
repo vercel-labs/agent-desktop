@@ -52,48 +52,58 @@ EXPECTED_APP_CALLS=3
 #     format-string placeholder on the SAME line as the item's own braces
 #     could in principle desync it; none of this corpus's `#[cfg(test)]`
 #     items contain one.
-count_calls() {
-    local constructor="$1"
-    shift
-    local total=0
-    local file matches
-
-    while IFS= read -r -d '' file; do
-        case "$file" in
-        *_tests.rs) continue ;;
-        esac
-        matches="$(awk -v ctor="${constructor}(" '
-            BEGIN { depth = 0; pending = 0; skipping = 0; skip_depth = 0; count = 0 }
-            {
-                line = $0
-                if (!skipping) {
-                    if (line ~ /#\[cfg\(test\)\]/) { pending = 1 }
-                    if (index(line, ctor) > 0) { count++ }
+# shellcheck disable=SC2016
+COUNT_AWK='
+    FNR == 1 { depth = 0; pending = 0; skipping = 0; skip_depth = 0 }
+    {
+        line = $0
+        if (!skipping) {
+            if (line ~ /#\[cfg\(test\)\]/) { pending = 1 }
+            if (index(line, "AdapterError::stale_ref(") > 0) { adapter_count++ }
+            if (index(line, "AppError::stale_ref(") > 0) { app_count++ }
+        }
+        n = length(line)
+        for (i = 1; i <= n; i++) {
+            c = substr(line, i, 1)
+            if (c == "{") {
+                if (pending && !skipping) {
+                    skipping = 1
+                    skip_depth = depth
+                    pending = 0
                 }
-                n = length(line)
-                for (i = 1; i <= n; i++) {
-                    c = substr(line, i, 1)
-                    if (c == "{") {
-                        if (pending && !skipping) {
-                            skipping = 1
-                            skip_depth = depth
-                            pending = 0
-                        }
-                        depth++
-                    } else if (c == "}") {
-                        depth--
-                        if (skipping && depth == skip_depth) { skipping = 0 }
-                    }
-                }
-                if (pending && line ~ /;[ \t]*$/) { pending = 0 }
+                depth++
+            } else if (c == "}") {
+                depth--
+                if (skipping && depth == skip_depth) { skipping = 0 }
             }
-            END { print count + 0 }
-        ' "$file")"
-        total=$((total + matches))
-    done < <(find "$@" -name '*.rs' -print0)
+        }
+        if (pending && line ~ /;[ \t]*$/) { pending = 0 }
+    }
+    END { print adapter_count + 0, app_count + 0 }
+'
 
-    echo "$total"
+count_calls() {
+    find "$@" -name '*.rs' ! -name '*_tests.rs' -print0 |
+        xargs -0 -n "${COUNT_BATCH_SIZE:-256}" awk "$COUNT_AWK" |
+        awk '{ adapter += $1; app += $2 } END { print adapter + 0, app + 0 }'
 }
+
+batch_self_test() (
+    local dir got batch_size
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/stale-ref-batch.XXXXXX")"
+    trap 'rm -f "$dir/first.rs" "$dir/second.rs" "$dir/third_tests.rs"; rmdir "$dir"' EXIT
+    printf '%s\n' '#[cfg(test)]' 'mod tests {' 'AdapterError::stale_ref("ignored");' > "$dir/first.rs"
+    printf '%s\n' 'AdapterError::stale_ref("id");' 'AppError::stale_ref("id");' > "$dir/second.rs"
+    printf '%s\n' 'AppError::stale_ref("ignored");' > "$dir/third_tests.rs"
+    for batch_size in 1 256; do
+        got="$(COUNT_BATCH_SIZE="$batch_size" count_calls "$dir/first.rs" "$dir/second.rs" "$dir/third_tests.rs")"
+        if [ "$got" != "1 1" ]; then
+            printf 'FAIL self-test: batch size %s must isolate files and count both constructors, got %s\n' \
+                "$batch_size" "$got" >&2
+            return 1
+        fi
+    done
+)
 
 # A gate is code, and code nobody has watched fail is a claim. The self-test
 # runs the same scan over committed fixtures whose correct counts are known,
@@ -104,21 +114,35 @@ self_test() {
     local failures=0
     local got
 
-    got="$(count_calls "AdapterError::stale_ref" "$fixtures/production.rs")"
-    if [ "$got" != "1" ]; then
+    got="$(count_calls "$fixtures/production.rs")"
+    if [ "$got" != "1 0" ]; then
         printf 'FAIL self-test: a production caller must be counted, got %s\n' "$got" >&2
         failures=1
     fi
 
-    got="$(count_calls "AdapterError::stale_ref" "$fixtures/sample_tests.rs")"
-    if [ "$got" != "0" ]; then
+    got="$(count_calls "$fixtures/sample_tests.rs")"
+    if [ "$got" != "0 0" ]; then
         printf 'FAIL self-test: a caller in a *_tests.rs file must not be counted, got %s\n' "$got" >&2
         failures=1
     fi
 
-    got="$(count_calls "AdapterError::stale_ref" "$fixtures/gated_then_production.rs")"
-    if [ "$got" != "1" ]; then
+    got="$(count_calls "$fixtures/gated_then_production.rs")"
+    if [ "$got" != "1 0" ]; then
         printf 'FAIL self-test: a gated caller must be skipped and the production caller after it still counted, got %s\n' "$got" >&2
+        failures=1
+    fi
+
+    if ! batch_self_test; then
+        failures=1
+    fi
+    got="$(count_calls "$fixtures")"
+    if [ "$got" != "2 0" ]; then
+        printf 'FAIL self-test: multiple files must be counted independently, got %s\n' "$got" >&2
+        failures=1
+    fi
+    got="$(COUNT_BATCH_SIZE=1 count_calls "$fixtures")"
+    if [ "$got" != "2 0" ]; then
+        printf 'FAIL self-test: split batches must be summed, got %s\n' "$got" >&2
         failures=1
     fi
 
@@ -131,8 +155,8 @@ self_test() {
 
 self_test
 
-adapter_calls="$(count_calls "AdapterError::stale_ref" crates src)"
-app_calls="$(count_calls "AppError::stale_ref" crates src)"
+counts="$(count_calls crates src)"
+read -r adapter_calls app_calls <<< "$counts"
 
 failed=0
 

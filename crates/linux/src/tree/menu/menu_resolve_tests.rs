@@ -20,7 +20,7 @@ fn kind_of(error: &agent_desktop_core::AdapterError) -> Option<&str> {
 #[test]
 fn a_ref_no_open_popup_answers_to_is_stale_because_the_menu_closed() {
     let error = resolve_contextual(
-        &crate::tree::live::test_support::ref_entry("menuitem"),
+        &crate::tree::test_support::helpers::ref_entry("menuitem"),
         element("/owner"),
         Vec::new(),
         |_, _| panic!("no popup to resolve"),
@@ -50,7 +50,7 @@ fn two_popups_answering_are_ambiguous() {
 fn a_replacement_popup_with_the_same_item_path_cannot_resolve_an_old_ref() {
     let original = MenuContext::test("/popup/a", 10);
     let replacement = MenuContext::test("/popup/b", 20);
-    let mut entry = crate::tree::live::test_support::ref_entry("menuitem");
+    let mut entry = crate::tree::test_support::helpers::ref_entry("menuitem");
     entry.identity.retained_object = Some(original.encode("/shared/item"));
     let mut attempted = false;
 
@@ -86,7 +86,7 @@ fn an_incomplete_open_popup_does_not_prove_the_menu_closed() {
             MenuContext::test("/popup", 10),
         ),
     ] {
-        let mut entry = crate::tree::live::test_support::ref_entry("menuitem");
+        let mut entry = crate::tree::test_support::helpers::ref_entry("menuitem");
         entry.identity.retained_object = Some(original.encode("/item"));
         let error = resolve_contextual(
             &entry,
@@ -104,7 +104,7 @@ fn an_incomplete_open_popup_does_not_prove_the_menu_closed() {
 #[test]
 fn a_successful_menu_resolution_carries_its_owner_window() {
     let context = MenuContext::test("/popup", 10);
-    let mut entry = crate::tree::live::test_support::ref_entry("menuitem");
+    let mut entry = crate::tree::test_support::helpers::ref_entry("menuitem");
     entry.identity.retained_object = Some(context.encode("/item"));
     let owner = AtspiElement::new(":1.2", "/owner", 77);
 
@@ -135,7 +135,7 @@ fn a_landing_beats_a_refusal_from_another_popup() {
 
 #[test]
 fn a_ref_taken_on_the_menu_surface_is_a_menu_entry_and_a_window_ref_is_not() {
-    let mut entry = crate::tree::live::test_support::ref_entry("menuitem");
+    let mut entry = crate::tree::test_support::helpers::ref_entry("menuitem");
     entry.source.source_surface = agent_desktop_core::SnapshotSurface::Menu;
     assert!(is_menu_entry(&entry));
     entry.source.source_surface = agent_desktop_core::SnapshotSurface::Window;

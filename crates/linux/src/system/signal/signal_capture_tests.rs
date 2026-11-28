@@ -45,6 +45,7 @@ impl World {
 
 fn listed(app: &RegistryApp, scripted: &Scripted) -> ListedWindow {
     ListedWindow {
+        alert: false,
         app: scripted.owner,
         info: WindowInfo {
             id: scripted.id.to_owned(),

@@ -1,6 +1,7 @@
 use agent_desktop_core::{Deadline, ErrorCode};
 
 use crate::system::shell::fake_tree::{FakeTree, PANEL, WINDOW, at, element, gnome_shell};
+use crate::system::shell::light::Detail;
 use crate::system::shell::search::walk;
 
 fn deadline() -> Deadline {
@@ -20,7 +21,10 @@ fn small() -> FakeTree {
 
 #[test]
 fn nodes_come_in_paint_order_and_know_their_parents() {
-    let walked = walk(&small(), &element("/w"), deadline(), &|_| false).expect("a walk");
+    let walked = walk(&small(), &element("/w"), deadline(), Detail::Full, &|_| {
+        false
+    })
+    .expect("a walk");
     let paths: Vec<&str> = walked
         .visits
         .iter()
@@ -35,7 +39,10 @@ fn nodes_come_in_paint_order_and_know_their_parents() {
 
 #[test]
 fn within_follows_the_parents_and_position_finds_an_element() {
-    let walked = walk(&small(), &element("/w"), deadline(), &|_| false).expect("a walk");
+    let walked = walk(&small(), &element("/w"), deadline(), Detail::Full, &|_| {
+        false
+    })
+    .expect("a walk");
     assert!(walked.within(3, 1));
     assert!(walked.within(3, 3));
     assert!(!walked.within(3, 4));
@@ -45,9 +52,13 @@ fn within_follows_the_parents_and_position_finds_an_element() {
 
 #[test]
 fn a_pruned_node_is_neither_listed_nor_entered() {
-    let walked = walk(&small(), &element("/w"), deadline(), &|light| {
-        light.element.path() == "/a"
-    })
+    let walked = walk(
+        &small(),
+        &element("/w"),
+        deadline(),
+        Detail::Full,
+        &|light| light.element.path() == "/a",
+    )
     .expect("a walk");
     let paths: Vec<&str> = walked
         .visits
@@ -61,7 +72,7 @@ fn a_pruned_node_is_neither_listed_nor_entered() {
 fn a_node_that_vanishes_during_the_walk_is_skipped_and_the_walk_says_so() {
     let mut tree = gnome_shell(true, false);
     tree.vanish("/left");
-    let walked = walk(&tree, &element("/w"), deadline(), &|_| false).expect("a walk");
+    let walked = walk(&tree, &element("/w"), deadline(), Detail::Full, &|_| false).expect("a walk");
     assert!(!walked.complete);
     assert!(walked.position(&element("/system")).is_some());
     assert!(walked.position(&element("/left")).is_none());
@@ -71,8 +82,11 @@ fn a_node_that_vanishes_during_the_walk_is_skipped_and_the_walk_says_so() {
 fn an_expired_deadline_is_a_timeout_not_an_empty_walk() {
     let expired = Deadline::after(1).expect("a deadline builds");
     std::thread::sleep(std::time::Duration::from_millis(5));
-    let error = walk(&small(), &element("/w"), expired, &|_| false).expect_err("no time");
+    let error =
+        walk(&small(), &element("/w"), expired, Detail::Full, &|_| false).expect_err("no time");
     assert_eq!(error.code, ErrorCode::Timeout);
+    assert_eq!(error.details.unwrap()["kind"], "shell_tree_unread");
+    assert!(!error.suggestion.unwrap().contains("busy"));
 }
 
 #[test]
@@ -88,6 +102,7 @@ fn a_walk_over_the_budget_is_an_error_and_never_a_shorter_tree() {
             at(0, 0, 0, 0),
         );
     }
-    let error = walk(&tree, &element("/w"), deadline(), &|_| false).expect_err("over budget");
+    let error =
+        walk(&tree, &element("/w"), deadline(), Detail::Full, &|_| false).expect_err("over budget");
     assert_eq!(error.code, ErrorCode::Timeout);
 }

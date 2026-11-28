@@ -5,11 +5,12 @@ use agent_desktop_core::{AdapterError, AppError, DeliverySemantics, ErrorCode};
 /// nothing, so a retry of either repeats no effect. Every other unknown stays
 /// unknown: a mutation that timed out may already have landed. An error of a
 /// read-only command that has no disposition slot (`Io`, `Json`, `Internal`)
-/// becomes an adapter error that keeps its code and message.
+/// takes its adapter form, which keeps the code, the message, and the details
+/// and suggestion of an adapter error it carries.
 pub(super) fn settle_unknown_delivery(error: AppError, read_only: bool) -> AppError {
     match error {
         AppError::Adapter(source) => settle(source, read_only).into(),
-        other if read_only => settle(adapter_form(other), true).into(),
+        other if read_only => settle(other.into_adapter_error(), true).into(),
         other => other,
     }
 }
@@ -20,18 +21,5 @@ fn settle(source: AdapterError, read_only: bool) -> AdapterError {
         source.with_disposition(DeliverySemantics::not_delivered())
     } else {
         source
-    }
-}
-
-fn adapter_form(error: AppError) -> AdapterError {
-    let message = error.to_string();
-    match error {
-        AppError::Adapter(source) => source,
-        AppError::Io(source) if source.kind() == std::io::ErrorKind::PermissionDenied => {
-            AdapterError::new(ErrorCode::PermDenied, message)
-        }
-        AppError::Io(_) | AppError::Json(_) | AppError::Internal(_) => {
-            AdapterError::new(ErrorCode::Internal, message)
-        }
     }
 }

@@ -12,52 +12,13 @@ fn assert_class_a_envelope(error: &AdapterError, code: ErrorCode, expected: Deli
     assert_disposition_wire(error, expected);
 }
 
-/// Targets a `HostedFixture` this test alone owns, never this process's own
-/// pid: the graceful close arm broadcasts `WM_CLOSE` to every top-level
-/// window the target pid owns, and the test runner's own pid also owns
-/// other tests' in-process `LocalFixture` windows running in parallel, so
-/// targeting it here would destroy them. A fixture host that swallows
-/// `WM_CLOSE` never closes, so the deadline genuinely expires.
-///
-/// macOS pins the identical pair for the identical condition - a deadline
-/// that expires waiting for exit after termination was already requested -
-/// in `crates/macos/src/system/app/app_ops.rs`'s `wait_for_exit`.
-#[test]
-fn shared_timeout_after_close_delivery_pins_the_windows_envelope() {
-    #[cfg(target_os = "windows")]
-    {
-        crate::tree::fixture::bootstrap();
-        let fixture = crate::tree::fixture::HostedFixture::spawn_swallowing_wm_close()
-            .expect("swallowing fixture");
-        let pid = ProcessId::from(fixture.process_id());
-        let token = crate::system::process_identity::token_for_pid(pid)
-            .expect("token")
-            .expect("live");
-        let app = AppInfo {
-            name: "fixture-host".into(),
-            pid,
-            bundle_id: None,
-            process_instance: Some(token),
-            presentation: None,
-        };
-        let error = close_app_impl(&app, false, Deadline::after(200).expect("deadline"))
-            .expect_err("timeout");
-        assert_class_a_envelope(
-            &error,
-            ErrorCode::Timeout,
-            DeliverySemantics::delivered_unverified(),
-        );
-        assert_eq!(error_wire(&error)["disposition"]["retry"], "unsafe");
-    }
-}
-
 /// `budget_exhausted(false)` is Windows' own focus-steal-retry-budget
 /// exhaustion; macOS's activation path carries no equivalent budget to
 /// exhaust, so no macOS call site pins this exact pair. The pair still
 /// expresses a cross-platform rule rather than a Windows-only one:
-/// `crates/macos/src/actions/chain/mod.rs::exhaustion_disposition` reports the
-/// identical `ActionFailed`/not-delivered pair whenever its own chain, too,
-/// has issued no successful step.
+/// the core delivery chain (`agent_desktop_core::execute_chain`), which every
+/// platform runs, reports the identical `ActionFailed`/not-delivered pair
+/// whenever no rung delivered and none was held back.
 #[test]
 fn shared_action_failed_before_delivery_pins_the_windows_envelope() {
     let error = budget_exhausted(false);
@@ -127,7 +88,12 @@ fn adapter_window_op_without_a_process_instance_keeps_the_stale_ref_envelope() {
     let lease = InteractionLease::guarded(deadline, ()).expect("lease");
 
     let error = crate::adapter::WindowsAdapter::new()
-        .window_op(&win, WindowOp::Minimize, &lease)
+        .window_op(
+            &win,
+            WindowOp::Minimize,
+            agent_desktop_core::InteractionPolicy::headless(),
+            &lease,
+        )
         .expect_err("stale");
 
     assert_class_a_envelope(

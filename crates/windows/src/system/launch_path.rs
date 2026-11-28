@@ -216,6 +216,33 @@ fn invalid_identifier(id: &str) -> AdapterError {
     )
 }
 
+#[cfg(target_os = "windows")]
+pub(super) fn to_wide(path: &std::path::Path) -> Result<Vec<u16>, AdapterError> {
+    use std::os::windows::ffi::OsStrExt;
+    let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+    if wide.contains(&0) {
+        return Err(AdapterError::new(
+            ErrorCode::InvalidArgs,
+            "Launch path contains an interior NUL",
+        ));
+    }
+    wide.push(0);
+    Ok(wide)
+}
+
+#[cfg(target_os = "windows")]
+pub(super) fn to_wide_str(value: &str) -> Result<Vec<u16>, AdapterError> {
+    if value.contains('\0') {
+        return Err(AdapterError::new(
+            ErrorCode::InvalidArgs,
+            "Launch command line contains an interior NUL",
+        ));
+    }
+    let mut wide: Vec<u16> = value.encode_utf16().collect();
+    wide.push(0);
+    Ok(wide)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -92,6 +92,7 @@ fn a_launch_marker_that_cannot_be_read_refuses_instead_of_protecting_by_name() {
 
 fn window(unshown: bool) -> ListedWindow {
     ListedWindow {
+        alert: false,
         app: 0,
         info: WindowInfo {
             id: "w-1".to_owned(),

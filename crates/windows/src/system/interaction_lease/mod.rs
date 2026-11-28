@@ -22,7 +22,10 @@ mod sid;
 
 use std::path::{Path, PathBuf};
 
-use agent_desktop_core::{AdapterError, Deadline, ErrorCode, InteractionLease, ProcessLeaseGuard};
+use agent_desktop_core::{
+    AdapterError, Deadline, ErrorCode, INTERACTION_LEASE_PURPOSE, InteractionLease,
+    ProcessLeaseGuard, interaction_lease_timeout,
+};
 use windows_sys::Win32::Foundation::{
     CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_ACCESS_DENIED,
     ERROR_SHARING_VIOLATION, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
@@ -41,7 +44,7 @@ use windows_sys::Win32::System::Threading::GetCurrentProcess;
 pub(crate) const INTERACTION_LEASE_HANDLE_ENV: &str = "AGENT_DESKTOP_INTERACTION_LEASE_HANDLE";
 
 const LOCK_FILE_NAME: &str = "interaction.lock";
-const LEASE_PURPOSE: &str = "desktop interaction lease";
+const LEASE_PURPOSE: &str = INTERACTION_LEASE_PURPOSE;
 
 pub(crate) fn acquire(deadline: Deadline) -> Result<InteractionLease, AdapterError> {
     acquire_impl(&directory::canonical_root()?, deadline)
@@ -298,12 +301,15 @@ struct WindowsLeaseGuard {
 }
 
 fn lock_timeout(deadline: Deadline, path: &Path, contention_count: u64) -> AdapterError {
-    deadline.timeout_error().with_details(serde_json::json!({
-        "kind": "lock_timeout",
-        "purpose": LEASE_PURPOSE,
-        "path": path.display().to_string(),
-        "contention_count": contention_count,
-    }))
+    interaction_lease_timeout(
+        deadline,
+        serde_json::json!({
+            "kind": "lock_timeout",
+            "purpose": LEASE_PURPOSE,
+            "path": path.display().to_string(),
+            "contention_count": contention_count,
+        }),
+    )
 }
 
 fn policy_denied(kind: Option<&str>, message: &str) -> AdapterError {

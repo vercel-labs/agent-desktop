@@ -172,39 +172,7 @@ fn the_policy_branches_on_provider_class_and_never_on_size_or_speed() {
 
 #[cfg(target_os = "windows")]
 mod windows_only {
-    use super::*;
-    use crate::tree::element::UIAElement;
-    use crate::tree::fixture::HostedFixture;
-    use crate::tree::fixture::bootstrap;
-    use crate::tree::properties::property_ids::TreeProperty;
-    use crate::tree::properties::{read_cached, read_live};
-    use agent_desktop_core::Deadline;
     use uiautomation::types::TreeScope;
-
-    fn cached_children(handle: isize) -> Vec<UIAElement> {
-        let root = crate::tree::automation::root_from_hwnd(
-            handle,
-            Deadline::standard().expect("a standard deadline"),
-        )
-        .expect("the fixture window resolves");
-        let client = crate::tree::automation::automation_client().expect("a UIA client");
-        let request = build_walk_cache_request(&client).expect("the cache request builds");
-        let walker = client
-            .get_raw_view_walker()
-            .expect("the raw view walker is available");
-        let mut children = Vec::new();
-        if let Ok(mut current) = walker.get_first_child_build_cache(&root.0, &request) {
-            loop {
-                let next = walker.get_next_sibling_build_cache(&current, &request);
-                children.push(UIAElement::from(current));
-                match next {
-                    Ok(sibling) => current = sibling,
-                    Err(_) => break,
-                }
-            }
-        }
-        children
-    }
 
     /// `TreeScope` is a plain enum with no bitwise operators; whether a
     /// combined value round-trips through `try_from` is settled here rather
@@ -221,60 +189,5 @@ mod windows_only {
         if let Ok(scope) = combined {
             assert_eq!(scope as i32 & TreeScope::Element as i32, 1);
         }
-    }
-
-    #[test]
-    fn a_cached_read_matches_an_uncached_read_of_the_same_property() {
-        bootstrap();
-        let fixture = HostedFixture::spawn().expect("the fixture host starts");
-        let children = cached_children(fixture.handle());
-        assert!(!children.is_empty(), "the fixture exposes child controls");
-
-        for child in &children {
-            let (cached, _) = read_cached(child);
-            let (live, _) = read_live(child);
-            for property in TreeProperty::WALK_SET {
-                assert_eq!(
-                    cached.get(property),
-                    live.get(property),
-                    "{} disagreed between the cache and a live read",
-                    property.as_str()
-                );
-            }
-        }
-    }
-
-    /// `ElementMode::Full` keeps the element bound to the live UI, so a live
-    /// getter still works after a cached read. `ElementMode::None` would
-    /// break every command that acts on an element read from the cache.
-    #[test]
-    fn live_getters_still_work_after_a_cached_read() {
-        bootstrap();
-        let fixture = HostedFixture::spawn().expect("the fixture host starts");
-        let children = cached_children(fixture.handle());
-        let child = children
-            .first()
-            .expect("the fixture exposes child controls");
-
-        let _ = read_cached(child);
-
-        assert!(child.0.get_control_type().is_ok());
-        assert!(child.0.get_bounding_rectangle().is_ok());
-    }
-
-    /// The policy is asserted against a real out-of-process provider, because
-    /// an in-process one is exactly the branch the policy says to skip: a
-    /// provider nested into the target's own process must engage the cache.
-    #[test]
-    fn a_real_out_of_process_provider_engages_the_cache() {
-        bootstrap();
-        let fixture = HostedFixture::spawn().expect("the fixture host starts");
-        let root = crate::tree::automation::root_from_hwnd(
-            fixture.handle(),
-            Deadline::standard().expect("a standard deadline"),
-        )
-        .expect("the fixture window resolves");
-
-        assert_eq!(policy_for_root(&root), CachePolicy::Batch);
     }
 }

@@ -3,7 +3,7 @@ use crate::convert::string::required_adapter_string;
 use crate::error::{AdResult, set_last_error};
 use crate::ffi_try::trap_panic;
 use crate::types::{AdExactWindowInfo, AdFindQuery};
-use agent_desktop_core::{ObservationRoot, resolve_query};
+use agent_desktop_core::{ObservationRoot, incomplete_locator_error, resolve_query};
 use std::os::raw::c_char;
 
 enum SupportedProperty {
@@ -109,7 +109,7 @@ unsafe fn is_in_window(
     ) {
         Ok(resolution) => resolution,
         Err(error) => {
-            set_last_error(&crate::commands::app_error_to_adapter(error));
+            set_last_error(&agent_desktop_core::AppError::into_adapter_error(error));
             return crate::error::last_error_code();
         }
     };
@@ -117,15 +117,13 @@ unsafe fn is_in_window(
         match agent_desktop_core::require_unique(resolution) {
             Ok(selected) => selected,
             Err(error) => {
-                set_last_error(&crate::commands::app_error_to_adapter(error));
+                set_last_error(&agent_desktop_core::AppError::into_adapter_error(error));
                 return crate::error::last_error_code();
             }
         }
     } else {
         if !resolution.meta.selection_complete {
-            set_last_error(&agent_desktop_core::AdapterError::timeout(
-                "Locator traversal could not prove the selected result",
-            ));
+            set_last_error(&incomplete_locator_error(&resolution));
             return AdResult::ErrTimeout;
         }
         let Some(selected) = resolution.matches.into_iter().next() else {

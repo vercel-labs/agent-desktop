@@ -2,6 +2,7 @@ pub(crate) mod absence;
 pub(super) mod attributes;
 pub(crate) mod failure;
 pub(super) mod field;
+pub(crate) mod grid_read;
 pub(super) mod interface_reads;
 pub(crate) mod interface_support;
 pub(crate) mod liveness;

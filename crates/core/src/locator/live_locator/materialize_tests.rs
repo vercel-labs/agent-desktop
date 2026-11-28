@@ -249,6 +249,7 @@ fn a_process_owner_source_materializes_a_process_owned_ref() {
         panic!("fixture must use a window source");
     };
     *window = crate::WindowInfo::for_process(&crate::AppInfo {
+        aliases: Vec::new(),
         name: window.app.clone(),
         pid: window.pid,
         bundle_id: None,
@@ -337,7 +338,7 @@ fn source_entry() -> RefEntry {
             value: None,
             description: None,
             native_id: None,
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
         },
         geometry: crate::RefGeometry {
             bounds_space: None,
@@ -360,6 +361,7 @@ fn source_entry() -> RefEntry {
             root_ref: None,
             path_is_absolute: false,
             path: RefPath::from_slice(&[3]),
+            chain: Default::default(),
         },
     }
 }

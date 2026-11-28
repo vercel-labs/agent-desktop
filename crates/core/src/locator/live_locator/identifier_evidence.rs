@@ -4,6 +4,7 @@ pub struct IdentifierEvidence {
     preferred: Option<usize>,
     complete: bool,
     retained_object: Option<String>,
+    borrowed_name: bool,
 }
 
 impl IdentifierEvidence {
@@ -48,6 +49,7 @@ impl IdentifierEvidence {
             preferred: normalized_preferred,
             complete,
             retained_object: None,
+            borrowed_name: false,
         }
     }
 
@@ -56,8 +58,30 @@ impl IdentifierEvidence {
         self
     }
 
+    /// Records an element token the adapter can resolve straight back to
+    /// this element; the bytes are the adapter's own.
+    pub fn with_element_token(self, token: &str) -> Self {
+        self.with_retained_object(crate::refs::ref_identity::tagged_element_token(token))
+    }
+
+    /// Records that the element's name came from another element, so a ref
+    /// that also records a native id is not held to it.
+    pub fn with_borrowed_name(mut self, borrowed: bool) -> Self {
+        self.borrowed_name = borrowed;
+        self
+    }
+
+    pub fn name_is_borrowed(&self) -> bool {
+        self.borrowed_name
+    }
+
     pub fn retained_object(&self) -> Option<&str> {
         self.retained_object.as_deref()
+    }
+
+    /// The adapter bytes of the element token, when the retained object is one.
+    pub fn element_token(&self) -> Option<&str> {
+        crate::refs::ref_identity::untagged_element_token(self.retained_object.as_deref()?)
     }
 
     pub fn absent() -> Self {

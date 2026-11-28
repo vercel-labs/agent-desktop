@@ -1,8 +1,7 @@
 #[cfg(target_os = "macos")]
 mod imp {
-    use crate::actions::chain::chain_delivery::DeliveryOutcome;
     use crate::tree::AXElement;
-    use agent_desktop_core::{AdapterError, Deadline};
+    use agent_desktop_core::{AdapterError, Deadline, DeliveryObservation, DeliveryOutcome};
     use std::time::{Duration, Instant};
 
     pub(crate) fn press_to_expand(
@@ -27,7 +26,7 @@ mod imp {
         let (satisfied, allow_toggle) =
             disclosure_plan(disclosed_state(element, deadline)?, expanded);
         if satisfied {
-            return Ok(DeliveryOutcome::SatisfiedNoDelivery);
+            return Ok(DeliveryOutcome::Satisfied);
         }
         let action = if expanded { "AXExpand" } else { "AXCollapse" };
         prepare(element, deadline)?;
@@ -54,10 +53,12 @@ mod imp {
             }
         }
         if allow_toggle && disclosed_state(element, deadline)? == Some(!expanded) {
-            prepare(element, deadline)?;
-            if crate::actions::ax_helpers::try_ax_action_or_err(element, "AXPress", deadline)? {
-                let outcome =
-                    verify_disclosure(element, expanded, deadline).map_err(after_delivery)?;
+            let outcome = press_and_verify(element, element, expanded, deadline)?;
+            if let Some(delivered) = stop_if_delivered(outcome) {
+                return Ok(delivered);
+            }
+            if let Some(triangle) = disclosure_triangle(element, deadline)? {
+                let outcome = press_and_verify(&triangle, element, expanded, deadline)?;
                 if let Some(delivered) = stop_if_delivered(outcome) {
                     return Ok(delivered);
                 }
@@ -66,8 +67,82 @@ mod imp {
         Ok(DeliveryOutcome::NotDelivered)
     }
 
+    /// An outline row publishes its disclosure state but no action that
+    /// changes it (`AXDisclosing` write -25200, `AXExpanded` -25205,
+    /// M-W0-9); the triangle in its first cell expands it with `AXPress`.
+    fn disclosure_triangle(
+        row: &AXElement,
+        deadline: Deadline,
+    ) -> Result<Option<AXElement>, AdapterError> {
+        use crate::tree::surface_read;
+        let is_triangle = |element: &AXElement| -> Result<bool, AdapterError> {
+            Ok(
+                surface_read::string(element, "AXRole", deadline)?.as_deref()
+                    == Some("AXDisclosureTriangle"),
+            )
+        };
+        for cell in surface_read::elements(row, "AXChildren", deadline)?
+            .into_iter()
+            .take(8)
+        {
+            if is_triangle(&cell)? {
+                return Ok(Some(cell));
+            }
+            for child in surface_read::elements(&cell, "AXChildren", deadline)?
+                .into_iter()
+                .take(8)
+            {
+                if is_triangle(&child)? {
+                    return Ok(Some(child));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// A triangle, or an outline row used as one, answers -25205 to a press
+    /// that changes the state (M-W0-8, 5/5), so the disclosure state read
+    /// back from `disclosed` decides delivery, not the return code.
+    fn press_and_verify(
+        pressed: &AXElement,
+        disclosed: &AXElement,
+        expanded: bool,
+        deadline: Deadline,
+    ) -> Result<DeliveryOutcome, AdapterError> {
+        use core_foundation::{base::TCFType, string::CFString};
+        prepare(pressed, deadline)?;
+        let action = CFString::new("AXPress");
+        let error = crate::tree::properties::ax_ipc::perform_action(
+            pressed,
+            action.as_concrete_TypeRef(),
+            deadline,
+        )?;
+        judge_press(error, || verify_disclosure(disclosed, expanded, deadline))
+    }
+
+    fn judge_press(
+        error: i32,
+        verify: impl FnOnce() -> Result<DeliveryOutcome, AdapterError>,
+    ) -> Result<DeliveryOutcome, AdapterError> {
+        use crate::actions::ax_mutation::PerformSignal;
+        let signal = match crate::actions::ax_mutation::classify_perform("AXPress", error) {
+            Ok(PerformSignal::ReportedUnsupported) => return Ok(DeliveryOutcome::NotDelivered),
+            Ok(signal) => signal,
+            Err(failure) => return Err(failure),
+        };
+        match verify() {
+            Ok(verified @ DeliveryOutcome::Delivered(DeliveryObservation::Verified)) => {
+                Ok(verified)
+            }
+            outcome if signal == PerformSignal::ReportedDelivered => {
+                outcome.map_err(after_delivery)
+            }
+            _ => crate::actions::ax_mutation::settle_uninformative_perform("AXPress", error, None),
+        }
+    }
+
     fn stop_if_delivered(outcome: DeliveryOutcome) -> Option<DeliveryOutcome> {
-        outcome.was_delivered().then_some(outcome)
+        matches!(outcome, DeliveryOutcome::Delivered(_)).then_some(outcome)
     }
 
     fn disclosure_plan(current: Option<bool>, desired: bool) -> (bool, bool) {
@@ -84,7 +159,7 @@ mod imp {
             let current_state = disclosed_state(element, deadline)?;
             match current_state {
                 Some(current) if current == expanded => {
-                    return Ok(DeliveryOutcome::DeliveredVerified);
+                    return Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified));
                 }
                 _ => {}
             }
@@ -93,7 +168,7 @@ mod imp {
                     "verification": "expanded_state_not_observed",
                 })));
             }
-            if Instant::now() >= local_end {
+            if std::time::Instant::now() >= local_end {
                 return unobserved_delivery(current_state, expanded);
             }
             let pause = deadline.remaining_slice(Duration::from_millis(20))?;
@@ -113,7 +188,7 @@ mod imp {
             .with_disposition(agent_desktop_core::DeliverySemantics::delivered_unverified())
             .with_suggestion("Inspect the expanded state before deciding whether to retry."))
         } else {
-            Ok(DeliveryOutcome::DeliveredUnverified)
+            Ok(DeliveryOutcome::Delivered(DeliveryObservation::Unverified))
         }
     }
 
@@ -121,7 +196,7 @@ mod imp {
         element: &AXElement,
         deadline: Deadline,
     ) -> Result<Option<bool>, AdapterError> {
-        let instant = crate::tree::locator_deadline::from_operation(deadline)?;
+        let instant = deadline;
         if let Some(value) = crate::tree::surface_read::boolean(element, "AXExpanded", instant)? {
             return Ok(Some(value));
         }
@@ -155,7 +230,28 @@ mod imp {
 
     #[cfg(test)]
     mod tests {
-        use super::{DeliveryOutcome, disclosure_plan, stop_if_delivered, unobserved_delivery};
+        use super::{
+            DeliveryObservation, DeliveryOutcome, disclosure_plan, judge_press, stop_if_delivered,
+            unobserved_delivery,
+        };
+
+        #[test]
+        fn a_press_answering_an_error_is_judged_by_the_state_read_back() {
+            let verified = || Ok(DeliveryOutcome::Delivered(DeliveryObservation::Verified));
+            let unchanged = || Ok(DeliveryOutcome::Delivered(DeliveryObservation::Unverified));
+            assert_eq!(
+                judge_press(-25205, verified).unwrap(),
+                DeliveryOutcome::Delivered(DeliveryObservation::Verified)
+            );
+            assert_eq!(
+                judge_press(-25206, verified).unwrap(),
+                DeliveryOutcome::NotDelivered
+            );
+            assert_eq!(
+                judge_press(-25205, unchanged).unwrap_err().disposition,
+                agent_desktop_core::DeliverySemantics::uncertain()
+            );
+        }
 
         #[test]
         fn disclosure_plan_never_blindly_toggles_unknown_state() {
@@ -177,25 +273,25 @@ mod imp {
             );
             assert_eq!(
                 unobserved_delivery(None, true).expect("unreadable state after delivery"),
-                DeliveryOutcome::DeliveredUnverified
+                DeliveryOutcome::Delivered(DeliveryObservation::Unverified)
             );
             assert_eq!(
                 stop_if_delivered(
                     unobserved_delivery(None, true).expect("unreadable state after delivery")
                 ),
-                Some(DeliveryOutcome::DeliveredUnverified)
+                Some(DeliveryOutcome::Delivered(DeliveryObservation::Unverified))
             );
         }
 
         #[test]
         fn delivered_outcomes_halt_further_mutation_strategies() {
             assert_eq!(
-                stop_if_delivered(DeliveryOutcome::DeliveredUnverified),
-                Some(DeliveryOutcome::DeliveredUnverified)
+                stop_if_delivered(DeliveryOutcome::Delivered(DeliveryObservation::Unverified)),
+                Some(DeliveryOutcome::Delivered(DeliveryObservation::Unverified))
             );
             assert_eq!(
-                stop_if_delivered(DeliveryOutcome::DeliveredVerified),
-                Some(DeliveryOutcome::DeliveredVerified)
+                stop_if_delivered(DeliveryOutcome::Delivered(DeliveryObservation::Verified)),
+                Some(DeliveryOutcome::Delivered(DeliveryObservation::Verified))
             );
             assert_eq!(stop_if_delivered(DeliveryOutcome::NotDelivered), None);
         }

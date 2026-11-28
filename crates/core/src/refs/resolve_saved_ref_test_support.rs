@@ -53,19 +53,19 @@ impl RuleAdapter {
 }
 
 impl ObservationOps for RuleAdapter {
-    fn list_apps_scoped(
+    fn query_app_inventory(
         &self,
-        _name: &str,
-        _bundle_id: Option<&str>,
+        query: crate::AppInventoryQuery<'_>,
         _deadline: Deadline,
-    ) -> Result<Vec<crate::AppInfo>, AdapterError> {
-        Ok(vec![crate::AppInfo {
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(vec![crate::AppInfo {
+            aliases: Vec::new(),
             name: "Fixture".into(),
             pid: crate::ProcessId::new(1),
             bundle_id: None,
             process_instance: Some("test-instance".into()),
             presentation: None,
-        }])
+        }]))
     }
 
     fn list_windows(
@@ -129,6 +129,7 @@ impl ObservationOps for RuleAdapter {
     fn resolve_locator_anchor(
         &self,
         entry: &RefEntry,
+        _base: Option<&NativeHandle>,
         _deadline: Deadline,
     ) -> Result<NativeHandle, AdapterError> {
         self.anchors.fetch_add(1, Ordering::SeqCst);
@@ -182,6 +183,10 @@ pub(super) fn resolve(
 }
 
 pub(super) fn capture(root: AccessibilityNode, name: &str) -> RefEntry {
+    capture_by(root, |entry| entry.identity.name.as_deref() == Some(name))
+}
+
+pub(super) fn capture_by(root: AccessibilityNode, pick: impl Fn(&RefEntry) -> bool) -> RefEntry {
     let mut refmap = RefMap::new();
     let observed = crate::adapter::observed_tree(&ObservationRoot::Window(&window()), root.clone())
         .expect("the fixture observes");
@@ -193,7 +198,7 @@ pub(super) fn capture(root: AccessibilityNode, name: &str) -> RefEntry {
     allocate_refs(root, &mut refmap, &config).unwrap();
     (1..=refmap.len())
         .filter_map(|index| refmap.get(&format!("@e{index}")).cloned())
-        .find(|entry| entry.identity.name.as_deref() == Some(name))
+        .find(|entry| pick(entry))
         .expect("the captured element has a ref")
 }
 

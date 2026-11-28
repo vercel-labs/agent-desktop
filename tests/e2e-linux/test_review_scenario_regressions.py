@@ -49,6 +49,10 @@ class ScenarioRegressionTests(unittest.TestCase):
                 def product(tier, argv, **kw):
                     if argv[0] == "list-windows":
                         return envelope(argv, [{"id": "w-1.7-frame"}])
+                    if not kw.get("headed"):
+                        return envelope(argv, error={"code": "POLICY_DENIED",
+                                                     "message": "focus-window takes key focus",
+                                                     "details": {"effect": "focus_steal"}})
                     if drift:
                         frame.states.add("ACTIVE")
                     return envelope(argv, error={"code": "ACTION_NOT_SUPPORTED", "message": "wayland_session"})

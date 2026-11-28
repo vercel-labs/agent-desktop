@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use agent_desktop_core::NodeDescriptor;
 
 use super::descriptors as describe_with;
-use crate::tree::live::test_support::attributes;
+use crate::tree::test_support::helpers::attributes;
 use crate::tree::vocabulary::placeholder::read_placeholder;
 use crate::tree::vocabulary::role_numbers::{CHECK_BOX, ENTRY, PUSH_BUTTON, TEXT};
 use crate::tree::{Field, NodeProperties};
@@ -14,6 +14,7 @@ fn properties(name: &str, description: &str) -> NodeProperties {
         description: Field::Present(description.to_owned()),
         child_count: Field::Present(0),
         accessible_id: Field::Absent,
+        grid: Default::default(),
     }
 }
 

@@ -134,9 +134,9 @@ impl SystemOps for DragCaptureAdapter {
         &self,
         window: &crate::WindowInfo,
         _lease: &crate::InteractionLease,
-    ) -> Result<(), AdapterError> {
+    ) -> Result<crate::DeliverySemantics, AdapterError> {
         self.focused_pids.lock().unwrap().push(window.pid);
-        Ok(())
+        Ok(crate::DeliverySemantics::delivered_unverified())
     }
 
     fn update_cursor_overlay(&self, control: &CursorOverlayControl) -> Result<(), AdapterError> {
@@ -274,7 +274,7 @@ fn ref_entry(pid: u32) -> RefEntry {
             value: None,
             description: None,
             native_id: None,
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
         },
         geometry: crate::RefGeometry {
             bounds_space: None,
@@ -295,7 +295,7 @@ fn ref_entry(pid: u32) -> RefEntry {
         scope: crate::RefScope {
             root_ref: None,
             path_is_absolute: false,
-            path: smallvec::SmallVec::new(),
+            ..Default::default()
         },
     }
 }

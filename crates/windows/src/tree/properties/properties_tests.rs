@@ -44,7 +44,7 @@ fn a_string_past_the_bound_is_unknown_and_is_never_truncated_into_evidence() {
 
     let outcome = bounded_text(oversized.clone());
 
-    assert_eq!(outcome, PropertyOutcome::Unknown);
+    assert_eq!(outcome, PropertyOutcome::Oversize(MAX_EVIDENCE_CHARS + 1));
     assert_eq!(outcome.text(), LocatorField::Unknown);
     assert_eq!(
         bounded_text("x".repeat(MAX_EVIDENCE_CHARS)).text(),
@@ -290,6 +290,7 @@ fn the_evidence_projection_fills_every_slot_the_walk_owns() {
         states: LocatorField::Known(vec!["focused".into()]),
         name: LocatorField::Known("Save (labelled)".into()),
         description: LocatorField::Absent,
+        name_borrowed: false,
     });
 
     assert_eq!(evidence.value, LocatorField::Known("draft".into()));

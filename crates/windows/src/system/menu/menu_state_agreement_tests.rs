@@ -211,64 +211,6 @@ fn body_of(source: &str, signature: &str) -> String {
     rest[..end].to_owned()
 }
 
-/// At rest the two predicates agree, in both directions, against a real
-/// fixture: nothing is open and nothing can be rooted. This is the live half -
-/// it cannot exercise the Chromium source, which needs a Chromium application,
-/// but it does prove the locator's new fall-through did not make it answer
-/// `Some` for a process with no menu at all.
-#[test]
-fn at_rest_the_detector_and_the_locator_agree_that_no_menu_is_open() {
-    bootstrap();
-    let _app_name_scope = FIXTURE_APP_NAME_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let _stage = crate::tree::fixture::fixture_window::on_screen_stage();
-    let fixture = MenuFixture::spawn().expect("the menu fixture starts");
-    let pid = ProcessId::from(fixture.process_id());
-
-    assert!(!menu_is_open(pid, deadline(10_000)).expect("the detector reads the fixture"));
-    assert!(
-        crate::system::menu::menu_state::locate_menu(pid, deadline(10_000))
-            .expect("the locator reads the fixture")
-            .is_none(),
-        "with no menu open the locator must answer None rather than rooting something else"
-    );
-}
-
-/// The other direction for the tool-window source, which this fixture can
-/// stage: an open menu is both detected and locatable, so the pair agrees
-/// where the documentation says it must.
-#[test]
-fn an_open_tool_window_menu_is_both_detected_and_locatable() {
-    bootstrap();
-    let _app_name_scope = FIXTURE_APP_NAME_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let _stage = crate::tree::fixture::fixture_window::on_screen_stage();
-    let fixture = MenuFixture::spawn().expect("the menu fixture starts");
-    let pid = ProcessId::from(fixture.process_id());
-
-    fixture.open_context_menu();
-    assert!(fixture.wait_for_menu_state(true, STATE_TIMEOUT));
-    assert!(settles_to(STATE_TIMEOUT, true, || menu_is_open(
-        pid,
-        deadline(10_000)
-    )
-    .expect("the detector reads the fixture")));
-
-    assert!(
-        settles_to(STATE_TIMEOUT, true, || {
-            crate::system::menu::menu_state::locate_menu(pid, deadline(10_000))
-                .expect("the locator reads the fixture")
-                .is_some()
-        }),
-        "a menu the detector reports open must be one the surface can root"
-    );
-
-    fixture.dismiss_context_menu();
-    assert!(fixture.wait_for_menu_state(false, STATE_TIMEOUT));
-}
-
 /// A pid that names no running process surfaces a classified `AppUnresponsive`,
 /// never a panic and never a silent "closed". Pid 1 is not a valid Windows
 /// process id, so the case is deterministic and needs no spawned-and-killed

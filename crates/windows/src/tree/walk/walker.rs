@@ -1,6 +1,6 @@
 use agent_desktop_core::{
     AdapterError, Deadline, ErrorCode, LocatorEvidence, LocatorField, LocatorStats,
-    ObservationRoot, ObservationSource, ObservedTree,
+    ObservationRoot, ObservationSource, ObservedTree, SnapshotSurface,
 };
 use serde_json::json;
 
@@ -137,6 +137,7 @@ pub fn walk_from_root<S: TreeSource>(
     source: &S,
     root: &S::Node,
     root_source: &ObservationRoot<'_>,
+    surface: SnapshotSurface,
     budget: WalkBudget,
 ) -> Result<WalkOutcome, AdapterError> {
     let mut walk = TreeWalk::new(source, budget);
@@ -145,7 +146,7 @@ pub fn walk_from_root<S: TreeSource>(
     let root_subtree = root_subtree.ok_or_else(|| root_missing_error(&stats))?;
     let tree = ObservedTree::from_roots(
         vec![root_subtree],
-        ObservationSource::from_root(root_source, root_source.surface()),
+        ObservationSource::from_root(root_source, surface),
         stats.clone(),
         structurally_complete,
     )?;
@@ -212,8 +213,33 @@ pub fn walk_vocabulary(
         states,
         name,
         description,
+        name_borrowed: crate::tree::name_evidence::name_borrowed(properties, label),
     }
 }
+
+/// The vocabulary of a walk that read identity properties only.
+///
+/// Role, name and description come out as in a full walk. Actions and states
+/// depend on properties this walk did not read, so they are unknown, never an
+/// empty claim.
+pub fn walk_identity_vocabulary(
+    properties: &ElementProperties,
+    label: &crate::tree::name_evidence::LabelOutcome,
+) -> ResolvedVocabulary {
+    let (name, description) = crate::tree::name_evidence::name_fields(properties, label);
+    ResolvedVocabulary {
+        role: walk_role(properties),
+        available_actions: LocatorField::Unknown,
+        states: LocatorField::Unknown,
+        name,
+        description,
+        name_borrowed: crate::tree::name_evidence::name_borrowed(properties, label),
+    }
+}
+
+#[cfg(test)]
+#[path = "walker_container_tests.rs"]
+mod container_tests;
 
 #[cfg(test)]
 #[path = "walker_tests.rs"]

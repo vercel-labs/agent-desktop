@@ -1,6 +1,6 @@
 use super::process_facts;
 use crate::system::app::app_alias::current_index;
-use crate::system::app::app_name::{aliases_in, app_name, name_matches};
+use crate::system::app::app_name::{aliases_in, app_name};
 
 const BUS_VARIABLE: &str = "DBUS_SESSION_BUS_ADDRESS";
 const STARTER_VARIABLE: &str = "DBUS_STARTER_ADDRESS";
@@ -75,7 +75,16 @@ fn find_with_environ(
                 return None;
             }
             let facts = process_facts::read(pid)?;
-            let matched = name_matches(query, &app_name(&facts), &aliases_in(&index, &facts));
+            let matched = crate::system::registry::registry_app::exact(query).admits(
+                &agent_desktop_core::AppInfo {
+                    name: app_name(&facts),
+                    pid: pid.into(),
+                    bundle_id: None,
+                    process_instance: None,
+                    presentation: None,
+                    aliases: aliases_in(&index, &facts),
+                },
+            );
             matched.then(|| (pid, facts.comm.clone()))
         })
 }

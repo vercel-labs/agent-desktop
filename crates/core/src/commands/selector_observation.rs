@@ -8,7 +8,7 @@ use crate::{
 };
 
 pub(crate) enum SelectorObservation {
-    Selector { matches: bool, complete: bool },
+    Selector { matches: bool },
     OwnerUnavailable(ProcessState),
 }
 
@@ -27,10 +27,7 @@ impl SelectorObservation {
                 query,
                 deadline,
             ),
-            RefOwnerObservation::Absent(None) => Ok(Self::Selector {
-                matches: false,
-                complete: true,
-            }),
+            RefOwnerObservation::Absent(None) => Ok(Self::Selector { matches: false }),
             RefOwnerObservation::Absent(Some(state)) | RefOwnerObservation::Unavailable(state) => {
                 Ok(Self::OwnerUnavailable(state))
             }
@@ -45,10 +42,7 @@ impl SelectorObservation {
         deadline: Deadline,
     ) -> Result<Self, AppError> {
         if owners.is_empty() {
-            return Ok(Self::Selector {
-                matches: false,
-                complete: true,
-            });
+            return Ok(Self::Selector { matches: false });
         }
         let request = LocatorResolveRequest {
             selection: LocatorSelection::First,
@@ -62,13 +56,9 @@ impl SelectorObservation {
         }) {
             Ok((_, resolution)) => Ok(Self::Selector {
                 matches: resolution.meta.total_matches > 0,
-                complete: resolution.meta.selection_complete,
             }),
             Err(error) if surface_target::is_confirmed_surface_absence(&error, surface) => {
-                Ok(Self::Selector {
-                    matches: false,
-                    complete: true,
-                })
+                Ok(Self::Selector { matches: false })
             }
             Err(error) => Err(error),
         }

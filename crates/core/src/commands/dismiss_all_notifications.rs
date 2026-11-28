@@ -19,12 +19,24 @@ pub fn execute(
         },
         &lease,
     )?;
+    let dispositions: Vec<crate::DeliverySemantics> =
+        failures.iter().map(|failure| failure.disposition).collect();
     let mut result = json!({
+        "disposition": crate::DeliverySemantics::merged(dismissed.len(), &dispositions),
         "dismissed_count": dismissed.len(),
     });
     if !failures.is_empty() {
-        result["failures"] = json!(failures);
+        result["failures"] = json!(
+            failures
+                .iter()
+                .map(|failure| failure.message.as_str())
+                .collect::<Vec<_>>()
+        );
         result["failed_count"] = json!(failures.len());
     }
     Ok(result)
 }
+
+#[cfg(test)]
+#[path = "dismiss_all_notifications_tests.rs"]
+mod tests;

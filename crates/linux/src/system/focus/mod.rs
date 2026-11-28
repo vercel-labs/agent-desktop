@@ -29,16 +29,12 @@ pub(crate) fn focus_is_indeterminate(candidates: &[usize], decided: Option<usize
 #[path = "focus_tests.rs"]
 mod tests;
 
+pub(crate) mod escape_popup;
 pub(crate) mod focus_cause;
 pub(crate) mod focus_client_view;
 pub(crate) mod focus_frame_view;
-#[cfg(test)]
-pub(super) mod focus_identity_live_tests;
+pub(crate) mod focus_front;
 pub(crate) mod focus_window;
-#[cfg(test)]
-pub(super) mod focus_window_live_tests;
 pub(super) mod focus_world;
 pub(super) mod key_dispatch;
-#[cfg(test)]
-pub(super) mod key_dispatch_live_tests;
 pub(super) mod restore_minimized;

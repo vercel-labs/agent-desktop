@@ -3,10 +3,8 @@ use std::time::Instant;
 use serde_json::{Value, json};
 
 use crate::{
-    AppError, NotificationFilter, NotificationInfo,
-    adapter::PlatformAdapter,
-    commands::{wait::is_retryable_wait_poll_error, wait_timeout},
-    context::CommandContext,
+    AppError, NotificationFilter, NotificationInfo, adapter::PlatformAdapter,
+    commands::wait_timeout, context::CommandContext,
 };
 
 pub(crate) fn wait_for_notification(
@@ -66,7 +64,7 @@ pub(crate) fn wait_for_notification(
                     last_error,
                 );
             }
-            Err(AppError::Adapter(err)) if is_retryable_wait_poll_error(&err.code) => {
+            Err(AppError::Adapter(err)) if err.is_retryable_poll_failure() => {
                 last_error = Some(json!({
                     "code": err.code.as_str(),
                     "message": err.message

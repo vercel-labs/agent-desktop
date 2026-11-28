@@ -3,7 +3,7 @@ use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{ConnectionExt, MapState, Window};
 use x11rb::rust_connection::RustConnection;
 
-use super::{connect, error, is_overlay};
+use super::{checked, connect, error, is_overlay, replied};
 
 struct Hidden {
     connection: RustConnection,
@@ -19,33 +19,15 @@ impl Hidden {
             windows: Vec::new(),
         };
         let connection = &hidden.connection;
-        for window in connection
-            .query_tree(root)
-            .map_err(error)?
-            .reply()
-            .map_err(error)?
-            .children
-        {
-            let attributes = connection
-                .get_window_attributes(window)
-                .map_err(error)?
-                .reply()
-                .map_err(error)?;
+        for window in replied(connection.query_tree(root))?.children {
+            let attributes = replied(connection.get_window_attributes(window))?;
             if !attributes.override_redirect || attributes.map_state != MapState::VIEWABLE {
                 continue;
             }
-            let geometry = connection
-                .get_geometry(window)
-                .map_err(error)?
-                .reply()
-                .map_err(error)?;
+            let geometry = replied(connection.get_geometry(window))?;
             if is_overlay(connection, window, &attributes, &geometry)? {
                 hidden.windows.push(window);
-                connection
-                    .unmap_window(window)
-                    .map_err(error)?
-                    .check()
-                    .map_err(error)?;
+                checked(connection.unmap_window(window))?;
             }
         }
         Ok(hidden)
@@ -53,11 +35,7 @@ impl Hidden {
 
     fn restore(&mut self) -> Result<(), AdapterError> {
         for window in &self.windows {
-            self.connection
-                .map_window(*window)
-                .map_err(error)?
-                .check()
-                .map_err(error)?;
+            checked(self.connection.map_window(*window))?;
         }
         self.windows.clear();
         Ok(())

@@ -66,7 +66,10 @@ pub(crate) fn build_for_owners(
         }
     })?;
     let identity_unproven = capture.identity_unproven.clone();
-    let (raw_tree, complete, nodes_observed, observed) = capture.into_parts()?;
+    let (mut raw_tree, complete, nodes_observed, observed) = capture.into_parts()?;
+    if opts.skeleton {
+        grid_collapse::collapse_grids(&mut raw_tree);
+    }
     let capture_proof = crate::refs::ref_capture_proof::CaptureProof::new(&observed);
 
     let mut refmap = RefMap::new();
@@ -205,6 +208,8 @@ pub(crate) fn emit_snapshot_saved(
     })
 }
 
+pub(crate) mod drill_retry;
+pub(crate) mod grid_collapse;
 pub mod hints;
 pub(crate) mod ref_owner_observation;
 pub(crate) mod snapshot_owner;

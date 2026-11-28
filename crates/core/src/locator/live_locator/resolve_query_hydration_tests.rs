@@ -45,6 +45,7 @@ impl ObservationOps for HydrationRetryAdapter {
     fn resolve_locator_anchor(
         &self,
         _entry: &crate::RefEntry,
+        _base: Option<&crate::NativeHandle>,
         _deadline: crate::Deadline,
     ) -> Result<crate::NativeHandle, AdapterError> {
         Ok(crate::NativeHandle::null())
@@ -97,6 +98,7 @@ impl ObservationOps for CountingAdapter {
     fn resolve_locator_anchor(
         &self,
         _entry: &crate::RefEntry,
+        _base: Option<&crate::NativeHandle>,
         _deadline: crate::Deadline,
     ) -> Result<crate::NativeHandle, AdapterError> {
         self.element_observations.fetch_add(1, Ordering::SeqCst);
@@ -187,6 +189,7 @@ impl ObservationOps for IncompleteHydrationAdapter {
     fn resolve_locator_anchor(
         &self,
         _entry: &crate::RefEntry,
+        _base: Option<&crate::NativeHandle>,
         _deadline: crate::Deadline,
     ) -> Result<crate::NativeHandle, AdapterError> {
         Ok(crate::NativeHandle::null())
@@ -270,6 +273,7 @@ impl ObservationOps for ReadAgainAdapter {
     fn resolve_locator_anchor(
         &self,
         _entry: &crate::RefEntry,
+        _base: Option<&crate::NativeHandle>,
         _deadline: crate::Deadline,
     ) -> Result<crate::NativeHandle, AdapterError> {
         Ok(crate::NativeHandle::null())
@@ -313,4 +317,55 @@ fn a_hydrated_match_shows_the_screen_rectangle_the_re_read_found_or_else_the_fir
             Some(crate::BoundsSpace::Window)
         );
     }
+}
+
+struct BorrowedNameAdapter;
+
+impl ObservationOps for BorrowedNameAdapter {
+    fn observe_tree(
+        &self,
+        _root: ObservationRoot<'_>,
+        _request: &ObservationRequest,
+    ) -> Result<ObservedTree, AdapterError> {
+        let mut evidence = super::test_support::evidence("textfield", Some("Email"));
+        evidence.identifiers = super::IdentifierEvidence::typed(
+            [crate::ElementIdentifier {
+                kind: crate::IdentifierKind::AxIdentifier,
+                value: "email-input".into(),
+            }],
+            Some(0),
+            true,
+        )
+        .with_borrowed_name(true);
+        Ok(super::test_support::tree(
+            vec![super::test_support::node(0, evidence, Vec::new(), &[])],
+            vec![0],
+            true,
+        ))
+    }
+}
+
+impl ActionOps for BorrowedNameAdapter {}
+impl InputOps for BorrowedNameAdapter {}
+impl SystemOps for BorrowedNameAdapter {}
+
+#[test]
+fn a_borrowed_name_left_out_of_the_ref_identity_stays_in_the_returned_match() {
+    let request = LocatorResolveRequest {
+        selection: LocatorSelection::Strict,
+        deadline: crate::Deadline::after(5_000).unwrap(),
+        max_raw_depth: 10,
+        surface: None,
+        materialization: LocatorMaterialization::SelectedMatches,
+    };
+
+    let resolution = resolve_query(
+        &BorrowedNameAdapter,
+        &LocatorQuery::default(),
+        ObservationRoot::Window(&window()),
+        &request,
+    )
+    .unwrap();
+
+    assert_eq!(resolution.matches[0].data.name, "Email");
 }

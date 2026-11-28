@@ -93,7 +93,12 @@ fn perform_window_op(
         }
     };
     let lease = crate::operation::interaction_lease!(adapter.inner.as_ref());
-    match adapter.inner.window_op(window, op, &lease) {
+    match adapter.inner.window_op(
+        window,
+        op,
+        agent_desktop_core::InteractionPolicy::headed(),
+        &lease,
+    ) {
         Ok(_) => AdResult::Ok,
         Err(error) => {
             set_last_error(&error);

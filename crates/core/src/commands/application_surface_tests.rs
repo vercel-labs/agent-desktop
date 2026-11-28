@@ -6,31 +6,69 @@ use crate::{
     refs::refs_test_support::HomeGuard,
 };
 
-struct MenuAdapter {
-    apps: Vec<AppInfo>,
-    windows: Vec<WindowInfo>,
+pub(super) struct MenuAdapter {
+    pub(super) apps: Vec<AppInfo>,
+    pub(super) windows: Vec<WindowInfo>,
+    pub(super) surface_window: Option<WindowInfo>,
 }
 
 impl MenuAdapter {
-    fn windowless() -> Self {
+    pub(super) fn windowless() -> Self {
         Self {
             apps: vec![app(42)],
             windows: vec![],
+            surface_window: None,
         }
     }
 }
 
 impl ObservationOps for MenuAdapter {
     fn is_application_surface(&self, surface: SnapshotSurface) -> bool {
-        matches!(surface, SnapshotSurface::Menubar | SnapshotSurface::Menu)
+        matches!(
+            surface,
+            SnapshotSurface::Menubar | SnapshotSurface::Menu | SnapshotSurface::Popover
+        )
+    }
+
+    fn surface_window(
+        &self,
+        _app: &AppInfo,
+        surface: SnapshotSurface,
+        _deadline: Deadline,
+    ) -> Result<Option<WindowInfo>, crate::AdapterError> {
+        if surface != SnapshotSurface::Popover {
+            return Ok(None);
+        }
+        Ok(self.surface_window.clone())
+    }
+
+    fn recorded_surface_window(
+        &self,
+        process: crate::ProcessIdentity,
+        window_id: &str,
+        surface: SnapshotSurface,
+        _deadline: Deadline,
+    ) -> Result<Option<WindowInfo>, crate::AdapterError> {
+        if surface != SnapshotSurface::Popover {
+            return Ok(None);
+        }
+        Ok(self.surface_window.clone().filter(|window| {
+            window.id == window_id
+                && window.pid == process.pid
+                && window.process_instance.as_deref() == Some(process.instance.as_str())
+        }))
     }
 
     fn focused_app(&self, _deadline: Deadline) -> Result<Option<AppInfo>, crate::AdapterError> {
         Ok(self.apps.first().cloned())
     }
 
-    fn list_apps(&self, _deadline: Deadline) -> Result<Vec<AppInfo>, crate::AdapterError> {
-        Ok(self.apps.clone())
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: Deadline,
+    ) -> Result<crate::AppInventory, crate::AdapterError> {
+        Ok(query.answer(self.apps.clone()))
     }
 
     fn list_windows(
@@ -82,6 +120,7 @@ impl SystemOps for MenuAdapter {
 
 fn app(pid: u32) -> AppInfo {
     AppInfo {
+        aliases: Vec::new(),
         name: "MenuApp".into(),
         pid: crate::ProcessId::new(pid),
         bundle_id: Some("org.example.menu".into()),

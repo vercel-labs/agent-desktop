@@ -7,6 +7,7 @@ use agent_desktop_core::{AdapterError, ErrorCode};
 
 fn window(id: &str, title: &str, sheet: bool) -> ListedWindow {
     ListedWindow {
+        alert: false,
         app: 0,
         info: WindowInfo {
             id: id.to_owned(),
@@ -117,4 +118,52 @@ fn a_window_whose_tree_was_not_read_in_full_names_the_sheet_kind_unclassified() 
     super::mark_unread(&mut surfaces, &windows, &scan);
     assert!(surfaces[0].unclassified.is_empty());
     assert_eq!(surfaces[1].unclassified, ["sheet"]);
+}
+
+#[test]
+fn an_empty_incomplete_scan_is_unknown_not_a_timeout() {
+    use crate::system::menu::surface_scan::NestedScan;
+
+    let scan = NestedScan {
+        found: Vec::new(),
+        menus: Vec::new(),
+        complete: false,
+        unread: vec![0],
+    };
+    let dialogs = super::nested_dialogs_of(scan);
+    assert!(!dialogs.complete && dialogs.titles.is_empty());
+}
+
+#[test]
+fn an_incomplete_scan_still_reports_the_dialog_it_saw() {
+    use crate::system::menu::nested_surface::Nested;
+    use crate::system::menu::surface_scan::NestedScan;
+
+    let scan = NestedScan {
+        found: vec![Nested {
+            window: 0,
+            id: "w-1.2-org-dlg".to_owned(),
+            title: Some("Save Changes?".to_owned()),
+        }],
+        menus: Vec::new(),
+        complete: false,
+        unread: vec![1],
+    };
+    let dialogs = super::nested_dialogs_of(scan);
+    assert_eq!(dialogs.titles, ["Save Changes?".to_owned()]);
+    assert!(!dialogs.complete);
+}
+
+#[test]
+fn a_showing_modal_alert_lists_both_an_alert_and_a_sheet_entry() {
+    let mut alert = window("w-1", "Save changes?", true);
+    alert.alert = true;
+    let kinds: Vec<_> = surfaces_of(&[alert])
+        .iter()
+        .map(|surface| surface.kind.clone())
+        .collect();
+    assert_eq!(kinds, ["window", "alert", "sheet"]);
+    let mut plain = window("w-2", "Doc", false);
+    plain.alert = false;
+    assert_eq!(surfaces_of(&[plain]).len(), 1);
 }

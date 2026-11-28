@@ -29,6 +29,16 @@ fn ambiguous_target_error_has_machine_readable_code() {
     assert!(error.suggestion.is_some());
 }
 
+/// The generic constructor does not know why the policy denied, so it cannot
+/// know that headed mode lifts it. Only `policy_denied_for_policy`, which
+/// receives the interaction policy, names headed mode.
+#[test]
+fn generic_policy_denied_makes_no_headed_mode_assumption() {
+    let error = AdapterError::policy_denied("Key combo 'alt+f4' is blocked for safety");
+    assert_eq!(error.code, ErrorCode::PolicyDenied);
+    assert!(error.suggestion.is_none());
+}
+
 #[test]
 fn policy_denied_suggestion_is_mode_aware() {
     let headless = AdapterError::policy_denied_for_policy("blocked", InteractionPolicy::headless());
@@ -108,4 +118,30 @@ fn a_permission_denied_io_error_keeps_its_own_code_and_others_do_not() {
             "{kind:?} carries no caller-actionable meaning and must stay INTERNAL"
         );
     }
+}
+
+#[test]
+fn an_unsent_error_is_not_delivered_unless_it_already_carries_stronger_evidence() {
+    let plain = AdapterError::internal("x").unsent();
+    assert_eq!(plain.disposition, crate::DeliverySemantics::not_delivered());
+    let kept = AdapterError::internal("x")
+        .with_disposition(crate::DeliverySemantics::uncertain())
+        .unsent();
+    assert_eq!(kept.disposition, crate::DeliverySemantics::uncertain());
+}
+
+#[test]
+fn a_plain_timeout_does_not_blame_a_busy_application() {
+    let hint = AdapterError::timeout("late").suggestion.unwrap();
+    assert!(!hint.contains("busy"), "{hint}");
+}
+
+#[test]
+fn an_ambiguous_process_name_names_a_remedy_that_exists() {
+    let pids = [crate::ProcessId::new(10), crate::ProcessId::new(11)];
+    let hint = AdapterError::ambiguous_process_target("two", &pids)
+        .suggestion
+        .unwrap();
+    assert!(!hint.contains("no pid or instance flag"), "{hint}");
+    assert!(hint.contains("Quit all but one"), "{hint}");
 }

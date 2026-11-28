@@ -11,13 +11,24 @@ use serde_json::Value;
 /// DevTools endpoint once the process is launched.
 const MAX_PROBE_RESERVE: Duration = Duration::from_millis(5_000);
 
+/// How long the front guard keeps watching after a headless launch returns:
+/// an application can take the focus when its window finishes opening.
+const LAUNCH_SETTLE: Duration = Duration::from_millis(500);
+
 pub struct LaunchArgs {
     pub app: String,
     pub options: LaunchOptions,
 }
 
-pub fn execute(args: LaunchArgs, adapter: &dyn PlatformAdapter) -> Result<Value, AppError> {
+pub fn execute(
+    args: LaunchArgs,
+    adapter: &dyn PlatformAdapter,
+    policy: crate::InteractionPolicy,
+) -> Result<Value, AppError> {
     let LaunchArgs { app, mut options } = args;
+    if options.activate {
+        policy.require(crate::Effect::FocusSteal, "launch --activate")?;
+    }
     crate::wait_timeout_duration(options.timeout_ms)?;
     let deadline = if options.timeout_ms == 0 {
         crate::Deadline::standard()?
@@ -42,15 +53,57 @@ pub fn execute(args: LaunchArgs, adapter: &dyn PlatformAdapter) -> Result<Value,
         deadline.capped(deadline.remaining().saturating_sub(reserve))
     });
     let lease = adapter.acquire_interaction_lease(launch_deadline)?;
-    let mut launched = adapter.launch_app(&app, &options, &lease)?;
+    let watching = lease.with_deadline(lease.deadline());
+    let (launched, front, pending) = crate::system::front_guard::guarded_deferred(
+        adapter,
+        policy,
+        &watching,
+        crate::system::front_guard::FrontWatch {
+            target: crate::system::front_target::FrontTarget::program(&app),
+            settle: LAUNCH_SETTLE,
+            after_release: true,
+        },
+        |mark| {
+            let launched = adapter.launch_app(&app, &options, lease);
+            if let Ok(launched) = &launched {
+                mark.learn_target(launched.pid.get());
+            }
+            launched
+        },
+    )?;
+    drop(watching);
+    let mut launched = launched?;
+    let (front, pending_reason) = match pending {
+        Some(pending) => {
+            let resolution = pending.with_deadline(deadline).run_around(adapter, || ()).1;
+            (resolution.outcome, resolution.pending_reason)
+        }
+        None => (front, None),
+    };
+    if let Some(reason) = pending_reason {
+        launched.guidance.front_watch = Some(reason.to_owned());
+    }
+    match front {
+        crate::FrontOutcome::GivenBack => {
+            launched.guidance.focus_returned = Some(true);
+        }
+        crate::FrontOutcome::GiveBackFailed => {
+            launched.guidance.focus_returned = Some(false);
+            if launched.guidance.suggestion.is_none() {
+                launched.guidance.suggestion =
+                    Some(crate::system::front_outcome::RETURN_FAILED_SUGGESTION.to_owned());
+            }
+        }
+        crate::FrontOutcome::Off | crate::FrontOutcome::Clean => {}
+    }
     if let Some(port) = options.cdp_port {
         let granted = deadline.remaining();
-        launched.cdp = Some(verify_cdp_endpoint(
+        launched.guidance.cdp = Some(verify_cdp_endpoint(
             port, deadline, granted, &launched, adapter,
         )?);
     }
-    if launched.suggestion.is_none() {
-        launched.suggestion = launch_suggestion(requested_cdp_port.is_some(), &launched);
+    if launched.guidance.suggestion.is_none() {
+        launched.guidance.suggestion = launch_suggestion(requested_cdp_port.is_some(), &launched);
     }
     Ok(serde_json::to_value(launched)?)
 }
@@ -69,7 +122,7 @@ fn probe_reserve(total: Duration) -> Duration {
 /// flag that opens the web-content door, and a verified endpoint is handed
 /// off to a CDP client instead of left for the caller to rediscover.
 fn launch_suggestion(cdp_requested: bool, launched: &LaunchResult) -> Option<String> {
-    if let Some(cdp) = &launched.cdp {
+    if let Some(cdp) = &launched.guidance.cdp {
         return Some(format!(
             "Next: run `agent-browser connect {}` (preferred; `agent-browser skills get \
              electron` has the guide) or connect any CDP client such as Playwright or \
@@ -80,7 +133,7 @@ fn launch_suggestion(cdp_requested: bool, launched: &LaunchResult) -> Option<Str
             cdp.port
         ));
     }
-    if !cdp_requested && launched.renderer == Some(RendererKind::Chromium) {
+    if !cdp_requested && launched.guidance.renderer == Some(RendererKind::Chromium) {
         return Some(
             "Chromium app: for web-content work, run close-app and then launch --cdp, then \
              drive the web contents with agent-browser or any CDP client. Accessibility \
@@ -132,14 +185,18 @@ fn reject_if_already_running(
     adapter: &dyn PlatformAdapter,
     deadline: crate::Deadline,
 ) -> Result<(), AppError> {
-    let running = adapter.list_apps(deadline)?;
+    let running = adapter.query_app_inventory(crate::AppInventoryQuery::All, deadline)?;
     let stem = launch_path_stem(id);
     let pids: Vec<_> = running
+        .apps
         .iter()
         .filter(|app| app.presentation.is_some())
-        .filter(|app| app.matches_identifier(id) || stem.is_some_and(|s| app.matches_identifier(s)))
+        .filter(|app| app.is_named(id) || stem.is_some_and(|s| app.is_named(s)))
         .map(|app| app.pid)
         .collect();
+    if pids.is_empty() && !running.skipped.is_empty() {
+        return Err(running.incomplete_error(id).into());
+    }
     if pids.is_empty() {
         return Ok(());
     }
@@ -263,3 +320,7 @@ mod cdp_tests;
 #[cfg(test)]
 #[path = "launch_cdp_switch_tests.rs"]
 mod cdp_switch_tests;
+
+#[cfg(test)]
+#[path = "launch_front_tests.rs"]
+mod front_tests;

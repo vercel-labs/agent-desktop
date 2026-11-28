@@ -37,7 +37,7 @@ fn waiting_for_window<T>(timeout_ms: u64, body: impl FnOnce(&Launch<'_>, &Runnin
         bus: &bus,
         id: "fixture",
         options: &options,
-        lease: &lease,
+        lease: Some(lease),
         deadline,
     };
     body(&launch, &this_process())
@@ -131,7 +131,7 @@ fn launch_window_lookup_never_enriches_an_unrelated_process() {
         bus: &bus,
         id: "fixture",
         options: &options,
-        lease: &lease,
+        lease: Some(lease),
         deadline,
     };
     assert!(
@@ -270,4 +270,50 @@ fn any_other_refusal_of_the_window_read_still_ends_the_launch_at_once() {
     assert_eq!(calls.get(), 1);
     assert!(!is_unproven(&error));
     assert_eq!(error.disposition, DeliverySemantics::delivered_unverified());
+}
+
+#[test]
+fn an_attach_to_an_application_that_does_not_answer_gives_up_after_the_attach_grace() {
+    let started = std::time::Instant::now();
+    let error = waiting_for_window(60_000, |launch, owner| {
+        launch
+            .wait_for_window(owner, false, &HashSet::new(), || {
+                Err(AdapterError::timeout("The application did not answer"))
+            })
+            .expect_err("an unreadable application has no window to report")
+    });
+
+    assert_eq!(error.code, ErrorCode::Timeout);
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "an attach sends nothing, so waiting for an answer for {:?} cannot help",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn a_spawned_application_that_does_not_answer_is_still_read_until_the_launch_deadline() {
+    let started = std::time::Instant::now();
+    waiting_for_window(2_500, |launch, owner| {
+        launch
+            .wait_for_window(owner, true, &HashSet::new(), || {
+                Err(AdapterError::timeout("The application did not answer"))
+            })
+            .expect_err("still unreadable at the deadline")
+    });
+
+    assert!(started.elapsed() >= Duration::from_millis(2_400));
+}
+
+#[test]
+fn an_attach_that_could_not_read_windows_names_the_application_and_sends_nothing() {
+    waiting_for_window(1_000, |launch, owner| {
+        let result = launch.attached_unread(owner, &AdapterError::timeout("did not answer"));
+
+        assert_eq!(result.pid, ProcessId::new(owner.pid));
+        assert!(result.window.is_none());
+        assert_eq!(result.disposition, DeliverySemantics::not_delivered());
+        let note = result.guidance.suggestion.expect("the reason is named");
+        assert!(note.contains("could not be read") && note.contains("did not answer"));
+    });
 }

@@ -11,15 +11,17 @@ use crate::tree::walk::walker_expand::UNKNOWN_PID;
 fn attempt<S: Source>(
     source: &mut S,
     entry: &RefEntry,
+    base: Option<&AtspiElement>,
     deadline: Deadline,
 ) -> Result<AtspiElement, AdapterError> {
     if deadline.is_expired() {
         return Err(deadline.timeout_error());
     }
     let frame = source.open_window(entry)?;
+    let start = base.cloned().unwrap_or(frame);
     let mut destroyed = None;
-    let landing = descend(frame, &entry.scope.path, deadline, |at| {
-        let outcome = source.level(at);
+    let landing = descend(start, &entry.scope.path, deadline, |at, index| {
+        let outcome = source.level(at, Some(index));
         outcome
             .map_err(|error| settle_read_error(source, entry, at, error))
             .inspect_err(|error| {
@@ -78,7 +80,18 @@ pub(crate) fn resolve_anchor<S: Source>(
     entry: &RefEntry,
     deadline: Deadline,
 ) -> Result<AtspiElement, AdapterError> {
-    let outcome = attempt(source, entry, deadline);
+    resolve_anchor_from(source, entry, None, deadline)
+}
+
+/// Lands the anchor's path below `base`, an element a caller already verified,
+/// instead of below the window frame. The window gate still runs first.
+pub(crate) fn resolve_anchor_from<S: Source>(
+    source: &mut S,
+    entry: &RefEntry,
+    base: Option<&AtspiElement>,
+    deadline: Deadline,
+) -> Result<AtspiElement, AdapterError> {
+    let outcome = attempt(source, entry, base, deadline);
     settle_outcome(source, entry, outcome)
 }
 

@@ -223,7 +223,7 @@ unsafe fn decode_core_ref_entry(
             value,
             description,
             native_id,
-            unique_at_capture: false,
+            proof: agent_desktop_core::IdentityProof::Unproven,
         },
         geometry: RefGeometry {
             bounds_space,
@@ -246,6 +246,7 @@ unsafe fn decode_core_ref_entry(
             root_ref,
             path_is_absolute: entry.scope.path_is_absolute,
             path,
+            chain: Default::default(),
         },
     };
     if !agent_desktop_core::refs::ref_identity::has_meaningful_identity(&decoded)

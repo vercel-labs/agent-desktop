@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use agent_desktop_core::{
-    AdapterError, Deadline, ErrorCode, ProcessId, system::launch_options::LaunchOptions,
-    system::launch_result::LaunchResult,
+    AdapterError, Deadline, ErrorCode, LaunchArrival, ProcessId,
+    system::launch_options::LaunchOptions, system::launch_result::LaunchResult,
 };
 
 use super::super::app_ops::{ProcessRow, process_snapshot};
@@ -16,13 +16,17 @@ pub(super) fn prepare(
 ) -> Result<(PathBuf, Option<LaunchResult>), AdapterError> {
     let matches = matching_processes(image_file_name(id))?;
     if !options.attach_if_running {
-        if let Some(row) = matches.first() {
-            return Err(super::already_running_error(row.pid, &matches));
+        if !matches.is_empty() {
+            let pids: Vec<ProcessId> = matches.iter().map(|row| row.pid).collect();
+            return Err(agent_desktop_core::launch_already_running(id, &pids));
         }
         return Ok((resolve_executable(id)?, None));
     }
 
     let executable = resolve_executable(id)?;
+    if !options.args.is_empty() {
+        return Ok((executable, None));
+    }
     let mut exact_matches = Vec::new();
     for row in matches {
         let Some(process) = ProcessPin::open(row.pid) else {
@@ -32,30 +36,71 @@ pub(super) fn prepare(
             continue;
         };
         if same_executable_path(&executable, &image_path) {
-            let token = process_identity::token_for_pid(row.pid)?.ok_or_else(|| {
-                AdapterError::new(
-                    ErrorCode::AppUnresponsive,
-                    "Running process has no exact process instance token",
-                )
-            })?;
-            exact_matches.push((row, token, process));
+            let identity =
+                process_identity::ProcessIdentity::capture(row.pid)?.ok_or_else(|| {
+                    AdapterError::new(
+                        ErrorCode::AppUnresponsive,
+                        "Running process has no exact process instance token",
+                    )
+                })?;
+            exact_matches.push((row, identity, process));
         }
     }
-    if exact_matches.len() > 1 {
-        let rows = exact_matches
-            .iter()
-            .map(|(row, _, _)| row.clone())
-            .collect::<Vec<_>>();
-        return Err(super::ambiguous_apps(&rows));
-    }
-    if let Some((row, token, _process)) = exact_matches.pop() {
-        let window = super::observe_window(row.pid, &token, options, deadline)?;
-        return Ok((
-            executable,
-            Some(super::launch_result(id, row.pid, token, window)),
-        ));
+    match attach_plan(exact_matches.len()) {
+        AttachPlan::Ambiguous => {
+            let rows = exact_matches
+                .iter()
+                .map(|(row, _, _)| row.clone())
+                .collect::<Vec<_>>();
+            return Err(super::ambiguous_apps(&rows));
+        }
+        AttachPlan::Spawn => {}
+        AttachPlan::Attach => {
+            let Some((row, identity, _process)) = exact_matches.pop() else {
+                return Ok((executable, None));
+            };
+            let token = identity.token();
+            let target = super::launch_watch::Target {
+                pid: row.pid,
+                process_instance: &token,
+                started_ms: identity.started_unix_ms(),
+                resident: None,
+            };
+            let sighting = super::observe_window(&target, options, deadline)?;
+            return Ok((
+                executable,
+                Some(super::launch_result(super::Reported {
+                    id,
+                    pid: row.pid,
+                    process_instance: token,
+                    window: sighting.seen.map(|seen| seen.window),
+                    arrival: LaunchArrival::Attached,
+                    suggestion: None,
+                })),
+            ));
+        }
     }
     Ok((executable, None))
+}
+
+/// What a launch without arguments does about the running instances of its
+/// program. A launch that carries arguments never gets here: attaching would
+/// drop them, so it always spawns and the program forwards them the way the
+/// system does, however many instances run. Several instances make only a bare
+/// attach ambiguous, because only a bare attach has to choose one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AttachPlan {
+    Spawn,
+    Attach,
+    Ambiguous,
+}
+
+pub(super) fn attach_plan(instances: usize) -> AttachPlan {
+    match instances {
+        0 => AttachPlan::Spawn,
+        1 => AttachPlan::Attach,
+        _ => AttachPlan::Ambiguous,
+    }
 }
 
 pub(super) fn matching_processes(image: &str) -> Result<Vec<ProcessRow>, AdapterError> {
@@ -63,6 +108,15 @@ pub(super) fn matching_processes(image: &str) -> Result<Vec<ProcessRow>, Adapter
         .into_iter()
         .filter(|row| row.name.eq_ignore_ascii_case(image))
         .collect())
+}
+
+pub(super) fn same_file(expected: &Path, actual: &Path) -> bool {
+    same_executable_path(expected, actual)
+}
+
+/// The image file of a running process, or `None` when it cannot be read.
+pub(super) fn image_of(pid: ProcessId) -> Option<PathBuf> {
+    ProcessPin::open(pid)?.image_path()
 }
 
 fn same_executable_path(expected: &Path, actual: &Path) -> bool {
@@ -122,3 +176,7 @@ impl ProcessPin {
         None
     }
 }
+
+#[cfg(test)]
+#[path = "launch_attach_tests.rs"]
+mod tests;

@@ -1,6 +1,5 @@
-use agent_desktop_core::{AdapterError, ErrorCode, Rect, WindowInfo};
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode, Rect, WindowInfo};
 use core_foundation::{base::CFType, dictionary::CFDictionary, string::CFString};
-use std::time::Instant;
 
 pub(in crate::system) type WindowDictionary = CFDictionary<CFString, CFType>;
 
@@ -62,14 +61,14 @@ impl WindowRecordScope<'_> {
 }
 
 pub(crate) fn window_records_until(
-    deadline: Instant,
+    deadline: Deadline,
     scope: WindowRecordScope<'_>,
 ) -> Result<Vec<WindowRecord>, AdapterError> {
     stabilize_records_until(deadline, || capture_once(deadline, scope))
 }
 
 fn capture_once(
-    deadline: Instant,
+    deadline: Deadline,
     scope: WindowRecordScope<'_>,
 ) -> Result<Vec<WindowRecord>, AdapterError> {
     ensure_before_deadline(deadline)?;
@@ -80,7 +79,7 @@ fn capture_once(
 }
 
 fn stabilize_records_until(
-    deadline: Instant,
+    deadline: Deadline,
     mut capture: impl FnMut() -> Result<Vec<WindowRecord>, AdapterError>,
 ) -> Result<Vec<WindowRecord>, AdapterError> {
     let mut previous: Option<Vec<WindowRecord>> = None;
@@ -88,7 +87,7 @@ fn stabilize_records_until(
     let mut churn_events = 0_u64;
     let mut last_failure: Option<AdapterError> = None;
     loop {
-        if Instant::now() >= deadline {
+        if deadline.is_expired() {
             return Err(expired_deadline_error(
                 attempts,
                 churn_events,
@@ -113,21 +112,36 @@ fn stabilize_records_until(
             }
             Err(error) => return Err(error),
         }
-        let remaining = deadline.saturating_duration_since(Instant::now());
+        let remaining = deadline.remaining();
         if !remaining.is_zero() {
             std::thread::sleep(remaining.min(std::time::Duration::from_millis(5)));
         }
     }
 }
 
-pub(in crate::system) fn records_from_dictionaries(
+/// Whether the inventory lists a window. A normal-level window is listed on or
+/// off screen. A floating, panel or utility window an application raises
+/// itself (below the Dock level, 20), as accessory apps do, is listed while
+/// on screen; off screen it is a hidden helper. System levels stay out.
+fn lists_window(layer: i64, on_screen: bool) -> bool {
+    match layer {
+        0 => true,
+        1..DOCK_WINDOW_LEVEL => on_screen,
+        _ => false,
+    }
+}
+
+const DOCK_WINDOW_LEVEL: i64 = 20;
+
+pub(crate) fn records_from_dictionaries(
     dictionaries: Vec<WindowDictionary>,
     scope: WindowRecordScope<'_>,
 ) -> Result<Vec<WindowRecord>, AdapterError> {
     let mut records = Vec::new();
     for dictionary in dictionaries {
         let layer = required_int_field(&dictionary, "kCGWindowLayer")?;
-        if layer != 0 {
+        let visible = bool_field(&dictionary, "kCGWindowIsOnscreen")?;
+        if !lists_window(layer, visible) {
             continue;
         }
         let pid = i32::try_from(required_int_field(&dictionary, "kCGWindowOwnerPID")?)
@@ -157,14 +171,14 @@ pub(in crate::system) fn records_from_dictionaries(
             title: string_field(&dictionary, "kCGWindowName").filter(|title| !title.is_empty()),
             window_number,
             bounds,
-            visible: bool_field(&dictionary, "kCGWindowIsOnscreen")?,
+            visible,
             process_instance: None,
         });
     }
     Ok(records)
 }
 
-fn window_dictionaries() -> Result<Vec<WindowDictionary>, AdapterError> {
+pub(super) fn window_dictionaries() -> Result<Vec<WindowDictionary>, AdapterError> {
     use crate::tree::properties::cf_type::borrowed_cf_dictionary;
     use core_graphics::display::CGDisplay;
     let options = window_list_options();
@@ -187,9 +201,9 @@ fn window_list_options() -> core_graphics::window::CGWindowListOption {
         | core_graphics::window::kCGWindowListExcludeDesktopElements
 }
 
-pub(in crate::system) fn capture_process_instances(
+pub(crate) fn capture_process_instances(
     records: &mut [WindowRecord],
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<(), AdapterError> {
     capture_process_instances_with(records, deadline, |pid| {
         crate::system::process::process_identity::token_for_pid(pid)
@@ -198,7 +212,7 @@ pub(in crate::system) fn capture_process_instances(
 
 fn capture_process_instances_with(
     records: &mut [WindowRecord],
-    deadline: Instant,
+    deadline: Deadline,
     mut resolve: impl FnMut(i32) -> Result<Option<String>, AdapterError>,
 ) -> Result<(), AdapterError> {
     let mut instances = std::collections::HashMap::<i32, String>::new();
@@ -243,8 +257,8 @@ fn inventory_signature(records: &[WindowRecord]) -> Vec<InventorySignatureEntry<
     signature
 }
 
-pub(in crate::system) fn ensure_before_deadline(deadline: Instant) -> Result<(), AdapterError> {
-    if Instant::now() >= deadline {
+pub(crate) fn ensure_before_deadline(deadline: Deadline) -> Result<(), AdapterError> {
+    if deadline.is_expired() {
         return Err(AdapterError::timeout(
             "CoreGraphics window inventory timed out",
         ));
@@ -252,7 +266,7 @@ pub(in crate::system) fn ensure_before_deadline(deadline: Instant) -> Result<(),
     Ok(())
 }
 
-pub(in crate::system) fn inventory_error(message: &str) -> AdapterError {
+pub(crate) fn inventory_error(message: &str) -> AdapterError {
     AdapterError::new(ErrorCode::AppUnresponsive, message)
         .with_suggestion("Retry after WindowServer finishes updating the window inventory")
         .with_details(serde_json::json!({
@@ -313,7 +327,7 @@ fn invalid_field_error(field: &str) -> AdapterError {
     ))
 }
 
-fn required_int_field(dict: &WindowDictionary, key: &str) -> Result<i64, AdapterError> {
+pub(crate) fn required_int_field(dict: &WindowDictionary, key: &str) -> Result<i64, AdapterError> {
     int_field(dict, key).ok_or_else(|| missing_field_error(key))
 }
 
@@ -321,7 +335,7 @@ fn required_string_field(dict: &WindowDictionary, key: &str) -> Result<String, A
     string_field(dict, key).ok_or_else(|| missing_field_error(key))
 }
 
-fn int_field(dict: &WindowDictionary, key: &str) -> Option<i64> {
+pub(super) fn int_field(dict: &WindowDictionary, key: &str) -> Option<i64> {
     use crate::tree::properties::cf_type::borrowed_cf_number;
     use core_foundation::base::TCFType;
 
@@ -341,7 +355,7 @@ fn string_field(dict: &WindowDictionary, key: &str) -> Option<String> {
         .map(|value| value.to_string())
 }
 
-fn bool_field(dict: &WindowDictionary, key: &str) -> Result<bool, AdapterError> {
+pub(crate) fn bool_field(dict: &WindowDictionary, key: &str) -> Result<bool, AdapterError> {
     use core_foundation::boolean::CFBoolean;
 
     let cf_key = CFString::new(key);
@@ -369,7 +383,7 @@ fn rect_field(dict: &WindowDictionary, key: &str) -> Option<Rect> {
     })
 }
 
-fn int_or_float_field(dict: &WindowDictionary, key: &str) -> Option<f64> {
+pub(super) fn int_or_float_field(dict: &WindowDictionary, key: &str) -> Option<f64> {
     use crate::tree::properties::cf_type::borrowed_cf_number;
     use core_foundation::base::TCFType;
 

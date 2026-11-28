@@ -7,7 +7,7 @@ pub(crate) mod close_dispatch;
 pub(crate) mod close_outcome;
 pub(crate) mod cursor_overlay;
 pub(crate) mod display;
-pub(crate) mod fixture;
+pub(crate) mod escape_popup;
 #[cfg(target_os = "windows")]
 pub(crate) mod interaction_lease;
 pub(crate) mod key_dispatch;
@@ -25,5 +25,6 @@ pub(crate) mod process_state;
 pub(crate) mod runtime;
 pub(crate) mod shell;
 pub(crate) mod signal;
+pub(crate) mod test_support;
 pub(crate) mod wait;
 pub(crate) mod window;

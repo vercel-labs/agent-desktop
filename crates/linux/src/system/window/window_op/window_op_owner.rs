@@ -27,10 +27,6 @@ pub(super) fn ensure_owned_before(
     Ok(())
 }
 
-#[cfg(test)]
-#[path = "window_op_readback_live_tests.rs"]
-mod live_tests;
-
 pub(super) fn ensure_owned_after(
     world: &impl OpWorld,
     win: &WindowInfo,

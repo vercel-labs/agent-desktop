@@ -1,17 +1,16 @@
 use super::{AXElement, properties::element::element_for_pid, surface_read};
-use agent_desktop_core::{AdapterError, ErrorCode, SnapshotSurface};
-use std::time::Instant;
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode, SnapshotSurface};
 
 const MAX_SURFACE_NODES: usize = 2_048;
 
 pub(crate) fn observe<T>(
     identity: crate::system::process::process_identity::ProcessIdentity,
-    deadline: Instant,
+    deadline: Deadline,
     mut operation: impl FnMut() -> Result<T, AdapterError>,
 ) -> Result<T, AdapterError> {
     surface_read::ensure_before_deadline(deadline)?;
     let mut reacquired = false;
-    super::resolve::retry_incomplete_until(deadline, || {
+    agent_desktop_core::refs::resolve_retry::retry_incomplete_until(deadline, || {
         reacquire_once(deadline, &mut reacquired, || {
             require_generation(identity)?;
             let result = operation();
@@ -21,7 +20,7 @@ pub(crate) fn observe<T>(
     })
 }
 
-fn require_generation(
+pub(crate) fn require_generation(
     identity: crate::system::process::process_identity::ProcessIdentity,
 ) -> Result<(), AdapterError> {
     if identity.still_matches()? {
@@ -34,7 +33,7 @@ fn require_generation(
 }
 
 fn reacquire_once<T>(
-    deadline: Instant,
+    deadline: Deadline,
     reacquired: &mut bool,
     mut operation: impl FnMut() -> Result<T, AdapterError>,
 ) -> Result<T, AdapterError> {
@@ -74,7 +73,7 @@ fn invalidated(error: &AdapterError) -> bool {
 pub(crate) fn root_for_pid(
     pid: i32,
     surface: SnapshotSurface,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Option<AXElement>, AdapterError> {
     match surface {
         SnapshotSurface::Menubar => menubar_for_pid(pid, deadline),
@@ -92,7 +91,7 @@ pub(super) fn require_root<T>(
 }
 
 #[cfg(target_os = "macos")]
-fn menubar_for_pid(pid: i32, deadline: Instant) -> Result<Option<AXElement>, AdapterError> {
+fn menubar_for_pid(pid: i32, deadline: Deadline) -> Result<Option<AXElement>, AdapterError> {
     let app = element_for_pid(pid);
     let Some(menubar) = surface_read::element(&app, "AXMenuBar", deadline)? else {
         return Ok(None);
@@ -104,7 +103,7 @@ fn menubar_for_pid(pid: i32, deadline: Instant) -> Result<Option<AXElement>, Ada
 }
 
 #[cfg(target_os = "macos")]
-fn menu_element_for_pid(pid: i32, deadline: Instant) -> Result<Option<AXElement>, AdapterError> {
+fn menu_element_for_pid(pid: i32, deadline: Deadline) -> Result<Option<AXElement>, AdapterError> {
     Ok(open_menus_for_pid(pid, deadline)?
         .into_iter()
         .next()
@@ -113,7 +112,15 @@ fn menu_element_for_pid(pid: i32, deadline: Instant) -> Result<Option<AXElement>
 
 pub(crate) fn open_menus_for_pid(
     pid: i32,
-    deadline: Instant,
+    deadline: Deadline,
+) -> Result<Vec<(&'static str, String, AXElement)>, AdapterError> {
+    open_menus_for_pid_until(pid, Transient::Menu, deadline)
+}
+
+fn open_menus_for_pid_until(
+    pid: i32,
+    accept: Transient,
+    deadline: Deadline,
 ) -> Result<Vec<(&'static str, String, AXElement)>, AdapterError> {
     let mut menus = Vec::new();
     if let Some(menubar) = menubar_for_pid(pid, deadline)? {
@@ -132,11 +139,33 @@ pub(crate) fn open_menus_for_pid(
         );
     }
     if menus.is_empty()
-        && let Some((id, menu)) = context_menu_from_app(pid, deadline)?
+        && let Some((id, menu)) = surface_from_app(pid, accept, deadline)?
     {
         menus.push(("context_menu", id, menu));
     }
     Ok(menus)
+}
+
+/// What a search below the application accepts as the open transient surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Transient {
+    Menu,
+    MenuOrPopover,
+}
+
+/// The menu or popover the application shows, in one pass: an open menu bar
+/// menu first, then the bounded search below the application.
+#[cfg(target_os = "macos")]
+pub(crate) fn open_transient_surface(
+    pid: i32,
+    deadline: Deadline,
+) -> Result<Option<AXElement>, AdapterError> {
+    Ok(
+        open_menus_for_pid_until(pid, Transient::MenuOrPopover, deadline)?
+            .into_iter()
+            .next()
+            .map(|(_, _, surface)| surface),
+    )
 }
 
 fn open_menubar_menus_with<T>(
@@ -163,9 +192,10 @@ fn open_menubar_menus_with<T>(
 }
 
 #[cfg(target_os = "macos")]
-fn context_menu_from_app(
+fn surface_from_app(
     pid: i32,
-    deadline: Instant,
+    accept: Transient,
+    deadline: Deadline,
 ) -> Result<Option<(String, AXElement)>, AdapterError> {
     let app = element_for_pid(pid);
     for (index, menu) in surface_read::elements(&app, "AXMenus", deadline)?
@@ -177,7 +207,8 @@ fn context_menu_from_app(
         }
     }
     if let Some(focused) = surface_read::element(&app, "AXFocusedUIElement", deadline)?
-        && let Some(menu) = find_menu_descendant(focused, "app/focused-element".into(), deadline)?
+        && let Some(menu) =
+            find_menu_descendant(focused, "app/focused-element".into(), accept, deadline)?
     {
         return Ok(Some(menu));
     }
@@ -185,7 +216,8 @@ fn context_menu_from_app(
         .into_iter()
         .enumerate()
     {
-        if let Some(menu) = find_menu_descendant(child, format!("app/children/{index}"), deadline)?
+        if let Some(menu) =
+            find_menu_descendant(child, format!("app/children/{index}"), accept, deadline)?
         {
             return Ok(Some(menu));
         }
@@ -193,21 +225,67 @@ fn context_menu_from_app(
     Ok(None)
 }
 
+/// How far a surface search opens the elements below its root.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ChildExpansion {
+    /// A menu hangs directly below the element that shows it, so an element
+    /// with more than `ANCHOR_CHILD_LIMIT` children is a content container and
+    /// stays closed: reading its items made the search grow with the content
+    /// of every window.
+    AnchorsOnly,
+    /// A popover can hang below a control inside a list or a table row, so
+    /// every element is opened. `MAX_SURFACE_NODES` and the deadline still
+    /// bound the search, and reaching the limit is reported as incomplete.
+    EveryNode,
+}
+
+impl ChildExpansion {
+    fn opens(self, children: usize) -> bool {
+        match self {
+            Self::AnchorsOnly => children <= super::surface_inventory::ANCHOR_CHILD_LIMIT,
+            Self::EveryNode => true,
+        }
+    }
+}
+
 #[cfg(target_os = "macos")]
+pub(super) fn find_transient_surface(
+    root: AXElement,
+    source: String,
+    deadline: Deadline,
+) -> Result<Option<(String, AXElement)>, AdapterError> {
+    find_menu_descendant(root, source, Transient::MenuOrPopover, deadline)
+}
+
 fn find_menu_descendant(
     root: AXElement,
     source: String,
-    deadline: Instant,
+    accept: Transient,
+    deadline: Deadline,
 ) -> Result<Option<(String, AXElement)>, AdapterError> {
-    find_menu_descendant_with(root, source, deadline, |element| {
+    let expansion = match accept {
+        Transient::Menu => ChildExpansion::AnchorsOnly,
+        Transient::MenuOrPopover => ChildExpansion::EveryNode,
+    };
+    find_surface_descendant_with(root, source, expansion, deadline, |element, expand| {
         let role = surface_read::string(element, "AXRole", deadline)?;
         if role.as_deref() == Some("AXMenuBar") {
             return Ok((false, Vec::new()));
+        }
+        if accept == Transient::MenuOrPopover
+            && (role.as_deref() == Some("AXPopover")
+                || surface_read::string(element, "AXSubrole", deadline)?.as_deref()
+                    == Some("AXPopover"))
+        {
+            return Ok((true, Vec::new()));
         }
         if role.as_deref() == Some("AXMenu")
             && surface_read::boolean(element, "AXVisible", deadline)? != Some(false)
         {
             return Ok((true, Vec::new()));
+        }
+        if !expand {
+            return Ok((false, Vec::new()));
         }
         Ok((
             false,
@@ -216,22 +294,28 @@ fn find_menu_descendant(
     })
 }
 
-fn find_menu_descendant_with<T>(
+/// Breadth-first search below `root` for a transient surface: a menu, or a
+/// popover. `expansion` decides how far the search opens the tree, because a
+/// menu and a popover hang differently: a menu sits directly below its anchor,
+/// while a popover can sit below a control inside a list or a table row.
+/// `inspect` gets whether it may return the element's children.
+pub(super) fn find_surface_descendant_with<T>(
     root: T,
     source: String,
-    deadline: Instant,
-    mut inspect: impl FnMut(&T) -> Result<(bool, Vec<T>), AdapterError>,
+    expansion: ChildExpansion,
+    deadline: Deadline,
+    mut inspect: impl FnMut(&T, bool) -> Result<(bool, Vec<T>), AdapterError>,
 ) -> Result<Option<(String, T)>, AdapterError> {
-    let mut pending = std::collections::VecDeque::from([(source, root)]);
+    let mut pending = std::collections::VecDeque::from([(source, root, true)]);
     let mut incomplete = None;
     let mut visited = 0_usize;
-    while let Some((path, element)) = pending.pop_front() {
+    while let Some((path, element, expand)) = pending.pop_front() {
         surface_read::ensure_before_deadline(deadline)?;
         visited += 1;
         if visited > MAX_SURFACE_NODES {
             return Err(surface_limit_error());
         }
-        let (is_menu, children) = match inspect(&element) {
+        let (is_menu, children) = match inspect(&element, expand) {
             Ok(observed) => observed,
             Err(error) if error.code == ErrorCode::AppUnresponsive && !invalidated(&error) => {
                 incomplete.get_or_insert(error);
@@ -242,24 +326,25 @@ fn find_menu_descendant_with<T>(
         if is_menu {
             return Ok(Some((path, element)));
         }
+        let expand_children = expansion.opens(children.len());
         pending.extend(
             children
                 .into_iter()
                 .enumerate()
-                .map(|(index, child)| (format!("{path}/children/{index}"), child)),
+                .map(|(index, child)| (format!("{path}/children/{index}"), child, expand_children)),
         );
     }
     incomplete.map_or(Ok(None), Err)
 }
 
 #[cfg(target_os = "macos")]
-fn displayed_menu(element: &AXElement, deadline: Instant) -> Result<bool, AdapterError> {
+fn displayed_menu(element: &AXElement, deadline: Deadline) -> Result<bool, AdapterError> {
     Ok(has_role(element, "AXMenu", deadline)?
         && surface_read::boolean(element, "AXVisible", deadline)? != Some(false))
 }
 
 #[cfg(target_os = "macos")]
-fn has_role(element: &AXElement, expected: &str, deadline: Instant) -> Result<bool, AdapterError> {
+fn has_role(element: &AXElement, expected: &str, deadline: Deadline) -> Result<bool, AdapterError> {
     Ok(surface_read::string(element, "AXRole", deadline)?.as_deref() == Some(expected))
 }
 
@@ -272,6 +357,15 @@ fn invalid_root_error() -> AdapterError {
         "kind": "surface_root_invalid", "surface": "menubar", "complete": false,
         "retryable": false,
     }))
+}
+
+/// Whether a surface search stopped at its node budget, which means a surface
+/// may still sit below the cut rather than being absent.
+pub(crate) fn is_surface_search_limit(error: &AdapterError) -> bool {
+    error
+        .details
+        .as_ref()
+        .is_some_and(|details| details["kind"] == "surface_search_limit")
 }
 
 fn surface_limit_error() -> AdapterError {
@@ -291,3 +385,7 @@ fn surface_limit_error() -> AdapterError {
 #[cfg(test)]
 #[path = "app_menu_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "app_menu_search_tests.rs"]
+mod search_tests;

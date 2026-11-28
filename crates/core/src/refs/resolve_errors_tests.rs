@@ -24,7 +24,11 @@ fn identity_unknown_error_pins_the_shared_payload() {
     );
     assert_eq!(
         error.suggestion.as_deref(),
-        Some("Retry after the target application finishes updating its accessibility tree")
+        Some(
+            "Retry after the target application finishes updating its accessibility tree. \
+             A large window can need more time than the budget allows, so retry the \
+             same command with a larger --timeout-ms."
+        )
     );
     assert_eq!(
         error.details,
@@ -37,6 +41,15 @@ fn identity_unknown_error_pins_the_shared_payload() {
     );
     assert!(error.is_explicitly_retryable());
     assert!(error.permits_retry_by_default());
+}
+
+#[test]
+fn identity_unknown_error_suggestion_names_the_larger_budget_flag() {
+    let entry = entry_with_role("button");
+    let error = identity_unknown_error(&entry);
+
+    let suggestion = error.suggestion.expect("a suggestion");
+    assert!(suggestion.contains("--timeout-ms"), "{suggestion}");
 }
 
 #[test]
@@ -83,4 +96,53 @@ fn mark_deadline_elapsed_fills_missing_details() {
     let stamped = mark_deadline_elapsed(error);
 
     assert_eq!(stamped.details, Some(json!({ "deadline_elapsed": true })));
+}
+
+#[test]
+fn a_stale_element_token_is_settled_and_carries_no_retry() {
+    let entry = entry_with_role("button");
+    let error = element_token_stale(&entry, "dead", None);
+
+    assert_eq!(error.code, ErrorCode::StaleRef);
+    let details = error.details.as_ref().expect("details");
+    assert_eq!(details["kind"], json!("retained_object_stale"));
+    assert_eq!(details["retryable"], json!(false));
+    assert_eq!(details["reason"], json!("dead"));
+    assert!(details.get("depth").is_none());
+    assert!(!error.permits_retry_by_default());
+}
+
+#[test]
+fn a_stale_element_token_keeps_the_depth_of_the_broken_link() {
+    let entry = entry_with_role("button");
+    let error = element_token_stale(&entry, "chain", Some(2));
+
+    let details = error.details.as_ref().expect("details");
+    assert_eq!(details["depth"], json!(2));
+    assert_eq!(details["retryable"], json!(false));
+}
+
+#[test]
+fn every_settled_ref_refusal_refuses_a_retry() {
+    let entry = entry_with_role("button");
+    let refusals = [
+        ("saved_ref_absent", absent(&entry)),
+        ("saved_ref_ambiguous", ambiguous_live_match(&entry)),
+        ("identity_not_unique", identity_twins(&entry)),
+        ("identity_unproven", identity_unproven(&entry)),
+        ("element_token_required", element_token_required(&entry)),
+        (
+            "retained_object_stale",
+            element_token_stale(&entry, "dead", None),
+        ),
+    ];
+
+    for (kind, error) in refusals {
+        let retryable = error
+            .details
+            .as_ref()
+            .and_then(|details| details.get("retryable"));
+        assert_eq!(retryable, Some(&json!(false)), "{kind}");
+        assert!(!error.permits_retry_by_default(), "{kind}");
+    }
 }

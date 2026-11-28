@@ -3,6 +3,7 @@ use agent_desktop_core::{
 };
 use serde_json::json;
 
+use crate::tree::properties::grid_position;
 use crate::tree::query::evidence_fields::{description_field, name_field};
 use crate::tree::query::node_evidence::{
     identifiers as identifier_evidence, is_transparent_wrapper, option_field,
@@ -45,7 +46,20 @@ pub(crate) fn read_node(
     if read.status.api_disabled {
         return Err(permission_error("attributes"));
     }
-    let identifiers = identifier_evidence(&read.identifiers, requirements.identifiers);
+    let raw_role = read.attrs.role.as_deref();
+    let token = crate::tree::resolve::retained::capture(element)
+        .ok()
+        .flatten();
+    let grid_cell = (requirements.identifiers
+        && grid_position::takes_address(raw_role, token.is_some()))
+    .then(|| grid_position::read_cell_identifier(element, deadline))
+    .flatten();
+    let table_size = if requirements.identifiers && grid_position::is_table_role(raw_role) {
+        grid_position::read_table_size(element, deadline)
+    } else {
+        Default::default()
+    };
+    let identifiers = identifier_evidence(&read.identifiers, grid_cell, requirements.identifiers);
     update_identifier_stats(&identifiers, stats);
     if read.status.invalid_element {
         return Ok(NodeRead {
@@ -198,7 +212,16 @@ pub(crate) fn read_node(
         } else {
             LocatorField::Unknown
         },
-        identifiers: crate::tree::resolve::retained::evidence(element, identifiers),
+        identifiers: crate::tree::resolve::retained::evidence(token, identifiers)
+            .with_borrowed_name(
+                requirements.name
+                    && super::evidence_fields::name_borrowed(
+                        &name_evidence,
+                        &read.status,
+                        attrs.role.as_deref(),
+                        children_complete,
+                    ),
+            ),
         states: if !requirements.states || read.status.states_unknown() {
             LocatorField::Unknown
         } else {
@@ -212,7 +235,7 @@ pub(crate) fn read_node(
                 LocatorField::Unknown
             },
             available_actions: actions,
-            descriptors: Default::default(),
+            descriptors: table_size,
         },
     };
     Ok(NodeRead {

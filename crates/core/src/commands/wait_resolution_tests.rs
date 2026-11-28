@@ -116,7 +116,7 @@ fn snapshot_with_one_ref() -> String {
             value: None,
             description: None,
             native_id: None,
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
         },
         geometry: crate::RefGeometry {
             bounds_space: None,
@@ -139,6 +139,7 @@ fn snapshot_with_one_ref() -> String {
             root_ref: None,
             path_is_absolute: false,
             path: smallvec::SmallVec::new(),
+            chain: Default::default(),
         },
     });
     RefStore::new().unwrap().save_new_snapshot(&refmap).unwrap()
@@ -146,6 +147,7 @@ fn snapshot_with_one_ref() -> String {
 
 #[test]
 fn element_wait_retries_transient_ambiguous_resolution() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let _guard = HomeGuard::new();
     let snapshot_id = snapshot_with_one_ref();
     let adapter = TransientResolveAdapter {
@@ -168,6 +170,7 @@ fn element_wait_retries_transient_ambiguous_resolution() {
 
 #[test]
 fn element_wait_retries_transient_resolution_timeout() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let _guard = HomeGuard::new();
     let snapshot_id = snapshot_with_one_ref();
     let adapter = TransientResolveAdapter {
@@ -213,6 +216,7 @@ fn element_wait_passes_remaining_budget_to_resolver() {
 
 #[test]
 fn element_wait_times_out_after_persistent_ambiguous_resolution() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let _guard = HomeGuard::new();
     let snapshot_id = snapshot_with_one_ref();
 

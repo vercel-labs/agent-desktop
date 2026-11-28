@@ -1,5 +1,6 @@
 use super::tests::entry;
 use super::*;
+use agent_desktop_core::Deadline;
 
 #[test]
 fn application_menu_resolution_reacquires_invalid_roots_once_without_window_fallback() {
@@ -14,11 +15,8 @@ fn application_menu_resolution_reacquires_invalid_roots_once_without_window_fall
         stored.source.source_surface = surface;
         for failures in [1, 2] {
             let mut reads = 0;
-            let result = resolve_with_recovery(
-                &stored,
-                identity,
-                Instant::now() + Duration::from_secs(1),
-                || {
+            let result =
+                resolve_with_recovery(&stored, identity, Deadline::after(1000).unwrap(), || {
                     reads += 1;
                     if reads <= failures {
                         Err(crate::tree::surface_read::map_error(
@@ -28,8 +26,7 @@ fn application_menu_resolution_reacquires_invalid_roots_once_without_window_fall
                     } else {
                         Ok("resolved menu")
                     }
-                },
-            );
+                });
             assert_eq!(reads, 2);
             if failures == 1 {
                 assert_eq!(result.unwrap(), "resolved menu");
@@ -72,20 +69,10 @@ fn ax_read_errors_distinguish_absent_unknown_and_permission_denied() {
 }
 
 #[test]
-fn identity_unknown_then_success_retries_within_the_budget() {
+fn an_unknown_identity_is_a_transient_read() {
     let entry = entry(Some(42), Some("w-42"), None, None);
-    let attempts = std::cell::Cell::new(0);
-    let deadline = Instant::now() + Duration::from_secs(5);
-
-    let result = retry_incomplete_until(deadline, || {
-        attempts.set(attempts.get() + 1);
-        if attempts.get() == 1 {
-            Err(agent_desktop_core::refs::resolve_errors::identity_unknown_error(&entry))
-        } else {
-            Ok(7_u8)
-        }
-    });
-
-    assert_eq!(result.unwrap(), 7);
-    assert_eq!(attempts.get(), 2);
+    assert!(
+        agent_desktop_core::refs::resolve_errors::identity_unknown_error(&entry)
+            .is_transient_incomplete_read()
+    );
 }

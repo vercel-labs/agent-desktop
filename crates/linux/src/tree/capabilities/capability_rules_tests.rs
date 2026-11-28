@@ -5,7 +5,7 @@ use crate::system::display::display_cause::Cause;
 use crate::system::display::display_server::DisplayServer;
 use crate::system::display::display_unavailable::Unavailable;
 use crate::tree::capabilities::action_names::capabilities;
-use crate::tree::live::test_support::{read_of, words};
+use crate::tree::test_support::helpers::{read_of, words};
 use crate::tree::vocabulary::role_numbers::{
     CHECK_BOX, CHECK_MENU_ITEM, COMBO_BOX, DIAL, ENTRY, LEVEL_BAR, LIST, MENU_ITEM, PANEL,
     PASSWORD_TEXT, PROGRESS_BAR, PUSH_BUTTON, RADIO_MENU_ITEM, SCROLL_BAR, SCROLL_PANE, SLIDER,
@@ -317,4 +317,64 @@ fn scroll_policy_keeps_x11_wayland_and_bounds_gates() {
         };
         assert!(!tokens.iter().any(|token| token == "Scroll"));
     }
+}
+
+#[test]
+fn an_editable_table_cell_with_the_value_interface_takes_set_value() {
+    use crate::tree::vocabulary::role_numbers::TABLE_CELL;
+    let editable = [SENSITIVE, EDITABLE];
+    let value = "org.a11y.atspi.Value";
+    let with = rule_tokens_for(TABLE_CELL, &editable, &[value], &[], 0);
+    assert!(with.contains(&"SetValue"), "{with:?}");
+    let read_only = rule_tokens_for(
+        TABLE_CELL,
+        &[SENSITIVE, EDITABLE, READ_ONLY],
+        &[value],
+        &[],
+        0,
+    );
+    assert!(!read_only.contains(&"SetValue"));
+    let not_editable = rule_tokens_for(TABLE_CELL, &[SENSITIVE], &[value], &[], 0);
+    assert!(!not_editable.contains(&"SetValue"));
+    let no_value = rule_tokens_for(TABLE_CELL, &editable, &[], &[], 0);
+    assert!(!no_value.contains(&"SetValue"));
+}
+
+#[test]
+fn a_selectable_table_cell_of_a_selection_parent_takes_select_and_click_and_no_other_role_does() {
+    use crate::tree::vocabulary::role_numbers::TABLE_CELL;
+    use crate::tree::vocabulary::state_bits::SELECTABLE;
+    let states = [SENSITIVE, SELECTABLE];
+    let mut raw = node(TABLE_CELL, &states, &[], &[], 0);
+    let without = rule_tokens(&Facts::of(&raw).expect("every read present"));
+    assert!(!without.contains(&"Select") && !without.contains(&"Click"));
+    let ancestry =
+        crate::tree::element::ancestry::of_root(&raw.element).with_selecting_parent(true);
+    raw.element.set_ancestry(ancestry);
+    let with = rule_tokens(&Facts::of(&raw).expect("every read present"));
+    assert!(
+        with.contains(&"Select") && with.contains(&"Click"),
+        "{with:?}"
+    );
+    raw.traits.states = Field::Present(words(&[SENSITIVE]));
+    let unselectable = rule_tokens(&Facts::of(&raw).expect("every read present"));
+    assert!(!unselectable.contains(&"Select"));
+    use crate::tree::vocabulary::role_numbers::{LIST_ITEM, PUSH_BUTTON};
+    for role in [PUSH_BUTTON, 99] {
+        let mut other = node(role, &states, &[], &[], 0);
+        let ancestry =
+            crate::tree::element::ancestry::of_root(&other.element).with_selecting_parent(true);
+        other.element.set_ancestry(ancestry);
+        let tokens = rule_tokens(&Facts::of(&other).expect("every read present"));
+        assert!(
+            !tokens.contains(&"Select") && !tokens.contains(&"Click"),
+            "role {role}: {tokens:?}"
+        );
+    }
+    let mut item = node(LIST_ITEM, &states, &[], &[], 0);
+    let ancestry =
+        crate::tree::element::ancestry::of_root(&item.element).with_selecting_parent(true);
+    item.element.set_ancestry(ancestry);
+    let tokens = rule_tokens(&Facts::of(&item).expect("every read present"));
+    assert!(!tokens.contains(&"Click"), "{tokens:?}");
 }

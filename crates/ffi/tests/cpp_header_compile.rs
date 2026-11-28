@@ -84,6 +84,7 @@ static_assert(AD_IDENTIFIER_KIND_AX_DOM_IDENTIFIER == 1);
 static_assert(AD_IDENTIFIER_KIND_AUTOMATION_ID == 2);
 static_assert(AD_IDENTIFIER_KIND_RUNTIME_ID == 3);
 static_assert(AD_IDENTIFIER_KIND_ATSPI_OBJECT_PATH == 4);
+static_assert(AD_IDENTIFIER_KIND_GRID_CELL == 5);
 static_assert(AD_POLICY_KIND_HEADLESS == 0);
 static_assert(AD_POLICY_KIND_FOCUS_FALLBACK == 1);
 static_assert(AD_POLICY_KIND_HEADED == 2);

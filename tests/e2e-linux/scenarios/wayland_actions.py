@@ -77,13 +77,18 @@ def focus_window_wayland_session_refusal(ctx: LegContext) -> None:
         assert windows.ok and windows.data, windows.raw
         assert {item["id"] for item in windows.data} == {item[0] for item in before}, "fabricated window IDs"
         window_id = windows.data[0]["id"]
-        envelope = ctx.product(["focus-window", "--window-id", window_id])
+        headless = ctx.product(["focus-window", "--window-id", window_id], headed=False)
+        assert not headless.ok, headless.raw
+        assert code_of(headless) == "POLICY_DENIED", headless.raw
+        assert search(_error_text(headless), "focus_steal"), headless.raw
+        assert _window_state(ctx) == before, "focus changed despite refusal"
+        headed = ctx.product(["focus-window", "--window-id", window_id], headed=True)
         after = _window_state(ctx)
         ctx.after("atspi.focus", after)
         assert after == before, "focus changed despite refusal"
-        assert not envelope.ok, envelope.raw
-        assert code_of(envelope) == "ACTION_NOT_SUPPORTED", envelope.raw
-        assert search(_error_text(envelope), "wayland_session"), envelope.raw
+        assert not headed.ok, headed.raw
+        assert code_of(headed) == "ACTION_NOT_SUPPORTED", headed.raw
+        assert search(_error_text(headed), "wayland_session"), headed.raw
         ctx.restored("atspi.focus", _window_state(ctx))
     finally:
         stop(app)

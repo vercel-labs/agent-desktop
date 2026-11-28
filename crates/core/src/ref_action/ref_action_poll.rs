@@ -1,35 +1,34 @@
-use std::time::Duration;
-
 use serde_json::json;
 
 use crate::{
-    ActionRequest, AdapterError, Deadline, ErrorCode,
+    ActionRequest, AdapterError, Deadline, ErrorCode, NativeHandle,
     ref_action::ref_action_context::RefActionContext,
     ref_action::ref_action_poll_state::RefActionPollState,
     ref_action::ref_action_wait_context::RefActionWaitContext,
     ref_action::ref_action_wait_evidence::{failed_check, should_scroll_after_preflight},
     ref_action::ref_action_wait_support::{trace_resolve_error, trace_resolve_ok},
     ref_action::{ResolvedRefAction, into_adapter_error, preflight_resolved},
-    refs::ref_resolve_deadline::{POLL_INTERVAL, land_within_deadline},
+    refs::ref_resolve_deadline::attempt_within_deadline,
     refs::resolve_attempt_outcome::ResolveAttemptOutcome,
+    wait::deadline::{POLL_INTERVAL, STABILITY_POLL_INTERVAL},
 };
 
-const STABILITY_POLL_INTERVAL: Duration = Duration::from_millis(16);
-
-/// Waits until the target looks actionable and returns only counters. The
-/// resolved handle is deliberately not handed to dispatch: this loop runs
-/// *before* the interaction lease is taken, because the lease is a
-/// cross-process lock and holding it for the whole wait budget would serialize
-/// every agent-desktop process on the machine. Anything resolved here was
-/// therefore observed without exclusivity, so dispatch re-resolves under the
-/// lease, and that resolve is the correctness boundary. This loop only lands
-/// the ref provisionally, which skips the whole-window count in the common
-/// case, so an action pays for one whole-window read rather than two.
+/// Waits until the target looks actionable and returns the counters and the
+/// handle it proved. This loop runs *before* the interaction lease is taken,
+/// because the lease is a cross-process lock and holding it for the whole wait
+/// budget, or for a slow whole-window read, would serialize every
+/// agent-desktop process on the machine. It lands the ref provisionally while
+/// it waits, then counts the live matches once, when the target looks
+/// actionable, so an action pays for one whole-window read, outside the lease.
+/// Dispatch confirms the handle under the lease with a read of that element
+/// alone, and that confirmation is the correctness boundary. A headed action
+/// that focuses a window first hands no handle on: the focus can change what
+/// the window shows, so dispatch resolves after it, under the lease.
 pub(crate) fn execute_poll_loop(
     context: RefActionWaitContext<'_>,
     request: &ActionRequest,
     deadline: Deadline,
-) -> Result<RefActionPollState, AdapterError> {
+) -> Result<(RefActionPollState, Option<NativeHandle>), AdapterError> {
     let mut state = RefActionPollState {
         expected_bounds_hash: context
             .entry
@@ -40,7 +39,18 @@ pub(crate) fn execute_poll_loop(
     };
     loop {
         state.resolve_attempts = state.resolve_attempts.saturating_add(1);
-        match land_within_deadline(context.adapter, context.entry, deadline) {
+        let counted = std::cell::Cell::new(false);
+        match attempt_within_deadline(deadline, |slice| {
+            crate::refs::resolve_saved_ref::saved_ref_landing::land_saved_ref_counted(
+                context.adapter,
+                context.entry,
+                slice,
+            )
+            .map(|(handle, was_counted)| {
+                counted.set(was_counted);
+                handle
+            })
+        }) {
             ResolveAttemptOutcome::DeadlinePassed => return Err(timeout(&state, deadline)),
             ResolveAttemptOutcome::Failed(error) => {
                 handle_resolve_failure(
@@ -50,7 +60,8 @@ pub(crate) fn execute_poll_loop(
                     deadline,
                 )?;
             }
-            ResolveAttemptOutcome::Resolved(handle) => {
+            ResolveAttemptOutcome::Resolved(landed) => {
+                let mut handle = landed;
                 trace_resolve_ok(context.context, context.ref_id);
                 state.note_resolved();
                 ensure_before_deadline(deadline, &state)?;
@@ -59,8 +70,8 @@ pub(crate) fn execute_poll_loop(
                 state.preflight_attempts = state.preflight_attempts.saturating_add(1);
                 if let Err(error) = preflight_resolved(&target, request, state.stability()) {
                     let error = into_adapter_error(error);
-                    let focus_pending = request.headed_requirement().requires_focus()
-                        && failed_check(&error, "receives_events");
+                    let focus_pending =
+                        request.headed_focus().is_some() && failed_check(&error, "receives_events");
                     let scroll_can_help = should_scroll_after_preflight(request, &error)
                         && !failed_check(&error, "enabled");
                     if !focus_pending && !scroll_can_help {
@@ -69,7 +80,34 @@ pub(crate) fn execute_poll_loop(
                     }
                 }
                 ensure_before_deadline(deadline, &state)?;
-                return Ok(state);
+                let focus_first = request.headed_focus().is_some();
+                if !counted.get() && !focus_first {
+                    match attempt_within_deadline(deadline, |slice| {
+                        crate::refs::resolve_saved_ref::resolve_saved_ref(
+                            context.adapter,
+                            context.entry,
+                            slice,
+                            None,
+                        )
+                    }) {
+                        ResolveAttemptOutcome::DeadlinePassed => {
+                            return Err(timeout(&state, deadline));
+                        }
+                        ResolveAttemptOutcome::Failed(error) => {
+                            handle_resolve_failure(
+                                context,
+                                &mut state,
+                                crate::ref_action::mark_pre_dispatch_resolution_failure(error),
+                                deadline,
+                            )?;
+                            continue;
+                        }
+                        ResolveAttemptOutcome::Resolved(counted_handle) => {
+                            handle = counted_handle;
+                        }
+                    }
+                }
+                return Ok((state, (!focus_first).then_some(handle)));
             }
         }
     }
@@ -89,14 +127,11 @@ fn handle_actionability_failure(
     let stability_changed = failed_check(&error, "stable");
     state.record_preflight_error(&error);
     ensure_before_deadline(deadline, state)?;
-    sleep_until_next_poll(
-        deadline,
-        if stability_changed {
-            STABILITY_POLL_INTERVAL
-        } else {
-            POLL_INTERVAL
-        },
-    );
+    deadline.pause(if stability_changed {
+        STABILITY_POLL_INTERVAL
+    } else {
+        POLL_INTERVAL
+    });
     Ok(())
 }
 
@@ -123,7 +158,7 @@ fn handle_resolve_failure(
     }
     state.saw_ambiguity |= error.code == ErrorCode::AmbiguousTarget;
     state.record_resolve_error(&error);
-    sleep_until_next_poll(deadline, POLL_INTERVAL);
+    deadline.pause(POLL_INTERVAL);
     Ok(())
 }
 
@@ -137,14 +172,7 @@ fn ensure_before_deadline(
     Ok(())
 }
 
-fn sleep_until_next_poll(deadline: Deadline, interval: Duration) {
-    let remaining = deadline.remaining();
-    if !remaining.is_zero() {
-        crate::wait::deadline::sleep(interval.min(remaining));
-    }
-}
-
-fn is_permanent_error(code: &ErrorCode) -> bool {
+pub(crate) fn is_permanent_error(code: &ErrorCode) -> bool {
     matches!(
         code,
         ErrorCode::PermDenied

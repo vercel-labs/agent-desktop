@@ -4,7 +4,7 @@ use super::live_bench::Bench;
 use super::live_scroll_tests::read;
 use crate::actions::scroll::scroll_into_view::{BarFound, ScrollPort};
 use crate::actions::scroll::scroll_plan::Axis;
-use crate::tree::live::live_launch::{Launched, nonce};
+use crate::tree::test_support::live_launch::{Launched, nonce};
 
 const APP: &str = r#"
 import json, pathlib, sys

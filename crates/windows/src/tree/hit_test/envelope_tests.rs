@@ -8,7 +8,7 @@ use agent_desktop_core::{
 };
 use std::sync::atomic::{AtomicU32, Ordering};
 
-const TOKEN: &str = "axtok1:00";
+const TOKEN: &str = "envelope-token";
 
 struct EnvelopeAdapter {
     live: LiveElement,
@@ -99,14 +99,13 @@ impl ActionOps for EnvelopeAdapter {
     fn scroll_into_view(
         &self,
         _handle: &NativeHandle,
+        _policy: agent_desktop_core::InteractionPolicy,
         _lease: &InteractionLease,
     ) -> Result<(), AdapterError> {
         self.scroll_calls.fetch_add(1, Ordering::SeqCst);
-        if self.scroll_ok {
-            Ok(())
-        } else {
-            Err(crate::actions::scroll_into_view::unsupported_error())
-        }
+        self.scroll_ok
+            .then_some(())
+            .ok_or_else(crate::actions::scroll_into_view::unsupported_error)
     }
 
     fn execute_action(
@@ -141,8 +140,8 @@ impl SystemOps for EnvelopeAdapter {
         &self,
         _window: &WindowInfo,
         _lease: &InteractionLease,
-    ) -> Result<(), AdapterError> {
-        Ok(())
+    ) -> Result<agent_desktop_core::DeliverySemantics, AdapterError> {
+        Ok(agent_desktop_core::DeliverySemantics::delivered_unverified())
     }
 }
 
@@ -151,7 +150,7 @@ fn live_button(enabled: bool, bounds: Rect) -> LiveElement {
         identity: LiveIdentity {
             name: LocatorField::Known("Run".into()),
             description: LocatorField::Absent,
-            identifiers: IdentifierEvidence::absent().with_retained_object(TOKEN.into()),
+            identifiers: IdentifierEvidence::absent().with_element_token(TOKEN),
         },
         state: ElementState {
             role: "button".into(),
@@ -180,7 +179,7 @@ fn entry_for(live: &LiveElement) -> RefEntry {
             process_instance: Some("test-instance".into()),
         },
         identity: RefEntryIdentity {
-            retained_object: Some(TOKEN.into()),
+            retained_object: live.identity.identifiers.retained_object().map(Into::into),
             role: live.state.role.clone(),
             name: Some("Run".into()),
             ..Default::default()
@@ -206,6 +205,7 @@ fn entry_for(live: &LiveElement) -> RefEntry {
             root_ref: None,
             path_is_absolute: false,
             path: Default::default(),
+            chain: Default::default(),
         },
     }
 }
@@ -280,7 +280,7 @@ fn disabled_auto_wait_times_out_with_actionability_timeout() {
 }
 
 #[test]
-fn zero_bounds_click_reports_visible_fail_after_scroll_seam() {
+fn zero_bounds_click_after_a_sent_scroll_is_delivery_uncertain() {
     let adapter = EnvelopeAdapter::new(live_button(true, area(0.0, 20.0)));
     let error = click(
         &adapter,
@@ -290,8 +290,8 @@ fn zero_bounds_click_reports_visible_fail_after_scroll_seam() {
     assert_eq!(adapter.dispatch_calls.load(Ordering::SeqCst), 0);
     assert_eq!(error.code, ErrorCode::ActionFailed);
     assert_ne!(error.code, ErrorCode::PlatformNotSupported);
-    assert_eq!(error.disposition, DeliverySemantics::not_delivered());
-    assert_eq!(error.disposition.retry(), RetryDisposition::Safe);
+    assert_eq!(error.disposition, DeliverySemantics::uncertain());
+    assert_eq!(error.disposition.retry(), RetryDisposition::Unsafe);
     let details = error.details.expect("actionability details");
     assert_eq!(details["preparatory_scroll"], "may_have_changed_view");
     let visible = find_check(&details, "visible");

@@ -1,7 +1,46 @@
+#[cfg(test)]
+use std::cell::Cell;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+
+#[cfg(test)]
+thread_local! {
+    static SKIP_FSYNC_FOR_TEST: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(test)]
+pub(crate) struct SkipFsyncGuard {
+    previous: bool,
+    _not_send: std::marker::PhantomData<std::rc::Rc<()>>,
+}
+
+#[cfg(test)]
+impl Drop for SkipFsyncGuard {
+    fn drop(&mut self) {
+        SKIP_FSYNC_FOR_TEST.set(self.previous);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn without_fsync_for_test() -> SkipFsyncGuard {
+    SkipFsyncGuard {
+        previous: SKIP_FSYNC_FOR_TEST.replace(true),
+        _not_send: std::marker::PhantomData,
+    }
+}
+
+#[cfg(test)]
+fn should_skip_fsync() -> bool {
+    SKIP_FSYNC_FOR_TEST.get()
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+fn should_skip_fsync() -> bool {
+    false
+}
 
 pub(crate) fn open_private_lock(path: &Path, create: bool) -> std::io::Result<File> {
     crate::storage::private_file_ops::with_active_ops(|ops| ops.open_private_lock(path, create))
@@ -16,7 +55,7 @@ pub(crate) fn open_private_lock_portable(path: &Path, create: bool) -> std::io::
     options.read(true).write(true).create(create);
     configure_unix(&mut options, 0o600);
     let file = options.open(path)?;
-    validate_private_regular(&file)?;
+    validate_private_regular(&file, path)?;
     Ok(file)
 }
 
@@ -32,7 +71,7 @@ pub(crate) fn open_private_append_portable(path: &Path) -> std::io::Result<File>
     options.read(true).create(true).append(true);
     configure_unix(&mut options, 0o600);
     let file = options.open(path)?;
-    validate_private_regular(&file)?;
+    validate_private_regular(&file, path)?;
     Ok(file)
 }
 
@@ -124,14 +163,21 @@ fn write_atomic_with(
     ensure_parent(parent)?;
     validate_destination(path)?;
     let (temporary, mut file) = create_temporary(path)?;
-    let written = file.write_all(bytes).and_then(|()| file.sync_all());
+    let skip_fsync = should_skip_fsync();
+    let written = file
+        .write_all(bytes)
+        .and_then(|()| if skip_fsync { Ok(()) } else { file.sync_all() });
     drop(file);
     let result = written.and_then(|()| {
         #[cfg(test)]
         crash_before_rename_if_requested(path);
         replace_atomic(&temporary, path)?;
-        validate_private_regular(&open_private_read(path)?)?;
-        sync_parent(parent)
+        validate_private_regular(&open_private_read(path)?, path)?;
+        if skip_fsync {
+            Ok(())
+        } else {
+            sync_parent(parent)
+        }
     });
     if result.is_err() {
         let _ = std::fs::remove_file(&temporary);
@@ -161,7 +207,15 @@ fn validate_user_destination(path: &Path) -> std::io::Result<()> {
     }
 }
 
-pub(crate) fn validate_private_regular(file: &File) -> std::io::Result<std::fs::Metadata> {
+pub(crate) fn validate_private_regular(
+    file: &File,
+    path: &Path,
+) -> std::io::Result<std::fs::Metadata> {
+    validate_private_metadata(file)
+        .map_err(|error| super::private_file_parent::privacy_error(path, error, "600"))
+}
+
+fn validate_private_metadata(file: &File) -> std::io::Result<std::fs::Metadata> {
     let metadata = validate_regular(file)?;
     #[cfg(unix)]
     {
@@ -196,7 +250,7 @@ fn open_private_read(path: &Path) -> std::io::Result<File> {
     options.read(true);
     configure_unix(&mut options, 0);
     let file = options.open(path)?;
-    validate_private_regular(&file)?;
+    validate_private_regular(&file, path)?;
     Ok(file)
 }
 
@@ -214,7 +268,7 @@ fn create_temporary(path: &Path) -> std::io::Result<(PathBuf, File)> {
         configure_unix(&mut options, 0o600);
         match options.open(&temporary) {
             Ok(file) => {
-                validate_private_regular(&file)?;
+                validate_private_regular(&file, &temporary)?;
                 return Ok((temporary, file));
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,

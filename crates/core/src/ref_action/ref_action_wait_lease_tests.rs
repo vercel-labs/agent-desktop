@@ -4,6 +4,11 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
 };
 
+type CensusGate = (
+    std::sync::mpsc::SyncSender<()>,
+    std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+);
+
 struct DoubleCheckAdapter {
     live_calls: AtomicU32,
     bounds_reads: AtomicU32,
@@ -12,6 +17,11 @@ struct DoubleCheckAdapter {
     timeout_ms: u64,
     expected_deadline: Option<crate::Deadline>,
     available_action: &'static str,
+    surface_reads_under_lease: std::sync::Mutex<Vec<bool>>,
+    witness_reads: std::sync::Mutex<Vec<(bool, u64)>>,
+    census_gate: Option<CensusGate>,
+    shared_lease: Option<Arc<AtomicBool>>,
+    element_name: &'static str,
 }
 
 struct DoubleCheckLeaseGuard(Arc<AtomicBool>);
@@ -37,9 +47,9 @@ impl ObservationOps for DoubleCheckAdapter {
         _deadline: crate::Deadline,
     ) -> Result<crate::adapter::LiveElement, AdapterError> {
         let call = self.live_calls.fetch_add(1, Ordering::SeqCst) + 1;
-        assert_eq!(
-            self.lease_held.load(Ordering::SeqCst),
-            call > self.prelease_calls,
+        assert!(
+            self.shared_lease.is_some()
+                || self.lease_held.load(Ordering::SeqCst) == (call > self.prelease_calls),
             "poll reads must be lease-free and final validation must be leased"
         );
         let states = if call <= self.prelease_calls {
@@ -80,7 +90,58 @@ impl ObservationOps for DoubleCheckAdapter {
     ) -> Result<crate::adapter::hit_test::HitTestResult, AdapterError> {
         Ok(crate::adapter::hit_test::HitTestResult::ReachesTarget)
     }
-    crate::adapter::saved_ref_scope!("button", Some("Run"));
+    crate::adapter::saved_ref_scope!(@inventory);
+    crate::adapter::saved_ref_anchor!();
+
+    fn observe_tree(
+        &self,
+        root: crate::locator::live_locator::ObservationRoot<'_>,
+        _request: &crate::locator::live_locator::ObservationRequest,
+    ) -> Result<crate::locator::live_locator::ObservedTree, AdapterError> {
+        if matches!(
+            root,
+            crate::locator::live_locator::ObservationRoot::Window(_)
+        ) {
+            if let Some((entered, release)) = &self.census_gate {
+                let _ = entered.send(());
+                let _ = release.lock().unwrap().recv();
+            }
+        }
+        if let crate::locator::live_locator::ObservationRoot::Element { entry, .. } = &root {
+            let mut node = crate::adapter::minimal_accessibility_node(&entry.identity.role, "");
+            let leased = self
+                .shared_lease
+                .as_ref()
+                .is_some_and(|shared| shared.load(Ordering::SeqCst));
+            node.identity.name = Some(if leased { self.element_name } else { "Run" }.into());
+            return crate::adapter::observed_tree(&root, node);
+        }
+        crate::adapter::saved_ref_tree(root, "button", Some("Run"))
+    }
+
+    fn read_effect_witness(
+        &self,
+        _handle: &NativeHandle,
+        deadline: crate::Deadline,
+    ) -> Result<crate::EffectWitness, AdapterError> {
+        self.witness_reads.lock().unwrap().push((
+            self.lease_held.load(Ordering::SeqCst),
+            deadline.remaining_ms(),
+        ));
+        Ok(crate::EffectWitness::default())
+    }
+
+    fn list_surfaces(
+        &self,
+        _process: crate::ProcessIdentity,
+        _deadline: crate::Deadline,
+    ) -> Result<Vec<crate::SurfaceInfo>, AdapterError> {
+        self.surface_reads_under_lease
+            .lock()
+            .unwrap()
+            .push(self.lease_held.load(Ordering::SeqCst));
+        Ok(Vec::new())
+    }
 }
 
 impl ActionOps for DoubleCheckAdapter {
@@ -103,6 +164,26 @@ impl SystemOps for DoubleCheckAdapter {
         &self,
         deadline: crate::Deadline,
     ) -> Result<crate::InteractionLease, AdapterError> {
+        if let Some(shared) = &self.shared_lease {
+            while shared
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+            {
+                if deadline.is_expired() {
+                    return Err(
+                        crate::session::interaction_lease::interaction_lease_timeout(
+                            deadline,
+                            serde_json::json!({}),
+                        ),
+                    );
+                }
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            return crate::InteractionLease::guarded(
+                deadline,
+                DoubleCheckLeaseGuard(Arc::clone(shared)),
+            );
+        }
         assert_eq!(self.live_calls.load(Ordering::SeqCst), self.prelease_calls);
         assert_eq!(deadline.timeout_ms(), self.timeout_ms);
         if let Some(expected) = self.expected_deadline {
@@ -201,104 +282,6 @@ fn a_matching_snapshot_hash_settles_a_headless_pointerless_action_in_one_read() 
     assert_eq!(metrics["read_only_preflight_attempts"], 1);
 }
 
-struct DisabledAfterLeaseAdapter {
-    calls: AtomicU32,
-    prelease_calls: u32,
-    bounds_calls: AtomicU32,
-}
-
-impl ObservationOps for DisabledAfterLeaseAdapter {
-    fn resolve_element_strict(
-        &self,
-        _entry: &RefEntry,
-        _deadline: crate::Deadline,
-    ) -> Result<NativeHandle, AdapterError> {
-        Ok(NativeHandle::null())
-    }
-
-    fn get_live_element(
-        &self,
-        _handle: &NativeHandle,
-        _deadline: crate::Deadline,
-    ) -> Result<crate::adapter::LiveElement, AdapterError> {
-        let call = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
-        Ok(crate::adapter::LiveElement {
-            identity: crate::adapter::live_identity("Run"),
-            state: crate::tree::element_state::ElementState {
-                role: "button".into(),
-                states: vec![],
-                value: None,
-                enabled: Some(call <= self.prelease_calls),
-                hidden: Some(false),
-                offscreen: Some(false),
-            },
-            states_complete: true,
-            bounds: Some(bounds()),
-            available_actions: vec![capability::CLICK.into()],
-        })
-    }
-
-    fn get_element_bounds(
-        &self,
-        _handle: &NativeHandle,
-        _deadline: crate::Deadline,
-    ) -> Result<Option<crate::Rect>, AdapterError> {
-        self.bounds_calls.fetch_add(1, Ordering::SeqCst);
-        Ok(Some(bounds()))
-    }
-    crate::adapter::saved_ref_scope!("button", Some("Run"));
-}
-
-impl ActionOps for DisabledAfterLeaseAdapter {}
-impl InputOps for DisabledAfterLeaseAdapter {}
-impl SystemOps for DisabledAfterLeaseAdapter {
-    crate::adapter::exact_window_focus!();
-
-    fn acquire_interaction_lease(
-        &self,
-        deadline: crate::Deadline,
-    ) -> Result<crate::InteractionLease, AdapterError> {
-        Ok(crate::InteractionLease::guarded_with_contention(
-            deadline,
-            DoubleCheckLeaseGuard(Arc::new(AtomicBool::new(false))),
-            0,
-        ))
-    }
-}
-
-/// A stale bounds hash alongside a genuinely disabled element must not
-/// enter the settle-and-resample loop: no amount of waiting enables a
-/// disabled control, so the fix's discriminator - "stable" is the *only*
-/// unmet requirement - must see "enabled" also fail and propagate
-/// immediately, the same as before this fix existed. The element is
-/// enabled for the pre-lease polling reads and only goes disabled once
-/// `stable_preflight` reads it under lease, so this pins the post-lease
-/// discriminator specifically rather than the separate pre-lease poll.
-#[test]
-fn a_disabled_element_fails_closed_without_sampling_even_with_a_stale_hash() {
-    let _clock = crate::wait::deadline::VirtualClock::freeze();
-    let adapter = DisabledAfterLeaseAdapter {
-        calls: AtomicU32::new(0),
-        prelease_calls: 2,
-        bounds_calls: AtomicU32::new(0),
-    };
-    let error = execute_with_auto_wait(
-        RefActionWaitCtx {
-            adapter: &adapter,
-            entry: &entry_with_mismatched_bounds_hash(),
-            ref_id: "@e1",
-            context: &CommandContext::default(),
-        },
-        ActionRequest::headed(Action::DoubleClick).with_timeout_ms(Some(5_000)),
-        crate::ref_action::ref_action_single::dispatch_resolved,
-    )
-    .err()
-    .unwrap();
-
-    assert_eq!(error.code, ErrorCode::ActionFailed);
-    assert_eq!(adapter.bounds_calls.load(Ordering::SeqCst), 0);
-}
-
 fn run_with_entry(
     adapter: &DoubleCheckAdapter,
     request: ActionRequest,
@@ -313,13 +296,13 @@ fn run_with_entry(
             context: &CommandContext::default(),
         },
         request.with_timeout_ms(Some(timeout_ms)),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .unwrap()
 }
 
 #[test]
 fn lease_acquisition_receives_the_exact_original_deadline() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let deadline = crate::Deadline::after(80).unwrap();
     let adapter = adapter(0, 80, Some(deadline));
     let error = super::super::execute_with_deadline(
@@ -331,7 +314,6 @@ fn lease_acquisition_receives_the_exact_original_deadline() {
         },
         ActionRequest::headless(Action::Click),
         deadline,
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .err()
     .unwrap();
@@ -355,6 +337,11 @@ fn adapter(
         timeout_ms,
         expected_deadline,
         available_action: capability::CLICK,
+        surface_reads_under_lease: std::sync::Mutex::new(Vec::new()),
+        witness_reads: std::sync::Mutex::new(Vec::new()),
+        census_gate: None,
+        shared_lease: None,
+        element_name: "Run",
     }
 }
 
@@ -366,3 +353,6 @@ fn bounds() -> crate::Rect {
         height: 10.0,
     }
 }
+
+#[path = "ref_action_wait_release_tests.rs"]
+mod release_tests;

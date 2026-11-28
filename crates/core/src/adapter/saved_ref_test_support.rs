@@ -100,6 +100,7 @@ macro_rules! saved_ref_anchor {
         fn resolve_locator_anchor(
             &self,
             entry: &$crate::RefEntry,
+            _base: Option<&$crate::adapter::NativeHandle>,
             deadline: $crate::Deadline,
         ) -> Result<$crate::adapter::NativeHandle, $crate::AdapterError> {
             self.resolve_element_strict(entry, deadline)

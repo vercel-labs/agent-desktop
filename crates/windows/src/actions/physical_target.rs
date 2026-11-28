@@ -35,23 +35,21 @@ pub(crate) fn ensure_elevation_allows(element: &UIAElement) -> Result<(), Adapte
 }
 
 pub(crate) fn ensure_keyboard_policy(policy: InteractionPolicy) -> Result<(), AdapterError> {
-    if !policy.allow_focus_steal {
-        return Err(AdapterError::policy_denied_for_policy(
-            "Physical keyboard fallback requires focus permission",
-            policy,
-        ));
-    }
-    Ok(())
+    policy.require(
+        agent_desktop_core::Effect::FocusSteal,
+        "Physical keyboard fallback",
+    )
 }
 
 pub(crate) fn ensure_headed_click_policy(policy: InteractionPolicy) -> Result<(), AdapterError> {
-    if !policy.allow_cursor_move || !policy.allow_focus_steal {
-        return Err(AdapterError::policy_denied_for_policy(
-            "Physical click fallback is disabled by the current interaction policy",
-            policy,
-        ));
-    }
-    Ok(())
+    policy.require(
+        agent_desktop_core::Effect::FocusSteal,
+        "Physical click fallback",
+    )?;
+    policy.require(
+        agent_desktop_core::Effect::CursorMove,
+        "Physical click fallback",
+    )
 }
 
 pub(crate) fn ensure_click_delivery_ready(
@@ -196,17 +194,6 @@ fn host_window_handle(
 ) -> Result<Option<crate::system::window::window_enum::WindowHandle>, AdapterError> {
     let _ = (element, deadline);
     Ok(None)
-}
-
-/// Exposes the host-window climb to the live lane, which is the only place a
-/// real element with a zero leaf handle exists. A faulted climb surfaces as
-/// `Err` here too, so the lane cannot read it as a missing window.
-#[cfg(test)]
-pub(crate) fn host_window_handle_for_test(
-    element: &UIAElement,
-    deadline: Deadline,
-) -> Result<Option<crate::system::window::window_enum::WindowHandle>, AdapterError> {
-    host_window_handle(element, deadline)
 }
 
 #[cfg(test)]

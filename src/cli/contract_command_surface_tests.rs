@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 const NON_COMMAND_MODULES: &[&str] = &[
     "combo",
+    "escape_route",
     "execute_by_ref",
     "find_live",
     "helpers",
@@ -274,12 +275,13 @@ fn listing_timeout_is_accepted_in_cli_and_batch() {
 struct ListingDeadlineAdapter;
 
 impl agent_desktop_core::ObservationOps for ListingDeadlineAdapter {
-    fn list_apps(
+    fn query_app_inventory(
         &self,
+        query: agent_desktop_core::AppInventoryQuery<'_>,
         deadline: agent_desktop_core::Deadline,
-    ) -> Result<Vec<agent_desktop_core::AppInfo>, agent_desktop_core::AdapterError> {
+    ) -> Result<agent_desktop_core::AppInventory, agent_desktop_core::AdapterError> {
         assert_eq!(deadline.timeout_ms(), 37);
-        Ok(Vec::new())
+        Ok(query.answer(Vec::new()))
     }
     fn list_windows(
         &self,

@@ -206,3 +206,40 @@ fn restore_of_a_visible_window_never_reads_the_overview() {
     run(&world, &window(), &WindowOp::Restore, budget()).expect("nothing to restore");
     assert_eq!(world.overview_reads.get(), 0);
 }
+
+fn minimized() -> World {
+    let mut facts = state(0, 0, 400, 300);
+    facts.hidden = true;
+    World::showing(facts)
+}
+
+#[test]
+fn a_headless_restore_of_a_minimized_window_is_refused_before_the_window_manager_is_asked() {
+    let world = minimized();
+    let error = super::super::run(
+        &world,
+        &window(),
+        &WindowOp::Restore,
+        InteractionPolicy::headless(),
+        budget(),
+    )
+    .expect_err("a refusal");
+    assert_eq!(error.code, ErrorCode::PolicyDenied);
+    assert_eq!(error.disposition, DeliverySemantics::not_delivered());
+    assert!(error.suggestion.expect("a suggestion").contains("--headed"));
+    assert_eq!(world.lifts.get(), 0);
+    assert_eq!(world.writes(), 0);
+}
+
+#[test]
+fn a_headed_restore_of_a_minimized_window_asks_the_window_manager() {
+    let world = minimized();
+    let _ = super::super::run(
+        &world,
+        &window(),
+        &WindowOp::Restore,
+        InteractionPolicy::headed(),
+        budget(),
+    );
+    assert_eq!(world.lifts.get(), 1);
+}

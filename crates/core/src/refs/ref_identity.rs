@@ -5,23 +5,39 @@ use crate::{
     tree::roles::is_mutable_value_role,
 };
 
-const ELEMENT_TOKEN_PREFIX: &str = "axtok1:";
+const ELEMENT_TOKEN_TAG: &str = "token:";
 
-/// The retained object that is a genuine element token. A platform that keeps
-/// only a positional path or a runtime id retains a location, not a handle, so
-/// core never treats that value as identity evidence.
+/// The element token a ref carries: the adapter's own bytes, which only that
+/// adapter reads. A platform that keeps only a positional path or a runtime id
+/// retains a location, not a handle, so core never treats that value as
+/// identity evidence.
 pub fn element_token(entry: &RefEntry) -> Option<&str> {
-    entry
-        .identity
-        .retained_object
-        .as_deref()
-        .filter(|token| is_element_token(token))
+    untagged_element_token(entry.identity.retained_object.as_deref()?)
 }
 
-/// Whether a retained object value is a genuine element token rather than a
-/// retained location.
-pub fn is_element_token(token: &str) -> bool {
-    token.starts_with(ELEMENT_TOKEN_PREFIX)
+/// The retained object an adapter stores for an element token it issued, so
+/// core can tell it from a retained location without reading its format.
+pub fn tagged_element_token(token: &str) -> String {
+    format!("{ELEMENT_TOKEN_TAG}{token}")
+}
+
+/// The adapter bytes of a retained object that is an element token.
+pub(crate) fn untagged_element_token(retained_object: &str) -> Option<&str> {
+    retained_object
+        .strip_prefix(ELEMENT_TOKEN_TAG)
+        .filter(|token| !token.is_empty())
+}
+
+/// The name a ref records as identity: none when the name came from another
+/// element and the ref also records a native id, because a label beside the
+/// element can change while the element stays the same; otherwise the name.
+pub(crate) fn recorded_name(
+    name: Option<String>,
+    borrowed: bool,
+    native_id: Option<&crate::ElementIdentifier>,
+) -> Option<String> {
+    let identified = native_id.is_some_and(|identifier| !identifier.value.trim().is_empty());
+    if borrowed && identified { None } else { name }
 }
 
 pub fn has_meaningful_identity(entry: &RefEntry) -> bool {
@@ -76,9 +92,9 @@ pub fn identity_match(
     actual_description: &LocatorField<String>,
     actual_identifiers: &IdentifierEvidence,
 ) -> IdentityMatch {
-    if let Some(expected) = element_token(entry) {
+    if element_token(entry).is_some() {
         return match (
-            crate::tree::accname::non_blank(Some(expected)),
+            entry.identity.retained_object.as_deref(),
             actual_identifiers.retained_object(),
         ) {
             (Some(expected), Some(actual)) => equality_match(expected, actual),
@@ -243,6 +259,9 @@ pub(crate) fn meaningful_field<T: AsRef<str>>(field: &LocatorField<T>) -> Locato
     }
 }
 
+/// The name an element is compared by. A value that could not be read cannot
+/// repeat the name, and capture records the name when the value is unread, so
+/// resolution compares the same name instead of refusing the element.
 pub(crate) fn stable_name_field<'a, T: AsRef<str>>(
     role: &str,
     name: &'a LocatorField<T>,
@@ -257,8 +276,9 @@ pub(crate) fn stable_name_field<'a, T: AsRef<str>>(
     };
     match meaningful_field(value) {
         LocatorField::Known(value) if value_matches_name(Some(value), name) => LocatorField::Absent,
-        LocatorField::Known(_) | LocatorField::Absent => LocatorField::Known(name),
-        LocatorField::Unknown => LocatorField::Unknown,
+        LocatorField::Known(_) | LocatorField::Absent | LocatorField::Unknown => {
+            LocatorField::Known(name)
+        }
     }
 }
 
@@ -270,11 +290,9 @@ fn stable_value_field<'a>(role: &str, value: &'a LocatorField<String>) -> Locato
     }
 }
 
-pub(crate) fn stable_name<'a>(
-    role: &str,
-    name: Option<&'a str>,
-    value: Option<&str>,
-) -> Option<&'a str> {
+/// The name that identifies an element of `role`: a non-blank name, unless the
+/// role holds a mutable value and the name only repeats that value.
+pub fn stable_name<'a>(role: &str, name: Option<&'a str>, value: Option<&str>) -> Option<&'a str> {
     let name = crate::tree::accname::non_blank(name)?;
     if is_mutable_value_role(role)
         && value_matches_name(crate::tree::accname::non_blank(value), name)

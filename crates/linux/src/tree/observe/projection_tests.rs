@@ -8,7 +8,7 @@ use agent_desktop_core::{
 
 use super::{Projector, project, project_node};
 use crate::tree::capabilities::value_read::ValueRead;
-use crate::tree::live::test_support::read_of;
+use crate::tree::test_support::helpers::read_of;
 use crate::tree::vocabulary::role_numbers::{PANEL, PUSH_BUTTON, SLIDER};
 use crate::tree::walk::walker::walk_levels;
 use crate::tree::walk::wrapper::classify;
@@ -36,7 +36,7 @@ fn node_of(read: ObservedRead) -> WalkedNode<ObservedRead> {
 
 fn evidence_of(read: ObservedRead) -> agent_desktop_core::LocatorEvidence {
     let limits = WalkLimits::default();
-    project_node(&read, false, &limits)
+    project_node(&read, false, &limits, "")
 }
 
 fn walk(
@@ -216,6 +216,7 @@ fn a_name_over_the_field_budget_is_cut_and_counted() {
     };
     let mut projector = Projector {
         limits: &limits,
+        guid: "",
         stats: LocatorStats::default(),
     };
     let read = read_of(PUSH_BUTTON, "a very long name", &["click"]);
@@ -355,3 +356,13 @@ fn the_walk_statistics_reach_the_observation() {
 
 #[path = "projection_retained_tests.rs"]
 mod retained_tests;
+
+#[test]
+fn a_transient_object_keeps_no_element_token() {
+    use crate::tree::test_support::helpers::{read_of, words};
+    use crate::tree::vocabulary::state_bits::{SHOWING, TRANSIENT};
+    let mut read = read_of(39, "cell", &[]);
+    assert!(!super::is_transient(&read.node));
+    read.node.traits.states = Field::Present(words(&[SHOWING, TRANSIENT]));
+    assert!(super::is_transient(&read.node));
+}

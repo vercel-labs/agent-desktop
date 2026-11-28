@@ -4,57 +4,97 @@ tags: macos-automation, accessibility, ax, tcc, ai-agent, gui-automation, cli
 requirements:
   - agent-desktop
 description: >
-  macOS platform guide for the agent-desktop CLI. Use for desktop automation
-  on macOS: granting Accessibility and Screen Recording permission (TCC),
-  what headed mode does on macOS (physical-first click, type and scroll),
-  surfaces (menu, menubar, sheet, popover, alert, dock, menu-bar-extras),
-  menu bar apps and system panels with no window, Notification Center,
-  Chromium and Electron apps including launch --cdp, and fixing PERM_DENIED,
-  empty accessibility trees, ACTION_FAILED and APP_UNRESPONSIVE.
+  macOS setup and troubleshooting for agent-desktop: accessibility permissions,
+  native element identity, application-owned surfaces, and headless refusals.
 ---
 
 # agent-desktop on macOS
 
-Read the core skill first (`agent-desktop skills get desktop`) for the observe, act, verify loop. This skill covers only what is different on macOS. When a command fails, find the symptom in [references/troubleshooting.md](references/troubleshooting.md).
+Use the core skill's headless observe, act, verify workflow. A platform capability
+never authorizes `--headed`; only the user's explicit request does.
 
-## Requirements
+## Setup and permissions
 
 The sandbox provider on macOS is `macos`: a macOS VM that needs an Apple Silicon Mac, macOS 13 or later on the host and in the guest, and Xcode Command Line Tools. The first setup needs a person in the guest window; clones need none. See `agent-browser.dev/desktop/sandboxes/macos`.
 
-- macOS 13 or later, Intel or Apple Silicon.
-- Accessibility permission for the app that launches agent-desktop (Terminal, iTerm2, Warp, VS Code, Codex). macOS 27 and later name this list Device Control and Data Access. If System Settings lists the `agent-desktop` binary separately, grant it too.
-- Screen Recording permission, only for `screenshot` and for `session start --screenshots` artifacts.
-- Automation permission for System Events, only where a command reports it missing.
+`agent-desktop status` reports `permissions` and `supported_surfaces`.
+Accessibility must be `granted` for observation and actions; Screen Recording
+must be `granted` for screenshots, including session screenshot artifacts.
+Grant access to the app that launches the CLI and to the binary if listed
+separately. Ask the user to change the relevant privacy permissions, then confirm
+with `agent-desktop permissions`. A new CLI call sees a new grant; a batch
+retains its process's cached report.
 
-## First contact
+`permissions` does not prompt. Requests use a bounded isolated helper.
+The permission guide opens a visible settings page and guide panel, so ask the
+user before starting it. It offers the app that started agent-desktop's process
+tree: under tmux, the app that started the tmux server, which can differ from
+the terminal you attach from; under SSH, the `agent-desktop` binary. Automation
+may report `unknown` when consent would require a prompt.
 
-1. Run `agent-desktop permissions`.
-2. If a permission is denied, run `agent-desktop permissions --guide`. It opens the right System Settings page with a panel that shows the user which app to drag into the list. The user confirms with Touch ID or a password, and the panel moves to the next missing permission by itself. The command returns at once with `"guide": "started"`, `"already_running"` or `"not_needed"`. `agent-desktop permissions --request` shows the system prompts instead.
-3. If the guide cannot run, open System Settings > Privacy & Security > Accessibility (Device Control and Data Access on macOS 27 and later). Add the launching app and turn it on.
-4. Run `agent-desktop permissions` to confirm `granted`. The next agent-desktop call sees a new grant, so the launching app does not need a restart. Each command reads permissions in its own process, so a permission granted during a `batch` applies from the next CLI call, not to later items in that batch.
-5. Run `agent-desktop snapshot -i` to confirm. It reads the focused app. `snapshot --app Finder -i` returns `WINDOW_NOT_FOUND` when Finder has no open window.
+## Platform behavior
 
-`permissions` does not prompt. `permissions --request` can prompt, including for Automation. `permissions --guide` does not prompt and covers Accessibility and Screen Recording only. Automation reports `unknown` when macOS would need to prompt.
+- Native AX element tokens identify individual controls, including twins. A stale
+  token never falls back to a look-alike search. Elements without a token follow
+  the uniqueness rule of the core skill.
+- `list-windows` also lists a floating or panel window an app raises above the
+  normal level, as accessory apps do with settings and panels, while it is on screen.
+- `menu` and `menubar` observations are application-owned and can omit `data.window`.
+  An app without an ordinary window may still expose process-owned surfaces.
+  Inspect `supported_surfaces` rather than assuming every surface exists.
+- `press --app` headless: `return` and `escape` run as accessibility actions on the focused element. Any other key needs a focused element in the
+  app (`ACTION_FAILED`, `details.check: process_focus`, `not_delivered` otherwise). A modifier shortcut never runs a menu item: `click` the item.
+- `agent-desktop press escape --app <app>` closes an open menu or popover with its
+  cancel action when no focused element takes Escape, and reads that it closed;
+  with `--window-id <id>` it closes the surface that window or the app shows. A
+  popover can appear a moment after the click that opens it: read it with
+  `snapshot --app <app> --surface popover`.
+- `list-surfaces` lists the sheets, dialogs and popovers of every window, not only
+  the focused one. A system service panel, such as AirDrop from a share, is a dialog.
+- Headless menu-opening and dialog-opening actions can refuse before delivery.
+  A label ending in an ellipsis predicts a dialog; it does not prove one exists.
+  A click on a button inside a popover refuses with `kind: popover_command`: a
+  share item starts a service whose window takes the front. Stop on a headed-only
+  refusal rather than changing mode. Headless `restore` of a minimized window and headless `minimize` of the focused window refuse with `POLICY_DENIED`; the system raises or moves focus.
+- A file-name text field is not a file-system rename interface. Value-write
+  actions refuse it because a changed field could falsely imply a renamed file.
+- A tab button (`AXRadioButton`, subrole `AXTabButton`) is selected by press
+  rather than writing `AXValue` (which crashes Chromium); if a web tab ignores
+  that press, report it and use `click --headed` only when the user asked.
+- Chromium accessibility is enabled by the adapter when needed. A sparse or
+  incomplete read still needs another observation, not an assumption of absence.
+- A table cell carries its grid address in `native_id` (kind `grid_cell`, for
+  example `B7`), or its own identifier when it has one; the address finds it
+  either way.
+  Get one cell with `find --role cell --native-id B7 --root '<table ref>'`.
+  A cell that spans several rows or columns has no address.
+- `set-value` and `clear` on a table cell that lists `SetValue` write its value
+  directly when the cell takes one. Any other cell is written through its own
+  editor and committed with Return, without activating the app. Text and
+  Return go only to that editor. An application that moves a value into an editor of
+  its own, as a spreadsheet does with a formula that starts with `=`, leaves it typed
+  and open, and the write fails as `delivered_unverified`: commit it with
+  `press return --app <app>`. The cell is read after the commit: a cell that still
+  shows nothing fails as `ACTION_FAILED` with `delivered_unverified`, and one that
+  shows another value stays `delivered_unverified`. An application that gives its
+  cell editor no keyboard input from a press always takes that failure; type there
+  with `--headed` only if the user explicitly asked for that. The write also commits
+  an edit that is open in another cell.
+- AX success alone does not prove an application effect. Verify the result independently, especially after a menu action or value write.
 
-## What differs on macOS
+## Troubleshooting
 
-**Headed actions.** `click`, `right-click`, `type`, `clear` and `scroll` use physical paths first, except a click on an item in the application's native menu bar hierarchy, which calls `AXPress` without moving the pointer. A headless click on these menu items also calls `AXPress`. Process-owned refs have no window to focus; other ref-target pointer actions focus the exact owning window and verify the hit target before delivery. A headless `right-click` can use `AXShowMenu` when the target provides it. `expand`, `collapse`, `set-value`, `select`, `toggle`, `check`, `uncheck`, `focus` and `scroll-to` stay semantic under `--headed`. `double-click`, `triple-click`, `hover` and `drag` need `--headed`. Raw `--xy` input never changes focus.
+Read the disposition before applying a fix. Match both the code and message.
 
-**Judge delivery by observation.** AX return codes do not prove an effect. Finder returns success from an `AXConfirm` that does nothing. Snapshot again or use `get` and `is` to check the result.
-
-**Tab buttons.** A tab (`AXRadioButton` with subrole `AXTabButton`) is selected, not checked. `check` presses a tab button instead of writing `AXValue`, because writing `AXValue` on a web `role="tab"` crashes Chromium-based browsers. Some web tab widgets ignore that semantic press, so `check` reports that the state was not reached; select those with `click --headed`.
-
-**Surfaces.** Use `--surface menubar` for an app's File, Edit, and View menus. Use `--surface menu-bar-extras` for status items: with no `--app` it reads system items such as Wi-Fi, Battery, and Clock; with `--app` it reads that app's own item. Use `--surface dock` for the Dock. These shell surfaces are available headless through `open-system-surface`. A background app with no ordinary window, such as a menu-bar app or Control Center, can be observed through its process with `snapshot --app "Control Center"`. This applies to `window`, `menubar`, and `menu-bar-extras`, not `focused`; a regular app that has not shown its window returns `WINDOW_NOT_FOUND`. While a menu, sheet, alert, or popover is open, refs from the window tree behind it are the wrong target.
-**Menus.** `right-click` headless uses `AXShowMenu`. If the menu opened but the app returned `APP_UNRESPONSIVE` with `retry: unsafe`, do not retry. Inspect the menu with `--surface menu`. `menu` requires an open menu: if `snapshot --surface menu` returns `surface_absent` with `complete: true`, snapshot `menubar` when it exists, click its item without `--headed`, then snapshot `--surface menu`. An absent `menubar` can mean the app exposes no menu bar. A missing `complete`, `complete: false`, timeout or incomplete read is unknown, not absent. For combo boxes and menu buttons, use `select @ref "Option"`. `select` needs a closed-to-open menu transition, so dismiss any open menu first.
-
-**Notification Center.** The notification commands drive Notification Center through accessibility, with the rules in the core `commands-system` reference. When agent-desktop opens the center, it closes it afterwards and restores the previous app focus. Pass both `--expected-app` and `--expected-title` on a single dismiss or action, because the stack shifts. Use `wait --notification --app "App"` for banners that vanish before you list them.
-
-**Chromium and Electron.** agent-desktop switches on the web accessibility of a Chromium renderer automatically when it needs it. For a dense running app, use `snapshot --skeleton -i --compact`, then drill with `--root @ref`.
-
-**Identity.** `launch` accepts a display name (`"System Settings"`) or a bundle ID (`com.apple.systempreferences`). Other commands take the display name through `--app`, or the bundle ID or executable name (`ControlCenter`) when no running app has that display name. Window IDs such as `w-4521` stay valid for the life of the window. Find them with `list-windows`.
-
-**Refs use native addresses when available.** A ref turns back into the exact element it was captured from, so identical twins, such as several identical `Delete` buttons, each act on their own row. If the element was removed or the app restarted, the ref is `STALE_REF`, `details.kind: retained_object_stale`, and it never falls back to a search for a look-alike. When an app yields no address for an element, that ref follows the cross-platform rule instead and must have been the only element in its window with its role, native id, name and description. Take a fresh snapshot after a list changes.
-
-**Keys.** The primary modifier is `cmd`: `press cmd+c`, `press cmd+s`. Quit shortcuts such as `cmd+q`, `cmd+shift+q`, `cmd+alt+esc`, `ctrl+cmd+q` and `cmd+shift+delete` return `POLICY_DENIED` unless you pass `--force`. To quit an app, use `close-app`. Punctuation keys work in combos, as the symbol (`,` `.` `/` `;` `'` `[` `]` `\` `-` `=` `` ` ``) or by name (`comma`, `period`, `slash`, `semicolon`, `quote`, `leftbracket`, `rightbracket`, `backslash`, `minus`, `equal`, `grave`). Each one is sent with the key that types it in the active keyboard layout, so `press cmd+,` opens Settings on ANSI and JIS keyboards alike.
-
-**Cursor overlay.** `cursor-overlay enable` draws the agent cursor in a click-through window. It never moves the OS pointer or activates an app. The macOS motion and image limits are in the core `commands-system` reference.
+| Code and message pattern | Cause and fix |
+| --- | --- |
+| `PERM_DENIED`: Accessibility or Screen Recording permission | The launching app lacks the relevant grant. Ask the user to grant it, then check `permissions` in a new CLI call. |
+| `POLICY_DENIED`: interaction policy, menu, dialog, or physical route | The operation cannot run headless. Stop and tell the user which operation needs headed mode; do not add `--headed`. |
+| `ACTION_NOT_SUPPORTED`: `The field shows a file's name` | A value write cannot prove a rename. Use the app's exposed rename operation or an authorized file-system operation, then verify the file itself. |
+| `STALE_REF`: `Element not found` (`resolution_complete_absence`) | The adapter could not land the ref. Take a fresh snapshot in the same session; do not infer delivery from the missing target. |
+| `APP_UNRESPONSIVE`: accessibility action did not complete | A modal action may already have landed. If retry is unsafe, inspect the relevant surface and live state without repeating it. |
+| `WINDOW_NOT_FOUND`: no window or requested surface | A running process need not own a window. Read `list-windows` and `list-surfaces`; wait for the needed surface instead of activating the app. |
+| `PERM_DENIED`: `private file parent is accessible by group or other users` | The state root is not private. Run `chmod 700 "${AGENT_DESKTOP_HOME:-$HOME/.agent-desktop}"`, or use a new state root and let the tool create it. |
+| `PERM_DENIED`: `private file parent is not owned by the effective user` | The directory belongs to another user. Point `AGENT_DESKTOP_HOME` at a new directory under your home and let the tool create it; do not take over someone else's state. |
+| `needs_setup` from `sandbox status` for a sandbox that worked before | The guest agent, `agent-desktop-guest`, is not running in the guest, or Accessibility is off for it. Run `sandbox stop <name>`, then `sandbox start <name> --window`. In the guest, turn on automatic login, run `sh "/Volumes/My Shared Files/guest-setup.sh"` in Terminal, and switch on **agent-desktop-guest** in System Settings > Privacy & Security > Accessibility. Then check `status` on the host. A sandbox set up by agent-desktop 1.3.0 needs this once. |
+| `ACTION_NOT_SUPPORTED`: `The packaged macOS clipboard helper is missing or invalid` | Every clipboard command runs the packaged `agent-desktop-macos-helper` beside the binary, and it is checked before launch: a regular file (not a symlink) owned by you, executable, one link, no group or world write, no ACL that lets someone else change it, under directories owned by you or root that are not group or world writable unless sticky. `details.kind` is `clipboard_helper_invalid` or `clipboard_helper_not_found`, and `platform_detail` names the failed rule. Repair the install; the clipboard is not empty. |

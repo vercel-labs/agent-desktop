@@ -17,7 +17,7 @@ fn client(id: u32, pid: u32, title: &str) -> X11Client {
     X11Client {
         id,
         pid: Some(pid),
-        title: title.to_owned(),
+        title: title.into(),
         extents: None,
         bounds: Some(Extents {
             x: 0,
@@ -72,6 +72,7 @@ fn the_server_states_without_a_client_list_keep_their_cause() {
 
 fn listed(id: &str, title: &str, active: bool) -> ListedWindow {
     ListedWindow {
+        alert: false,
         app: 0,
         info: WindowInfo {
             id: id.to_owned(),

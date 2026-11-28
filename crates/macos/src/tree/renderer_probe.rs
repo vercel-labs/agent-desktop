@@ -1,4 +1,4 @@
-use agent_desktop_core::{AdapterError, DeliverySemantics, ErrorCode};
+use agent_desktop_core::{AdapterError, Deadline, DeliverySemantics, ErrorCode};
 
 pub(crate) const MANUAL: &str = "AXManualAccessibility";
 pub(crate) const ENHANCED: &str = "AXEnhancedUserInterface";
@@ -8,7 +8,7 @@ pub(crate) fn activation_required(
     process_instance: &str,
     web_surface: bool,
     absence_proven: bool,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<bool, AdapterError> {
     if !crate::system::process::process_identity::matches_instance(pid, process_instance)? {
         return Err(AdapterError::new(
@@ -48,7 +48,7 @@ fn activation_needed(
 
 pub(crate) fn activation_attribute(
     application: &super::AXElement,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<Option<&'static str>, AdapterError> {
     choose_attribute(|attribute| attribute_supported(application, attribute, deadline))
 }
@@ -67,9 +67,9 @@ fn choose_attribute(
 fn attribute_supported(
     application: &super::AXElement,
     attribute: &str,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<bool, AdapterError> {
-    super::locator_deadline::prepare(application, deadline)?;
+    super::properties::ax_ipc::prepare(application, deadline)?;
     let read = super::properties::capabilities::is_attr_settable_with_status(
         application,
         attribute,

@@ -41,7 +41,7 @@ fn focus_core_window(
     };
     let lease = crate::operation::interaction_lease!(adapter.inner.as_ref());
     match adapter.inner.focus_window(window, &lease) {
-        Ok(()) => AdResult::Ok,
+        Ok(_) => AdResult::Ok,
         Err(error) => {
             set_last_error(&error);
             crate::error::last_error_code()

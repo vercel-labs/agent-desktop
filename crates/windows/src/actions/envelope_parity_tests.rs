@@ -1,30 +1,28 @@
-use crate::actions::chain::{DeliveryOutcome, build_step};
 use crate::actions::mutation::classify_mutation;
 use crate::system::runtime::hresult::{
     E_ACCESSDENIED, E_INVALIDARG, RPC_E_SERVERFAULT, UIA_E_ELEMENTNOTAVAILABLE,
     UIA_E_ELEMENTNOTENABLED, UIA_E_INVALIDOPERATION, UIA_E_TIMEOUT,
 };
 use crate::tree::automation::UiaFailure;
+use agent_desktop_core::DeliveryOutcome;
 use agent_desktop_core::{Action, ActionResult, AppError, DeliverySemantics, ErrorPayload};
 use serde_json::Value;
 
 fn succeeded_step(label: &'static str, verified: bool) -> agent_desktop_core::ActionStep {
-    build_step(
-        label,
-        if verified {
-            DeliveryOutcome::DeliveredVerified
-        } else {
-            DeliveryOutcome::DeliveredUnverified
-        },
-    )
+    (if verified {
+        DeliveryOutcome::Delivered(agent_desktop_core::DeliveryObservation::Verified)
+    } else {
+        DeliveryOutcome::Delivered(agent_desktop_core::DeliveryObservation::Unverified)
+    })
+    .step(label)
 }
 
 fn skipped_step(label: &'static str) -> agent_desktop_core::ActionStep {
-    build_step(label, DeliveryOutcome::NotDelivered)
+    DeliveryOutcome::NotDelivered.step(label)
 }
 
 fn satisfied_step(label: &'static str) -> agent_desktop_core::ActionStep {
-    build_step(label, DeliveryOutcome::SatisfiedNoDelivery)
+    DeliveryOutcome::Satisfied.step(label)
 }
 
 fn assert_disposition_matches_projection(json: &Value, semantics: DeliverySemantics) {

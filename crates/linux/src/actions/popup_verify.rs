@@ -1,4 +1,4 @@
-use super::click::{POLL_STEP, POPUP_SETTLE, opens_popup, poll_until};
+use super::click::{POLL_STEP, POPUP_SETTLE, opens_popup};
 use super::context::Target;
 use crate::system::focus::focus_cause::Cause;
 use crate::system::menu::menu_surface::roots_below;
@@ -165,8 +165,7 @@ pub(super) fn run(
         || roots_below(target.bus, &opener, target.deadline),
         invoke,
         |before| {
-            poll_until(
-                target.deadline,
+            target.deadline.poll_until(
                 POPUP_SETTLE,
                 POLL_STEP,
                 || roots_below(target.bus, &opener, target.deadline),

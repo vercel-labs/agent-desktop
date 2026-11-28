@@ -3,8 +3,9 @@ use crate::tree::automation::UiaFailure;
 use crate::tree::walk::walker_enumerate::TreeWalk;
 use crate::tree::walk::walker_fake::{
     E_FAIL, EXHAUSTION, FakeTree, REAL_FAILURE, budget, walk, walk_expecting_failure,
+    walk_on_surface,
 };
-use agent_desktop_core::{Deadline, ErrorCode};
+use agent_desktop_core::{Deadline, ErrorCode, SnapshotSurface};
 
 /// The fakes encode the measured pair, not a reading of the crate. If this
 /// fails, every other fake-driven assertion below is testing the wrong model.
@@ -336,4 +337,48 @@ fn an_edge_after_a_dropped_sibling_reports_its_prefix_as_incomplete() {
         2,
         "the cycle child is dropped and its siblings retained"
     );
+}
+
+/// An identity walk resolves role, name and description exactly as a full walk
+/// does, but its actions and states rest on properties it never read, so they
+/// are unknown. An empty claim would read as "this element has no actions".
+#[test]
+fn an_identity_walk_leaves_actions_and_states_unknown() {
+    use crate::tree::name_evidence::LabelOutcome;
+    use crate::tree::properties::ElementProperties;
+    use crate::tree::properties::property_ids::TreeProperty;
+    use crate::tree::properties::property_outcome::{PropertyOutcome, PropertyValue};
+    use agent_desktop_core::LocatorField;
+
+    let properties = ElementProperties::from_reads(vec![
+        (
+            TreeProperty::ControlType,
+            PropertyOutcome::Known(PropertyValue::Number(50000)),
+        ),
+        (
+            TreeProperty::Name,
+            PropertyOutcome::Known(PropertyValue::Text("OK".into())),
+        ),
+    ]);
+
+    let identity = walk_identity_vocabulary(&properties, &LabelOutcome::Unlabelled);
+    let full = walk_vocabulary(&properties, &LabelOutcome::Unlabelled);
+
+    assert_eq!(identity.role, LocatorField::Known("button".into()));
+    assert_eq!(identity.role, full.role);
+    assert_eq!(identity.name, full.name);
+    assert_eq!(identity.available_actions, LocatorField::Unknown);
+    assert_eq!(identity.states, LocatorField::Unknown);
+}
+
+/// A window-rooted read of a surface the window presents names that surface,
+/// so a ref anchored from this observation resolves in the surface it was
+/// read from instead of at the window root.
+#[test]
+fn a_window_rooted_walk_of_a_surface_records_that_surface() {
+    let fake = FakeTree::default().with_chain(&[1, 2]);
+
+    let outcome = walk_on_surface(&fake, SnapshotSurface::Menu, budget(10));
+
+    assert_eq!(outcome.tree.surface(), SnapshotSurface::Menu);
 }

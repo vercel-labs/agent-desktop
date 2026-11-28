@@ -1,7 +1,7 @@
 use agent_desktop_core::LocatorField;
 
 use super::name_fields as resolve_names;
-use crate::tree::live::test_support::attributes;
+use crate::tree::test_support::helpers::attributes;
 use crate::tree::vocabulary::placeholder::read_placeholder;
 use crate::tree::vocabulary::role_numbers::{APPLICATION, ENTRY, PUSH_BUTTON, TEXT};
 use crate::tree::{Field, LabelOutcome, NodeProperties};
@@ -13,7 +13,8 @@ fn name_fields(
     label: &LabelOutcome,
 ) -> (LocatorField<String>, LocatorField<String>) {
     let placeholder = read_placeholder(properties, role, attributes);
-    resolve_names(properties, role, &placeholder, label)
+    let (name, description, _) = resolve_names(properties, role, &placeholder, label);
+    (name, description)
 }
 
 fn properties(name: Field<String>, description: Field<String>) -> NodeProperties {
@@ -22,6 +23,7 @@ fn properties(name: Field<String>, description: Field<String>) -> NodeProperties
         description,
         child_count: Field::Present(0),
         accessible_id: Field::Absent,
+        grid: Default::default(),
     }
 }
 

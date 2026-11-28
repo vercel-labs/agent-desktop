@@ -82,8 +82,9 @@ pub(crate) fn press_for_process(
 ) -> Result<ActionResult, AdapterError> {
     ensure_budget(deadline)?;
     let backend = world.backend()?;
-    gate().map_err(|error| worded_for(error, policy, &backend))?;
-    send_combo(world, &backend, combo, gate, deadline)?;
+    let mut worded_gate = || gate().map_err(|error| worded_for(error, policy, &backend));
+    worded_gate()?;
+    send_combo(world, &backend, combo, &mut worded_gate, deadline)?;
     Ok(ActionResult::from_execution(
         &Action::PressKey(combo.clone()),
         vec![physical_step(&backend, "press_key")],
@@ -107,21 +108,23 @@ fn worded_for(
     let (message, suggestion) = if matches!(backend, Backend::Wayland) {
         (
             "The target application's active window could not be confirmed, so no key was sent",
-            "On Wayland, bring the target window to the front yourself, then use global press without --app, --window-id or --headed; global keys go to the focused window and automatic activation is unavailable",
+            "On Wayland, bring the target window to the front yourself, then use global press without --app, --window-id or --headed; global keys go to the focused window and automatic activation is unavailable".to_owned(),
         )
     } else if policy.allow_focus_steal {
         (
             "Focus on the target application could not be confirmed, so no key was sent",
-            "Retry once the target application owns the active window; a menu or dialog of another application can hold the keyboard",
+            "Retry once the target application owns the active window; a menu or dialog of another application can hold the keyboard".to_owned(),
         )
     } else {
         (
             "The target application's active window could not be confirmed and focus changes are not allowed, so no key was sent",
-            "Retry with --headed so the target can be activated first, or bring the target to the front yourself",
+            agent_desktop_core::headed_mode_suggestion(
+                "activates the target window before sending synthetic keys",
+            ),
         )
     };
     error.message = message.to_owned();
-    error.suggestion = Some(suggestion.to_owned());
+    error.suggestion = Some(suggestion);
     error
 }
 

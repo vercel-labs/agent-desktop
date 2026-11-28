@@ -1,7 +1,6 @@
-use agent_desktop_core::{AdapterError, AppInfo, ErrorCode};
-use std::time::Instant;
+use agent_desktop_core::{AdapterError, AppInfo, Deadline, ErrorCode};
 
-pub(crate) fn list_apps_until(deadline: Instant) -> Result<Vec<AppInfo>, AdapterError> {
+pub(crate) fn list_apps_until(deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
     #[cfg(test)]
     if crate::system::app::app_inventory::adapter_tests::workspace_inventory().is_some() {
         return Ok(Vec::new());
@@ -11,22 +10,28 @@ pub(crate) fn list_apps_until(deadline: Instant) -> Result<Vec<AppInfo>, Adapter
 
 pub(crate) fn list_apps_scoped_until(
     name: &str,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Vec<AppInfo>, AdapterError> {
     list_apps_with_filter(Some(name), deadline)
 }
 
 fn list_apps_with_filter(
     name: Option<&str>,
-    deadline: Instant,
+    deadline: Deadline,
 ) -> Result<Vec<AppInfo>, AdapterError> {
-    if Instant::now() >= deadline {
+    if deadline.is_expired() {
         return Err(AdapterError::timeout("process app inventory timed out"));
     }
     let mut apps = Vec::new();
     crate::system::process::process_arguments::visit_commands_until(deadline, |pid, command| {
         if let Some(app) = app_from_command(pid, command)?
-            && name.is_none_or(|name| agent_desktop_core::app_name_matches(&app.name, name))
+            && name.is_none_or(|name| {
+                agent_desktop_core::AppInventoryQuery::Exact {
+                    name,
+                    bundle_id: None,
+                }
+                .admits(&app)
+            })
         {
             apps.push(app);
         }
@@ -77,6 +82,7 @@ fn app_from_command(pid: i32, command: &[u8]) -> Result<Option<AppInfo>, Adapter
         return Ok(None);
     };
     Ok(Some(AppInfo {
+        aliases: Vec::new(),
         name,
         pid: crate::system::process::process_identity::from_pid_t(pid)?,
         bundle_id: None,

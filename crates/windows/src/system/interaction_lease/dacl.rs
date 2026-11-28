@@ -36,7 +36,7 @@ pub(super) fn author_protected_three_principal_dacl(
     let acl_len = ACL_HEADER_LEN
         + principals
             .iter()
-            .map(|sid| ACE_FIXED_LEN + sid_len(sid))
+            .map(|sid| ACE_FIXED_LEN + sid.len())
             .sum::<usize>();
     let mut storage = vec![0_u64; acl_len.div_ceil(size_of::<u64>())];
     let acl_ptr = storage.as_mut_ptr().cast::<ACL>();
@@ -79,10 +79,6 @@ pub(super) fn author_protected_three_principal_dacl(
         return Err(std::io::Error::from_raw_os_error(status as i32));
     }
     Ok(())
-}
-
-fn sid_len(sid: &SidBuffer) -> usize {
-    unsafe { windows_sys::Win32::Security::GetLengthSid(sid.as_psid()) as usize }
 }
 
 /// `true` only when every ACE on `acl` is an `ACCESS_ALLOWED_ACE` whose SID

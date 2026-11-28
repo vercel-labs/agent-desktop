@@ -57,13 +57,13 @@ pub fn execute(
         ref_id: args.from.ref_id.as_deref(),
         xy: args.from.xy,
         missing_input_message: "Provide --from <ref> or --from-xy x,y",
-        headed_requirement: crate::HeadedRequirement::FocusedWindowAndCursor,
+        focuses_window: true,
     };
     let to_args = PointResolveArgs {
         ref_id: args.to.ref_id.as_deref(),
         xy: args.to.xy,
         missing_input_message: "Provide --to <ref> or --to-xy x,y",
-        headed_requirement: crate::HeadedRequirement::None,
+        focuses_window: false,
     };
     let auto_wait = args.timeout_ms.is_some_and(|timeout_ms| timeout_ms > 0);
     let cursor = crate::cursor_overlay::hold_cursor(context, deadline);

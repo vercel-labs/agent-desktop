@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 static TEMP_ENV_LOCK: Mutex<()> = Mutex::new(());
 
-use crate::system::fixture::test_time::deadline;
+use crate::system::test_support::test_time::deadline;
 
 fn pattern_bgra(width: u32, height: u32, stride: u32) -> Vec<u8> {
     let mut pixels = vec![0u8; (stride * height) as usize];
@@ -35,7 +35,7 @@ fn packed_from_strided(pixels: &[u8], width: u32, height: u32, stride: u32) -> V
 
 #[test]
 fn known_bgra_encodes_with_dimensions_core_accepts() {
-    crate::tree::fixture::bootstrap();
+    crate::system::test_support::apartment::bootstrap();
     let width = 5;
     let height = 4;
     let stride = width * 4;
@@ -49,7 +49,7 @@ fn known_bgra_encodes_with_dimensions_core_accepts() {
 
 #[test]
 fn encode_decode_round_trips_non_square_and_padded_stride() {
-    crate::tree::fixture::bootstrap();
+    crate::system::test_support::apartment::bootstrap();
     let cases = [(7u32, 3u32, 28u32), (3u32, 5u32, 16u32), (1u32, 1u32, 4u32)];
     for (width, height, stride) in cases {
         let pixels = pattern_bgra(width, height, stride);
@@ -67,7 +67,7 @@ fn encode_decode_round_trips_non_square_and_padded_stride() {
 
 #[test]
 fn thin_strip_round_trips() {
-    crate::tree::fixture::bootstrap();
+    crate::system::test_support::apartment::bootstrap();
     let width = 2048;
     let height = 1;
     let stride = width * 4;
@@ -84,7 +84,7 @@ fn thin_strip_round_trips() {
 
 #[test]
 fn zero_dimensions_rejected_before_com() {
-    crate::tree::fixture::bootstrap();
+    crate::system::test_support::apartment::bootstrap();
     let pixels = [0u8; 4];
 
     let zero_width = encode_bgra_to_png(&pixels, 0, 1, 4, deadline(5_000)).expect_err("zero width");
@@ -107,7 +107,7 @@ fn zero_dimensions_rejected_before_com() {
 
 #[test]
 fn malformed_png_returns_classified_error() {
-    crate::tree::fixture::bootstrap();
+    crate::system::test_support::apartment::bootstrap();
     let width = 2;
     let height = 2;
     let stride = width * 4;
@@ -135,7 +135,7 @@ fn malformed_png_returns_classified_error() {
 
 #[test]
 fn wrong_signature_png_returns_classified_error() {
-    crate::tree::fixture::bootstrap();
+    crate::system::test_support::apartment::bootstrap();
     let mut png = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
     png.extend_from_slice(b"not-a-png-payload");
 
@@ -146,7 +146,7 @@ fn wrong_signature_png_returns_classified_error() {
 
 #[test]
 fn oversized_encode_rejected_before_allocation() {
-    crate::tree::fixture::bootstrap();
+    crate::system::test_support::apartment::bootstrap();
     let tiny = [0u8; 4];
     let error = encode_bgra_to_png(&tiny, 1 << 15, 1 << 15, 1 << 17, deadline(5_000))
         .expect_err("pixel-ceiling violation must fail");
@@ -161,7 +161,7 @@ fn oversized_encode_rejected_before_allocation() {
 
 #[test]
 fn oversized_decode_rejected_before_allocation() {
-    crate::tree::fixture::bootstrap();
+    crate::system::test_support::apartment::bootstrap();
     let oversized = vec![0u8; MAX_PNG_INPUT_BYTES + 1];
     let error =
         decode_png_to_bgra(&oversized, deadline(5_000)).expect_err("oversize PNG must fail");
@@ -171,7 +171,7 @@ fn oversized_decode_rejected_before_allocation() {
 
 #[test]
 fn encoding_creates_no_temp_files() {
-    crate::tree::fixture::bootstrap();
+    crate::system::test_support::apartment::bootstrap();
     let _guard = TEMP_ENV_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());

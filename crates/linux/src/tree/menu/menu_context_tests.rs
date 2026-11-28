@@ -1,10 +1,10 @@
 use super::MenuContext;
-use crate::tree::live::test_support::ref_entry;
+use crate::tree::test_support::helpers::ref_entry;
 use crate::tree::{AtspiElement, Field, LabelOutcome, ObservedRead, WalkedNode};
 
 fn labelled_popup(label: LabelOutcome) -> WalkedNode<ObservedRead> {
     fn node(path: &str, label: LabelOutcome) -> WalkedNode<ObservedRead> {
-        let mut payload = crate::tree::live::test_support::read_of(35, "", &[]);
+        let mut payload = crate::tree::test_support::helpers::read_of(35, "", &[]);
         payload.node.element = AtspiElement::new(":1.1", path, 1);
         payload.label = label;
         WalkedNode {

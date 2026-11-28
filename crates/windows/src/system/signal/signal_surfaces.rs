@@ -5,7 +5,6 @@ use agent_desktop_core::{
 };
 
 use crate::system::menu::menu_state;
-use crate::system::window::listing_retry::narrow_to_permitted_codes;
 use crate::system::window::window_enum::{WindowHandle, enumerate_top_level};
 use crate::system::window::window_identity;
 use crate::system::window::window_ops::passes_filter;
@@ -122,8 +121,7 @@ fn sheet_surfaces(
             candidates.push(window.handle);
         }
         true
-    })
-    .map_err(narrow_to_permitted_codes)?;
+    })?;
 
     let mut surfaces = Vec::new();
     for (index, handle) in candidates.into_iter().enumerate() {
@@ -142,7 +140,7 @@ fn sheet_surfaces(
             }
             Ok(_) => {}
             Err(error) if error.code == ErrorCode::WindowNotFound => {}
-            Err(error) => return Err(narrow_to_permitted_codes(error)),
+            Err(error) => return Err(error),
         }
     }
     Ok(surfaces)
@@ -164,11 +162,3 @@ fn has_owner(handle: WindowHandle) -> bool {
     let command: GET_WINDOW_CMD = GW_OWNER;
     !unsafe { GetWindow(handle, command) }.is_null()
 }
-
-#[cfg(test)]
-#[path = "signal_surfaces_tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "wait_surface_live_tests.rs"]
-mod live_surface_tests;

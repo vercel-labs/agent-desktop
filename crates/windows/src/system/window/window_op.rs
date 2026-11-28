@@ -1,11 +1,12 @@
 #[cfg(target_os = "windows")]
 use crate::system::runtime::hresult::win32_last_error;
 use agent_desktop_core::{
-    AdapterError, Deadline, DeliverySemantics, ErrorCode, WindowInfo, WindowOp,
+    AdapterError, Deadline, DeliverySemantics, ErrorCode, InteractionPolicy, OperationReport,
+    WindowInfo, WindowOp,
 };
 
 use super::window_identity::WindowIdentityEvidence;
-use super::window_op_verb::{ShowVerb, verb_is_satisfied};
+use super::window_op_verb::{ShowVerb, restore_command, restore_permitted, verb_is_satisfied};
 use super::window_op_wait::wait_for_placement;
 use super::window_ops::parse_handle;
 
@@ -35,14 +36,36 @@ fn ensure_window_is_pumping(handle: super::window_enum::WindowHandle) -> Result<
     .with_suggestion("Wait for the application to recover, or close it with --force"))
 }
 
+#[cfg(target_os = "windows")]
+fn window_is_minimized(handle: super::window_enum::WindowHandle) -> bool {
+    unsafe { windows_sys::Win32::UI::WindowsAndMessaging::IsIconic(handle) != 0 }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn window_is_minimized(_handle: super::window_enum::WindowHandle) -> bool {
+    false
+}
+
 #[cfg(not(target_os = "windows"))]
 fn ensure_window_is_pumping(_handle: super::window_enum::WindowHandle) -> Result<(), AdapterError> {
     Ok(())
 }
 
+pub(crate) fn window_op_report(
+    win: &WindowInfo,
+    op: WindowOp,
+    policy: InteractionPolicy,
+    deadline: Deadline,
+) -> Result<OperationReport, AdapterError> {
+    let readback = super::window_op_readback::window_readback(&op);
+    let dispatched = window_op_impl(win, op.clone(), policy, deadline);
+    OperationReport::from_window_dispatch(win, &op, readback, dispatched)
+}
+
 pub(crate) fn window_op_impl(
     win: &WindowInfo,
     op: WindowOp,
+    policy: InteractionPolicy,
     deadline: Deadline,
 ) -> Result<(), AdapterError> {
     deadline.ensure_remaining().map_err(before_write)?;
@@ -61,12 +84,47 @@ pub(crate) fn window_op_impl(
     };
     evidence.verify_stored().map_err(before_write)?;
     ensure_window_is_pumping(handle).map_err(before_write)?;
-    match op {
-        WindowOp::Resize { width, height } => resize(handle, &evidence, width, height, deadline),
-        WindowOp::Move { x, y } => move_to(handle, &evidence, x, y, deadline),
-        WindowOp::Minimize => show_verb(handle, &evidence, ShowVerb::Minimize, deadline),
-        WindowOp::Maximize => show_verb(handle, &evidence, ShowVerb::Maximize, deadline),
-        WindowOp::Restore => show_verb(handle, &evidence, ShowVerb::Restore, deadline),
+    if matches!(op, WindowOp::Restore) {
+        restore_permitted(window_is_minimized(handle), policy).map_err(before_write)?;
+    }
+    let plan = Placement::plan(&op).map_err(before_write)?;
+    apply(handle, &evidence, plan, policy, deadline)
+}
+
+/// What one window operation writes and what the readback must then show.
+///
+/// One value drives both sides, so the write and the placement it is
+/// confirmed against cannot disagree.
+#[derive(Clone, Copy)]
+enum Placement {
+    Frame {
+        origin: Option<(i32, i32)>,
+        size: Option<(i32, i32)>,
+    },
+    Show(ShowVerb),
+}
+
+impl Placement {
+    fn plan(op: &WindowOp) -> Result<Self, AdapterError> {
+        Ok(match *op {
+            WindowOp::Resize { width, height } => {
+                validate_size(width, height)?;
+                Self::Frame {
+                    origin: None,
+                    size: Some((round_i32(width)?, round_i32(height)?)),
+                }
+            }
+            WindowOp::Move { x, y } => {
+                validate_position(x, y)?;
+                Self::Frame {
+                    origin: Some((round_i32(x)?, round_i32(y)?)),
+                    size: None,
+                }
+            }
+            WindowOp::Minimize => Self::Show(ShowVerb::Minimize),
+            WindowOp::Maximize => Self::Show(ShowVerb::Maximize),
+            WindowOp::Restore => Self::Show(ShowVerb::Restore),
+        })
     }
 }
 
@@ -97,103 +155,71 @@ fn validate_position(x: f64, y: f64) -> Result<(), AdapterError> {
 }
 
 #[cfg(target_os = "windows")]
-fn resize(
+fn apply(
     handle: super::window_enum::WindowHandle,
     evidence: &WindowIdentityEvidence<'_>,
-    width: f64,
-    height: f64,
+    plan: Placement,
+    policy: InteractionPolicy,
     deadline: Deadline,
 ) -> Result<(), AdapterError> {
-    validate_size(width, height).map_err(before_write)?;
-    let cx = round_i32(width).map_err(before_write)?;
-    let cy = round_i32(height).map_err(before_write)?;
     ensure_owned_before(evidence)?;
-    set_window_pos(handle, None, Some((cx, cy)))?;
+    match plan {
+        Placement::Frame { origin, size } => set_window_pos(handle, origin, size)?,
+        Placement::Show(verb) => show_window(handle, verb, policy)?,
+    }
     wait_for_placement(deadline, || {
         ensure_owned_after(evidence)?;
-        let rect = window_rect(handle)?;
-        Ok(within_tolerance(rect.2, cx) && within_tolerance(rect.3, cy))
+        placement_is_satisfied(handle, plan)
     })
 }
 
 #[cfg(not(target_os = "windows"))]
-fn resize(
+fn apply(
     _handle: super::window_enum::WindowHandle,
     _evidence: &WindowIdentityEvidence<'_>,
-    width: f64,
-    height: f64,
+    _plan: Placement,
+    _policy: InteractionPolicy,
     _deadline: Deadline,
 ) -> Result<(), AdapterError> {
-    validate_size(width, height)?;
     Err(AdapterError::not_supported("window_op"))
 }
 
 #[cfg(target_os = "windows")]
-fn move_to(
+fn placement_is_satisfied(
     handle: super::window_enum::WindowHandle,
-    evidence: &WindowIdentityEvidence<'_>,
-    x: f64,
-    y: f64,
-    deadline: Deadline,
-) -> Result<(), AdapterError> {
-    validate_position(x, y).map_err(before_write)?;
-    let left = round_i32(x).map_err(before_write)?;
-    let top = round_i32(y).map_err(before_write)?;
-    ensure_owned_before(evidence)?;
-    set_window_pos(handle, Some((left, top)), None)?;
-    wait_for_placement(deadline, || {
-        ensure_owned_after(evidence)?;
-        let rect = window_rect(handle)?;
-        Ok(within_tolerance(rect.0, left) && within_tolerance(rect.1, top))
-    })
-}
-
-#[cfg(not(target_os = "windows"))]
-fn move_to(
-    _handle: super::window_enum::WindowHandle,
-    _evidence: &WindowIdentityEvidence<'_>,
-    x: f64,
-    y: f64,
-    _deadline: Deadline,
-) -> Result<(), AdapterError> {
-    validate_position(x, y)?;
-    Err(AdapterError::not_supported("window_op"))
+    plan: Placement,
+) -> Result<bool, AdapterError> {
+    match plan {
+        Placement::Frame { origin, size } => {
+            let (left, top, width, height) = window_rect(handle)?;
+            Ok(
+                origin.is_none_or(|(x, y)| within_tolerance(left, x) && within_tolerance(top, y))
+                    && size.is_none_or(|(cx, cy)| {
+                        within_tolerance(width, cx) && within_tolerance(height, cy)
+                    }),
+            )
+        }
+        Placement::Show(verb) => Ok(verb_is_satisfied(verb, placement_show_cmd(handle)?)),
+    }
 }
 
 #[cfg(target_os = "windows")]
-fn show_verb(
+fn show_window(
     handle: super::window_enum::WindowHandle,
-    evidence: &WindowIdentityEvidence<'_>,
     verb: ShowVerb,
-    deadline: Deadline,
+    policy: InteractionPolicy,
 ) -> Result<(), AdapterError> {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, ShowWindowAsync,
-    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SW_MAXIMIZE, SW_MINIMIZE, ShowWindowAsync};
 
     let command = match verb {
         ShowVerb::Minimize => SW_MINIMIZE,
         ShowVerb::Maximize => SW_MAXIMIZE,
-        ShowVerb::Restore => SW_RESTORE,
+        ShowVerb::Restore => restore_command(policy),
     };
-    ensure_owned_before(evidence)?;
     if unsafe { ShowWindowAsync(handle, command) } == 0 {
         return Err(before_write(win32_last_error("ShowWindowAsync failed")));
     }
-    wait_for_placement(deadline, || {
-        ensure_owned_after(evidence)?;
-        Ok(verb_is_satisfied(verb, placement_show_cmd(handle)?))
-    })
-}
-
-#[cfg(not(target_os = "windows"))]
-fn show_verb(
-    _handle: super::window_enum::WindowHandle,
-    _evidence: &WindowIdentityEvidence<'_>,
-    _verb: ShowVerb,
-    _deadline: Deadline,
-) -> Result<(), AdapterError> {
-    Err(AdapterError::not_supported("window_op"))
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]
@@ -337,7 +363,7 @@ fn before_write(error: AdapterError) -> AdapterError {
     error.with_disposition(DeliverySemantics::not_delivered())
 }
 
-fn after_write(error: AdapterError) -> AdapterError {
+pub(super) fn after_write(error: AdapterError) -> AdapterError {
     error.with_disposition(DeliverySemantics::delivered_unverified())
 }
 

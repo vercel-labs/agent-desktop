@@ -7,6 +7,7 @@ use crate::system::x11::FrameFacts;
 #[test]
 fn an_expired_window_read_is_timeout_instead_of_an_unsupported_surface() {
     let window = ListedWindow {
+        alert: false,
         app: 0,
         info: WindowInfo {
             id: "window".to_owned(),

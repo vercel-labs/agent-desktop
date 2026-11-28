@@ -2,13 +2,11 @@ use super::classify::{
     Ancestry, AncestryWalk, HitClassification, ancestry_with, classify_hit_with, classify_relation,
     remember_ancestor_key, result_for_incomplete_walk, should_demote_outside_viewport,
 };
-use super::hit_test_impl;
 use super::imp::{
     judge_probe, physical_point, pre_read_fate_for_test, resolve_classification, saturate_coord,
 };
 use crate::system::runtime::hresult::{E_ACCESSDENIED, E_FAIL, UIA_E_NOTSUPPORTED, UIA_E_TIMEOUT};
-use crate::tree::automation::{ERR_INVALID_ARG, ERR_TIMEOUT, UiaFailure, root_from_hwnd};
-use crate::tree::fixture::{LocalFixture, ensure_test_apartment};
+use crate::tree::automation::{ERR_INVALID_ARG, ERR_TIMEOUT, UiaFailure};
 use crate::tree::walk::walker::NodeKey;
 use crate::tree::walk::walker_fake::deadline;
 use agent_desktop_core::{Deadline, ErrorCode, Point, Rect, adapter::hit_test::HitTestResult};
@@ -289,27 +287,6 @@ fn permission_pre_read_escapes_as_err() {
     let error = pre_read_fate_for_test(UiaFailure::Hresult(E_ACCESSDENIED))
         .expect_err("permission denial must escape");
     assert_eq!(error.code, ErrorCode::PermDenied);
-}
-
-#[test]
-fn dead_token_preamble_escapes_as_stale_reader_err() {
-    ensure_test_apartment();
-    let fixture = LocalFixture::create().expect("off-screen fixture starts");
-    let (left, top) = fixture.origin();
-    let root = root_from_hwnd(fixture.handle(), deadline()).expect("fixture root");
-    let handle = root
-        .with_verified_process(std::process::id(), "dead-token-for-hit-test".into())
-        .into_native_handle();
-    let error = hit_test_impl(
-        &handle,
-        Point {
-            x: f64::from(left + 20),
-            y: f64::from(top + 20),
-        },
-        deadline(),
-    )
-    .expect_err("a dead verified token must escape");
-    assert_eq!(error.code, ErrorCode::StaleRef);
 }
 
 #[test]

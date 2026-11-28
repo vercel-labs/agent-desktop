@@ -65,3 +65,20 @@ fn native_target_landings_do_not_prove_sibling_stacking_order() {
         assert_eq!(error.details.unwrap()["reason"], "child_bounds_unknown");
     }
 }
+
+#[test]
+fn a_point_query_that_stops_at_a_node_without_geometry_does_not_refute_the_target() {
+    let mut world = reachable(gtk3_facts(), (100, 137), vec![]);
+    assert_eq!(test(&mut world, (310, 154)), HitTestResult::ReachesTarget);
+    world.nodes.leads.clear();
+    world.nodes.lead("/frame", "/pane");
+    unknown(&mut world, (310, 154));
+    world.nodes.described.insert(
+        "/pane".to_owned(),
+        Described {
+            window_extents: Some(rect(-1, -1, -1, -1)),
+            ..Described::default()
+        },
+    );
+    assert_eq!(test(&mut world, (310, 154)), HitTestResult::ReachesTarget);
+}

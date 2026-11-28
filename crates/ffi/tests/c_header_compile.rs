@@ -64,6 +64,8 @@ int main(void) {
     (void)AD_DELIVERY_DISPOSITION_DELIVERED_VERIFIED;
     (void)AD_FIND_SELECTION_KIND_STRICT;
     (void)AD_IDENTIFIER_KIND_AX_IDENTIFIER;
+    (void)AD_IDENTIFIER_KIND_GRID_CELL;
+    _Static_assert(AD_IDENTIFIER_KIND_GRID_CELL == 5, "AdIdentifierKind.GridCell value changed");
     (void)AD_MODIFIER_META;
     (void)AD_MODIFIER_CMD;
     (void)AD_MOUSE_BUTTON_LEFT;

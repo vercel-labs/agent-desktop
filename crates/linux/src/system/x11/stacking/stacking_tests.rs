@@ -62,7 +62,7 @@ fn client(id: u32, pid: u32, title: &str) -> X11Client {
         id,
         hidden: false,
         pid: Some(pid),
-        title: title.to_owned(),
+        title: title.into(),
         extents: None,
         bounds: None,
     }

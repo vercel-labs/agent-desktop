@@ -1,4 +1,4 @@
-use agent_desktop_core::AdapterError;
+use agent_desktop_core::{AdapterError, Deadline};
 
 #[cfg(target_os = "macos")]
 mod imp {
@@ -16,10 +16,10 @@ mod imp {
     pub(crate) fn perform_observed_action(
         el: &AXElement,
         name: &str,
-        deadline: agent_desktop_core::Deadline,
-    ) -> Result<crate::actions::chain::chain_delivery::DeliveryOutcome, AdapterError> {
+        deadline: Deadline,
+    ) -> Result<agent_desktop_core::DeliveryOutcome, AdapterError> {
         use crate::actions::activation_effect;
-        use crate::actions::chain::chain_delivery::DeliveryOutcome;
+        use agent_desktop_core::DeliveryOutcome;
         use ax_mutation::PerformSignal;
 
         if advertises_action(el, name, deadline) == Some(false) {
@@ -48,9 +48,9 @@ mod imp {
         };
         match signal {
             PerformSignal::ReportedUnsupported => Ok(DeliveryOutcome::NotDelivered),
-            PerformSignal::ReportedDelivered => Ok(DeliveryOutcome::from_delivery(
-                true,
-                activation_effect::changed_now(&before, el, deadline),
+            PerformSignal::ReportedDelivered => Ok(DeliveryOutcome::Delivered(
+                activation_effect::changed_now(&before, el, deadline)
+                    .unwrap_or(agent_desktop_core::DeliveryObservation::Unverified),
             )),
             PerformSignal::Uninformative => ax_mutation::settle_uninformative_perform(
                 name,
@@ -63,40 +63,16 @@ mod imp {
     pub(crate) fn advertises_action(
         el: &AXElement,
         name: &str,
-        deadline: agent_desktop_core::Deadline,
+        deadline: Deadline,
     ) -> Option<bool> {
         let mut usage = crate::tree::observation_usage::ObservationUsage::with_defaults();
         let read = crate::tree::properties::capabilities::copy_action_names_with_status(
-            el,
-            std::time::Instant::now() + deadline.remaining(),
-            &mut usage,
+            el, deadline, &mut usage,
         );
         let absent = crate::tree::properties::ax_absence::is_absent_action_error;
         read.value
             .map(|actions| actions.iter().any(|action| action == name))
             .or_else(|| read.error.filter(|error| absent(*error)).map(|_| false))
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-mod imp {
-    use super::*;
-    use crate::tree::AXElement;
-
-    pub fn advertises_action(
-        _el: &AXElement,
-        _name: &str,
-        _deadline: agent_desktop_core::Deadline,
-    ) -> Option<bool> {
-        None
-    }
-
-    pub fn perform_observed_action(
-        _el: &AXElement,
-        _name: &str,
-        _deadline: agent_desktop_core::Deadline,
-    ) -> Result<crate::actions::chain::chain_delivery::DeliveryOutcome, AdapterError> {
-        Ok(crate::actions::chain::chain_delivery::DeliveryOutcome::NotDelivered)
     }
 }
 

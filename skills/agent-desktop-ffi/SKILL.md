@@ -86,8 +86,9 @@ ABI. A bare `@eN` ref returns
   before any platform call; on `AD_RESULT_ERR_ACTION_FAILED` the check report is
   JSON in `ad_last_error_details()`. It auto-waits 5000 ms before the preflight;
   `ad_execute_by_ref_timeout` takes `timeout_ms` (`-1` = 5000 ms default, `0` =
-  single-shot). `PressKey` defaults to `focus_fallback`; every other action,
-  including `TypeText`, defaults to `headless`. Pass `AD_POLICY_KIND_FOCUS_FALLBACK`
+  single-shot). Every action, including `TypeText` and `PressKey`, defaults to
+  `headless`; an action the adapter reports as taking the foreground returns
+  `AD_RESULT_ERR_POLICY_DENIED` when the policy forbids it. Pass `AD_POLICY_KIND_FOCUS_FALLBACK`
   (1) to allow focus without cursor movement, or `AD_POLICY_KIND_HEADED` (2) to allow
   physical cursor and keyboard delivery. `ad_execute_ref_action_exact_with_policy`
   always fails with `AD_RESULT_ERR_ACTION_NOT_SUPPORTED`: an exact entry has no
@@ -101,8 +102,16 @@ ABI. A bare `@eN` ref returns
   only as fields embedded in the exact structs. `ad_list_surfaces_exact` keeps the
   surface `id`. From `AD_EXACT_SURFACE_INFO_VERSION` 2, `AdExactSurfaceInfo.unclassified`
   names the surface kinds its probe could not read (for example `sheet,menu`), or
-  is null. A missing `sheet` or `menu` next to a listed kind is unknown, not
-  absent. Only the Windows adapter fills it; macOS and Linux return null.
+  is null. A missing `sheet`, `menu` or `popover` next to a listed kind is
+  unknown, not absent.
+
+- **Entries with no policy input.** `ad_mouse_event`, `ad_mouse_event_with_modifiers`,
+  `ad_mouse_wheel`, `ad_drag`, `ad_set_clipboard`, `ad_clear_clipboard`,
+  `ad_focus_window_exact`, `ad_window_op_exact` and `ad_launch_app_exact` take no
+  `AdPolicyKind`, so they do what they are asked with no headless check: they move the
+  pointer, write the clipboard or raise a window. Call them only when your caller has
+  decided that the user's session may be disturbed. The CLI refuses the same operations
+  headless with `POLICY_DENIED`.
 
 - **Native handles.** `ad_find_exact` returns an `AdNativeHandle`. It re-identifies the
   element before publishing it: it raises the landed handle against the selected entry's
@@ -112,7 +121,11 @@ ABI. A bare `@eN` ref returns
   `AD_RESULT_ERR_ACTION_NOT_SUPPORTED` for the same reason as the exact action call.
   `ad_execute_action` (headless, no preflight) and
   `ad_execute_action_with_policy` act on a handle directly, bypassing the ref-action
-  pipeline. Release every handle with `ad_free_handle(adapter, &handle)` on the
+  pipeline. They still refuse an action the adapter reports as taking the
+  foreground (a popup, menu or dialog opener, or a Linux element focus) when the
+  policy forbids it: `AD_RESULT_ERR_POLICY_DENIED`, nothing sent. `ad_close_app`
+  runs headless: a graceful close of an app that answers with a save prompt
+  fails and leaves the app open; pass `force` to end the app. Release every handle with `ad_free_handle(adapter, &handle)` on the
   same adapter and thread, before `ad_adapter_destroy`, on every platform. It
   zeroes `handle.ptr`, so a second call is a no-op.
 

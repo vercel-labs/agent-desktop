@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 
+import re
 import sys
 from pathlib import Path
+
+
+INTERESTING_TOKEN = re.compile(r'b?r#*"|b?"|b?\'|//|/\*|\n')
 
 
 def raw_string_end(source, start):
@@ -84,6 +88,12 @@ def forbidden_comments(source):
     line = 1
     code_on_line = False
     while cursor < len(source):
+        match = INTERESTING_TOKEN.search(source, cursor)
+        if match is None:
+            break
+        if source[cursor : match.start()].strip():
+            code_on_line = True
+        cursor = match.start()
         string_end = raw_string_end(source, cursor)
         if string_end is None:
             string_end = quoted_string_end(source, cursor)
@@ -131,6 +141,8 @@ def check_path(path):
     if not path.is_file():
         return []
     source = path.read_text(encoding="utf-8")
+    if "//" not in source and "/*" not in source:
+        return []
     if "@generated" in "\n".join(source.splitlines()[:5]):
         return []
     return forbidden_comments(source)

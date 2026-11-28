@@ -38,7 +38,7 @@ pub(crate) fn observe_tree(
                 if remaining.is_zero() {
                     return Err(request.deadline.timeout_error().into());
                 }
-                std::thread::sleep(remaining.min(retry_delay));
+                crate::wait::deadline::sleep(remaining.min(retry_delay));
                 retry_delay = retry_delay.saturating_mul(2).min(MAX_ACTIVATION_RETRY);
             }
             Err(error) => return Err(AppError::Adapter(error)),
@@ -52,14 +52,14 @@ fn activate(
     observing: crate::Deadline,
     lease: Option<&crate::InteractionLease>,
 ) -> Result<crate::Deadline, AppError> {
-    let started = std::time::Instant::now();
+    let started = crate::wait::deadline::now();
     switch_on(adapter, root, lease).map_err(|error| match error {
         AppError::Adapter(ref adapter_error) if adapter_error.code == crate::ErrorCode::Timeout => {
             observing.timeout_error().into()
         }
         other => other,
     })?;
-    Ok(observing.extended_by(started.elapsed()))
+    Ok(observing.extended_by(crate::wait::deadline::now().saturating_duration_since(started)))
 }
 
 fn switch_on(

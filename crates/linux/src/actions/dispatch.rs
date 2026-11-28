@@ -112,6 +112,24 @@ fn right_click_dispatch(
     }
 }
 
+pub(crate) fn refuse_before_scroll(
+    bus: &SharedBus,
+    handle: &NativeHandle,
+    request: &ActionRequest,
+    lease: &InteractionLease,
+) -> Result<(), AdapterError> {
+    let Action::Select(display_value) = &request.action else {
+        return Ok(());
+    };
+    let target = Target {
+        bus,
+        handle,
+        element: atspi_element(handle)?,
+        deadline: lease.deadline(),
+    };
+    super::select::select_route::refuse_unroutable(&target, display_value)
+}
+
 pub(crate) fn execute_action(
     bus: &SharedBus,
     handle: &NativeHandle,
@@ -157,9 +175,10 @@ pub(crate) fn execute_action(
                 &target,
                 display_value,
                 pointer.as_ref().map(|pointer| pointer as &dyn Pointer),
+                request.policy.allow_focus_steal,
             )
         }
-        Action::SetFocus => focus(&target, request.policy),
+        Action::SetFocus => focus(&target),
         Action::SetValue(text) => set_value(&target, text, request.policy),
         Action::Clear => clear(&target, request.policy),
         Action::TypeText(text) if request.policy.is_headed() => physical_first(

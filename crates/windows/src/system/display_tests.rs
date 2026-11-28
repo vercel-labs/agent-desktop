@@ -42,7 +42,7 @@ fn a_successful_read_with_a_zero_dpi_is_none() {
 #[cfg(target_os = "windows")]
 #[test]
 fn live_listing_returns_exactly_one_primary_display() {
-    crate::tree::fixture::ensure_test_apartment();
+    crate::system::test_support::apartment::ensure_test_apartment();
     let displays = list_displays_live(deadline(5_000)).expect("live display enumeration succeeds");
 
     assert_eq!(
@@ -67,7 +67,7 @@ fn live_listing_returns_exactly_one_primary_display() {
 #[cfg(target_os = "windows")]
 #[test]
 fn display_at_zero_matches_list_displays_primary() {
-    crate::tree::fixture::ensure_test_apartment();
+    crate::system::test_support::apartment::ensure_test_apartment();
     let listed = list_displays_live(deadline(5_000)).expect("list displays");
     let at_zero = display_at(0, deadline(5_000)).expect("display at 0");
 
@@ -78,7 +78,7 @@ fn display_at_zero_matches_list_displays_primary() {
 #[cfg(target_os = "windows")]
 #[test]
 fn display_at_out_of_range_is_invalid_args() {
-    crate::tree::fixture::ensure_test_apartment();
+    crate::system::test_support::apartment::ensure_test_apartment();
     let listed = list_displays_live(deadline(5_000)).expect("list displays");
     let error = display_at(listed.len(), deadline(5_000)).expect_err("out of range");
 
@@ -88,7 +88,7 @@ fn display_at_out_of_range_is_invalid_args() {
 #[cfg(target_os = "windows")]
 #[test]
 fn capture_selection_round_trips_live_display() {
-    crate::tree::fixture::ensure_test_apartment();
+    crate::system::test_support::apartment::ensure_test_apartment();
     let listed = list_displays_live(deadline(5_000)).expect("list displays");
     let expected = listed[0].clone();
     let (index, selected) = capture_selection(&expected, deadline(5_000)).expect("selection");
@@ -100,7 +100,7 @@ fn capture_selection_round_trips_live_display() {
 #[cfg(target_os = "windows")]
 #[test]
 fn scale_for_bounds_uses_owning_display_scale() {
-    crate::tree::fixture::ensure_test_apartment();
+    crate::system::test_support::apartment::ensure_test_apartment();
     let listed = list_displays_live(deadline(5_000)).expect("list displays");
     let primary = &listed[0];
     let inset = Rect {
@@ -237,7 +237,7 @@ fn verify_display_identity_requires_id_with_geometry() {
     assert_eq!(error.code, ErrorCode::InvalidArgs);
 }
 
-use crate::system::fixture::test_time::deadline;
+use crate::system::test_support::test_time::deadline;
 
 fn display(id: &str, is_primary: bool, scale: f64, bounds: Rect) -> DisplayInfo {
     DisplayInfo {

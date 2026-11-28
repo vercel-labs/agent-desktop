@@ -1,3 +1,4 @@
+use super::incomplete_error::IncompleteLocator;
 use super::{LocatorResolution, ObservationRequest, ObservationRoot, ObservedNode, ObservedTree};
 use crate::{
     AdapterError, AppError, ErrorCode, IdentityMatch, adapter::PlatformAdapter,
@@ -33,16 +34,19 @@ pub(super) fn selected_matches(
     observed: &ObservedTree,
 ) -> Result<(), AppError> {
     let deadline = request.deadline;
+    let anchor_query = query.without_subtree_predicates();
+    let query = &anchor_query;
     let proof = crate::refs::ref_capture_proof::CaptureProof::new(observed);
     let mut refmap = RefMap::new();
     for matched in &mut resolution.matches {
         ensure_remaining(deadline)?;
-        let preliminary = matched.entry.clone();
+        let mut preliminary = matched.entry.clone();
         let bounds_space = preliminary.geometry.bounds_space.unwrap_or_default();
         let has_identity = crate::refs::ref_identity::has_meaningful_identity(&preliminary);
         let has_bounds = preliminary.geometry.bounds_hash.is_some();
         let index = matched.document_order as usize;
-        let proven = proof.proves_node(&preliminary, index);
+        proof.prove_node(&mut preliminary, index);
+        let proven = preliminary.identity.proof.is_unique();
         tracing::debug!(
             role = preliminary.identity.role,
             path_len = preliminary.scope.path.len(),
@@ -54,12 +58,23 @@ pub(super) fn selected_matches(
             return Err(anchor_missing(&preliminary).into());
         }
         if matched.fully_observed {
-            let name = preliminary.identity.name.clone().unwrap_or_default();
+            let name = matched.data.name.clone();
             let value = preliminary.identity.value.clone();
             record_match(matched, preliminary, name, value, &mut refmap)?;
             continue;
         }
-        let handle = adapter.resolve_locator_anchor(&preliminary, deadline)?;
+        let handle = if preliminary.scope.chain.is_empty() {
+            adapter.resolve_locator_anchor(&preliminary, None, deadline)?
+        } else {
+            crate::refs::ref_scope_resolve::land_in_scope(
+                adapter,
+                &preliminary,
+                observed,
+                index,
+                deadline,
+                None,
+            )?
+        };
         ensure_remaining(deadline)?;
         let hydration_root = ObservationRoot::Element {
             handle: &handle,
@@ -69,15 +84,18 @@ pub(super) fn selected_matches(
         let mut hydrated = crate::tree::renderer_accessibility::observe_tree(
             adapter,
             hydration_root,
-            &ObservationRequest::selected_hydration(query, request, hydration_root, deadline)
-                .validate()?,
+            &ObservationRequest::selected_hydration(query, hydration_root, deadline).validate()?,
             None,
         )?;
         hydrated.stats.reads.counts.observation_attempts =
             hydrated.stats.reads.counts.observation_attempts.max(1);
         resolution.stats.merge_observation(&hydrated.stats);
         if hydrated.roots.len() != 1 {
-            return Err(evidence_incomplete(&hydrated, None, query, bounds_space).into());
+            return Err(
+                IncompleteLocator::SelectedEvidence(&hydrated, None, query, bounds_space)
+                    .error()
+                    .into(),
+            );
         }
         let root_index = hydrated.roots[0] as usize;
         let (entry, name, value, root_order, screen_bounds) = {
@@ -86,7 +104,14 @@ pub(super) fn selected_matches(
                 .get(root_index)
                 .ok_or_else(|| AdapterError::internal("hydrated locator root is missing"))?;
             if !evidence_complete(query, node, bounds_space) {
-                return Err(evidence_incomplete(&hydrated, Some(node), query, bounds_space).into());
+                return Err(IncompleteLocator::SelectedEvidence(
+                    &hydrated,
+                    Some(node),
+                    query,
+                    bounds_space,
+                )
+                .error()
+                .into());
             }
             if node.evidence.role.known().map(String::as_str)
                 != Some(preliminary.identity.role.as_str())
@@ -94,10 +119,11 @@ pub(super) fn selected_matches(
             {
                 return Err(changed_during_hydration().into());
             }
-            let entry = RefEntry {
+            let mut entry = RefEntry {
                 identity: preliminary.identity.clone(),
                 ..super::materialize::ref_entry(node, &hydrated.source, query)
             };
+            entry.scope.chain = preliminary.scope.chain.clone();
             let name = node.evidence.name.meaningful_string().unwrap_or_default();
             let value = node.evidence.value.meaningful_string();
             let screen_bounds = super::materialize::screen_bounds(&node.evidence);
@@ -123,7 +149,7 @@ pub(super) fn selected_matches(
             if validation.meta.complete {
                 return Err(changed_during_hydration().into());
             }
-            return Err(query_incomplete(&validation).into());
+            return Err(IncompleteLocator::SelectedQuery(&validation).error().into());
         }
         matched.screen_bounds = screen_bounds.or(matched.screen_bounds);
         record_match(matched, entry, name, value, &mut refmap)?;
@@ -259,60 +285,6 @@ fn changed_during_hydration() -> AdapterError {
     )
     .with_suggestion("Retry the locator against the current accessibility tree")
     .with_disposition(crate::DeliverySemantics::not_delivered())
-}
-
-fn query_incomplete(validation: &LocatorResolution) -> AdapterError {
-    let deterministic = super::resolve::has_deterministic_limit(&validation.stats);
-    AdapterError::timeout("Selected locator query could not be revalidated")
-        .with_suggestion("Retry against a stable subtree or use a narrower locator")
-        .with_details(json!({
-            "kind": if deterministic {
-                "locator_selected_query_budget_limit"
-            } else {
-                "locator_selected_query_incomplete"
-            },
-            "retryable": !deterministic,
-            "selection_complete": validation.meta.selection_complete,
-            "observed_matches": validation.meta.total_matches,
-            "query_stats": &validation.stats,
-        }))
-        .with_disposition(crate::DeliverySemantics::not_delivered())
-}
-
-fn evidence_incomplete(
-    tree: &ObservedTree,
-    node: Option<&ObservedNode>,
-    query: &LocatorQuery,
-    space: crate::BoundsSpace,
-) -> AdapterError {
-    AdapterError::timeout("Selected locator evidence was incomplete")
-        .with_details(json!({
-            "kind": "locator_selected_evidence_incomplete",
-            "retryable": true,
-            "structurally_complete": tree.structurally_complete,
-            "root_count": tree.roots.len(),
-            "required": {
-                "name": query.identity.name.is_some(),
-                "description": query.identity.description.is_some(),
-                "value": query.identity.value.is_some(),
-                "identifiers": query.identity.native_id.is_some(),
-                "states": true,
-                "bounds": true,
-                "actions": true,
-            },
-            "unknown": node.map(|node| json!({
-                "role": node.evidence.role.is_unknown(),
-                "name": node.evidence.name.is_unknown(),
-                "description": node.evidence.description.is_unknown(),
-                "value": node.evidence.value.is_unknown(),
-                "identifiers": !node.evidence.identifiers.is_complete(),
-                "states": node.evidence.states.is_unknown(),
-                "bounds": !geometry_complete(&node.evidence.ref_evidence, space),
-                "actions": node.evidence.ref_evidence.available_actions.is_unknown(),
-            })),
-            "query_stats": &tree.stats,
-        }))
-        .with_disposition(crate::DeliverySemantics::not_delivered())
 }
 
 #[cfg(test)]

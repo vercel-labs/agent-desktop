@@ -7,15 +7,20 @@ use crate::system::x11::twin_tie::Twins;
 #[test]
 fn a_window_already_active_by_both_measures_sends_nothing() {
     let world = World::new(Some(CLIENT));
-    run(&world, &window(), budget()).expect("already active is a success");
+    let outcome = run(&world, &window(), budget()).expect("already active is a success");
     assert_eq!(world.sends(), 0);
+    assert_eq!(outcome, Activation::Quiet);
+    assert!(!outcome.dispatched());
 }
 
 #[test]
 fn a_grant_that_arrives_after_some_polls_is_still_a_success() {
     let mut world = World::new(Some(OTHER));
     world.grant = Grant::AfterReads(3);
-    run(&world, &window(), budget()).expect("the wait polls rather than checking once");
+    let outcome =
+        run(&world, &window(), budget()).expect("the wait polls rather than checking once");
+    assert_eq!(outcome, Activation::Sent);
+    assert!(outcome.dispatched());
     assert_eq!(*world.sent.borrow(), vec![CLIENT]);
     assert!(world.active_reads.get() >= 3);
 }
@@ -127,8 +132,10 @@ fn an_open_menu_of_the_active_app_is_focus_without_another_request() {
     let mut world = World::new(Some(CLIENT));
     world.frame_active.set(Some(false));
     world.menu_open = true;
-    run(&world, &window(), budget()).expect("the menu's grab is the application's focus");
+    let outcome =
+        run(&world, &window(), budget()).expect("the menu's grab is the application's focus");
     assert_eq!(world.sends(), 0);
+    assert_eq!(outcome, Activation::Quiet);
 }
 
 #[test]
@@ -136,8 +143,10 @@ fn a_chromium_popup_active_frame_proves_focus_only_when_its_app_owns_the_x11_cli
     let mut app_owned = World::new(Some(CLIENT));
     app_owned.frame_active.set(Some(false));
     app_owned.app_frame_active = true;
-    run(&app_owned, &window(), budget()).expect("the active popup belongs to this app");
+    let outcome =
+        run(&app_owned, &window(), budget()).expect("the active popup belongs to this app");
     assert_eq!(app_owned.sends(), 0);
+    assert_eq!(outcome, Activation::Quiet);
 
     let mut foreign = World::new(Some(OTHER));
     foreign.grant = Grant::Never;

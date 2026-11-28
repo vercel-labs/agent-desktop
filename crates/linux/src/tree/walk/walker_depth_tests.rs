@@ -4,7 +4,7 @@ use agent_desktop_core::{AdapterError, Deadline};
 
 use super::walker::walk_levels;
 use super::wrapper::classify;
-use crate::tree::live::test_support::read_of;
+use crate::tree::test_support::helpers::read_of;
 use crate::tree::vocabulary::role_numbers::{PANEL, PUSH_BUTTON};
 use crate::tree::{Expansion, ObservedRead, Walk, WalkLimits, WalkedNode};
 
@@ -265,6 +265,7 @@ fn a_parent_whose_child_read_failed_is_incomplete_and_carries_no_count() {
                     children: if *key == 0 { vec![1] } else { Vec::new() },
                     children_unread: *key == 1,
                     gone: false,
+                    slots: None,
                 })
                 .collect())
         },

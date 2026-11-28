@@ -31,14 +31,19 @@ impl ScreenshotAdapter {
 }
 
 impl ObservationOps for ScreenshotAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<crate::AppInfo>, AdapterError> {
-        Ok(vec![crate::AppInfo {
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(vec![crate::AppInfo {
+            aliases: Vec::new(),
             name: "Example".into(),
             pid: crate::ProcessId::new(700),
             bundle_id: Some("com.example.app".into()),
             process_instance: Some("instance-700".into()),
             presentation: None,
-        }])
+        }]))
     }
 
     fn list_windows(

@@ -14,6 +14,7 @@ pub(crate) fn window_op_command(
     args: AppArgs,
     adapter: &dyn PlatformAdapter,
     op: WindowOp,
+    policy: crate::InteractionPolicy,
 ) -> Result<Value, AppError> {
     let deadline = crate::Deadline::standard()?;
     let win = resolve_window(
@@ -24,8 +25,54 @@ pub(crate) fn window_op_command(
     )?;
     let lease = adapter.acquire_interaction_lease(deadline)?;
     let live = revalidate_window_for_mutation(adapter, &win, &lease)?;
-    let report = adapter.window_op(&live, op, &lease)?;
+    refuse_minimizing_the_focused_window(&live, &op, policy)?;
+    let report = guarded_window_op(adapter, &live, op, policy, &lease)?;
     super::operation_response::operation_response(&report, json!({}))
+}
+
+/// How long the front guard keeps watching after a window operation that can
+/// change the window order returns.
+const WINDOW_SETTLE: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// Runs a minimize, maximize or restore under the front guard. A move or a
+/// resize never changes the window order and does not come through here.
+fn guarded_window_op(
+    adapter: &dyn PlatformAdapter,
+    live: &WindowInfo,
+    op: WindowOp,
+    policy: crate::InteractionPolicy,
+    lease: &crate::InteractionLease,
+) -> Result<crate::OperationReport, AppError> {
+    let (report, front) = crate::system::front_guard::guarded(
+        adapter,
+        policy,
+        lease,
+        crate::system::front_guard::FrontWatch {
+            target: crate::system::front_target::FrontTarget::of_process(adapter, live.pid.get()),
+            settle: WINDOW_SETTLE,
+            after_release: false,
+        },
+        |_| adapter.window_op(live, op, policy, lease),
+    )?;
+    let mut report = report.map_err(|mut error| {
+        front.note_in_error(&mut error);
+        error
+    })?;
+    front.note_in(&mut report.result.details);
+    Ok(report)
+}
+
+/// The window manager hands the focus to another window when the focused one
+/// minimizes, so a headless minimize of it would move the user's focus.
+fn refuse_minimizing_the_focused_window(
+    live: &WindowInfo,
+    op: &WindowOp,
+    policy: crate::InteractionPolicy,
+) -> Result<(), AppError> {
+    if matches!(op, WindowOp::Minimize) && live.state.is_focused {
+        policy.require(crate::Effect::FocusSteal, "minimize of the focused window")?;
+    }
+    Ok(())
 }
 
 pub(crate) fn resolve_window_for_app(
@@ -90,3 +137,7 @@ pub(crate) fn revalidate_window_for_mutation(
     }
     Ok(live)
 }
+
+#[cfg(test)]
+#[path = "window_target_tests.rs"]
+mod tests;

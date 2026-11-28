@@ -18,7 +18,9 @@ mod submit;
 mod timing;
 
 pub(crate) use caret_follow::follow_caret_after_key;
-pub use config::{CursorOverlayConfig, MAX_CURSOR_LABEL_BYTES, MAX_CURSOR_LABEL_WORDS};
+pub use config::{
+    CursorOverlayConfig, MAX_CURSOR_LABEL_BYTES, MAX_CURSOR_LABEL_WORDS, clamp_cursor_label,
+};
 pub use control::{CURSOR_OVERLAY_GREETING, CursorOverlayControl};
 pub(crate) use cursor_hold::hold_cursor;
 pub use image::{
@@ -46,6 +48,8 @@ pub use timing::{
     CURSOR_LABEL_REVEAL_MS, CURSOR_MOTION_BUDGET_MS, CURSOR_REST_FADE_MS,
 };
 
+#[cfg(test)]
+mod clamp_label_tests;
 #[cfg(test)]
 mod image_tests;
 #[cfg(test)]

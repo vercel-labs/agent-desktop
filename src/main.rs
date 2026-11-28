@@ -25,7 +25,6 @@ use agent_desktop_core::{
 };
 use clap::{CommandFactory, FromArgMatches};
 use cli::{Cli, Commands};
-use cli_args::sandbox::SandboxActionCli;
 use cli_args::skills::SkillsAction;
 use std::io::{BufWriter, Write};
 use std::process::ExitCode;
@@ -107,7 +106,7 @@ fn run() -> ExitCode {
 
     let cmd_name = cmd.name();
     if let Commands::Sandbox(args) = &cmd
-        && let SandboxActionCli::Exec(exec) = &args.action
+        && let cli_args::sandbox::SandboxActionCli::Exec(exec) = &args.action
     {
         return dispatch::sandbox::run_exec(&cli, exec, cmd_name, &build_adapter());
     }
@@ -136,9 +135,17 @@ fn report_parse_failure(e: clap::Error) -> ExitCode {
             Err(write_err) => report_output_failure(write_err),
         };
     }
-    let summary = diagnostic::clap_error_summary(&e.to_string());
-    let error = AppError::invalid_input(diagnostic::bounded_text(&summary, 512));
+    let rendered = e.to_string();
+    let summary = diagnostic::clap_error_summary(&rendered);
     let command_name = diagnostic::clap_command_name(std::env::args().skip(1));
+    let message = diagnostic::bounded_text(&summary, 512);
+    let error = match diagnostic::clap_error_suggestion(&rendered, &command_name) {
+        Some(suggestion) => AppError::invalid_input_with_suggestion(
+            message,
+            diagnostic::bounded_text(&suggestion, 512),
+        ),
+        None => AppError::invalid_input(message),
+    };
     if let Err(write_err) = emit_response(&Response::err(
         &command_name,
         ErrorPayload::from_app_error(&error),

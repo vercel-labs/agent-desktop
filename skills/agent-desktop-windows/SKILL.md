@@ -4,109 +4,96 @@ tags: windows-automation, accessibility, uia, ai-agent, gui-automation, cli
 requirements:
   - agent-desktop
 description: >
-  Windows platform guide for the agent-desktop CLI. Lists per command group
-  what works on Windows and what refuses, the first-contact gotchas
-  (PowerShell ref quoting, minimized windows, headed-only input), and where
-  to find shell surfaces, notifications, the cursor overlay, UIPI elevation,
-  Chromium/Electron settle behavior and troubleshooting.
-  Triggers on: "windows desktop automation", "UIA tree", "automate Windows app",
-  "agent-desktop on Windows", "elevated window input blocked", "E_ACCESSDENIED",
-  or any Windows GUI interaction task.
+  Windows setup and troubleshooting for agent-desktop: PowerShell refs,
+  interactive sessions, UIPI, foreground-safe routes, and verification.
 ---
 
-# agent-desktop-windows
+# agent-desktop on Windows
 
-This file covers only what differs on Windows. The observe-act loop, refs, JSON
-envelope, sessions and tracing are the same on every platform.
+Use the core skill's headless observe, act, verify workflow. A platform capability
+never authorizes `--headed`; only the user's explicit request does.
 
-Requires Windows 10 1809+ / Windows Server 2019+ (x64 or ARM64). Run it in the
-interactive desktop session of the signed-in user. Session 0 (services and
-SYSTEM tasks), Server Core, the secure desktop (UAC prompts, the sign-in
-screen), a locked desktop and another user's session are not supported:
-observation, actions and capture there fail or return nothing.
+## Setup and permissions
 
-## Capability Table
+Run `agent-desktop status` in the signed-in user's interactive desktop session.
+`permissions.accessibility` reports whether UI Automation can be created:
+`granted`, `denied`, or `unknown`. `automation` is `not_required`;
+`screen_recording` is `not_required` when a capture backend is available,
+otherwise `unknown`. There is no permission dialog that bypasses a session or
+integrity boundary. Services, secure or locked desktops, and another user's
+session are not supported targets.
+Use `agent-desktop permissions` to recheck after the user fixes access.
 
-| Group | Commands | Status on Windows |
-|-------|----------|-------------------|
-| Observation | `snapshot`, `find`, `get`, `is`, `screenshot` | Works. Surfaces are `window`, `focused`, a Chromium modal as `sheet`, and an open application menu as `menu` |
-| Surfaces | `list-surfaces` | Works. Lists `window`, `focused` and `sheet` per process, plus `menu` with `item_count` while a menu is open |
-| Shell surfaces | `open-system-surface` | Works for `start-menu`, `taskbar`, `system-tray`, `system-tray-overflow` and `action-center`, and returns the window `snapshot --surface <kind>` reads. `quick-settings` returns `INVALID_ARGS` naming `action-center` |
-| Ref interaction | `click`, `right-click`, `type`, `set-value`, `clear`, `select`, `toggle`, `check`, `uncheck`, `expand`, `collapse`, `scroll`, `scroll-to` | Works, semantic in headless and `--headed` mode. `right-click` and `type` need `--headed` and return `POLICY_DENIED` headless |
-| Multi-click and focus | `double-click`, `triple-click`, `focus` | Works with global `--headed` only |
-| Keyboard and mouse | `press`, `hover`, `drag`, `mouse-click`, `mouse-move`, `mouse-wheel` | Works. Cursor-moving input needs `--headed`. First Contact covers `press --app` |
-| Held input | `key-down`, `key-up`, `mouse-down`, `mouse-up` | Fails closed on every platform with `ACTION_NOT_SUPPORTED`. A headless `mouse-down` or `mouse-up` returns `POLICY_DENIED` first |
-| App and window | `launch`, `close-app`, `list-windows`, `list-apps`, `focus-window`, `resize-window`, `move-window`, `minimize`, `maximize`, `restore` | Works. First Contact covers the name `launch` takes |
-| Displays | `list-displays` | Works |
-| Clipboard | `clipboard-get`, `clipboard-set`, `clipboard-clear` | Works; typed text and image content |
-| Wait | `wait` | Works for ms, `--element`, `--window`, `--text`, `--menu`, `--menu-closed`, `--event` and `--notification` |
-| Notifications | `list-notifications`, `dismiss-notification`, `dismiss-all-notifications`, `notification-action` | Works over the Action Center. Pass `--headed` when the center is closed |
-| Cursor overlay | `cursor-overlay` | Works. `enable` returns `data.rendered: true` only after the renderer acknowledges over its pipe. See `references/shell-and-overlay.md` |
-| System | `status`, `permissions`, `version`, `batch`, `skills`, `session`, `trace` | Works |
+Quote refs in PowerShell: `'@s8f3k2p9:e1'`. A bare `@token` invokes splatting.
+Use `$env:NAME = 'value'` for environment variables.
+Windows PowerShell 5.1 drops the double quotes in a JSON argument: pass `($json -replace '"','\"')` to `batch`, which has no stdin or file route.
+PowerShell appends a line ending to piped text, so `--stdin` keeps it; use `cmd /c "agent-desktop set-value '<ref>' --stdin < file.txt"` for exact text.
 
-## First Contact
+## Platform behavior
 
-- **Quote every ref in PowerShell.** PowerShell reads a bare `@token` as its
-  splatting operator and deletes the argument before the binary sees it, so
-  `set-value @s8f3k2p9:e1 hi` fails `INVALID_ARGS`. Write
-  `set-value '@s8f3k2p9:e1' hi`. cmd.exe and bash need no quoting.
-- **A window behind another window is drivable. A minimized one is not.**
-  Every element of a minimized window reports `offscreen` and ref actions
-  fail. Run `restore --app <image>` and snapshot again. Do not use
-  `focus-window` by reflex: it steals the user's foreground.
-- **No permission dialog exists.** `permissions` reports `automation` as
-  `not_required`. Elevation boundaries are the only access control.
-- **Chromium and Electron apps read thin before they settle.** Pass a longer
-  `--timeout-ms` to `snapshot` instead of concluding the tree is empty.
-- **Blocked shortcuts.** `alt+f4`, `win+l`, `win+d`, `alt+tab`, `win+r`,
-  `win+x`, `win+e`, `ctrl+shift+esc` and their modifier supersets are refused
-  without `--force`. In combos, `cmd` and `meta` are the Windows key, so
-  `meta+c` is a shell shortcut. Write `ctrl+c` to copy.
-- **`type` needs `--headed`.** It is keystroke synthesis through `SendInput`,
-  so a strict-headless `type` returns `POLICY_DENIED`. Use `set-value`, or pass
-  `--headed`. It ends `delivered_unverified` (`verification_scope:
-  "unavailable"`) when the field exposes no readable Text selection, and can
-  verify when one is readable: confirm with a fresh `get`.
-- **`press --app` writes to the foreground queue** with no per-process
-  targeting. A headless press to a non-frontmost app fails closed. A
-  non-interactive caller (service, scheduled task, CI job) gets
-  `delivered_unverified`.
-- **`launch` takes an absolute path or a bare name** under System32 or the
-  Windows directory, with or without `.exe` (`notepad` or `notepad.exe`), not
-  a display name. Use `list-apps` to find a running app.
-- **Notifications:** `list-notifications` with the Action Center closed needs
-  `--headed`. Single-item `dismiss-notification` and `notification-action` need
-  `--headed` and `--expected-app` or `--expected-title` for the entry at INDEX.
-- **Surfaces:** an open or context menu is the `menu` surface. Windows does
-  not advertise a `menubar` surface.
-- **Commands that raise shell chrome take the foreground.** Strict headless
-  refuses them with `POLICY_DENIED` before anything is raised.
-- **Stateful actions run once, then verify by re-reading.** `delivered_verified`
-  means the readback matched. `ACTION_FAILED` with
-  `details.kind: "post_action_verification"` means the action landed but the
-  readback differs: read `details.post_state` and do not retry. A `set-value`
-  the app reformats reads as failed. See `references/troubleshooting.md`.
-- **Unsigned binary warnings are expected.** See `references/troubleshooting.md`.
+- A covered window can be driven headless; minimized controls report offscreen.
+  Headless `restore` of a minimized window is refused with `POLICY_DENIED` and nothing is sent, because some applications (the Management Console, Character Map) activate themselves when restored whatever show command is used. Stop on that refusal; restoring a maximized window stays headless.
+- UIPI (User Interface Privilege Isolation) blocks input into a higher-integrity
+  process. Ask the user to run the CLI at the target's integrity level when needed;
+  a working observation does not establish input permission.
+- Headless routes use UIA patterns, legacy accessibility and native control
+  messages; none takes the foreground. `agent-desktop type`, `agent-desktop right-click`,
+  `agent-desktop focus`, an expand that opens a popup (combo box, menu), `agent-desktop scroll-to`
+  on an item of a Win32 tree view and physical input need headed mode; a semantic value write may work instead when it matches the user's task.
+  Never retry a refusal headed.
+- A ref must be unique in its window, or inside its nearest unique ancestor (a
+  cell inside its row), at capture and resolution. A root drill cannot make
+  identical twins unique. Choose a distinct control.
+- `press escape` with `--app` or `--window-id` on a window that is not in front is
+  refused as before, unless that window shows an open menu, combo box or split
+  button: then the innermost one is collapsed (`ExpandCollapsePattern.Collapse`),
+  `delivered_verified` once read back closed. A tree item is never collapsed.
+  `collapse` of an open combo box or menu item works headless, and reports `not_delivered` when it is already closed.
+- `press --app` or `--window-id` works headless only when that process owns the foreground window. Otherwise it sends nothing and returns
+  `ACTION_FAILED` (`details.check: process_focus`, `not_delivered`). There is no background key route.
+- `--trace PATH`: the file's folder must exist and have a private DACL (you, SYSTEM, Administrators). A folder that grants `Users` write gives `INVALID_ARGS`.
+- A grid reports `row_count` and `column_count`. A row is a record: find it by its own name, and its cells through it. `agent-desktop click` on a grid cell that lists `Click` selects the row that holds it. A cell carries no grid position.
+- A field whose text is longer than 2048 characters cannot be read: `get` returns `ACTION_FAILED` with `details.kind: "value_exceeds_read_limit"` and the length. Do not retry it. `clear`, `set-value`, `focus` and `click` on its ref still work.
+- `agent-desktop launch` takes an absolute executable path or a bare program name in the
+  Windows or System32 directory, not an arbitrary display name or a PATH search.
+  Without `--activate` the process starts with a show-window hint that asks for no
+  activation. A window that takes the foreground or the top of the window order is
+  sent back below the window that had it, and the result reports `focus_returned: true`,
+  or `false` with a suggestion. A window you switched to is never touched.
+- Chromium/Electron trees can be thin while accessibility settles. Finish a bounded observation before concluding content is absent.
+- An open application menu is the `menu` surface; there is no `menubar` surface. An owned popup window
+  of the app (a ribbon drop-down) is a `popover`: `list-surfaces` lists it, `snapshot --surface popover` reads it.
+  When several popovers are open, name one with `--app <app> --window-id <its w-id from list-surfaces>`;
+  without a name the read is refused with `AMBIGUOUS_TARGET` rather than reading a different popover.
+  Shell surfaces are separate from ordinary window inventory. `quick-settings`
+  refuses with `INVALID_ARGS` naming `action-center`.
+- Notification reads adopt an already-open Action Center headless; opening it
+  and notification mutations require headed permission. Indices can reorder:
+  copy the expected app and title from a fresh listing before a single-item action.
+- `agent-desktop wait --notification` opens and closes the center per poll when it was closed
+  on entry, but leaves an already-open center open. Budget for the measured
+  1254.2 ms per poll median plus the polling interval; transient toasts can be missed.
+- `agent-desktop cursor-overlay enable` reports `rendered: true` only after renderer acknowledgement.
+  It does not move the physical pointer, and headed actions skip its travel animation.
+- Sandboxes are not available on Windows yet; for your own container see `agent-browser.dev/desktop/guides/docker-container`.
 
-## What differs on Windows
+Value verification is not application commit: `delivered_verified` with
+`element_value` confirms only the field. `unavailable` means readback evidence
+was missing, not that delivery failed. `post_action_verification` means the
+readback contradicted the request after delivery, so inspect `post_state` without
+retrying. Only `slider`, `incrementor`, `scrollbar`, and `handle` compare numeric
+values with tolerance; a `textfield` compares exactly, even if the app reformats it.
 
-- Sandboxes are not available on Windows yet. To run agent-desktop in a container you manage yourself, see `agent-browser.dev/desktop/guides/docker-container`.
+## Troubleshooting
 
-- Ref actions are semantic UI Automation calls in headless and `--headed` mode, except `right-click`, `double-click`, `triple-click`, `type` and `focus`, which are physical or take focus and need `--headed`.
-- A ref resolves only when it was the only element in the window its snapshot captured with its role, native id, name and description, and exactly one live element still matches. Uniqueness counts the whole window, not the shallow tree a `--skeleton` or `--max-depth` snapshot presents, so a twin below the cut still refuses the ref. Identical twins, such as several identical `Delete` buttons, are refused with `AMBIGUOUS_TARGET`, `details.kind: identity_not_unique`, before anything reaches the app; a live second match is `saved_ref_ambiguous`, and a removed element is `STALE_REF`, `saved_ref_absent`. Take a fresh snapshot after a list changes, and use `--headed mouse-click --xy` when you must pick one of two identical controls.
-- The cursor overlay plays its per-action travel only for headless semantic actions. A `--headed` action moves the real cursor instead.
+Read the disposition before applying a fix. Match both the code and message.
 
-## References
-
-- `references/shell-and-overlay.md`: open it for `open-system-surface`, tray
-  and taskbar surfaces, notifications, the cursor overlay, hosted (UWP) window
-  identity and menu detection coverage.
-- `references/permissions-and-elevation.md`: integrity levels, UIPI, blocked
-  combos, protected processes, the cross-process interaction lease.
-- `references/chromium-and-electron.md`: settle timing, covered-window hazard,
-  WPF wrong-provider trap, unnamed web content.
-- `references/troubleshooting.md`: symptom-to-cause map, action verification
-  outcomes, saving a document headless, install warnings.
-
-Read any file from the binary:
-`agent-desktop skills get agent-desktop-windows references/troubleshooting.md`.
+| Code and message pattern | Cause and fix |
+| --- | --- |
+| `PERM_DENIED`: `UI Automation access is denied for this process` | A restricted token or noninteractive session cannot use UIA. Run in the user's interactive session with an allowed token. |
+| `PERM_DENIED`: UIPI, integrity, or elevated target | The target has higher integrity. Ask the user to provide a matching-integrity caller; do not assume observation grants input access. |
+| `POLICY_DENIED`: foreground, physical input, or closed Action Center | The route needs headed mode. Stop and tell the user which operation needs it; do not add `--headed`. |
+| `STALE_REF`: `Stored ref does not match any live element` (`resolve_no_candidate`) | The adapter could not land the ref. Take a fresh snapshot in the same session; do not infer delivery from the missing target. |
+| `ACTION_FAILED`: post-action verification or requested value mismatch | Delivery occurred but readback differs, possibly because the app reformatted the value. Inspect live state and `details.post_state`; do not repeat the write. |
+| `PERM_DENIED`: `private file DACL grants an untrusted principal` | The state folder grants access beyond trusted principals. Keep only the user, SYSTEM, and Administrators on the folder, or point `AGENT_DESKTOP_HOME` at a new folder under the user profile and let the tool create it. |
+| `PERM_DENIED`: `private file parent is owned by a foreign principal` | The state folder's owner is not eligible for this process. Point `AGENT_DESKTOP_HOME` at a new folder under the user profile and let the tool create it; do not take over another principal's folder. |

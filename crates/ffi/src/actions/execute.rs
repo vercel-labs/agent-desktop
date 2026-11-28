@@ -38,11 +38,10 @@ pub unsafe extern "C" fn ad_execute_action(
 
 /// Low-level native-handle action with explicit interaction policy. Dispatches
 /// directly to the platform adapter without strict ref re-identification or
-/// actionability preflight. The `policy` discriminant is applied verbatim — no
-/// base-policy elevation is performed. This is a raw escape hatch for callers
-/// that already hold a live native handle. Callers wanting CLI-semantics parity
-/// (RefStore load → strict resolution → preflight → dispatch with base-policy
-/// join) should use `ad_execute_by_ref` instead.
+/// actionability preflight. The `policy` discriminant is applied verbatim.
+/// This is a raw escape hatch for callers that already hold a live native
+/// handle. Callers wanting CLI-semantics parity (RefStore load → strict
+/// resolution → preflight → dispatch) should use `ad_execute_by_ref` instead.
 ///
 /// # Safety
 ///
@@ -96,6 +95,15 @@ pub unsafe extern "C" fn ad_execute_action_with_policy(
         if let Action::Drag(params) = &request.action
             && let Err(error) = params.validate(lease.deadline())
         {
+            error::set_last_error(&error);
+            return error::last_error_code();
+        }
+        if let Err(error) = agent_desktop_core::ensure_foreground_allowed(
+            adapter.inner.as_ref(),
+            native_handle.as_ref(),
+            &request,
+            lease.deadline(),
+        ) {
             error::set_last_error(&error);
             return error::last_error_code();
         }

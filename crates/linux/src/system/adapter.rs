@@ -2,18 +2,19 @@ use agent_desktop_core::system::launch_options::LaunchOptions;
 use agent_desktop_core::system::launch_result::LaunchResult;
 use agent_desktop_core::system::process_state::ProcessState;
 use agent_desktop_core::{
-    ActionResult, AdapterError, AdapterSession, AppInfo, Deadline, DismissAllNotificationsRequest,
-    DismissNotificationRequest, DisplayInfo, ImageBuffer, InteractionLease, InteractionPolicy,
-    KeyCombo, NotificationActionRequest, NotificationFilter, NotificationInfo, OperationReport,
-    PermissionReport, ProcessIdentity, ScreenshotTarget, SessionAffinity, SignalBaseline,
-    SignalFilter, SnapshotSurface, SystemOps, WindowInfo, WindowOp,
+    ActionResult, AdapterError, AdapterSession, AppInfo, Deadline, DeliverySemantics,
+    DismissAllNotificationsRequest, DismissNotificationRequest, DisplayInfo, ImageBuffer,
+    InteractionLease, InteractionPolicy, KeyCombo, NotificationActionRequest, NotificationFilter,
+    NotificationInfo, OperationReport, PermissionReport, ProcessIdentity, ScreenshotTarget,
+    SessionAffinity, SignalBaseline, SignalFilter, SnapshotSurface, SurfaceOpening, SystemOps,
+    WindowInfo, WindowOp,
 };
 
 use crate::adapter::LinuxAdapter;
 use crate::notifications;
 use crate::system::{
     close,
-    focus::key_dispatch,
+    focus::{escape_popup, key_dispatch},
     interaction::{action_clock, interaction_lease, session},
     launch,
     menu::{menu_surface, menu_wait},
@@ -71,8 +72,18 @@ impl SystemOps for LinuxAdapter {
         crate::system::list_displays(deadline)
     }
 
-    fn focus_window(&self, win: &WindowInfo, lease: &InteractionLease) -> Result<(), AdapterError> {
-        crate::system::focus::focus_window::focus_window(self.bus(), win, lease)
+    fn focus_window(
+        &self,
+        win: &WindowInfo,
+        lease: &InteractionLease,
+    ) -> Result<DeliverySemantics, AdapterError> {
+        crate::system::focus::focus_window::focus_window(self.bus(), win, lease).map(|activation| {
+            if activation.dispatched() {
+                DeliverySemantics::delivered_unverified()
+            } else {
+                DeliverySemantics::not_delivered()
+            }
+        })
     }
 
     fn close_app(
@@ -80,15 +91,16 @@ impl SystemOps for LinuxAdapter {
         app: &AppInfo,
         force: bool,
         lease: &InteractionLease,
+        policy: agent_desktop_core::InteractionPolicy,
     ) -> Result<OperationReport, AdapterError> {
-        close::close_app(self.bus(), app, force, lease)
+        close::close_app(self.bus(), app, force, lease, policy)
     }
 
     fn launch_app(
         &self,
         id: &str,
         options: &LaunchOptions,
-        lease: &InteractionLease,
+        lease: InteractionLease,
     ) -> Result<LaunchResult, AdapterError> {
         launch::launch_app(self.bus(), id, options, lease)
     }
@@ -110,13 +122,46 @@ impl SystemOps for LinuxAdapter {
         process_state::process_state(self.bus(), process, deadline)
     }
 
+    fn read_front(
+        &self,
+        deadline: Deadline,
+    ) -> Result<agent_desktop_core::FrontView, AdapterError> {
+        crate::system::focus::focus_front::read_front(deadline)
+    }
+
+    fn front_process(&self, pid: u32) -> Option<agent_desktop_core::FrontProcess> {
+        crate::system::focus::focus_front::front_process(pid)
+    }
+
+    fn spawned_descendants(&self, root: u32, since_ms: u64) -> Option<Vec<u32>> {
+        crate::system::focus::focus_front::spawned_descendants(root, since_ms)
+    }
+
+    fn keep_below(
+        &self,
+        window: &agent_desktop_core::FrontWindow,
+        above: &agent_desktop_core::FrontWindow,
+        _lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        crate::system::focus::focus_front::keep_below(window, above)
+    }
+
+    fn give_back(
+        &self,
+        window: &agent_desktop_core::FrontWindow,
+        _lease: &InteractionLease,
+    ) -> Result<(), AdapterError> {
+        crate::system::focus::focus_front::give_back(window)
+    }
+
     fn window_op(
         &self,
         win: &WindowInfo,
         op: WindowOp,
+        policy: agent_desktop_core::InteractionPolicy,
         lease: &InteractionLease,
     ) -> Result<OperationReport, AdapterError> {
-        window_op::window_op(self.bus(), win, op, lease)
+        window_op::window_op(self.bus(), win, op, policy, lease)
     }
 
     fn press_key_for_app(
@@ -142,6 +187,16 @@ impl SystemOps for LinuxAdapter {
         let result = key_dispatch::press_key_for_window(self.bus(), window, combo, policy, lease);
         action_clock::mark_outcome(Some(window.pid.get()), &result);
         result
+    }
+
+    fn close_transient_surface(
+        &self,
+        process: &ProcessIdentity,
+        window: Option<&WindowInfo>,
+        policy: InteractionPolicy,
+        lease: &InteractionLease,
+    ) -> Result<Option<ActionResult>, AdapterError> {
+        escape_popup::close_transient_surface(self.bus(), process, window, policy, lease)
     }
 
     fn is_blocked_combo(&self, combo: &KeyCombo) -> bool {
@@ -182,33 +237,24 @@ impl SystemOps for LinuxAdapter {
     }
 
     fn supported_surfaces(&self) -> Vec<SnapshotSurface> {
-        let Ok(deadline) = Deadline::after(SURFACE_PROBE_MS) else {
-            return Vec::new();
-        };
-        if !permissions::accessibility_answers(self.bus(), deadline) {
-            return Vec::new();
+        let mut surfaces = answering_app_surfaces(self.bus());
+        if !surfaces.is_empty() {
+            surfaces.extend(shell::supported(self.bus()));
         }
-        let mut surfaces = vec![
-            SnapshotSurface::Window,
-            SnapshotSurface::Sheet,
-            SnapshotSurface::Alert,
-        ];
-        surfaces.extend(menu_surface::supported());
-        surfaces.extend(shell::supported(self.bus()));
         surfaces
     }
 
+    /// An application surface needs no probe. A kind that no shell surface
+    /// can be is refused without the shell probe, which takes up to its
+    /// budget on a session whose shell tree answers slowly.
     fn check_surface_support(&self, requested: SnapshotSurface) -> Result<(), AdapterError> {
-        if matches!(
-            requested,
-            SnapshotSurface::Window
-                | SnapshotSurface::Sheet
-                | SnapshotSurface::Alert
-                | SnapshotSurface::Menu
-        ) {
+        if app_surfaces().contains(&requested) {
             return Ok(());
         }
-        let supported = self.supported_surfaces();
+        let supported = match shell::kinds::kind_of(requested) {
+            Some(_) => self.supported_surfaces(),
+            None => answering_app_surfaces(self.bus()),
+        };
         if supported.contains(&requested) {
             return Ok(());
         }
@@ -227,7 +273,7 @@ impl SystemOps for LinuxAdapter {
         &self,
         request: DismissAllNotificationsRequest<'_>,
         lease: &InteractionLease,
-    ) -> Result<(Vec<NotificationInfo>, Vec<String>), AdapterError> {
+    ) -> Result<(Vec<NotificationInfo>, Vec<AdapterError>), AdapterError> {
         notifications::dismiss_all(self.bus(), request, lease)
     }
 
@@ -266,7 +312,27 @@ impl SystemOps for LinuxAdapter {
         surface: SnapshotSurface,
         policy: InteractionPolicy,
         lease: &InteractionLease,
-    ) -> Result<WindowInfo, AdapterError> {
+    ) -> Result<SurfaceOpening, AdapterError> {
         shell::open_surface(self.bus(), surface, policy, lease)
     }
+}
+
+/// The application surfaces, or none when the session's accessibility bus
+/// does not answer.
+fn answering_app_surfaces(bus: &crate::system::SharedBus) -> Vec<SnapshotSurface> {
+    match Deadline::after(SURFACE_PROBE_MS) {
+        Ok(deadline) if permissions::accessibility_answers(bus, deadline) => app_surfaces(),
+        _ => Vec::new(),
+    }
+}
+
+/// The surfaces of an application window that every session reads.
+fn app_surfaces() -> Vec<SnapshotSurface> {
+    let mut surfaces = vec![
+        SnapshotSurface::Window,
+        SnapshotSurface::Sheet,
+        SnapshotSurface::Alert,
+    ];
+    surfaces.extend(menu_surface::supported());
+    surfaces
 }

@@ -23,7 +23,7 @@ pub(crate) fn resolve_ref_target(ref_id: &str) -> Result<(String, String), AppEr
     let Some((snapshot_id, element_number)) = without_at.rsplit_once(":e") else {
         return Err(invalid_ref(ref_id));
     };
-    validate_snapshot_id(snapshot_id)?;
+    validate_snapshot_id(snapshot_id).map_err(|_| invalid_ref(ref_id))?;
     let local_ref = format!("@e{element_number}");
     if !is_local_ref(&local_ref) {
         return Err(invalid_ref(ref_id));
@@ -52,10 +52,12 @@ fn is_local_ref(ref_id: &str) -> bool {
     })
 }
 
+const REF_SUGGESTION: &str = "Use the snapshot-qualified ref that snapshot prints, for example @s8f3k2p9:e1. A bare @eN ref is not accepted. Pass ref_id as printed: it already holds the snapshot id. In zsh write \"@${SID}:e1\", because an unbraced @$SID:e1 reads :e as a modifier.";
+
 fn invalid_ref(ref_id: &str) -> AppError {
     AppError::invalid_input_with_suggestion(
         format!("Invalid ref_id '{ref_id}': expected @<snapshot_id>:e<N>"),
-        "Use the snapshot-qualified ref that snapshot prints, for example @s8f3k2p9:e1. A bare @eN ref is not accepted.",
+        REF_SUGGESTION,
     )
 }
 

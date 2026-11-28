@@ -8,7 +8,7 @@ use crate::tree::{AtspiElement, Extents, Field};
 
 const ACTION_INTERFACE: &str = "org.a11y.atspi.Action";
 const ACTION_NAMES_IN_FLIGHT: usize = 4;
-const SCREEN_COORDINATES: u32 = 0;
+pub(in crate::tree) const SCREEN_COORDINATES: u32 = 0;
 
 /// `None` when the interface is advertised and its reads should go ahead.
 /// When the interface list itself could not be read, nothing is known about
@@ -35,6 +35,16 @@ pub(in crate::tree) async fn read_extents(
     if let Some(skipped) = skipped_without(interfaces, COMPONENT_INTERFACE) {
         return Ok(skipped);
     }
+    fetch_extents(connection, element, liveness).await
+}
+
+/// The screen extents of an element already known to have the `Component`
+/// interface.
+pub(in crate::tree) async fn fetch_extents(
+    connection: &Connection,
+    element: &AtspiElement,
+    liveness: Liveness,
+) -> Result<Field<Extents>, AdapterError> {
     let reply = call(
         connection,
         element,

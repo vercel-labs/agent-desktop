@@ -133,7 +133,10 @@ mod imp {
     /// Only the properties the walk will read are requested, `IsPassword`
     /// among them, so the secure-field gate has its input in the same batch
     /// as the properties it gates and costs no second round trip.
-    pub fn build_walk_cache_request(client: &UIAutomation) -> Result<UICacheRequest, AdapterError> {
+    pub fn build_walk_cache_request(
+        client: &UIAutomation,
+        set: &[TreeProperty],
+    ) -> Result<UICacheRequest, AdapterError> {
         let request = client
             .create_cache_request()
             .map_err(|error| uia_failure_error(failure_of(&error), "create a cache request"))?;
@@ -143,7 +146,7 @@ mod imp {
         request
             .set_tree_scope(TreeScope::Element)
             .map_err(|error| uia_failure_error(failure_of(&error), "set the cache tree scope"))?;
-        for property in TreeProperty::WALK_SET {
+        for &property in set {
             request
                 .add_property(uia_property(property))
                 .map_err(|error| {

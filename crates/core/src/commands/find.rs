@@ -61,14 +61,16 @@ pub fn execute(
 /// target is unresponsive, which is what the shared timeout suggestion says.
 /// The caller has two real levers here - a bigger budget, or a narrower
 /// search - so this names them instead of sending them to inspect a healthy
-/// app. Applied at this boundary rather than in the shared constructor,
-/// which every other command reaches and whose wording is asserted on
-/// elsewhere.
+/// app. A timeout that declares retrying cannot help keeps its own suggestion,
+/// because a bigger budget is not a lever for it. Applied at this boundary
+/// rather than in the shared constructor, which every other command reaches
+/// and whose wording is asserted on elsewhere.
 fn name_the_traversal_remedy(error: AppError) -> AppError {
     let AppError::Adapter(adapter_error) = error else {
         return error;
     };
-    if adapter_error.code != crate::ErrorCode::Timeout {
+    if adapter_error.code != crate::ErrorCode::Timeout || !adapter_error.permits_retry_by_default()
+    {
         return AppError::Adapter(adapter_error);
     }
     AppError::Adapter(adapter_error.with_suggestion(

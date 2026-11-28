@@ -33,9 +33,10 @@ fn a_lift_that_already_made_the_window_active_sends_no_second_activation() {
     let mut world = World::new(Some(OTHER));
     world.minimized = Some(true);
     world.lift_activates = true;
-    run(&world, &window(), budget()).expect("active after the lift");
+    let outcome = run(&world, &window(), budget()).expect("active after the lift");
     assert_eq!(world.lifts(), 1);
     assert_eq!(world.sends(), 0);
+    assert_eq!(outcome, Activation::Sent);
 }
 
 #[test]

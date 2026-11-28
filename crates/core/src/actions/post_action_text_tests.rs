@@ -4,6 +4,7 @@ use std::time::Duration;
 
 #[test]
 fn normalized_typed_text_is_reported_as_delivered_unverified() {
+    let _clock = VirtualClock::freeze();
     for (before, requested, normalized, selection) in [
         ("", "(7+8)*9", "(7+8)×9", None),
         ("", "200*10%", "200×10%", None),

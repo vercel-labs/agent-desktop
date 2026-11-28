@@ -6,6 +6,13 @@ pub(crate) fn aimable(rect: Extents) -> bool {
     rect.width > 0 && rect.height > 0 && rect.x != i32::MIN && rect.y != i32::MIN
 }
 
+/// Whether a node reports no usable size at a real position, as a toolkit
+/// grouping node does with `-1` extents. The hidden sentinel position is not
+/// a grouping node: such a widget is hidden and holds nothing a pointer reaches.
+pub(crate) fn has_no_geometry(rect: Extents) -> bool {
+    rect.x != i32::MIN && rect.y != i32::MIN && (rect.width <= 0 || rect.height <= 0)
+}
+
 /// Whether `point` lies in `rect` (half-open) and the rectangle is one a
 /// pointer can reach. A zero axis, a negative size and the sentinel position
 /// are values, not errors, and none of them can be hit.

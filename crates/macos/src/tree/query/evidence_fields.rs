@@ -1,5 +1,6 @@
 use agent_desktop_core::{
-    LocatorField, NameEvidence, NameSlotStatus, SlotStatus, resolve_description, resolve_name,
+    LocatorField, NameEvidence, NameSlotStatus, SlotStatus, name_is_borrowed, resolve_description,
+    resolve_name,
 };
 
 use crate::tree::properties::node_attribute_status::{
@@ -35,6 +36,16 @@ pub(crate) fn name_field(
     children_complete: bool,
 ) -> LocatorField<String> {
     resolve_name(evidence, &slot_status(status, role, children_complete))
+}
+
+/// Whether [`name_field`]'s name is the text of the element's title element.
+pub(crate) fn name_borrowed(
+    evidence: &NameEvidence,
+    status: &NodeAttributeStatus,
+    role: Option<&str>,
+    children_complete: bool,
+) -> bool {
+    name_is_borrowed(evidence, &slot_status(status, role, children_complete))
 }
 
 pub(crate) fn description_field(

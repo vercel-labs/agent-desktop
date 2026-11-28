@@ -7,6 +7,12 @@ use crate::{AdapterError, ErrorCode, wait_timeout_duration};
 
 pub const DEFAULT_OPERATION_TIMEOUT_MS: u64 = 5_000;
 
+/// The pause between reads of a core poll loop.
+pub(crate) const POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// The shorter pause a poll takes while it waits for moving bounds to settle.
+pub(crate) const STABILITY_POLL_INTERVAL: Duration = Duration::from_millis(16);
+
 thread_local! {
     static INHERITED_DEADLINE: Cell<Option<Deadline>> = const { Cell::new(None) };
 }
@@ -112,6 +118,20 @@ impl Deadline {
         }
     }
 
+    /// The deadline that expires `tail` before this one, so the caller keeps
+    /// `tail` of the budget for cleanup whatever time passes before it acts.
+    pub fn reserving(self, tail: Duration) -> Self {
+        let expires_at = self
+            .expires_at
+            .checked_sub(tail)
+            .map_or(self.started_at, |end| end.max(self.started_at));
+        Self {
+            capped: true,
+            expires_at,
+            ..self
+        }
+    }
+
     /// Moves the expiry back by time spent on work that is not charged to this
     /// operation. An inherited deadline still bounds the result.
     pub(crate) fn extended_by(self, pause: Duration) -> Self {
@@ -131,6 +151,35 @@ impl Deadline {
 
     pub fn is_expired(self) -> bool {
         self.remaining().is_zero()
+    }
+
+    /// Sleeps for `interval` or until the deadline, whichever comes first.
+    pub(crate) fn pause(self, interval: Duration) {
+        let remaining = self.remaining();
+        if !remaining.is_zero() {
+            sleep(interval.min(remaining));
+        }
+    }
+
+    /// Reads with `read` until `done` accepts the value or `budget`, capped by
+    /// this deadline, runs out, pausing `step` between reads, and returns the
+    /// last value read. The first read always runs, so a caller gets an
+    /// answer even from a deadline that has just expired.
+    pub fn poll_until<T>(
+        self,
+        budget: Duration,
+        step: Duration,
+        mut read: impl FnMut() -> T,
+        done: impl Fn(&T) -> bool,
+    ) -> T {
+        let end = self.capped(budget);
+        loop {
+            let value = read();
+            if done(&value) || end.is_expired() {
+                return value;
+            }
+            end.pause(step);
+        }
     }
 
     /// Fails with [`Self::timeout_error`] once the deadline has expired.
@@ -216,6 +265,61 @@ pub(crate) fn now() -> Instant {
 #[inline(always)]
 pub(crate) fn sleep(duration: Duration) {
     std::thread::sleep(duration)
+}
+
+/// Waits on `condvar` for at most `duration`, the blocking counterpart of
+/// [`sleep`]: under a frozen test clock it advances that clock and returns at
+/// once, so a wait against a virtual deadline expires the way a sleep does.
+#[cfg(not(test))]
+#[inline(always)]
+pub(crate) fn wait_on<'a, T>(
+    condvar: &std::sync::Condvar,
+    guard: std::sync::MutexGuard<'a, T>,
+    duration: Duration,
+) -> std::sync::MutexGuard<'a, T> {
+    condvar
+        .wait_timeout(guard, duration)
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .0
+}
+
+#[cfg(test)]
+pub(crate) fn wait_on<'a, T>(
+    condvar: &std::sync::Condvar,
+    guard: std::sync::MutexGuard<'a, T>,
+    duration: Duration,
+) -> std::sync::MutexGuard<'a, T> {
+    match VIRTUAL_NOW.get() {
+        Some(at) => {
+            let (guard, result) = condvar
+                .wait_timeout(guard, duration.min(Duration::from_millis(50)))
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if result.timed_out() {
+                VIRTUAL_NOW.set(Some(at.checked_add(duration).unwrap_or(at)));
+            }
+            guard
+        }
+        None => {
+            condvar
+                .wait_timeout(guard, duration)
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .0
+        }
+    }
+}
+
+/// Waits on `condvar` for an event, for at most `duration` of real time. Unlike
+/// [`wait_on`] it never advances a frozen test clock: the event it waits for is
+/// another thread finishing, which takes real time whatever the clock says.
+pub(crate) fn wait_for_event<'a, T>(
+    condvar: &std::sync::Condvar,
+    guard: std::sync::MutexGuard<'a, T>,
+    duration: Duration,
+) -> std::sync::MutexGuard<'a, T> {
+    condvar
+        .wait_timeout(guard, duration)
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .0
 }
 
 #[cfg(test)]

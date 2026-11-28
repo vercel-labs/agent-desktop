@@ -9,7 +9,7 @@ pub(crate) struct ReadonlyRead {
 pub(crate) fn read_readonly(
     element: &crate::tree::AXElement,
     role: Option<&str>,
-    deadline: std::time::Instant,
+    deadline: agent_desktop_core::Deadline,
 ) -> ReadonlyRead {
     if !editable_ax_role(role) {
         return ReadonlyRead {

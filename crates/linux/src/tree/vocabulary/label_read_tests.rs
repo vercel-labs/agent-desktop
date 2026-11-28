@@ -1,6 +1,6 @@
 use super::{LabelOutcome, from_name, from_text, needs_label};
 use crate::tree::Field;
-use crate::tree::live::test_support::read_of;
+use crate::tree::test_support::helpers::read_of;
 use crate::tree::vocabulary::role_numbers::{PANEL, PUSH_BUTTON};
 
 #[test]

@@ -114,7 +114,16 @@ text_tree_adapter!(
 );
 
 #[test]
+fn wait_scheduler_poll_interval_matches_production() {
+    assert_eq!(
+        crate::commands::wait_scheduler::POLL_INTERVAL,
+        std::time::Duration::from_millis(100)
+    );
+}
+
+#[test]
 fn text_wait_with_count_on_incomplete_observation_times_out() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let _guard = crate::refs::refs_test_support::HomeGuard::new();
 
     let adapter_err = expect_timeout(execute(
@@ -130,6 +139,7 @@ fn text_wait_with_count_on_incomplete_observation_times_out() {
 
 #[test]
 fn text_wait_with_count_zero_on_incomplete_observation_times_out() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let _guard = crate::refs::refs_test_support::HomeGuard::new();
 
     let adapter_err = expect_timeout(execute(
@@ -164,6 +174,7 @@ fn text_wait_without_count_on_incomplete_observation_matches_visible() {
 
 #[test]
 fn text_wait_without_count_on_all_hidden_incomplete_observation_times_out() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let _guard = crate::refs::refs_test_support::HomeGuard::new();
 
     let adapter_err = expect_timeout(execute(
@@ -194,6 +205,7 @@ fn text_wait_with_count_on_complete_observation_matches_exact_count() {
 
 #[test]
 fn text_wait_with_count_on_complete_observation_times_out_when_count_differs() {
+    let _clock = crate::wait::deadline::VirtualClock::freeze();
     let _guard = crate::refs::refs_test_support::HomeGuard::new();
 
     let adapter_err = expect_timeout(execute(

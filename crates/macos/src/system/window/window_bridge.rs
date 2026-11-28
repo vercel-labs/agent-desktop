@@ -1,4 +1,4 @@
-use agent_desktop_core::{AdapterError, ErrorCode};
+use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
 
 use crate::tree::AXElement;
 
@@ -8,7 +8,7 @@ type WindowBridge = unsafe extern "C" fn(accessibility_sys::AXUIElementRef, *mut
 #[cfg(target_os = "macos")]
 pub(crate) fn window_id(
     window: &AXElement,
-    deadline: std::time::Instant,
+    deadline: Deadline,
 ) -> Result<Option<i64>, AdapterError> {
     crate::tree::properties::ax_ipc::prepare(window, deadline)?;
     let bridge = bridge().ok_or_else(bridge_unavailable)?;
@@ -120,7 +120,7 @@ fn bridge_unavailable() -> AdapterError {
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn window_id(
     _window: &AXElement,
-    _deadline: std::time::Instant,
+    _deadline: Deadline,
 ) -> Result<Option<i64>, AdapterError> {
     Ok(None)
 }

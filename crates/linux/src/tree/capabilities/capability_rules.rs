@@ -5,8 +5,8 @@ use crate::system::display::display_server::{DisplayServer, session_server};
 use crate::tree::properties::node_read::COMPONENT_INTERFACE;
 use crate::tree::vocabulary::role_numbers::{
     CHECK_BOX, CHECK_MENU_ITEM, COMBO_BOX, DIAL, ENTRY, LIST, LIST_ITEM, PAGE_TAB, PASSWORD_TEXT,
-    PUSH_BUTTON, RADIO_BUTTON, RADIO_MENU_ITEM, SCROLL_BAR, SLIDER, SPIN_BUTTON, TERMINAL, TEXT,
-    TOGGLE_BUTTON, is_menu_item,
+    PUSH_BUTTON, RADIO_BUTTON, RADIO_MENU_ITEM, SCROLL_BAR, SLIDER, SPIN_BUTTON, TABLE_CELL,
+    TERMINAL, TEXT, TOGGLE_BUTTON, is_menu_item,
 };
 use crate::tree::vocabulary::state_bits::{
     EDITABLE, EXPANDABLE, EXPANDED, FOCUSABLE, HAS_POPUP, READ_ONLY, SELECTABLE, StateBits,
@@ -34,11 +34,13 @@ pub(crate) struct Facts<'a> {
     pub(crate) interfaces: &'a [String],
     pub(crate) names: &'a [String],
     pub(crate) child_count: Option<i32>,
+    pub(crate) parent_selects: bool,
 }
 
 fn interface_decides(role: u32, bits: &StateBits) -> bool {
     is_text_entry(role)
         || is_numeric_control(role)
+        || role == TABLE_CELL
         || matches!(role, LIST | COMBO_BOX)
         || bits.has(FOCUSABLE)
 }
@@ -74,6 +76,7 @@ impl<'a> Facts<'a> {
             interfaces,
             names,
             child_count,
+            parent_selects: node.element.ancestry().selecting_parent(),
         };
         if facts.advertises(SELECTION) && node.properties.child_count.is_failed() {
             return None;
@@ -102,6 +105,23 @@ fn is_text_entry(role: u32) -> bool {
 
 fn is_numeric_control(role: u32) -> bool {
     matches!(role, SLIDER | SPIN_BUTTON | DIAL | SCROLL_BAR)
+}
+
+/// A selectable table cell whose parent advertises `Selection`: the table
+/// can select its cell, and a click that finds no action of its own on the
+/// cell ends there. Only a table cell has this route: the table interface
+/// gives the cell its place, so the parent can name it by index.
+fn selected_by_parent(facts: &Facts) -> bool {
+    facts.role == TABLE_CELL && facts.bits.has(SELECTABLE) && facts.parent_selects
+}
+
+/// A table cell that holds a number through its `Value` interface and can be
+/// edited: the same write a slider takes, a number and nothing else.
+fn is_numeric_cell(facts: &Facts) -> bool {
+    facts.role == TABLE_CELL
+        && facts.bits.has(EDITABLE)
+        && !facts.bits.has(READ_ONLY)
+        && facts.advertises(VALUE)
 }
 
 fn popup_button_children(facts: &Facts) -> bool {
@@ -188,14 +208,16 @@ pub(crate) fn rule_tokens(facts: &Facts) -> Vec<&'static str> {
             capability::TYPE_TEXT,
         ),
         (
-            is_numeric_control(facts.role) && facts.advertises(VALUE),
+            is_numeric_control(facts.role) && facts.advertises(VALUE) || is_numeric_cell(facts),
             capability::SET_VALUE,
         ),
         (expand, capability::EXPAND),
         (collapse, capability::COLLAPSE),
+        (selected_by_parent(facts), capability::CLICK),
         (
             facts.advertises(SELECTION) && facts.child_count.is_some_and(|count| count > 0)
                 || matches!(facts.role, LIST_ITEM | PAGE_TAB) && facts.bits.has(SELECTABLE)
+                || selected_by_parent(facts)
                 || popup_dropdown(facts)
                 || pointer_combo(facts),
             capability::SELECT,

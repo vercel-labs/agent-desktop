@@ -48,7 +48,7 @@ mod windows_only {
     use crate::tree::automation::{automation_client, uia_error};
 
     fn root_element() -> UIAElement {
-        crate::tree::fixture::ensure_test_apartment();
+        crate::system::test_support::apartment::ensure_test_apartment();
         let client = automation_client().expect("a UIA client is available");
         UIAElement::from(
             client

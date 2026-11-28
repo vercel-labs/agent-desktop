@@ -32,8 +32,33 @@ impl AppError {
     }
 
     pub fn suggestion(&self) -> Option<&str> {
+        self.adapter_error()
+            .and_then(|error| error.suggestion.as_deref())
+    }
+
+    /// The error as one `AdapterError`, the form every route reports: an
+    /// `AdapterError` it carries, directly or inside an io error, whole with
+    /// its suggestion and details; otherwise a permission denial as
+    /// `PERM_DENIED` and anything else as `INTERNAL`, with the error's message.
+    pub fn into_adapter_error(self) -> AdapterError {
+        let message = self.to_string();
         match self {
-            Self::Adapter(error) => error.suggestion.as_deref(),
+            Self::Adapter(error) => error,
+            Self::Io(error) => match AdapterError::from_io(&error) {
+                Some(carried) => carried.clone(),
+                None if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                    AdapterError::new(ErrorCode::PermDenied, message)
+                }
+                None => AdapterError::new(ErrorCode::Internal, message),
+            },
+            Self::Json(_) | Self::Internal(_) => AdapterError::new(ErrorCode::Internal, message),
+        }
+    }
+
+    pub(crate) fn adapter_error(&self) -> Option<&AdapterError> {
+        match self {
+            Self::Adapter(error) => Some(error),
+            Self::Io(error) => AdapterError::from_io(error),
             _ => None,
         }
     }

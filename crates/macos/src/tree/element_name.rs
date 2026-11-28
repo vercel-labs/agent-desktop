@@ -1,8 +1,8 @@
-use agent_desktop_core::{AdapterError, EvidenceRequirements, LocatorField};
+use agent_desktop_core::{AdapterError, Deadline, EvidenceRequirements, LocatorField};
 
 pub(crate) fn resolve_element_name(
     element: &super::AXElement,
-    deadline: std::time::Instant,
+    deadline: Deadline,
     usage: &mut super::observation_usage::ObservationUsage,
 ) -> Result<Option<String>, AdapterError> {
     if !usage.claim_node() {

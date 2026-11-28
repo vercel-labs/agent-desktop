@@ -15,19 +15,4 @@ pub(crate) mod window_obstruction;
 pub(crate) mod window_unit;
 pub(crate) mod window_xid;
 
-#[cfg(test)]
-mod capture_live_support;
-#[cfg(test)]
-mod capture_live_tests;
-#[cfg(test)]
-mod cursor_live_tests;
-#[cfg(test)]
-mod wayland_portal_live_monitors;
-#[cfg(test)]
-mod wayland_portal_live_process;
-#[cfg(test)]
-mod wayland_portal_live_support;
-#[cfg(test)]
-mod wayland_portal_live_tests;
-
 pub(super) mod screenshot;

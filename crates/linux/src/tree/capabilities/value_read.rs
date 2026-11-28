@@ -1,18 +1,20 @@
 use agent_desktop_core::AdapterError;
 use zbus::Connection;
-use zbus::zvariant::OwnedValue;
+use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 
 use crate::system::PROPERTIES_INTERFACE;
-use crate::tree::properties::node_read::call;
+use crate::tree::properties::node_read::{NULL_PATH, call};
 use crate::tree::vocabulary::role_numbers::{
-    COMBO_BOX, DIAL, ENTRY, LEVEL_BAR, PROGRESS_BAR, SCROLL_BAR, SLIDER, SPIN_BUTTON, TERMINAL,
-    TEXT,
+    COMBO_BOX, DIAL, ENTRY, LEVEL_BAR, PROGRESS_BAR, SCROLL_BAR, SLIDER, SPIN_BUTTON, TABLE_CELL,
+    TERMINAL, TEXT,
 };
 use crate::tree::vocabulary::state_bits::{EDITABLE, StateBits};
 use crate::tree::{AtspiElement, Field, RawNode};
 
 const VALUE_INTERFACE: &str = "org.a11y.atspi.Value";
 const TEXT_INTERFACE: &str = "org.a11y.atspi.Text";
+const SELECTION_INTERFACE: &str = "org.a11y.atspi.Selection";
+const ACCESSIBLE_INTERFACE: &str = "org.a11y.atspi.Accessible";
 const MAX_TEXT_CHARACTERS: i32 = 64 * 1024;
 
 /// Where a node's value comes from, decided from what the node is.
@@ -22,6 +24,8 @@ pub(crate) enum ValueSource {
     Unknown,
     Numeric,
     Text,
+    CellText,
+    SelectedChild,
 }
 
 /// The value of a node and whether it was cut to fit the field budget.
@@ -63,7 +67,8 @@ fn editable(node: &RawNode) -> bool {
 
 /// Which read supplies this node's value. Only the roles that carry one are
 /// read, and only through an interface the node names. A password field has
-/// no value source. Free text counts only on an editable text node: a
+/// no value source. A table cell holds its content in its `Text` interface:
+/// the content is the cell's value whether or not the cell can be edited. Free text counts only on an editable text node: a
 /// read-only text node is content, not a control value.
 pub(crate) fn value_source(node: &RawNode) -> ValueSource {
     let Some(role) = node.traits.role.present() else {
@@ -73,7 +78,11 @@ pub(crate) fn value_source(node: &RawNode) -> ValueSource {
         SLIDER | SPIN_BUTTON | PROGRESS_BAR | SCROLL_BAR | LEVEL_BAR | DIAL => {
             (ValueSource::Numeric, VALUE_INTERFACE)
         }
+        COMBO_BOX if !node.traits.interfaces.is_failed() && !advertises(node, TEXT_INTERFACE) => {
+            (ValueSource::SelectedChild, SELECTION_INTERFACE)
+        }
         ENTRY | COMBO_BOX => (ValueSource::Text, TEXT_INTERFACE),
+        TABLE_CELL => (ValueSource::CellText, TEXT_INTERFACE),
         TEXT | TERMINAL if node.traits.states.is_failed() => return ValueSource::Unknown,
         TEXT | TERMINAL if editable(node) => (ValueSource::Text, TEXT_INTERFACE),
         _ => return ValueSource::None,
@@ -140,6 +149,44 @@ async fn read_number(
     })
 }
 
+/// The content of a table cell in one call: `GetText` from the start to
+/// `MAX_TEXT_CHARACTERS`, which the toolkits clamp to the end of the text
+/// (L42-8), so a long cell never crosses the bus whole and the length is not
+/// asked for first. The field budget still cuts what is kept. A blank cell
+/// holds no content, so it has no value, in a snapshot and in a read alike.
+async fn read_cell_text(
+    connection: &Connection,
+    element: &AtspiElement,
+    max_bytes: usize,
+) -> Result<ValueRead, zbus::Error> {
+    let text = call(
+        connection,
+        element,
+        TEXT_INTERFACE,
+        "GetText",
+        &(0i32, MAX_TEXT_CHARACTERS),
+    )
+    .await?
+    .body()
+    .deserialize::<String>()?;
+    if text.is_empty() {
+        return Ok(ValueRead::absent());
+    }
+    let at_cap = reaches_text_cap(&text);
+    let (kept, cut) = truncate_to_boundary(text, max_bytes);
+    Ok(ValueRead {
+        value: Field::Present(kept),
+        truncated: cut || at_cap,
+    })
+}
+
+/// Whether a capped `GetText` returned as many characters as it asked for,
+/// so the text may go on past the cap.
+fn reaches_text_cap(text: &str) -> bool {
+    usize::try_from(MAX_TEXT_CHARACTERS)
+        .is_ok_and(|cap| cap > 0 && text.chars().nth(cap - 1).is_some())
+}
+
 async fn read_text(
     connection: &Connection,
     element: &AtspiElement,
@@ -156,6 +203,40 @@ async fn read_text(
     Ok(ValueRead {
         value: Field::Present(kept),
         truncated: cut || count > end,
+    })
+}
+
+/// The value of a combo box that has no `Text` interface: the name of its
+/// first selected child, which is the item the box shows. A combo with no
+/// selected child has no value.
+async fn read_selected_child(
+    connection: &Connection,
+    element: &AtspiElement,
+    max_bytes: usize,
+) -> Result<ValueRead, zbus::Error> {
+    let (bus, path) = call(
+        connection,
+        element,
+        SELECTION_INTERFACE,
+        "GetSelectedChild",
+        &(0i32,),
+    )
+    .await?
+    .body()
+    .deserialize::<(String, OwnedObjectPath)>()?;
+    if bus.is_empty() || path.as_str() == NULL_PATH {
+        return Ok(ValueRead::absent());
+    }
+    let child = AtspiElement::new(bus, path.to_string(), element.pid());
+    let name = property(connection, &child, ACCESSIBLE_INTERFACE, "Name").await?;
+    let name = name.downcast_ref::<&str>()?.to_owned();
+    if name.is_empty() {
+        return Ok(ValueRead::absent());
+    }
+    let (kept, cut) = truncate_to_boundary(name, max_bytes);
+    Ok(ValueRead {
+        value: Field::Present(kept),
+        truncated: cut,
     })
 }
 
@@ -176,6 +257,10 @@ pub(crate) async fn read_value(
         }
         ValueSource::Numeric => read_number(connection, &node.element).await,
         ValueSource::Text => read_text(connection, &node.element, max_bytes).await,
+        ValueSource::CellText => read_cell_text(connection, &node.element, max_bytes).await,
+        ValueSource::SelectedChild => {
+            read_selected_child(connection, &node.element, max_bytes).await
+        }
     };
     match outcome {
         Ok(value) => Ok(value),

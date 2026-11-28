@@ -44,7 +44,7 @@ failed=0
 # "This Sub-phase owns it" escaped both the lowercase-only sub-phase rule and
 # the phase-number rule below, which needs a digit.
 TOKEN_SCAN_MODE=""
-TOKEN_SCAN_LINE=""
+TOKEN_SCAN_FIXTURE=""
 TOKEN_SCAN_FAILED=0
 # The roots the tree scan walks, overridable so the self-test can drive the real
 # scan against a planted fixture tree. Without that override the tree branch has
@@ -62,9 +62,7 @@ token_rule() {
     local description="$2"
     local matches
     if [ "$TOKEN_SCAN_MODE" = "line" ]; then
-        if printf '%s\n' "$TOKEN_SCAN_LINE" | grep -qE "$pattern"; then
-            printf '%s\n' "$description"
-        fi
+        printf '%s\n' "$TOKEN_SCAN_FIXTURE" | grep -E "$pattern" || true
         return 0
     fi
     # Test the collected text, never the substitution's exit status. A grouped
@@ -329,19 +327,15 @@ plan_prose_check() {
     return 0
 }
 
-# Every rule in this file, applied to one line, exactly as the tree scan
-# applies them collectively. Every fixture line below therefore runs against
-# every rule, so a new rule that false-fires on an old fixture line is caught
-# by the old fixture.
 all_offences() {
-    local line="$1"
+    local stream="$1"
     TOKEN_SCAN_MODE="line"
-    TOKEN_SCAN_LINE="$line"
+    TOKEN_SCAN_FIXTURE="$stream"
     token_rules
     TOKEN_SCAN_MODE=""
-    printf '%s\n' "$line" | awk "$BARE_REFERENCE_AWK"
-    printf '%s\n' "$line" | awk "$BARE_UNIT_AWK"
-    printf '%s\n' "fixture.rs:1:$line" | awk "$PLAN_PROSE_AWK"
+    printf '%s\n' "$stream" | awk "$BARE_REFERENCE_AWK"
+    printf '%s\n' "$stream" | awk "$BARE_UNIT_AWK"
+    printf '%s\n' "$stream" | awk "$PLAN_PROSE_AWK"
 }
 
 # A gate whose own allow/deny set is untested is a gate nobody can trust. The
@@ -357,7 +351,7 @@ cleanup_fixture_tree() {
 }
 
 self_test() {
-    local must_catch must_pass caught passed failures apostrophe
+    local must_catch must_pass caught fixtures index line failures apostrophe
     local wrapped_catch wrapped_pass
     # Single quotes are load-bearing in both fixtures: the backticks are
     # fixture text a real doc comment carries, and the rules must see them
@@ -432,20 +426,37 @@ self_test() {
     apostrophe="'"
     must_catch="${must_catch//@/$apostrophe}"
     must_pass="${must_pass//@/$apostrophe}"
+    fixtures=""
+    index=0
     while IFS= read -r line; do
-        caught="$(all_offences "$line")"
-        if [ -z "$caught" ]; then
-            printf 'self-test FAIL (missed): %s\n' "$line" >&2
-            failures=1
-        fi
+        index=$((index + 1))
+        printf -v fixtures '%s\nf%s.rs:1:%s' "$fixtures" "$index" "$line"
     done <<<"$must_catch"
     while IFS= read -r line; do
-        passed="$(all_offences "$line")"
-        if [ -n "$passed" ]; then
-            printf 'self-test FAIL (false positive): %s\n' "$line" >&2
-            printf '                              %s\n' "$passed" >&2
-            failures=1
-        fi
+        index=$((index + 1))
+        printf -v fixtures '%s\nf%s.rs:1:%s' "$fixtures" "$index" "$line"
+    done <<<"$must_pass"
+    caught="$(all_offences "$fixtures")"
+    index=0
+    while IFS= read -r line; do
+        index=$((index + 1))
+        case $'\n'"$caught"$'\n' in
+            *$'\n'"f${index}.rs:1:"*) ;;
+            *)
+                printf 'self-test FAIL (missed): %s\n' "$line" >&2
+                failures=1
+                ;;
+        esac
+    done <<<"$must_catch"
+    while IFS= read -r line; do
+        index=$((index + 1))
+        case $'\n'"$caught"$'\n' in
+            *$'\n'"f${index}.rs:1:"*)
+                printf 'self-test FAIL (false positive): %s\n' "$line" >&2
+                printf '%-30s %s\n' '' "$(printf '%s\n' "$caught" | grep -E "^f${index}\.rs:1:")" >&2
+                failures=1
+                ;;
+        esac
     done <<<"$must_pass"
     # The wrap fixtures are record streams rather than single lines: neither
     # half carries the phrase on its own, so they fail if the two-line window

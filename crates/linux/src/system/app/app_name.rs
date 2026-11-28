@@ -1,4 +1,5 @@
 use super::app_alias::{AliasIndex, current_index};
+use crate::system::process::executable_identity::ExecutableIdentity;
 use crate::system::process::process_facts::ProcessFacts;
 
 fn non_blank(text: Option<&str>) -> Option<&str> {
@@ -33,8 +34,13 @@ pub(crate) fn aliases_of(facts: &ProcessFacts) -> Vec<String> {
     aliases_in(&current_index(), facts)
 }
 
+/// The desktop id of the process when exactly one shown entry names it.
 pub(crate) fn desktop_id_in(index: &AliasIndex, facts: &ProcessFacts) -> Option<String> {
-    index.ids_for(facts.executable.as_ref()?).into_iter().next()
+    let mut ids = index.ids_for(facts.executable.as_ref()?).into_iter();
+    match (ids.next(), ids.next()) {
+        (Some(id), None) => Some(id),
+        _ => None,
+    }
 }
 
 pub(crate) fn desktop_id(facts: &ProcessFacts) -> Option<String> {
@@ -44,19 +50,23 @@ pub(crate) fn desktop_id(facts: &ProcessFacts) -> Option<String> {
 /// As [`aliases_of`] over an index the caller already holds, for a caller that
 /// asks about many processes.
 pub(crate) fn aliases_in(index: &AliasIndex, facts: &ProcessFacts) -> Vec<String> {
-    let Some(actual) = facts.executable.as_ref() else {
+    aliases_of_identity(index, facts.executable.as_ref())
+}
+
+/// The desktop entry names and ids that name this executable identity, read
+/// the way [`aliases_of`] reads them for a running process. A launch request
+/// carries the same evidence, so its resolved aliases compare like a
+/// resident's.
+pub(crate) fn aliases_of_identity(
+    index: &AliasIndex,
+    identity: Option<&ExecutableIdentity>,
+) -> Vec<String> {
+    let Some(actual) = identity else {
         return Vec::new();
     };
     let mut aliases = index.names_for(actual);
     aliases.extend(index.ids_for(actual));
     aliases
-}
-
-/// Exact listed executable name or an alias backed by executable evidence.
-pub(crate) fn name_matches(query: &str, name: &str, aliases: &[String]) -> bool {
-    std::iter::once(name)
-        .chain(aliases.iter().map(String::as_str))
-        .any(|candidate| candidate.eq_ignore_ascii_case(query))
 }
 
 #[cfg(test)]

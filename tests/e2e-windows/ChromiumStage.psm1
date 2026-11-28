@@ -15,9 +15,8 @@
     `.disposition`/`.data`) or invokes the staged `agent-desktop.exe` -
     every action is a raw file write, `Start-Process`/`Get-Process` read,
     raw-Win32 foreground staging (`NativeDesktop.psm1`'s
-    `Set-NativeForegroundWindow`/`Wait-NativeForegroundToSettle`, the same
-    AttachThreadInput dance `crate::system::fixture::test_support::stage_foreground`
-    uses), or real keystroke synthesis (`SendKeys`, which injects through
+    `Set-NativeForegroundWindow`/`Wait-NativeForegroundToSettle`, the standard
+    AttachThreadInput dance), or real keystroke synthesis (`SendKeys`, which injects through
     `keybd_event`, never a posted message), matching R14's "the system
     under test is never its own oracle" for exactly the actions that decide
     whether content is staged: launching the target, picking its vault, and

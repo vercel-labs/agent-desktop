@@ -8,7 +8,7 @@ use agent_desktop_core::{
 
 use super::{SettleHost, observe_with};
 use crate::system::window::window_id;
-use crate::tree::live::test_support::read_of;
+use crate::tree::test_support::helpers::read_of;
 use crate::tree::vocabulary::role_numbers::{DOCUMENT_WEB, PUSH_BUTTON};
 use crate::tree::walk::walker::walk_levels;
 use crate::tree::walk::wrapper::classify;
@@ -90,6 +90,7 @@ fn observe_limited(limits: &WalkLimits, ms: u64, pause_ms: u64) -> (usize, bool)
         ObservationRoot::Window(&window),
         &request(ms),
         SettleHost {
+            guid: "",
             walker: &mut walker,
             place: &mut |_| Ok(()),
             is_web_process: &|_| Ok(true),
@@ -128,6 +129,7 @@ fn observe(web: bool, document: bool, ms: u64, curve: &[Result<usize, AdapterErr
         ObservationRoot::Window(&window),
         &request(ms),
         SettleHost {
+            guid: "",
             walker: &mut walker,
             place: &mut |_| Ok(()),
             is_web_process: &|_| Ok(web),
@@ -154,7 +156,7 @@ fn observe_element(web: bool, curve: &[Result<usize, AdapterError>]) -> usize {
     let mut handle = AtspiElement::new(":1.7", "/org/a11y/atspi/accessible/9", 77);
     handle.set_ancestry(crate::tree::element::ancestry::of_root(&handle.clone()));
     let handle = handle.into_native_handle();
-    let entry = crate::tree::live::test_support::ref_entry("button");
+    let entry = crate::tree::test_support::helpers::ref_entry("button");
     observe_with(
         ObservationRoot::Element {
             handle: &handle,
@@ -163,6 +165,7 @@ fn observe_element(web: bool, curve: &[Result<usize, AdapterError>]) -> usize {
         },
         &request(60_000),
         SettleHost {
+            guid: "",
             walker: &mut walker,
             place: &mut |_| Ok(()),
             is_web_process: &|_| Ok(web),
@@ -248,6 +251,7 @@ fn a_poll_that_finds_the_window_gone_is_window_not_found() {
         ObservationRoot::Window(&window),
         &request(60_000),
         SettleHost {
+            guid: "",
             walker: &mut walker,
             place: &mut |_| Ok(()),
             is_web_process: &|_| Ok(true),
@@ -297,6 +301,7 @@ fn a_shallow_web_walk_cut_at_the_requested_depth_settles() {
         ObservationRoot::Window(&window),
         &request(60_000),
         SettleHost {
+            guid: "",
             walker: &mut walker,
             place: &mut |_| Ok(()),
             is_web_process: &|_| Ok(true),
@@ -339,6 +344,7 @@ fn an_identity_only_read_of_a_web_window_walks_once_without_waiting() {
         ObservationRoot::Window(&window),
         &identity_only,
         SettleHost {
+            guid: "",
             walker: &mut walker,
             place: &mut |_| Ok(()),
             is_web_process: &|_| panic!("an identity-only read does not ask what the process is"),

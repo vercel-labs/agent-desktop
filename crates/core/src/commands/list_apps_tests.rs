@@ -22,9 +22,14 @@ impl DeadlineAdapter {
 }
 
 impl ObservationOps for AppsAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        Ok(vec![
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(vec![
             AppInfo {
+                aliases: Vec::new(),
                 name: "Finder".into(),
                 pid: crate::ProcessId::new(1),
                 bundle_id: Some("com.apple.finder".into()),
@@ -32,21 +37,28 @@ impl ObservationOps for AppsAdapter {
                 presentation: None,
             },
             AppInfo {
+                aliases: Vec::new(),
                 name: "TextEdit".into(),
                 pid: crate::ProcessId::new(2),
                 bundle_id: Some("com.apple.TextEdit".into()),
                 process_instance: Some("test-instance".into()),
                 presentation: None,
             },
-        ])
+        ]))
     }
 }
 
 impl ObservationOps for DeadlineAdapter {
-    fn list_apps(&self, deadline: crate::Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        self.app_listings.fetch_add(1, Ordering::SeqCst);
-        assert_eq!(deadline.timeout_ms(), self.expected_timeout_ms);
-        Ok(Vec::new())
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer({
+            self.app_listings.fetch_add(1, Ordering::SeqCst);
+            assert_eq!(deadline.timeout_ms(), self.expected_timeout_ms);
+            Ok(Vec::new())
+        }?))
     }
     fn list_windows(
         &self,
@@ -112,14 +124,14 @@ fn listing_timeout_reaches_both_adapter_deadlines() {
 
 struct IncompleteAdapter;
 impl ObservationOps for IncompleteAdapter {
-    fn list_apps_inventory(
+    fn query_app_inventory(
         &self,
+        query: crate::AppInventoryQuery<'_>,
         deadline: crate::Deadline,
     ) -> Result<crate::AppInventory, AdapterError> {
-        Ok(crate::AppInventory {
-            apps: AppsAdapter.list_apps(deadline)?,
-            skipped: vec![json!({"pid":11,"field":"application_name"})],
-        })
+        let mut inventory = AppsAdapter.query_app_inventory(query, deadline)?;
+        inventory.skipped = vec![json!({"pid":11,"field":"application_name"})];
+        Ok(inventory)
     }
 }
 impl ActionOps for IncompleteAdapter {}
@@ -157,18 +169,18 @@ fn list_apps_marks_skipped_records_even_when_filtered_to_no_matches() {
 
 struct AliasAdapter;
 impl ObservationOps for AliasAdapter {
-    fn list_apps(&self, deadline: crate::Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        AppsAdapter.list_apps(deadline)
-    }
-    fn list_apps_scoped(
+    fn query_app_inventory(
         &self,
-        name: &str,
-        _bundle_id: Option<&str>,
+        query: crate::AppInventoryQuery<'_>,
         deadline: crate::Deadline,
-    ) -> Result<Vec<AppInfo>, AdapterError> {
-        let mut apps = self.list_apps(deadline)?;
-        apps.retain(|app| name == "org.example.Files" && app.name == "Finder");
-        Ok(apps)
+    ) -> Result<crate::AppInventory, AdapterError> {
+        let mut apps = AppsAdapter
+            .query_app_inventory(crate::AppInventoryQuery::All, deadline)?
+            .apps;
+        for app in apps.iter_mut().filter(|app| app.name == "Finder") {
+            app.aliases = vec!["org.example.Files".into()];
+        }
+        Ok(query.answer(apps))
     }
 }
 impl ActionOps for AliasAdapter {}
@@ -189,50 +201,4 @@ fn app_filter_accepts_the_adapter_alias_for_a_listed_app() {
     let apps = value["apps"].as_array().unwrap();
     assert_eq!(apps.len(), 1);
     assert_eq!(apps[0]["name"], "Finder");
-}
-
-struct FailingScopeAdapter(AdapterError);
-impl ObservationOps for FailingScopeAdapter {
-    fn list_apps(&self, deadline: crate::Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        AppsAdapter.list_apps(deadline)
-    }
-    fn list_apps_scoped(
-        &self,
-        _name: &str,
-        _bundle_id: Option<&str>,
-        _deadline: crate::Deadline,
-    ) -> Result<Vec<AppInfo>, AdapterError> {
-        Err(self.0.clone())
-    }
-}
-impl ActionOps for FailingScopeAdapter {}
-impl InputOps for FailingScopeAdapter {}
-impl SystemOps for FailingScopeAdapter {}
-
-fn filtered_args() -> ListAppsArgs {
-    ListAppsArgs {
-        app: Some("text".into()),
-        timeout_ms: None,
-    }
-}
-
-#[test]
-fn app_filter_propagates_a_scoped_listing_failure() {
-    let adapter = FailingScopeAdapter(AdapterError::new(
-        crate::ErrorCode::Timeout,
-        "scoped listing timed out",
-    ));
-
-    let error = execute(filtered_args(), &adapter).unwrap_err();
-
-    assert_eq!(error.code(), "TIMEOUT");
-}
-
-#[test]
-fn app_filter_ignores_a_scoped_listing_that_is_not_supported() {
-    let adapter = FailingScopeAdapter(AdapterError::not_supported("list_apps_scoped"));
-
-    let value = execute(filtered_args(), &adapter).unwrap();
-
-    assert_eq!(value["apps"].as_array().unwrap().len(), 1);
 }

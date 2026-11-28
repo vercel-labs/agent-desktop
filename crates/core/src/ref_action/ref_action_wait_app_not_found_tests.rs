@@ -23,7 +23,7 @@ fn entry() -> RefEntry {
             value: None,
             description: None,
             native_id: None,
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
         },
         geometry: crate::RefGeometry {
             bounds_space: None,
@@ -51,6 +51,7 @@ fn entry() -> RefEntry {
             root_ref: None,
             path_is_absolute: false,
             path: smallvec::SmallVec::new(),
+            chain: Default::default(),
         },
     }
 }
@@ -155,7 +156,6 @@ fn terminal_app_not_found_against_exited_process_carries_process_state_detail() 
             context: &CommandContext::default(),
         },
         ActionRequest::headless(Action::Click),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .unwrap_err();
 
@@ -176,14 +176,19 @@ struct AppNotFoundUnresponsiveProcessAdapter {
 }
 
 impl ObservationOps for AppNotFoundUnresponsiveProcessAdapter {
-    fn list_apps(&self, _deadline: crate::Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        Ok(vec![AppInfo {
+    fn query_app_inventory(
+        &self,
+        query: crate::AppInventoryQuery<'_>,
+        _deadline: crate::Deadline,
+    ) -> Result<crate::AppInventory, AdapterError> {
+        Ok(query.answer(vec![AppInfo {
+            aliases: Vec::new(),
             name: "Original".into(),
             pid: crate::ProcessId::new(1),
             bundle_id: None,
             process_instance: Some("test-instance".into()),
             presentation: None,
-        }])
+        }]))
     }
 
     fn resolve_element_strict(
@@ -236,7 +241,6 @@ fn terminal_app_not_found_against_unresponsive_process_surfaces_app_unresponsive
             context: &CommandContext::default(),
         },
         ActionRequest::headless(Action::Click),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .unwrap_err();
 
@@ -271,7 +275,6 @@ fn probe_call_count_is_independent_of_auto_wait_tick_count() {
             context: &CommandContext::default(),
         },
         request_with_timeout(5_000),
-        crate::ref_action::ref_action_single::dispatch_resolved,
     )
     .unwrap_err();
 

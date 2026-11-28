@@ -189,3 +189,33 @@ fn a_substring_match_is_not_replaced_by_an_unrelated_off_bus_diagnostic() {
     assert_eq!(inventory.apps.len(), 1);
     assert_eq!(inventory.apps[0].pid.get(), 8);
 }
+
+#[test]
+fn an_exact_lookup_keeps_the_app_named_by_the_query_over_one_that_only_aliases_it() {
+    let registry = Registry {
+        apps: vec![
+            app(1, "calculator", &[]),
+            app(2, "python3", &["calculator"]),
+        ],
+        skipped: Vec::new(),
+    };
+    let inventory = finish(
+        registry,
+        AppInventoryQuery::Exact {
+            name: "calculator",
+            bundle_id: None,
+        },
+        &HashSet::new(),
+        &[],
+    )
+    .unwrap();
+
+    assert_eq!(
+        inventory
+            .apps
+            .iter()
+            .map(|app| app.pid.get())
+            .collect::<Vec<_>>(),
+        [1]
+    );
+}

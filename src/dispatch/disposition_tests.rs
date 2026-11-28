@@ -3,8 +3,8 @@ use super::disposition::settle_unknown_delivery;
 use crate::cli::Cli;
 use crate::cli_args::batch::BatchArgs;
 use agent_desktop_core::{
-    ActionOps, AdapterError, AppError, AppInfo, Deadline, DeliveryDisposition, DeliverySemantics,
-    ErrorCode, InputOps, InteractionLease, ObservationOps, OperationReport, PermissionReport,
+    ActionOps, AdapterError, AppError, Deadline, DeliveryDisposition, DeliverySemantics, ErrorCode,
+    InputOps, InteractionLease, ObservationOps, OperationReport, PermissionReport,
     RetryDisposition, SystemOps, WindowFilter, WindowInfo, context::CommandContext,
 };
 use clap::Parser;
@@ -21,8 +21,12 @@ impl ObservationOps for FailingAdapter {
         Err(self.0.clone())
     }
 
-    fn list_apps(&self, _deadline: Deadline) -> Result<Vec<AppInfo>, AdapterError> {
-        Err(self.0.clone())
+    fn query_app_inventory(
+        &self,
+        query: agent_desktop_core::AppInventoryQuery<'_>,
+        _deadline: Deadline,
+    ) -> Result<agent_desktop_core::AppInventory, AdapterError> {
+        Ok(query.answer({ Err(self.0.clone()) }?))
     }
 }
 
@@ -62,7 +66,7 @@ fn failure_of(adapter_failure: AdapterError, arguments: &[&str]) -> AdapterError
         command,
         &FailingAdapter(adapter_failure),
         &PermissionReport::default(),
-        &CommandContext::default(),
+        &CommandContext::default().with_headed(true),
     ) {
         Err(AppError::Adapter(error)) => error,
         other => panic!("expected an adapter error, got {other:?}"),
@@ -156,6 +160,29 @@ fn a_read_only_failure_that_is_not_an_adapter_error_keeps_its_code_and_message()
 }
 
 #[test]
+fn a_read_only_failure_keeps_the_details_and_suggestion_of_the_error_it_carries() {
+    let carried = AdapterError::new(ErrorCode::PermDenied, "private file is readable by others")
+        .with_details(json!({ "path": "/state/refmap.json" }))
+        .with_suggestion("Run chmod 600 '/state/refmap.json'");
+    let failure = AppError::Io(std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        carried,
+    ));
+
+    let AppError::Adapter(settled) = settle_unknown_delivery(failure, true) else {
+        panic!("a read-only failure must carry a delivery verdict");
+    };
+
+    assert_eq!(settled.code, ErrorCode::PermDenied);
+    assert_eq!(settled.details.unwrap()["path"], "/state/refmap.json");
+    assert_eq!(
+        settled.suggestion.as_deref(),
+        Some("Run chmod 600 '/state/refmap.json'")
+    );
+    assert_eq!(settled.disposition, DeliverySemantics::not_delivered());
+}
+
+#[test]
 fn a_mutations_failure_that_is_not_an_adapter_error_is_left_as_it_came() {
     let settled = settle_unknown_delivery(AppError::Io(std::io::Error::other("disk full")), false);
 
@@ -177,7 +204,7 @@ fn batch_entries_settle_their_failures_by_their_own_command() {
         },
         &FailingAdapter(AdapterError::timeout("stalled")),
         &PermissionReport::default(),
-        &CommandContext::default(),
+        &CommandContext::default().with_headed(true),
     )
     .expect("a batch reports the failure of each entry");
 

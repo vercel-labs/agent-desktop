@@ -6,7 +6,7 @@ use crate::{
         wait_element::{ElementWaitInput, wait_for_element},
         wait_mode::WaitMode,
         wait_notification,
-        wait_surface::SurfaceWait,
+        wait_surface::{self, SurfaceWait},
         wait_text_match, wait_timeout,
     },
     context::CommandContext,
@@ -64,6 +64,7 @@ pub fn execute(
             Ok(json!({ "waited_ms": ms }))
         }
         WaitMode::Menu { app, open } => wait_for_menu(app, open, timeout_ms, adapter),
+        WaitMode::Surface { app, kind } => wait_for_surface(app, kind, timeout_ms, adapter),
         WaitMode::Notification { app, text } => {
             wait_notification::wait_for_notification(app, text, timeout_ms, adapter, context)
         }
@@ -131,6 +132,55 @@ fn wait_for_menu(
         })?;
     let elapsed = start.elapsed().as_millis();
     Ok(json!({ "found": true, "elapsed_ms": elapsed }))
+}
+
+/// Polls the application's surface list until one of the asked kind is open.
+/// A kind the platform cannot show is refused before the wait starts.
+fn wait_for_surface(
+    app: Option<String>,
+    kind: Option<crate::SnapshotSurface>,
+    timeout_ms: u64,
+    adapter: &dyn PlatformAdapter,
+) -> Result<Value, AppError> {
+    if let Some(kind) = kind {
+        adapter.check_surface_support(kind)?;
+    }
+    let start = Instant::now();
+    let deadline = crate::Deadline::at(start, timeout_ms)?;
+    let target = resolve_app(app.as_deref(), adapter, deadline)?;
+    let process = crate::commands::helpers::process_identity(&target)?;
+    let open = |surfaces: &[crate::SurfaceInfo]| {
+        surfaces
+            .iter()
+            .find(|surface| wait_surface::is_kind(surface, kind))
+            .cloned()
+    };
+    let mut last_observed = None;
+    let mut last_error = None;
+    loop {
+        match adapter.list_surfaces(process.clone(), deadline) {
+            Ok(surfaces) => {
+                if let Some(surface) = open(&surfaces) {
+                    return Ok(json!({
+                        "found": true,
+                        "surface": surface,
+                        "elapsed_ms": start.elapsed().as_millis(),
+                    }));
+                }
+                last_observed = Some(surfaces);
+            }
+            Err(error) if wait_timeout::is_deadline_expired(&error) => break,
+            Err(error) if error.is_retryable_poll_failure() => {
+                last_error = Some(json!({ "code": error.code.as_str(), "message": error.message }));
+            }
+            Err(error) => return Err(error.into()),
+        }
+        if deadline.is_expired() {
+            break;
+        }
+        deadline.pause(Duration::from_millis(100));
+    }
+    wait_timeout::surface(kind, timeout_ms, last_observed.as_deref(), last_error)
 }
 
 fn wait_for_window(
@@ -260,10 +310,10 @@ fn wait_for_text(
             Err(AppError::Adapter(err)) if wait_timeout::is_deadline_expired(&err) => {
                 return wait_timeout::text(&text, timeout_ms, expected_count, last_error);
             }
-            Err(err) if is_retryable_wait_app_error(&err) => {
+            Err(AppError::Adapter(err)) if is_retryable_window_poll_error(&err) => {
                 last_error = Some(json!({
-                    "code": err.code(),
-                    "message": err.to_string()
+                    "code": err.code.as_str(),
+                    "message": err.message
                 }));
             }
             Err(AppError::Adapter(mut err)) if err.code == ErrorCode::AmbiguousTarget => {
@@ -283,24 +333,16 @@ fn wait_for_text(
     }
 }
 
-pub(crate) fn is_retryable_wait_poll_error(code: &ErrorCode) -> bool {
-    matches!(code, ErrorCode::Timeout | ErrorCode::ElementNotFound)
-}
-
 /// A window wait polls a condition that is not yet true, and an application
 /// that has not registered on the desktop yet is that condition: the window
 /// cannot exist before the application does. Absence is retried until the
 /// deadline unless the adapter explicitly marks the error non-retryable.
 fn is_retryable_window_poll_error(error: &crate::AdapterError) -> bool {
-    is_retryable_wait_poll_error(&error.code)
+    error.is_retryable_poll_failure()
         || (matches!(
             error.code,
             ErrorCode::AppNotFound | ErrorCode::WindowNotFound
         ) && error.permits_retry_by_default())
-}
-
-fn is_retryable_wait_app_error(err: &AppError) -> bool {
-    matches!(err, AppError::Adapter(err) if is_retryable_window_poll_error(err))
 }
 
 #[cfg(test)]
@@ -320,6 +362,9 @@ mod scenario_menu_tests;
 #[cfg(test)]
 #[path = "wait_scenario_tests.rs"]
 mod scenario_tests;
+#[cfg(test)]
+#[path = "wait_surface_scenario_tests.rs"]
+mod surface_scenario_tests;
 
 #[cfg(test)]
 #[path = "wait_element_tests.rs"]

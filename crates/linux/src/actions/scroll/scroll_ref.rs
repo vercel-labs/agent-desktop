@@ -119,7 +119,9 @@ fn eligible(
     toolkit: &crate::system::process::toolkit_id::ToolkitId,
 ) -> bool {
     entry.identity.role == "incrementor"
-        && entry.identity.retained_object.as_deref() == Some(element.object_identity().as_str())
+        && agent_desktop_core::refs::ref_identity::element_token(entry)
+            .and_then(crate::tree::element::element_token::decode)
+            .is_some_and(|token| token.names(element))
         && uuid_context(element.path())
         && element
             .scroll_container()
@@ -144,13 +146,23 @@ pub(crate) fn scroll(
     handle: &NativeHandle,
     lease: &InteractionLease,
 ) -> Result<Option<NativeHandle>, AdapterError> {
+    recover(bus, entry, handle, lease, crate::actions::scroll_into_view)
+}
+
+fn recover(
+    bus: &SharedBus,
+    entry: &RefEntry,
+    handle: &NativeHandle,
+    lease: &InteractionLease,
+    scroll: impl FnOnce(&SharedBus, &NativeHandle, &InteractionLease) -> Result<bool, AdapterError>,
+) -> Result<Option<NativeHandle>, AdapterError> {
     let element = atspi_element(handle)?;
     let mut port = BusPort::new(bus, handle, element, lease.deadline());
     let toolkit = port.toolkit();
     let before = eligible(entry, element, &toolkit)
         .then(|| Witness::read(&mut port))
         .flatten();
-    crate::actions::scroll_into_view(bus, handle, lease)?;
+    crate::actions::before_pointer(scroll(bus, handle, lease))?;
     let Some(before) = before else {
         return Ok(None);
     };

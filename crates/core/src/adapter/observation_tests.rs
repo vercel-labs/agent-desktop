@@ -24,7 +24,7 @@ fn locator_anchor_never_falls_back_to_the_public_strict_resolver() {
     };
 
     let error = resolver
-        .resolve_locator_anchor(&entry(), crate::Deadline::standard().unwrap())
+        .resolve_locator_anchor(&entry(), None, crate::Deadline::standard().unwrap())
         .err()
         .expect("unsupported exact-path resolution must fail closed");
 
@@ -45,7 +45,7 @@ fn entry() -> RefEntry {
             value: None,
             description: None,
             native_id: None,
-            unique_at_capture: true,
+            proof: crate::IdentityProof::Unique,
         },
         geometry: crate::RefGeometry {
             bounds_space: None,
@@ -68,6 +68,7 @@ fn entry() -> RefEntry {
             root_ref: None,
             path_is_absolute: false,
             path: Default::default(),
+            chain: Default::default(),
         },
     }
 }

@@ -24,6 +24,7 @@ fn app(bus: &str, pid: u32, instance: &str, name: &str) -> RegistryApp {
 
 fn window(owner: usize, id: &str, visible: bool) -> ListedWindow {
     ListedWindow {
+        alert: false,
         app: owner,
         info: WindowInfo {
             id: id.to_owned(),

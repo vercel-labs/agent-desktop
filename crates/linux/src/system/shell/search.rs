@@ -1,6 +1,8 @@
 use agent_desktop_core::{AdapterError, Deadline, ErrorCode};
 
-use super::light::{Light, Nodes, same_object};
+use serde_json::json;
+
+use super::light::{Detail, Light, Nodes, same_object};
 use crate::tree::AtspiElement;
 
 const MAX_NODES: usize = 8_000;
@@ -52,6 +54,7 @@ pub(crate) fn walk<N: Nodes>(
     nodes: &N,
     root: &AtspiElement,
     deadline: Deadline,
+    detail: Detail,
     prune: &dyn Fn(&Light) -> bool,
 ) -> Result<Walk, AdapterError> {
     let mut arena: Vec<Visit> = Vec::new();
@@ -59,13 +62,13 @@ pub(crate) fn walk<N: Nodes>(
     let mut frontier: Vec<(AtspiElement, Option<usize>)> = vec![(root.clone(), None)];
     while !frontier.is_empty() {
         if deadline.is_expired() {
-            return Err(deadline.timeout_error());
+            return Err(unread(arena.len()));
         }
         let elements: Vec<AtspiElement> = frontier
             .iter()
             .map(|(element, _)| element.clone())
             .collect();
-        let reads = nodes.read_level(&elements);
+        let reads = nodes.read_level(&elements, detail);
         let mut next = Vec::new();
         for ((_, parent), read) in frontier.drain(..).zip(reads) {
             let light = match read {
@@ -73,6 +76,9 @@ pub(crate) fn walk<N: Nodes>(
                 Err(error) if error.code == ErrorCode::ElementNotFound => {
                     complete = false;
                     continue;
+                }
+                Err(error) if error.code == ErrorCode::Timeout => {
+                    return Err(unread(arena.len()));
                 }
                 Err(error) => return Err(error),
             };
@@ -106,6 +112,18 @@ pub(crate) fn walk<N: Nodes>(
         visits: in_paint_order(arena),
         complete,
     })
+}
+
+/// The budget ended before the shell tree was read. The shell answers its
+/// accessibility calls one at a time, so a large tree can outlast the budget
+/// while the shell itself is healthy; the error says which tree and how far
+/// the read got instead of blaming a busy application.
+fn unread(nodes_read: usize) -> AdapterError {
+    AdapterError::timeout(format!(
+        "The desktop shell tree was not read within the time limit ({nodes_read} nodes read)"
+    ))
+    .with_suggestion("Retry the command; the shell answers its accessibility calls one at a time")
+    .with_details(json!({ "kind": "shell_tree_unread", "nodes_read": nodes_read }))
 }
 
 fn in_paint_order(arena: Vec<Visit>) -> Vec<Visit> {

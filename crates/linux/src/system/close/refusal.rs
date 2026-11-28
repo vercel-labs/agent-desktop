@@ -68,6 +68,19 @@ pub(super) fn wayland_session(request: &Request<'_>) -> AdapterError {
     }))
 }
 
+pub(super) fn wayland_headless_graceful(request: &Request<'_>) -> AdapterError {
+    agent_desktop_core::foreground_denied(
+        "Closing an application gracefully on Wayland cannot monitor or return focus if a save prompt opens, which the interaction policy does not allow",
+        "wayland_focus_unmonitored",
+        "close-app",
+        request.policy,
+    )
+    .with_suggestion(format!(
+        "{} Or use --force to end the process without a close request.",
+        agent_desktop_core::headed_mode_suggestion("may raise a save prompt that takes focus")
+    ))
+}
+
 pub(super) fn windowless(request: &Request<'_>) -> AdapterError {
     refused(
         ErrorCode::ActionFailed,
@@ -99,6 +112,27 @@ pub(super) fn unavailable(request: &Request<'_>) -> AdapterError {
     .with_details(json!({ "app": request.name, "pid": request.pid }))
 }
 
+/// The dialogs drawn inside the process's windows could not be read, so
+/// whether a prompt is open is unknown. No close request is sent on a guess:
+/// one can answer the prompt for the user.
+pub(super) fn dialogs_unknown(request: &Request<'_>) -> AdapterError {
+    refused(
+        ErrorCode::ActionFailed,
+        format!(
+            "Process {} could not be checked for open dialogs, so no close request was sent",
+            request.pid
+        ),
+    )
+    .with_suggestion(
+        "The app's windows could not be read in full in time, so a save prompt could not be ruled out. Close its windows through their own controls, or use --force only if losing unsaved work is acceptable",
+    )
+    .with_details(json!({
+        "cause": "dialogs_unknown",
+        "app": request.name,
+        "pid": request.pid,
+    }))
+}
+
 pub(super) fn is_dialog(window: &Toplevel) -> bool {
     window.kind == WindowKind::Dialog || window.transient
 }
@@ -121,7 +155,7 @@ pub(super) fn dialog_pending(
         .iter()
         .filter(|window| is_dialog(window))
         .map(|window| window.title.as_str())
-        .chain(standing.nested.iter().map(String::as_str))
+        .chain(standing.nested_titles().iter().map(String::as_str))
         .collect();
     let dialogs = titles.len();
     let delivery = if sent {
@@ -129,15 +163,7 @@ pub(super) fn dialog_pending(
     } else {
         DeliverySemantics::not_delivered()
     };
-    AdapterError::new(
-        ErrorCode::ActionFailed,
-        format!(
-            "Process {} has {dialogs} open dialog(s), so no close request was sent to them",
-            request.pid
-        ),
-    )
-    .with_suggestion(PROMPT)
-    .with_details(json!({
+    let details = json!({
         "cause": "dialog_pending",
         "app": request.name,
         "pid": request.pid,
@@ -145,8 +171,22 @@ pub(super) fn dialog_pending(
         "dialogs": dialogs,
         "dialog_titles": titles,
         "dialog": titles.first(),
-    }))
-    .with_disposition(delivery)
+    });
+    let message = if sent {
+        format!(
+            "Process {} answered the close request with {dialogs} open dialog(s), which were left open",
+            request.pid
+        )
+    } else {
+        format!(
+            "Process {} has {dialogs} open dialog(s), so no close request was sent to them",
+            request.pid
+        )
+    };
+    AdapterError::new(ErrorCode::ActionFailed, message)
+        .with_suggestion(PROMPT)
+        .with_details(details)
+        .with_disposition(delivery)
 }
 
 pub(super) fn waited_out(

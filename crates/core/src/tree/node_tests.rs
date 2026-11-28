@@ -80,6 +80,7 @@ fn test_rect_normal_roundtrip() {
 #[test]
 fn app_info_bundle_id_none_omitted_from_json() {
     let info = AppInfo {
+        aliases: Vec::new(),
         name: "Finder".into(),
         pid: crate::ProcessId::new(42),
         bundle_id: None,
@@ -97,6 +98,7 @@ fn app_info_bundle_id_none_omitted_from_json() {
 #[test]
 fn app_info_bundle_id_some_present_in_json() {
     let info = AppInfo {
+        aliases: Vec::new(),
         name: "Safari".into(),
         pid: crate::ProcessId::new(7),
         bundle_id: Some("com.apple.Safari".into()),
@@ -115,6 +117,7 @@ fn app_info_bundle_id_some_present_in_json() {
 #[test]
 fn app_info_roundtrip_preserves_all_fields() {
     let original = AppInfo {
+        aliases: Vec::new(),
         name: "TextEdit".into(),
         pid: crate::ProcessId::new(1234),
         bundle_id: Some("com.apple.TextEdit".into()),
@@ -227,6 +230,7 @@ fn descriptor_fields_present_serialize_under_documented_names() {
         role_description: Some("Push button".into()),
         placeholder: Some("Enter name".into()),
         dom_classes: vec!["btn".into(), "primary".into()],
+        ..Default::default()
     };
     let json = serde_json::to_string(&node).unwrap();
 
@@ -285,6 +289,7 @@ fn descriptor_fields_roundtrip_both_ways() {
         role_description: Some("List item".into()),
         placeholder: None,
         dom_classes: vec!["leaf".into()],
+        ..Default::default()
     };
     let json = serde_json::to_string(&original).unwrap();
     let back: crate::NodeDescriptor = serde_json::from_str(&json).unwrap();

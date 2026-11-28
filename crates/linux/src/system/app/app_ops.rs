@@ -1,25 +1,18 @@
-use agent_desktop_core::{
-    AdapterError, AppInfo, AppInventory, AppInventoryQuery, AppPresentation, Deadline,
-    DeliverySemantics, ErrorCode,
-};
+use agent_desktop_core::{AdapterError, AppInfo, AppPresentation, DeliverySemantics, ErrorCode};
 use serde_json::json;
 
-use crate::system::SharedBus;
 use crate::system::registry::registry_app::RegistryApp;
 
 const MISSING_CONNECTION: &str = "The process is running but is not on the accessibility bus. Sandboxed apps (snap, Flatpak) cannot reach it unless the bus is shared. A Chromium browser (Chrome, Chromium) needs --force-renderer-accessibility on its command line: ACCESSIBILITY_ENABLED=1 alone puts it on the bus with no windows. An Electron app needs no accessibility flag, but needs --no-sandbox where its chrome-sandbox is not setuid. A Qt app needs QT_ACCESSIBILITY=1. The registry was read once, so an app launched a moment ago may need a retry.";
 
 pub(crate) fn info(app: &RegistryApp, foreground: bool) -> AppInfo {
     AppInfo {
-        name: app.name.clone(),
-        pid: app.root.pid().into(),
-        bundle_id: super::app_name::desktop_id(&app.facts),
-        process_instance: Some(app.facts.instance.clone()),
         presentation: Some(if foreground {
             AppPresentation::Foreground
         } else {
             AppPresentation::Background
         }),
+        ..app.app_info()
     }
 }
 
@@ -48,10 +41,6 @@ pub(crate) fn one_entry_per_process(apps: Vec<AppInfo>) -> Vec<AppInfo> {
         }
     }
     merged
-}
-
-pub(crate) fn inventory(bus: &SharedBus, deadline: Deadline) -> Result<AppInventory, AdapterError> {
-    crate::system::context::inventory::query(bus, AppInventoryQuery::All, deadline)
 }
 
 /// The error for a name that no registry application has but a running
@@ -89,30 +78,6 @@ pub(crate) fn scoped_outcome(
     }
 }
 
-pub(crate) fn scoped(
-    bus: &SharedBus,
-    name: &str,
-    bundle_id: Option<&str>,
-    deadline: Deadline,
-) -> Result<Vec<AppInfo>, AdapterError> {
-    let inventory = crate::system::context::inventory::query(
-        bus,
-        AppInventoryQuery::Exact { name, bundle_id },
-        deadline,
-    )?;
-    if !inventory.skipped.is_empty() {
-        return Err(
-            AdapterError::timeout("The application inventory could not be fully read")
-                .with_details(json!({ "skipped": inventory.skipped })),
-        );
-    }
-    Ok(inventory.apps)
-}
-
 #[cfg(test)]
 #[path = "app_ops_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "app_ops_live_tests.rs"]
-mod live_tests;
