@@ -1,5 +1,5 @@
 use agent_desktop_core::{
-    AppError, PlatformAdapter,
+    AdapterError, AppError, ErrorCode, PlatformAdapter,
     commands::{
         close_app as close_app_command, focus_window as focus_window_command, helpers,
         launch as launch_command, list_apps as list_apps_command,
@@ -25,9 +25,16 @@ pub(super) fn launch(
     adapter: &dyn PlatformAdapter,
     context: &agent_desktop_core::context::CommandContext,
 ) -> Result<Value, AppError> {
+    let Some(app) = args.app_flag.as_deref().or(args.app.as_deref()) else {
+        return Err(AdapterError::new(
+            ErrorCode::InvalidArgs,
+            "launch requires an app name (APP or --app)",
+        )
+        .into());
+    };
     launch_command::execute(
         launch_command::LaunchArgs {
-            app: args.app.clone(),
+            app: app.to_owned(),
             options: build_launch_options(&args)?,
         },
         adapter,
@@ -40,9 +47,16 @@ pub(super) fn close_app(
     adapter: &dyn PlatformAdapter,
     context: &agent_desktop_core::context::CommandContext,
 ) -> Result<Value, AppError> {
+    let Some(app) = args.app_flag.or(args.app) else {
+        return Err(AdapterError::new(
+            ErrorCode::InvalidArgs,
+            "close-app requires an app name (APP or --app)",
+        )
+        .into());
+    };
     close_app_command::execute(
         close_app_command::CloseAppArgs {
-            app: args.app,
+            app,
             force: args.force,
             policy: if context.is_headed() {
                 agent_desktop_core::InteractionPolicy::headed()
@@ -161,7 +175,7 @@ pub(super) fn minimize(
 ) -> Result<Value, AppError> {
     minimize_command::execute(
         helpers::AppArgs {
-            app: args.scope.app,
+            app: args.pos_app.or(args.scope.app),
             window_id: args.scope.window_id,
         },
         adapter,
@@ -176,7 +190,7 @@ pub(super) fn maximize(
 ) -> Result<Value, AppError> {
     maximize_command::execute(
         helpers::AppArgs {
-            app: args.scope.app,
+            app: args.pos_app.or(args.scope.app),
             window_id: args.scope.window_id,
         },
         adapter,
@@ -191,7 +205,7 @@ pub(super) fn restore(
 ) -> Result<Value, AppError> {
     restore_command::execute(
         helpers::AppArgs {
-            app: args.scope.app,
+            app: args.pos_app.or(args.scope.app),
             window_id: args.scope.window_id,
         },
         adapter,
