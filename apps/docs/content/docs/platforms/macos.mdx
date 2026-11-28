@@ -62,6 +62,8 @@ A text field that shows a file's name, such as a Finder name cell, does not rena
   </tbody>
 </table>
 
+A clipboard command needs the packaged helper `agent-desktop-macos-helper`, and the CLI checks that helper's filesystem identity before it launches it. The file must be named `agent-desktop-macos-helper` and be a regular file rather than a symlink, owned by the effective user, executable, with a single link, with no group or world write, and with no ACL that lets another user modify it. Every directory above it must be a directory owned by root or by the effective user, must not be group or world writable unless it is sticky, and must have no ACL that lets another user modify it. `AGENT_DESKTOP_MACOS_HELPER_PATH` names an absolute path when the helper does not sit beside the executable, and the path it names passes the same checks. A layout that fails a rule returns `ACTION_NOT_SUPPORTED` with `details.kind` set to `clipboard_helper_invalid`, or to `clipboard_helper_not_found` when there is no helper at all. A package manager that keeps its binaries behind symlinks, or in a group-writable prefix, fails this check, so use the system clipboard with the app's own paste shortcut: `pbpaste` to read it, and `pbcopy` to write it.
+
 Judge delivery by observation. AX return codes do not prove an effect: an app can return success from an action that does nothing, so re-read with `get`, `is`, or a snapshot.
 
 ## App naming
