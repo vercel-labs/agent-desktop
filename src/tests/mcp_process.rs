@@ -1,5 +1,6 @@
 use serde_json::{Value, json};
-use std::io::Write;
+use std::io::{BufRead, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 fn binary() -> Command {
@@ -35,6 +36,67 @@ fn serve(requests: &[Value], args: &[&str]) -> Vec<Value> {
 fn call(id: i64, name: &str, arguments: Value) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "method": "tools/call",
             "params": { "name": name, "arguments": arguments } })
+}
+
+/// Runs `requests` one at a time, reading the response before sending the next, so a call can rely on
+/// what the call before it did: a session must have started before another call uses it.
+fn serve_one_at_a_time(requests: &[Value], home: &Path) -> Vec<Value> {
+    let mut child = binary()
+        .arg("mcp")
+        .env("AGENT_DESKTOP_HOME", home)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("binary starts");
+    let mut stdin = child.stdin.take().expect("stdin");
+    let mut responses = std::io::BufReader::new(child.stdout.take().expect("stdout")).lines();
+    let mut seen = Vec::new();
+    for request in requests {
+        writeln!(stdin, "{request}").expect("request written");
+        stdin.flush().expect("request reaches the server");
+        let line = responses
+            .next()
+            .expect("one response per request")
+            .expect("utf-8 line");
+        seen.push(serde_json::from_str::<Value>(&line).expect("one JSON-RPC message per line"));
+    }
+    drop(stdin);
+    assert!(
+        child
+            .wait()
+            .expect("server exits after stdin closes")
+            .success()
+    );
+    seen
+}
+
+#[cfg(unix)]
+fn create_private_dir(dir: &Path) {
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)
+        .expect("create state root");
+}
+
+#[cfg(not(unix))]
+fn create_private_dir(dir: &Path) {
+    std::fs::create_dir_all(dir).expect("create state root");
+}
+
+/// A state root of this test's own: `session start` refuses a parent that other users can reach.
+fn private_home() -> PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "agent-desktop-mcp-session-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    create_private_dir(&dir);
+    dir
 }
 
 #[test]
@@ -153,4 +215,45 @@ fn malformed_messages_get_errors_and_the_server_keeps_serving() {
         "{nul}"
     );
     assert_eq!(responses[4]["result"]["isError"], false);
+}
+
+#[test]
+fn a_session_the_server_started_is_the_one_the_calls_after_it_run_in() {
+    let home = private_home();
+    let responses = serve_one_at_a_time(
+        &[
+            call(1, "desktop_session_start", json!({})),
+            call(2, "desktop_session_list", json!({})),
+            call(3, "desktop_cursor_overlay_enable", json!({})),
+        ],
+        &home,
+    );
+    let _ = std::fs::remove_dir_all(&home);
+
+    let started = &responses[0]["result"];
+    assert_eq!(started["isError"], false, "{started}");
+    let session_id = started["structuredContent"]["data"]["session_id"]
+        .as_str()
+        .expect("session start returns its id")
+        .to_owned();
+
+    let listed = &responses[1]["result"];
+    assert_eq!(listed["isError"], false, "{listed}");
+    let sessions = &listed["structuredContent"]["data"]["sessions"];
+    assert_eq!(sessions[0]["session_id"], session_id, "{listed}");
+    assert_eq!(
+        sessions[0]["ended_at"],
+        Value::Null,
+        "the session the server started is still open: {listed}"
+    );
+
+    let enabled = &responses[2]["result"];
+    assert_eq!(
+        enabled["isError"], false,
+        "a session this server started must be usable by the calls after it: {enabled}"
+    );
+    assert_eq!(
+        enabled["structuredContent"]["data"]["session_id"],
+        session_id
+    );
 }

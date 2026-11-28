@@ -3,6 +3,7 @@ use super::*;
 fn server() -> Server {
     Server {
         tools: catalog::tools(),
+        session: super::bound_session::BoundSession::new(false),
         globals: Vec::new(),
         calls: calls::Calls::default(),
     }

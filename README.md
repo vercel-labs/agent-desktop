@@ -121,7 +121,7 @@ Retry a failed command only when `error.disposition.retry` is `safe`. See [JSON 
 { "mcpServers": { "agent-desktop": { "command": "agent-desktop", "args": ["mcp"] } } }
 ```
 
-Global flags given to `mcp`, such as `--session`, `--headed` or `--trace`, apply to every call except `sandbox exec`, whose guest command takes its own flags.
+Global flags given to `mcp`, such as `--session`, `--headed` or `--trace`, apply to every call except `sandbox exec`, whose guest command takes its own flags. A session that `desktop_session_start` creates is the one the calls after it run in.
 
 ## Commands
 

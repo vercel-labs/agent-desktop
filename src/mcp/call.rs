@@ -5,6 +5,7 @@ use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use super::bound_session::BoundSession;
 use super::calls::Calls;
 use super::catalog::{Output, Tool};
 
@@ -16,6 +17,7 @@ pub(crate) fn call(
     tool: &Tool,
     arguments: &Map<String, Value>,
     globals: &[String],
+    session: &BoundSession,
     calls: &Calls,
     id: &Value,
 ) -> Value {
@@ -43,19 +45,29 @@ pub(crate) fn call(
     let status = child.wait();
     let succeeded = status.as_ref().is_ok_and(|status| status.success());
     let status = status.map_or_else(|error| error.to_string(), |status| status.to_string());
-    tool_result(tool, &stdout, &stderr, &status, succeeded)
+    tool_result(tool, &stdout, &stderr, &status, succeeded, session)
 }
 
 /// Maps a child's output to a result by the kind of output its tool writes, never by what the bytes look like.
 /// A passthrough tool hands back its child's own stdout, empty output included, with its exit status.
-fn tool_result(tool: &Tool, stdout: &[u8], stderr: &[u8], status: &str, succeeded: bool) -> Value {
+fn tool_result(
+    tool: &Tool,
+    stdout: &[u8],
+    stderr: &[u8],
+    status: &str,
+    succeeded: bool,
+    session: &BoundSession,
+) -> Value {
     match tool.output {
         Output::Passthrough => json!({
             "content": [{ "type": "text", "text": String::from_utf8_lossy(stdout) }],
             "isError": !succeeded,
         }),
         Output::Envelope => match serde_json::from_slice::<Value>(stdout) {
-            Ok(envelope) => envelope_result(envelope),
+            Ok(envelope) => {
+                session.observe(tool, &envelope);
+                envelope_result(envelope)
+            }
             Err(_) => error_result(&format!(
                 "agent-desktop {} exited with {status} and no JSON envelope: {}",
                 tool.path.join(" "),

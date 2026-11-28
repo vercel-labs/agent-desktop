@@ -1,5 +1,6 @@
 //! Stdio MCP server. Every leaf CLI command is one tool, and every call runs that command through the CLI.
 
+mod bound_session;
 mod call;
 mod calls;
 mod catalog;
@@ -29,8 +30,9 @@ desktop_skills_get with name \"desktop\" first for the observe-act loop, and wit
 \"platform\" for what differs on this OS. The skills use CLI syntax: `agent-desktop snapshot \
 --app Finder` is desktop_snapshot with {\"app\": \"Finder\"}, and the input schema replaces \
 --help. Global flags (--session, --agent-id, --headed, --wait-for, --trace) are fixed \
-by how this server was started and cannot be passed per call; desktop_sandbox_exec gets none of \
-them, so put the guest command's flags in its args. Refs such as @s8f3k2p9:e1 come from \
+by how this server was started and cannot be passed per call, and the session \
+desktop_session_start creates is the one the calls after it act in; desktop_sandbox_exec gets none \
+of them, so put the guest command's flags in its args. Refs such as @s8f3k2p9:e1 come from \
 desktop_snapshot and go stale when the UI changes: on STALE_REF or AMBIGUOUS_TARGET, snapshot \
 again. Repeat an action only when its disposition.retry is \"safe\".";
 
@@ -44,9 +46,11 @@ pub(crate) fn command() -> Command {
 /// Serves MCP over stdin and stdout until stdin closes, then finishes the tool calls already running.
 /// At most `MAX_CONCURRENT_CALLS` calls run at once, and a message longer than `MAX_MESSAGE_BYTES` is refused unread.
 pub(crate) fn serve(matches: &ArgMatches) -> ExitCode {
+    let globals = forwarded_globals(matches);
     let server = Arc::new(Server {
         tools: catalog::tools(),
-        globals: forwarded_globals(matches),
+        session: bound_session::BoundSession::new(pinned_session(&globals)),
+        globals,
         calls: calls::Calls::default(),
     });
     let out = Arc::new(Mutex::new(std::io::stdout()));
@@ -124,6 +128,7 @@ fn read_message(input: &mut impl BufRead) -> Option<Result<Vec<u8>, RpcError>> {
 struct Server {
     tools: Vec<catalog::Tool>,
     globals: Vec<String>,
+    session: bound_session::BoundSession,
     calls: calls::Calls,
 }
 
@@ -216,7 +221,15 @@ impl Server {
             Some(Value::Object(arguments)) => arguments.clone(),
             Some(_) => return Err(RpcError::new(-32602, "Tool arguments must be an object")),
         };
-        Ok(call::call(tool, &arguments, &self.globals, &self.calls, id))
+        let globals = self.session.globals(&self.globals);
+        Ok(call::call(
+            tool,
+            &arguments,
+            &globals,
+            &self.session,
+            &self.calls,
+            id,
+        ))
     }
 }
 
@@ -259,6 +272,13 @@ fn forwarded_globals(matches: &ArgMatches) -> Vec<String> {
         }
     }
     globals
+}
+
+/// Whether the server was started with a session of its own, by `--session` or by the variable its calls
+/// inherit. Such a server acts in that session and adopts no other.
+fn pinned_session(globals: &[String]) -> bool {
+    globals.iter().any(|flag| flag.starts_with("--session="))
+        || std::env::var_os("AGENT_DESKTOP_SESSION").is_some()
 }
 
 fn write_line(out: &Mutex<std::io::Stdout>, message: &Value) {

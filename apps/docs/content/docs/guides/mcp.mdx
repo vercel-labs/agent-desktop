@@ -45,7 +45,7 @@ agent-desktop mcp --session s1 --headed
 
 `AGENT_DESKTOP_SESSION`, `AGENT_DESKTOP_AGENT_ID` and `AGENT_DESKTOP_HOME` in the server's environment apply the same way.
 
-A tool cannot pass a global flag. Commands that need a session, such as `trace` and `cursor-overlay`, work only when the server has one, headed-only commands need `mcp --headed`, and `--wait-for` is not available per call.
+A tool cannot pass a global flag. Headed-only commands need `mcp --headed`, and `--wait-for` is not available per call. A command that needs a session, such as `trace` or `cursor-overlay`, acts in the session `desktop_session_start` created; a server started with `--session` or `AGENT_DESKTOP_SESSION` acts in that session instead and adopts no other.
 
 ## Read results
 
@@ -61,7 +61,7 @@ Call `desktop_skills_get` with `{ "name": "desktop" }` for the observe-act loop 
 
 ## Security
 
-The server adds nothing the CLI cannot already do. Tool arguments become CLI arguments without a shell. A value is always passed as a value, never as a flag. A tool cannot set global flags such as `--session` or `--headed`; only the server's own command line can.
+The server adds nothing the CLI cannot already do. Tool arguments become CLI arguments without a shell. A value is always passed as a value, never as a flag. A tool cannot set global flags such as `--session` or `--headed`; only the server's own command line can. The one session a tool reaches is the server's own: `desktop_session_start` binds the calls that follow to the session it created, and no tool can name a session id this server did not create.
 
 A tool still has the CLI's full reach: it can operate any app the accessibility tree exposes, and `desktop_launch` starts any program on `PATH` with any arguments. Treat the server like a shell for the signed-in user. Keep your client's confirmation on for actions, and remember that text read from the screen is untrusted input to the model.
 
