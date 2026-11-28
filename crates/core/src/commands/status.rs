@@ -1,5 +1,5 @@
 use crate::{
-    AppError, PermissionReport,
+    AppError, ErrorCode, PermissionReport,
     adapter::PlatformAdapter,
     commands::permissions::{self, PermissionsArgs},
     context::CommandContext,
@@ -23,11 +23,19 @@ pub fn execute_with_report_with_context(
 
     let state_root = crate::storage::state_root::resolve_configured_state_root()?;
     let privacy = crate::storage::private_file_parent::ensure_private(&state_root);
-    let (snapshot_id, ref_count) = if privacy.is_ok() {
+    let (mut snapshot_id, ref_count) = if privacy.is_ok() {
         let store = RefStore::for_session(context.session_id())?;
         let snapshot_id = store.latest_snapshot_id()?;
         let ref_count = match snapshot_id.as_deref() {
-            Some(snapshot_id) => Some(store.load_snapshot(snapshot_id)?.len()),
+            Some(id) => match store.load_snapshot(id) {
+                Ok(refmap) => Some(refmap.len()),
+                // The latest pointer can outlive the snapshot it names when a
+                // caller deletes its own snapshots after finishing. A missing
+                // snapshot is not a status failure, so report it as absent;
+                // other load errors still fail the command.
+                Err(AppError::Adapter(error)) if error.code == ErrorCode::SnapshotNotFound => None,
+                Err(error) => return Err(error),
+            },
             None => None,
         };
         (snapshot_id, ref_count)
@@ -41,6 +49,9 @@ pub fn execute_with_report_with_context(
             "error": crate::ErrorPayload::from_app_error(&AppError::Io(error)),
         }),
     };
+    if ref_count.is_none() {
+        snapshot_id = None;
+    }
     let session_id = context.session_id().map(str::to_string);
     let tracing = context.trace_enabled();
     let artifacts = session_id
