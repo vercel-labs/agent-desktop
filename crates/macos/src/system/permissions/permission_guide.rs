@@ -39,7 +39,7 @@ pub(crate) fn start() -> Result<&'static str, AdapterError> {
         AdapterError::internal("Could not locate the agent-desktop executable")
             .with_platform_detail(error.to_string())
     })?;
-    let host = host_app().unwrap_or_else(|| executable.clone());
+    let host = host_app().unwrap_or_else(|| guide_executable(&executable));
     let mut command = Command::new(&executable);
     hand_over(&mut command, &lock);
     let mut child = command
@@ -81,6 +81,10 @@ fn run_child(steps: &str) -> bool {
         return false;
     }
     unsafe { agent_desktop_permission_guide_run(steps, host.as_ptr(), granted) == 0 }
+}
+
+fn guide_executable(executable: &Path) -> PathBuf {
+    std::fs::canonicalize(executable).unwrap_or_else(|_| executable.to_path_buf())
 }
 
 /// Each poll runs in a fresh process, because a long-lived process keeps the
