@@ -3,10 +3,13 @@
 mod call;
 mod calls;
 mod catalog;
+mod compact;
+mod per_call_globals;
 
-use clap::{ArgAction, ArgMatches, Command, CommandFactory, parser::ValueSource};
+use clap::{Arg, ArgAction, ArgMatches, Command, CommandFactory, parser::ValueSource};
 use serde_json::{Map, Value, json};
 use std::io::{BufRead, Write};
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 
@@ -24,28 +27,59 @@ agent-desktop reads native accessibility trees and operates desktop apps. Each t
 agent-desktop CLI command of the same name and returns its JSON envelope: ok with data, or ok \
 false with error; a call rejected before the command runs returns plain text. desktop_sandbox_exec \
 is the exception: its text is the guest command's own stdout, empty included, and isError follows \
-the guest's exit status. Read \
-desktop_skills_get with name \"desktop\" first for the observe-act loop, and with name \
-\"platform\" for what differs on this OS. The skills use CLI syntax: `agent-desktop snapshot \
---app Finder` is desktop_snapshot with {\"app\": \"Finder\"}, and the input schema replaces \
---help. Global flags (--session, --agent-id, --headed, --wait-for, --trace) are fixed \
-by how this server was started and cannot be passed per call; desktop_sandbox_exec gets none of \
-them, so put the guest command's flags in its args. Refs such as @s8f3k2p9:e1 come from \
-desktop_snapshot and go stale when the UI changes: on STALE_REF or AMBIGUOUS_TARGET, snapshot \
-again. Repeat an action only when its disposition.retry is \"safe\".";
+the guest's exit status. Read desktop_skills_get with name \"desktop\" first for the observe-act \
+loop, and with name \"platform\" for what differs on this OS. The skills use CLI syntax: \
+`agent-desktop snapshot --app Finder` is desktop_snapshot with {\"app\": \"Finder\"}, and the \
+input schema replaces --help. Global flags (--session, --agent-id, --headed, --wait-for, --trace) \
+are fixed by how this server was started and cannot be passed per call unless --allow-headed is \
+enabled; desktop_sandbox_exec gets none of them, so put the guest command's flags in its args. \
+Refs such as @s8f3k2p9:e1 come from desktop_snapshot and go stale when the UI changes: on \
+STALE_REF or AMBIGUOUS_TARGET, snapshot again. Repeat an action only when its disposition.retry \
+is \"safe\".";
 
 /// The `mcp` subcommand; it lives outside `Commands` because it serves commands rather than being one.
 pub(crate) fn command() -> Command {
-    Command::new("mcp").about(
-        "Serve every command as an MCP tool over stdio; global flags given here apply to every call",
-    )
+    Command::new("mcp")
+        .about("Serve every command as an MCP tool over stdio; global flags given here apply to every call")
+        .arg(
+            Arg::new("compact")
+                .long("compact")
+                .action(ArgAction::SetTrue)
+                .help("Expose four grouped tools (desktop_observe, desktop_act, desktop_window, desktop_batch)"),
+        )
+        .arg(
+            Arg::new("allow_headed")
+                .long("allow-headed")
+                .action(ArgAction::SetTrue)
+                .help("Allow individual tool calls to opt into --headed and post-action --wait-for flags"),
+        )
+        .arg(
+            Arg::new("screenshot_dir")
+                .long("screenshot-dir")
+                .value_name("DIR")
+                .help("Save screenshots without output_path into DIR instead of returning inline base64"),
+        )
 }
 
 /// Serves MCP over stdin and stdout until stdin closes, then finishes the tool calls already running.
 /// At most `MAX_CONCURRENT_CALLS` calls run at once, and a message longer than `MAX_MESSAGE_BYTES` is refused unread.
 pub(crate) fn serve(matches: &ArgMatches) -> ExitCode {
+    let allow_headed = matches.get_flag("allow_headed");
+    let compact = matches.get_flag("compact");
+    let screenshot_dir = match matches
+        .get_one::<String>("screenshot_dir")
+        .map(PathBuf::from)
+    {
+        Some(dir) => match agent_desktop_core::ensure_private_output_dir(&dir) {
+            Ok(()) => Some(dir),
+            Err(error) => return crate::finish("mcp", Err(error)),
+        },
+        None => None,
+    };
     let server = Arc::new(Server {
-        tools: catalog::tools(),
+        tools: catalog::tools_with_options(allow_headed),
+        compact,
+        screenshot_dir,
         globals: forwarded_globals(matches),
         calls: calls::Calls::default(),
     });
@@ -81,13 +115,12 @@ pub(crate) fn serve(matches: &ArgMatches) -> ExitCode {
             server.respond_busy(&out, &message);
             continue;
         }
-        if let Some(id) = message.get("id") {
-            if !server.calls.admit(id) {
-                let error =
-                    RpcError::new(-32600, "Invalid Request: a call with this id is running");
-                write_line(&out, &error.response(id.clone()));
-                continue;
-            }
+        if let Some(id) = message.get("id")
+            && !server.calls.admit(id)
+        {
+            let error = RpcError::new(-32600, "Invalid Request: a call with this id is running");
+            write_line(&out, &error.response(id.clone()));
+            continue;
         }
         running.push(std::thread::spawn(move || server.respond(&out, &message)));
     }
@@ -123,6 +156,8 @@ fn read_message(input: &mut impl BufRead) -> Option<Result<Vec<u8>, RpcError>> {
 
 struct Server {
     tools: Vec<catalog::Tool>,
+    compact: bool,
+    screenshot_dir: Option<PathBuf>,
     globals: Vec<String>,
     calls: calls::Calls,
 }
@@ -170,27 +205,25 @@ impl Server {
     }
 
     fn handle(&self, id: &Value, method: &str, params: &Value) -> Result<Value, RpcError> {
-        if let Some(requested) = params["_meta"][PROTOCOL_VERSION_META].as_str() {
-            if requested != MODERN_VERSION {
-                return Err(
-                    RpcError::new(-32022, "Unsupported protocol version").with_data(
-                        json!({ "supported": supported_versions(), "requested": requested }),
-                    ),
-                );
-            }
+        if let Some(requested) = params["_meta"][PROTOCOL_VERSION_META].as_str()
+            && requested != MODERN_VERSION
+        {
+            return Err(RpcError::new(-32022, "Unsupported protocol version")
+                .with_data(json!({ "supported": supported_versions(), "requested": requested })));
         }
+        let instructions = self.instructions();
         let mut result = match method {
-            "initialize" => initialize(params),
+            "initialize" => initialize(params, instructions),
             "server/discover" => json!({
                 "supportedVersions": supported_versions(),
                 "capabilities": { "tools": {} },
-                "instructions": INSTRUCTIONS,
+                "instructions": instructions,
                 "ttlMs": TOOLS_TTL_MS,
                 "cacheScope": "public",
             }),
             "ping" => json!({}),
             "tools/list" => json!({
-                "tools": self.tools.iter().map(catalog::Tool::definition).collect::<Vec<_>>(),
+                "tools": self.tool_definitions(),
                 "ttlMs": TOOLS_TTL_MS,
                 "cacheScope": "public",
             }),
@@ -202,25 +235,55 @@ impl Server {
         Ok(result)
     }
 
+    fn instructions(&self) -> &'static str {
+        match self.compact {
+            true => compact::COMPACT_INSTRUCTIONS,
+            false => INSTRUCTIONS,
+        }
+    }
+
+    fn tool_definitions(&self) -> Vec<Value> {
+        match self.compact {
+            true => compact::definitions(&self.tools),
+            false => self.tools.iter().map(catalog::Tool::definition).collect(),
+        }
+    }
+
     fn call(&self, id: &Value, params: &Value) -> Result<Value, RpcError> {
         let name = params["name"]
             .as_str()
             .ok_or_else(|| RpcError::new(-32602, "tools/call requires a tool name"))?;
-        let tool = self
-            .tools
-            .iter()
-            .find(|tool| tool.name == name)
-            .ok_or_else(|| RpcError::new(-32602, format!("Unknown tool: {name}")))?;
-        let arguments = match params.get("arguments") {
+        let raw_arguments = match params.get("arguments") {
             None | Some(Value::Null) => Map::new(),
             Some(Value::Object(arguments)) => arguments.clone(),
             Some(_) => return Err(RpcError::new(-32602, "Tool arguments must be an object")),
         };
+        let (tool, mut arguments) = if self.compact {
+            match compact::resolve_call(name, &raw_arguments, &self.tools) {
+                Ok(Some(resolved)) => resolved,
+                Ok(None) => return Err(RpcError::new(-32602, format!("Unknown tool: {name}"))),
+                Err(message) => {
+                    return Ok(
+                        json!({ "content": [{ "type": "text", "text": message }], "isError": true }),
+                    );
+                }
+            }
+        } else {
+            (self.find_direct_tool(name)?, raw_arguments)
+        };
+        compact::apply_default_screenshot_path(tool, &mut arguments, self.screenshot_dir.as_ref());
         Ok(call::call(tool, &arguments, &self.globals, &self.calls, id))
+    }
+
+    fn find_direct_tool(&self, name: &str) -> Result<&catalog::Tool, RpcError> {
+        self.tools
+            .iter()
+            .find(|tool| tool.name == name)
+            .ok_or_else(|| RpcError::new(-32602, format!("Unknown tool: {name}")))
     }
 }
 
-fn initialize(params: &Value) -> Value {
+fn initialize(params: &Value, instructions: &str) -> Value {
     let version = params["protocolVersion"]
         .as_str()
         .and_then(|requested| LEGACY_VERSIONS.iter().find(|known| **known == requested))
@@ -229,7 +292,7 @@ fn initialize(params: &Value) -> Value {
         "protocolVersion": version,
         "capabilities": { "tools": {} },
         "serverInfo": server_info(),
-        "instructions": INSTRUCTIONS,
+        "instructions": instructions,
     })
 }
 

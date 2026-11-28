@@ -141,7 +141,7 @@ pub use storage::file_lock::FileLock;
 pub use storage::private_file_ops::{
     PrivateFileOps, bounded_read, install_private_file_ops, private_file_error, temporary_file_name,
 };
-pub use storage::state_root::validate_state_root_env;
+pub use storage::state_root::{ensure_private_output_dir, validate_state_root_env};
 pub use system::app_info::{AppInfo, AppPresentation, app_name_matches};
 pub use system::app_inventory::AppInventory;
 pub use system::app_inventory_query::AppInventoryQuery;

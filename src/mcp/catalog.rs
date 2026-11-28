@@ -4,6 +4,7 @@ use clap::{Arg, ArgAction, Command, CommandFactory};
 use serde_json::{Map, Value, json};
 use std::any::TypeId;
 
+use super::per_call_globals;
 use crate::cli::Cli;
 
 const TOOL_PREFIX: &str = "desktop";
@@ -23,20 +24,28 @@ pub(crate) enum Output {
 }
 
 /// One leaf CLI command exposed as an MCP tool.
+#[derive(Clone, Debug)]
 pub(crate) struct Tool {
     pub name: String,
     pub path: Vec<String>,
     pub output: Output,
+    pub allow_headed: bool,
     command: Command,
 }
 
 /// Every leaf command of the CLI, in declaration order.
+#[cfg(test)]
 pub(crate) fn tools() -> Vec<Tool> {
+    tools_with_options(false)
+}
+
+/// Every leaf command of the CLI, optionally exposing per-call `--headed` and post-action wait flags.
+pub(crate) fn tools_with_options(allow_headed: bool) -> Vec<Tool> {
     let mut root = Cli::command();
     root.build();
     let mut found = Vec::new();
     for sub in commands(&root) {
-        collect(sub, Vec::new(), &mut found);
+        collect(sub, Vec::new(), allow_headed, &mut found);
     }
     found
 }
@@ -47,11 +56,11 @@ fn commands(parent: &Command) -> impl Iterator<Item = &Command> {
         .filter(|sub| sub.get_name() != CLAP_HELP_SUBCOMMAND)
 }
 
-fn collect(command: &Command, mut path: Vec<String>, found: &mut Vec<Tool>) {
+fn collect(command: &Command, mut path: Vec<String>, allow_headed: bool, found: &mut Vec<Tool>) {
     path.push(command.get_name().to_string());
     if command.has_subcommands() {
         for sub in commands(command) {
-            collect(sub, path.clone(), found);
+            collect(sub, path.clone(), allow_headed, found);
         }
         return;
     }
@@ -64,6 +73,7 @@ fn collect(command: &Command, mut path: Vec<String>, found: &mut Vec<Tool>) {
         name,
         output: output_for(&path),
         path,
+        allow_headed,
         command: command.clone(),
     });
 }
@@ -93,6 +103,13 @@ impl Tool {
                 required.push(Value::from(property_name(arg)));
             }
         }
+        if self.allow_headed && self.output == Output::Envelope {
+            per_call_globals::insert_schema_properties(
+                &mut properties,
+                per_call_globals::supports_headed(&self.path),
+                per_call_globals::supports_wait(&self.path),
+            );
+        }
         let mut schema =
             json!({ "type": "object", "properties": properties, "additionalProperties": false });
         if !required.is_empty() {
@@ -103,11 +120,21 @@ impl Tool {
 
     /// Builds the CLI arguments, after the binary name, that run this command with `arguments`; a null value counts as omitted.
     pub(crate) fn argv(&self, arguments: &Map<String, Value>) -> Result<Vec<String>, String> {
-        let mut argv = self.path.clone();
+        let mut argv = Vec::new();
+        let mut command_args = arguments.clone();
+        if self.allow_headed && self.output == Output::Envelope {
+            per_call_globals::extract_argv(
+                &mut argv,
+                &mut command_args,
+                per_call_globals::supports_headed(&self.path),
+                per_call_globals::supports_wait(&self.path),
+            )?;
+        }
+        argv.extend(self.path.clone());
         let has_last_positional = self.args().any(Arg::is_last_set);
         let mut positionals = Vec::new();
         let mut last_positionals = Vec::new();
-        for (key, value) in arguments.iter().filter(|(_, value)| !value.is_null()) {
+        for (key, value) in command_args.iter().filter(|(_, value)| !value.is_null()) {
             let arg = self
                 .args()
                 .find(|arg| property_name(arg) == *key)
@@ -123,28 +150,12 @@ impl Tool {
                 push_option(&mut argv, arg, key, value)?;
             }
         }
-        if has_last_positional {
-            positionals.sort_by_key(|(index, _)| *index);
-            if let Some(flag_like) = positionals
-                .iter()
-                .flat_map(|(_, values)| values)
-                .find(|value| value.starts_with('-'))
-            {
-                return Err(format!(
-                    "'{flag_like}' would be read as an option; it cannot start with '-'"
-                ));
-            }
-            argv.extend(positionals.into_iter().flat_map(|(_, values)| values));
-            if !last_positionals.is_empty() {
-                last_positionals.sort_by_key(|(index, _)| *index);
-                argv.push("--".to_string());
-                argv.extend(last_positionals.into_iter().flat_map(|(_, values)| values));
-            }
-        } else if !positionals.is_empty() {
-            positionals.sort_by_key(|(index, _)| *index);
-            argv.push("--".to_string());
-            argv.extend(positionals.into_iter().flat_map(|(_, values)| values));
-        }
+        append_positionals(
+            &mut argv,
+            has_last_positional,
+            positionals,
+            last_positionals,
+        )?;
         Ok(argv)
     }
 
@@ -174,13 +185,51 @@ impl Tool {
     }
 
     fn unknown_argument(&self, key: &str) -> String {
-        let known = self.args().map(property_name).collect::<Vec<_>>();
+        let mut known = self.args().map(property_name).collect::<Vec<_>>();
+        if self.allow_headed && self.output == Output::Envelope {
+            per_call_globals::append_known_names(
+                &mut known,
+                per_call_globals::supports_headed(&self.path),
+                per_call_globals::supports_wait(&self.path),
+            );
+        }
         format!(
             "Unknown argument '{key}' for {}. Known arguments: {}",
             self.name,
             known.join(", ")
         )
     }
+}
+
+fn append_positionals(
+    argv: &mut Vec<String>,
+    has_last_positional: bool,
+    mut positionals: Vec<(usize, Vec<String>)>,
+    mut last_positionals: Vec<(usize, Vec<String>)>,
+) -> Result<(), String> {
+    if has_last_positional {
+        positionals.sort_by_key(|(index, _)| *index);
+        if let Some(flag_like) = positionals
+            .iter()
+            .flat_map(|(_, values)| values)
+            .find(|value| value.starts_with('-'))
+        {
+            return Err(format!(
+                "'{flag_like}' would be read as an option; it cannot start with '-'"
+            ));
+        }
+        argv.extend(positionals.into_iter().flat_map(|(_, values)| values));
+        if !last_positionals.is_empty() {
+            last_positionals.sort_by_key(|(index, _)| *index);
+            argv.push("--".to_string());
+            argv.extend(last_positionals.into_iter().flat_map(|(_, values)| values));
+        }
+    } else if !positionals.is_empty() {
+        positionals.sort_by_key(|(index, _)| *index);
+        argv.push("--".to_string());
+        argv.extend(positionals.into_iter().flat_map(|(_, values)| values));
+    }
+    Ok(())
 }
 
 fn property_name(arg: &Arg) -> String {
