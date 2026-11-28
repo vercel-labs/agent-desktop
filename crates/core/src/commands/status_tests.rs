@@ -150,3 +150,85 @@ fn status_surfaces_artifacts_mode_for_active_session() {
 
     assert_eq!(value["artifacts"], "full");
 }
+
+fn granted_report() -> PermissionReport {
+    PermissionReport {
+        accessibility: PermissionState::Granted,
+        screen_recording: PermissionState::Granted,
+        automation: PermissionState::NotRequired,
+    }
+}
+
+#[test]
+fn status_reports_the_latest_snapshot_and_its_ref_count() {
+    let _guard = crate::refs::refs_test_support::HomeGuard::new();
+    let snapshot_id =
+        crate::commands::helpers::test_support::save_one_ref_snapshot("button", "Click");
+
+    let value = execute_with_report_with_context(
+        &DeniedAdapter,
+        &granted_report(),
+        &CommandContext::default(),
+    )
+    .unwrap();
+
+    assert_eq!(value["snapshot_id"], snapshot_id);
+    assert_eq!(value["ref_count"], 1);
+}
+
+#[test]
+fn status_reports_null_when_the_latest_snapshot_was_deleted() {
+    let guard = crate::refs::refs_test_support::HomeGuard::new();
+    let snapshot_id =
+        crate::commands::helpers::test_support::save_one_ref_snapshot("button", "Click");
+    let state_root = guard.path().join(".agent-desktop");
+    std::fs::remove_dir_all(state_root.join("snapshots").join(&snapshot_id)).unwrap();
+
+    let value = execute_with_report_with_context(
+        &DeniedAdapter,
+        &granted_report(),
+        &CommandContext::default(),
+    )
+    .unwrap();
+
+    assert!(
+        value["snapshot_id"].is_null(),
+        "a deleted snapshot is not the latest snapshot in the namespace: {value}"
+    );
+    assert!(
+        value["ref_count"].is_null(),
+        "ref_count has to follow snapshot_id: {value}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(state_root.join("latest_snapshot_id")).unwrap(),
+        snapshot_id,
+        "status reports on the store, so it must leave the pointer as it found it"
+    );
+}
+
+#[test]
+fn status_still_fails_when_the_latest_snapshot_is_unreadable() {
+    let guard = crate::refs::refs_test_support::HomeGuard::new();
+    let snapshot_id =
+        crate::commands::helpers::test_support::save_one_ref_snapshot("button", "Click");
+    let refmap = guard
+        .path()
+        .join(".agent-desktop")
+        .join("snapshots")
+        .join(&snapshot_id)
+        .join("refmap.json");
+    std::fs::write(&refmap, b"{\"refs\":").unwrap();
+
+    let err = execute_with_report_with_context(
+        &DeniedAdapter,
+        &granted_report(),
+        &CommandContext::default(),
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        err.code(),
+        "INTERNAL",
+        "a snapshot that is present but unreadable is not an absent one"
+    );
+}
