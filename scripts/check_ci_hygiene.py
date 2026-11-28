@@ -2,6 +2,7 @@
 """Enforces CI workflow efficiency, cache hygiene, and prune safety invariants."""
 
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -180,7 +181,7 @@ def check_prune_script(repo_root):
             path.write_bytes(b"fixture")
 
         proc = subprocess.run(
-            ["bash", str(script), str(target)],
+            [shutil.which("bash") or "bash", script.relative_to(repo_root).as_posix(), target.as_posix()],
             cwd=str(repo_root),
             capture_output=True,
             text=True,
