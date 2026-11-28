@@ -184,6 +184,34 @@ docker rm -f agent-desktop-container
 docker image rm agent-desktop-container:1.0.2
 ```
 
+## Running Chromium in a container
+
+If you launch Chromium inside an Xvfb or Xvnc container, it can pass `agent-desktop status` and still fail in three common ways:
+
+- **Renderer crashes on real pages (`Received signal 11 SEGV_MAPERR`).** Combining `--disable-gpu` with `--disable-software-rasterizer` leaves no rasterizer at all, which can survive `about:blank` and crash on heavy single-page apps. Request software GL and keep `/dev/shm` off the tiny container mount instead:
+
+  ```bash
+  agent-desktop-run launch google-chrome \
+    --arg=--force-renderer-accessibility \
+    --arg=--use-gl=swiftshader \
+    --arg=--disable-dev-shm-usage
+  ```
+
+- **X authorization warnings in helper processes.** When `XAUTHORITY` points outside the default path, browser helper processes can log `"Authorization required, but no authorization protocol specified"` even when the window opens. Copy the cookie to the default path for the user running the browser:
+
+  ```bash
+  cp "$XAUTHORITY" ~/.Xauthority && chmod 600 ~/.Xauthority
+  ```
+
+- **Unwritable profile directory.** Copying a profile directory as root leaves `Preferences`, `IndexedDB/*`, and `Network Persistent State` owned by root. Chromium then opens a `Profile error occurred` modal that owns the window, so `snapshot` returns only a few nodes with the dialog caption as `window.title`. Check ownership and fix it before launching:
+
+  ```bash
+  find <profile-dir> ! -user <user> | wc -l    # non-zero means broken
+  chown -R <user>:<user> <profile-dir>
+  ```
+
+For web content inside container sessions, semantic headless `click` (`Action.DoAction`) works without a compositor hit-test.
+
 ## Limits
 
 - The desktop is headless: 1280x800 on display `:99`, and nothing appears on your screen.
