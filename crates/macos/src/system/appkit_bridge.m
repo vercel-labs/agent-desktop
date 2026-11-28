@@ -123,6 +123,27 @@ static NSString *agent_desktop_application_name(NSRunningApplication *app) {
     return name;
 }
 
+static NSDictionary *agent_desktop_skipped_pid_record(NSRunningApplication *app, NSUInteger index) {
+    NSMutableDictionary *record = [@{
+        @"pid": @(app.processIdentifier),
+        @"field": @"pid",
+        @"index": @(index),
+    } mutableCopy];
+    NSString *name = agent_desktop_application_name(app);
+    if (name != nil && [name lengthOfBytesUsingEncoding:NSUTF8StringEncoding] <= 16384) {
+        record[@"name"] = name;
+    }
+    NSString *bundle = agent_desktop_non_blank(app.bundleIdentifier);
+    if (bundle != nil && [bundle lengthOfBytesUsingEncoding:NSUTF8StringEncoding] <= 16384) {
+        record[@"bundle_id"] = bundle;
+    }
+    NSString *executable = agent_desktop_non_blank(app.executableURL.lastPathComponent);
+    if (executable != nil && [executable lengthOfBytesUsingEncoding:NSUTF8StringEncoding] <= 16384) {
+        record[@"executable"] = executable;
+    }
+    return record;
+}
+
 AgentDesktopBytesResult agent_desktop_copy_workspace_snapshot_json(uint8_t frontmostOnly) {
     AgentDesktopBytesResult result = {
         .status = 5, .failureField = NULL, .failureIndex = -1,
@@ -178,7 +199,7 @@ AgentDesktopBytesResult agent_desktop_copy_workspace_snapshot_json(uint8_t front
                 }
                 int32_t pid = app.processIdentifier;
                 if (pid <= 0) {
-                    [skipped addObject:@{@"pid": @(pid), @"field": @"pid", @"index": @(index)}];
+                    [skipped addObject:agent_desktop_skipped_pid_record(app, index)];
                     continue;
                 }
                 NSApplicationActivationPolicy policy = app.activationPolicy;

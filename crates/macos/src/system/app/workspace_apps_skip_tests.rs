@@ -139,6 +139,8 @@ fn skipped_records_preserve_matching_apps_and_retry_missing_names() {
         },
         capture("Finder"),
         Ok(Vec::new()),
+        "Finder",
+        None,
     )
     .unwrap();
     assert_eq!(apps[0].name, "Finder");
@@ -157,6 +159,8 @@ fn skipped_records_preserve_matching_apps_and_retry_missing_names() {
                 },
                 capture("Missing"),
                 Ok(Vec::new()),
+                "Missing",
+                None,
             )
         },
     )
@@ -174,6 +178,69 @@ fn skipped_records_preserve_matching_apps_and_retry_missing_names() {
     let error = owners.require_match("Missing").unwrap_err();
     assert_eq!(error.code, ErrorCode::AppUnresponsive);
     assert_eq!(error.details.unwrap()["skipped"][0]["pid"], 11);
+}
+
+#[test]
+fn a_skipped_record_for_another_app_does_not_block_a_named_lookup() {
+    let bytes = serde_json::to_vec(&json!({
+        "applications":[{"pid":10,"name":"Finder","launch_time":100.0,"activation_policy":"regular"}],
+        "frontmost_pid":0,"frontmost_launch_time":null,
+        "skipped":[{"pid":-1,"field":"pid","index":82,"name":"Safari",
+                    "bundle_id":"com.apple.Safari","executable":"Safari"}],
+    })).unwrap();
+    let capture = |name: &str| {
+        apps_inventory_from_json_with(
+            &bytes,
+            deadline(),
+            |app| app.name == name,
+            false,
+            |_| Ok(Some("instance-10".into())),
+        )
+    };
+    let apps = crate::system::app::app_inventory::scoped_apps_from_sources(
+        agent_desktop_core::AppInventoryQuery::Exact {
+            name: "Calculator",
+            bundle_id: None,
+        },
+        capture("Calculator"),
+        Ok(Vec::new()),
+        "Calculator",
+        None,
+    )
+    .unwrap();
+    assert!(apps.is_empty());
+    let owners = window_owner_snapshot_from_json(&bytes, deadline()).unwrap();
+    owners.require_match("Calculator").unwrap();
+    for identifier in ["Safari", "com.apple.Safari", "safari"] {
+        let error = owners.require_match(identifier).unwrap_err();
+        assert_eq!(error.code, ErrorCode::AppUnresponsive, "{identifier}");
+        assert_eq!(error.details.unwrap()["skipped"][0]["pid"], -1);
+        let error = crate::system::app::app_inventory::scoped_apps_from_sources(
+            agent_desktop_core::AppInventoryQuery::Exact {
+                name: identifier,
+                bundle_id: None,
+            },
+            capture("Missing"),
+            Ok(Vec::new()),
+            identifier,
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, ErrorCode::AppUnresponsive, "{identifier}");
+    }
+}
+
+#[test]
+fn a_skipped_record_without_identity_blocks_every_named_lookup() {
+    let bytes = serde_json::to_vec(&json!({
+        "applications":[{"pid":10,"name":"Finder","launch_time":100.0,"activation_policy":"regular"}],
+        "frontmost_pid":0,"frontmost_launch_time":null,
+        "skipped":[{"pid":-1,"field":"pid","index":82}],
+    })).unwrap();
+    let owners = window_owner_snapshot_from_json(&bytes, deadline()).unwrap();
+    let error = owners.require_match("Calculator").unwrap_err();
+    assert_eq!(error.code, ErrorCode::AppUnresponsive);
+    assert_eq!(error.details.unwrap()["skipped"][0]["pid"], -1);
 }
 
 #[test]

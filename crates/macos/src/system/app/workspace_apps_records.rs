@@ -109,3 +109,54 @@ pub(super) fn with_skipped(mut error: AdapterError, skipped: &[Value]) -> Adapte
     }
     error
 }
+
+/// Whether a skipped record could be the app `identifier` names.
+///
+/// A record whose identity the bridge reported and which differs from
+/// `identifier` cannot be that app. A record with no identity at all still
+/// could be, so it leaves the lookup in doubt.
+fn skipped_could_match(skipped: &[Value], identifier: &str, bundle_id: Option<&str>) -> bool {
+    skipped.iter().any(|record| {
+        let name = record["name"].as_str().filter(|name| !name.is_empty());
+        let bundle = record["bundle_id"]
+            .as_str()
+            .filter(|bundle| !bundle.is_empty());
+        let executable = record["executable"]
+            .as_str()
+            .filter(|executable| !executable.is_empty());
+        if name.is_none() && bundle.is_none() && executable.is_none() {
+            return true;
+        }
+        if let Some(bundle_id) = bundle_id {
+            return bundle.is_some_and(|bundle| bundle.eq_ignore_ascii_case(bundle_id));
+        }
+        name.is_some_and(|name| agent_desktop_core::app_name_matches(name, identifier))
+            || [bundle, executable]
+                .into_iter()
+                .flatten()
+                .any(|alias| alias.eq_ignore_ascii_case(identifier))
+    })
+}
+
+pub(crate) fn require_complete(skipped: &[Value]) -> Result<(), AdapterError> {
+    if skipped.is_empty() {
+        return Ok(());
+    }
+    Err(with_skipped(
+        inventory_error("AppKit application inventory skipped records"),
+        skipped,
+    ))
+}
+
+/// Requires completeness only with respect to the app being looked up, so a
+/// skipped record that belongs to another app no longer fails this lookup.
+pub(crate) fn require_complete_for(
+    skipped: &[Value],
+    identifier: &str,
+    bundle_id: Option<&str>,
+) -> Result<(), AdapterError> {
+    if skipped_could_match(skipped, identifier, bundle_id) {
+        return require_complete(skipped);
+    }
+    Ok(())
+}

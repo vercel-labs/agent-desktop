@@ -85,6 +85,8 @@ fn capture_scoped_apps(
         agent_desktop_core::AppInventoryQuery::Exact { name, bundle_id },
         workspace_apps::list_apps_scoped_until(name, bundle_id, deadline),
         process,
+        name,
+        bundle_id,
     )?;
     ensure_before_deadline(deadline)?;
     validate_app_instances(apps)
@@ -97,11 +99,13 @@ pub(in crate::system) fn scoped_apps_from_sources(
     query: agent_desktop_core::AppInventoryQuery<'_>,
     workspace: Result<agent_desktop_core::AppInventory, AdapterError>,
     process: Result<Vec<AppInfo>, AdapterError>,
+    name: &str,
+    bundle_id: Option<&str>,
 ) -> Result<Vec<AppInfo>, AdapterError> {
     let workspace = workspace?;
     let apps = query.select(complete_apps_from_sources(Ok(workspace.apps), process)?);
     if apps.is_empty() {
-        workspace_apps::require_complete(&workspace.skipped)?;
+        workspace_apps::require_complete_for(&workspace.skipped, name, bundle_id)?;
     }
     Ok(apps)
 }

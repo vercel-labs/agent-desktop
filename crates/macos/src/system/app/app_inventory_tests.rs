@@ -82,7 +82,14 @@ fn a_process_source_app_named_by_the_query_outranks_a_workspace_alias() {
         bundle_id: None,
     };
 
-    let apps = scoped_apps_from_sources(query, Ok(workspace), Ok(vec![app("Editor", 20)])).unwrap();
+    let apps = scoped_apps_from_sources(
+        query,
+        Ok(workspace),
+        Ok(vec![app("Editor", 20)]),
+        "Editor",
+        None,
+    )
+    .unwrap();
 
     assert_eq!(
         apps.iter().map(|app| app.pid.get()).collect::<Vec<_>>(),

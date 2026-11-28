@@ -112,6 +112,14 @@ int main(void) {
             require([skipped[0][@"field"] isEqualToString:fields[index]], "skip field");
             require([skipped[0][@"pid"] isEqual:pids[index]], "skip pid");
         }
+        testApplications = @[valid, application(@"Orphan", @"/Applications/Orphan.app/Contents/MacOS/Orphan", @"com.example.Orphan", -1)];
+        NSDictionary *pidless = snapshot();
+        NSArray *pidlessSkipped = pidless[@"skipped"];
+        require(pidlessSkipped.count == 1, "pid-less record is skipped");
+        require([pidlessSkipped[0][@"field"] isEqualToString:@"pid"], "pid-less skip field");
+        require([pidlessSkipped[0][@"name"] isEqualToString:@"Orphan"], "pid-less skip keeps its name");
+        require([pidlessSkipped[0][@"bundle_id"] isEqualToString:@"com.example.Orphan"], "pid-less skip keeps its bundle");
+        require([pidlessSkipped[0][@"executable"] isEqualToString:@"Orphan"], "pid-less skip keeps its executable");
         testApplications = @[valid, valid, application(@"Conflicting", nil, nil, 10)];
         NSDictionary *duplicates = snapshot();
         NSArray *duplicateRecords = duplicates[@"applications"];
