@@ -1,5 +1,6 @@
 use super::*;
 use crate::adapter::{ActionOps, InputOps, ObservationOps, SystemOps};
+use std::sync::Mutex;
 
 struct WindowInventory(Vec<WindowInfo>);
 
@@ -16,6 +17,43 @@ impl ObservationOps for WindowInventory {
 impl ActionOps for WindowInventory {}
 impl InputOps for WindowInventory {}
 impl SystemOps for WindowInventory {}
+
+struct ScopedWindowInventory {
+    unfiltered: Vec<WindowInfo>,
+    scoped: Vec<WindowInfo>,
+    seen_app_filters: Mutex<Vec<Option<String>>>,
+}
+
+impl ScopedWindowInventory {
+    fn new(unfiltered: Vec<WindowInfo>, scoped: Vec<WindowInfo>) -> Self {
+        Self {
+            unfiltered,
+            scoped,
+            seen_app_filters: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+impl ObservationOps for ScopedWindowInventory {
+    fn list_windows(
+        &self,
+        filter: &WindowFilter,
+        _deadline: crate::Deadline,
+    ) -> Result<Vec<WindowInfo>, crate::AdapterError> {
+        self.seen_app_filters
+            .lock()
+            .expect("filters lock")
+            .push(filter.app.clone());
+        if filter.app.is_none() {
+            return Ok(self.unfiltered.clone());
+        }
+        Ok(self.scoped.clone())
+    }
+}
+
+impl ActionOps for ScopedWindowInventory {}
+impl InputOps for ScopedWindowInventory {}
+impl SystemOps for ScopedWindowInventory {}
 
 fn window(instance: Option<&str>) -> WindowInfo {
     WindowInfo {
@@ -38,12 +76,85 @@ fn matching_pid_with_unknown_generation_fails_closed() {
 
     let error = find_window_for_process(
         ProcessIdentity::new(42, "generation-a"),
+        Some("Example"),
         &adapter,
         crate::Deadline::standard().unwrap(),
     )
     .unwrap_err();
 
     assert_eq!(error.code(), "ACTION_NOT_SUPPORTED");
+}
+
+#[test]
+fn scoped_app_lookup_uses_app_filter_and_reports_window_not_found_when_only_phantom_windows_exist()
+{
+    let mut phantom_one = window(Some("generation-a"));
+    phantom_one.id = "w-101".into();
+    phantom_one.app = "TextEdit".into();
+    phantom_one.state.is_focused = false;
+    phantom_one.state.visible = Some(false);
+    phantom_one.state.accessible = false;
+    let mut phantom_two = phantom_one.clone();
+    phantom_two.id = "w-102".into();
+
+    let adapter = ScopedWindowInventory::new(vec![phantom_one, phantom_two], Vec::new());
+
+    let error = find_window_for_process(
+        ProcessIdentity::new(42, "generation-a"),
+        Some("TextEdit"),
+        &adapter,
+        crate::Deadline::standard().unwrap(),
+    )
+    .unwrap_err();
+
+    let AppError::Adapter(error) = error else {
+        panic!("expected adapter error");
+    };
+    assert_eq!(error.code, ErrorCode::WindowNotFound);
+    assert_eq!(
+        error.message,
+        "Application 'TextEdit' is running but has no matching window"
+    );
+    assert_eq!(error.disposition, crate::DeliverySemantics::not_delivered());
+    assert_eq!(error.disposition.retry(), crate::RetryDisposition::Safe);
+    assert_eq!(
+        *adapter.seen_app_filters.lock().expect("filters lock"),
+        vec![Some("TextEdit".to_string())]
+    );
+}
+
+#[test]
+fn scoped_app_lookup_selects_real_window_when_unfiltered_inventory_has_extra_phantoms() {
+    let mut phantom_one = window(Some("generation-a"));
+    phantom_one.id = "w-101".into();
+    phantom_one.app = "TextEdit".into();
+    phantom_one.state.is_focused = false;
+    phantom_one.state.visible = Some(false);
+    phantom_one.state.accessible = false;
+    let mut phantom_two = phantom_one.clone();
+    phantom_two.id = "w-102".into();
+
+    let mut real = window(Some("generation-a"));
+    real.id = "w-200".into();
+    real.app = "TextEdit".into();
+    real.state.is_focused = false;
+    real.state.visible = Some(true);
+
+    let adapter = ScopedWindowInventory::new(vec![phantom_one, phantom_two], vec![real]);
+
+    let selected = find_window_for_process(
+        ProcessIdentity::new(42, "generation-a"),
+        Some("TextEdit"),
+        &adapter,
+        crate::Deadline::standard().unwrap(),
+    )
+    .expect("scoped lookup should return the single real window");
+
+    assert_eq!(selected.id, "w-200");
+    assert_eq!(
+        *adapter.seen_app_filters.lock().expect("filters lock"),
+        vec![Some("TextEdit".to_string())]
+    );
 }
 
 #[test]

@@ -76,12 +76,17 @@ pub fn saved_ref_focus_window(entry: &crate::RefEntry) -> Result<WindowInfo, Ada
 
 pub(crate) fn focus_process_window(
     process: ProcessIdentity,
+    app_name: Option<&str>,
     adapter: &dyn PlatformAdapter,
     context: &crate::CommandContext,
     lease: &crate::InteractionLease,
 ) -> Result<WindowInfo, AppError> {
-    let expected =
-        crate::system::window_lookup::find_window_for_process(process, adapter, lease.deadline())?;
+    let expected = crate::system::window_lookup::find_window_for_process(
+        process,
+        app_name,
+        adapter,
+        lease.deadline(),
+    )?;
     focus_exact_window(&expected, adapter, context, lease)
 }
 

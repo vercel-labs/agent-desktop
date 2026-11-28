@@ -130,6 +130,7 @@ fn resolve_target(
         let app = crate::commands::helpers::resolve_app(Some(app_name), adapter, deadline)?;
         let win = crate::system::window_lookup::find_window_for_process(
             crate::commands::helpers::process_identity(&app)?,
+            Some(app.name.as_str()),
             adapter,
             deadline,
         )?;
