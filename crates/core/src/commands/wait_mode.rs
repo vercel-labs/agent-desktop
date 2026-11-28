@@ -123,11 +123,23 @@ pub(crate) fn validate_wait_mode(args: &WaitArgs) -> Result<(), AppError> {
             "Use --element <ref> --predicate value --value <expected>.",
         ));
     }
+    if args.predicate.action.is_some() && args.mode.element.is_none() {
+        return Err(AppError::invalid_input_with_suggestion(
+            "--action requires --element",
+            "Use --element <ref> --predicate actionable --action <action>, or remove --action.",
+        ));
+    }
     let waits_for_notification = matches!(args.mode.surface, Some(SurfaceWait::Notification));
     if args.predicate.count.is_some() && (args.mode.text.is_none() || waits_for_notification) {
         return Err(AppError::invalid_input_with_suggestion(
             "--count is only valid for --text waits",
             "Use --text <text> --count <expected> without --notification, or remove --count.",
+        ));
+    }
+    if args.mode.window_id.is_some() && args.mode.event.is_none() {
+        return Err(AppError::invalid_input_with_suggestion(
+            "--window-id requires --event",
+            "Use --event <kind> --window-id <id>, or remove --window-id.",
         ));
     }
     validate_event_filters(args)?;
